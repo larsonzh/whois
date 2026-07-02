@@ -371,11 +371,7 @@ $keywords = @(
     'autopilot_dev_recheck_8round.ps1',
     'watch_ab_light.ps1',
     'open_unattended_ab_stage_window.ps1',
-    'open_unattended_ab_supervisor_window.ps1',
-    'open_unattended_ab_companion_window.ps1',
     'open_unattended_ab_takeover_trigger_window.ps1',
-    'unattended_ab_supervisor.ps1',
-    'unattended_ab_companion.ps1',
     'unattended_ab_session_guard.ps1',
     'unattended_ab_takeover_trigger.ps1',
     'one_click_release.ps1'

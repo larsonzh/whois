@@ -102,15 +102,11 @@
 
 必须放在 VS Code 外部 PowerShell 窗口运行的长跑脚本包括：
 - A/B 主运行窗口（由 stage window 拉起）
-- supervisor 监控脚本
-- companion 监控脚本
-- session guard 脚本
+- session guard 脚本（已合并 supervisor/companion 功能）
 - takeover trigger 脚本
 
 推荐外部窗口入口：
 - tools/test/open_unattended_ab_stage_window.ps1
-- tools/test/open_unattended_ab_supervisor_window.ps1
-- tools/test/open_unattended_ab_companion_window.ps1
 - tools/test/open_unattended_ab_session_guard_window.ps1
 - tools/test/open_unattended_ab_takeover_trigger_window.ps1
 
@@ -240,10 +236,8 @@ AI：
 主运行：
 - tools/test/open_unattended_ab_stage_window.ps1
 
-4 个监控链脚本：
-- tools/test/open_unattended_ab_supervisor_window.ps1
-- tools/test/open_unattended_ab_companion_window.ps1
-- tools/test/open_unattended_ab_session_guard_window.ps1
+2 个监控链脚本：
+- tools/test/open_unattended_ab_session_guard_window.ps1（已合并 supervisor/companion 功能）
 - tools/test/open_unattended_ab_takeover_trigger_window.ps1
 
 不推荐：
@@ -865,14 +859,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 
 规则：
 - 除 A/B 正常完成外，监控链结束前都应保留 10-15 分钟宽限期，用于事件票自愈、主进程重启和复用取证。
-- 复用验证时，只停止主进程 A，不主动停止 supervisor、companion、session guard、takeover trigger。
+- 复用验证时，只停止主进程 A，不主动停止 session guard、takeover trigger。
 
 操作步骤：
 1. 用 stage window 启动 A，并显式带 `-StartMonitors`，直到监控链 4 个进程全部拉起。
-2. 记录 A 主进程 PID；优先使用 start-file 中的 `A_LAUNCH_PID`，或从 companion / supervisor 日志核对当前 stage pid。
+2. 记录 A 主进程 PID；优先使用 start-file 中的 `A_LAUNCH_PID`。
 3. 只停止主进程 A，必要时同步把 start-file 状态回填为 `BLOCKED`，让 session guard 进入宽限窗口而不是直接判定正常完成。
 4. 在宽限期内处理 `incident-captured` / `main-process-exit-review` 一类事件票，完成自愈修复后重新启动 A。
-5. 观察并取证监控链是否复用成功；关键证据点包括 companion / trigger 未重启、guard 未退出，以及重启后日志中出现 grace cleared / reuse_existing 一类记录。
+5. 观察并取证监控链是否复用成功；关键证据点包括 trigger 未重启、guard 未退出，以及重启后日志中出现 grace cleared / reuse_existing 一类记录。
 
 命令用法：
 

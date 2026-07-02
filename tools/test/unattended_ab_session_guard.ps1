@@ -945,9 +945,7 @@ function Get-AStageProcessCandidateList {
                     return $false
                 }
 
-                if ($lineLower.Contains('unattended_ab_supervisor.ps1') -or
-                    $lineLower.Contains('unattended_ab_companion.ps1') -or
-                    $lineLower.Contains('unattended_ab_session_guard.ps1') -or
+                if ($lineLower.Contains('unattended_ab_session_guard.ps1') -or
                     $lineLower.Contains('open_unattended_ab_stage_window.ps1')) {
                     return $false
                 }
@@ -1013,9 +1011,7 @@ function Get-BStageProcessCandidateList {
                     return $false
                 }
 
-                if ($lineLower.Contains('unattended_ab_supervisor.ps1') -or
-                    $lineLower.Contains('unattended_ab_companion.ps1') -or
-                    $lineLower.Contains('unattended_ab_session_guard.ps1') -or
+                if ($lineLower.Contains('unattended_ab_session_guard.ps1') -or
                     $lineLower.Contains('open_unattended_ab_stage_window.ps1')) {
                     return $false
                 }
@@ -1556,26 +1552,26 @@ function Get-BudgetExhaustedLivenessEvidence {
         }
     }
 
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
+    $guardLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'guard_log'
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
     $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
     $runtimeLogHint = Get-BRuntimeLogHint -Settings $Settings -ArtifactRuntimeLogPath ''
 
     $pidAlive = Test-ProcessAlive -ProcessId $bLaunchPid
-    $supervisorFreshness = Get-PathFreshnessEvidence -Path $supervisorLogAnchor -WindowMinutes $WindowMinutes
+    $guardFreshness = Get-PathFreshnessEvidence -Path $guardLogAnchor -WindowMinutes $WindowMinutes
     $liveStatusFreshness = Get-PathFreshnessEvidence -Path $liveStatusAnchor -WindowMinutes $WindowMinutes
     $runtimeFreshness = Get-PathFreshnessEvidence -Path $runtimeLogHint -WindowMinutes $WindowMinutes
     $runDirFreshness = Get-RunDirFreshnessEvidence -RunDirPath $runDirAnchor -WindowMinutes $WindowMinutes
 
-    $hostFresh = ([bool]$supervisorFreshness.Fresh -or [bool]$liveStatusFreshness.Fresh)
+    $hostFresh = ([bool]$guardFreshness.Fresh -or [bool]$liveStatusFreshness.Fresh)
     $artifactFresh = ([bool]$runtimeFreshness.Fresh -or [bool]$runDirFreshness.Fresh)
     $active = ($pidAlive -or ($hostFresh -and $artifactFresh))
 
-    $detail = ("pid={0} pid_alive={1} window_min={2} supervisor_age_min={3} live_status_age_min={4} runtime_age_min={5} run_dir_age_min={6}" -f
+    $detail = ("pid={0} pid_alive={1} window_min={2} guard_age_min={3} live_status_age_min={4} runtime_age_min={5} run_dir_age_min={6}" -f
         $bLaunchPid,
         $pidAlive,
         $WindowMinutes,
-        (Format-AgeMinutesForLog -AgeMinutes [double]$supervisorFreshness.AgeMinutes),
+        (Format-AgeMinutesForLog -AgeMinutes [double]$guardFreshness.AgeMinutes),
         (Format-AgeMinutesForLog -AgeMinutes [double]$liveStatusFreshness.AgeMinutes),
         (Format-AgeMinutesForLog -AgeMinutes [double]$runtimeFreshness.AgeMinutes),
         (Format-AgeMinutesForLog -AgeMinutes [double]$runDirFreshness.AgeMinutes))
@@ -1602,19 +1598,13 @@ function Save-IncidentPackage {
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'supervisor_log'
-    $companionLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'companion_log'
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
 
     $runDir = Resolve-AnchorPath -Path $runDirAnchor
-    $supervisorLog = Resolve-AnchorPath -Path $supervisorLogAnchor
-    $companionLog = Resolve-AnchorPath -Path $companionLogAnchor
     $liveStatus = Resolve-AnchorPath -Path $liveStatusAnchor
 
     Copy-FileIfPresent -Source $script:StartFilePath -Destination (Join-Path $incidentDir 'start_file_snapshot.md')
     Copy-FileIfPresent -Source $liveStatus -Destination (Join-Path $incidentDir 'live_status.json')
-    Export-FileTail -Source $supervisorLog -Destination (Join-Path $incidentDir 'supervisor_tail.log') -Tail 500
-    Export-FileTail -Source $companionLog -Destination (Join-Path $incidentDir 'companion_tail.log') -Tail 500
 
     if (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir)) {
         Copy-FileIfPresent -Source (Join-Path $runDir 'final_status.json') -Destination (Join-Path $incidentDir 'run_final_status.json')
@@ -1659,8 +1649,6 @@ function Save-IncidentPackage {
         "a_status=$AStatus",
         "b_status=$BStatus",
         "run_dir_anchor=$runDirAnchor",
-        "supervisor_log_anchor=$supervisorLogAnchor",
-        "companion_log_anchor=$companionLogAnchor",
         "live_status_anchor=$liveStatusAnchor"
     )
     $summaryLines = @($summary | ForEach-Object { [string]$_ })
@@ -1721,6 +1709,61 @@ function Read-JsonFileSafely {
     catch {
         return $null
     }
+}
+
+function Get-ArtifactState {
+    param([string[]]$Paths)
+
+    $files = @()
+    foreach ($path in @($Paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $files += @(Get-ChildItem -LiteralPath $path -File -Recurse -Force -ErrorAction SilentlyContinue)
+    }
+    if ($files.Count -eq 0) {
+        return [pscustomobject]@{ FileCount = 0; LatestWriteTime = [datetime]'2000-01-01'; LatestPath = '' }
+    }
+    $latest = $files | Sort-Object LastWriteTime, FullName | Select-Object -Last 1
+    return [pscustomobject]@{ FileCount = $files.Count; LatestWriteTime = $latest.LastWriteTime; LatestPath = $latest.FullName }
+}
+
+function Get-RemoteChainCount {
+    param([hashtable]$Settings)
+
+    $remoteIp = [string]$Settings.RENOTE_IP
+    if ([string]::IsNullOrWhiteSpace($remoteIp)) { $remoteIp = '10.0.0.199' }
+    $remoteUser = [string]$Settings.RENOTE_USER
+    if ([string]::IsNullOrWhiteSpace($remoteUser)) { $remoteUser = 'larson' }
+
+    $count = 0
+    foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
+        $cl = [string]$processInfo.CommandLine
+        if ([string]::IsNullOrWhiteSpace($cl)) { continue }
+        $clLower = $cl.ToLowerInvariant()
+        $pName = ([string]$processInfo.Name).ToLowerInvariant()
+        if ($pName -eq 'ssh-agent.exe' -or $clLower -match '(^|\s)ssh-agent(?:\.exe)?(\s|$)') { continue }
+        $isRemote = $false
+        if ($clLower -match 'remote_build_and_test\.sh|whois-win64\.exe|whois-x86_64') { $isRemote = $true }
+        elseif ($pName -eq 'ssh.exe' -or $clLower -match '(^|\s)ssh(?:\.exe)?(\s|$)') {
+            $hasEndpoint = ($clLower.Contains($remoteIp.ToLowerInvariant()) -or $clLower.Contains(($remoteUser.ToLowerInvariant() + '@')))
+            $hasIntent = ($clLower -match 'remote_build_and_test\.sh|check_remote_lock\.ps1|clear_remote_lock\.ps1')
+            if ($hasEndpoint -or $hasIntent) { $isRemote = $true }
+        }
+        if ($isRemote) { $count++ }
+    }
+    return $count
+}
+
+function Get-CsvRowCount {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return 0 }
+    try {
+        $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)
+        $header = $lines | Select-Object -First 1
+        if ($null -eq $header) { return 0 }
+        $dataLines = @($lines | Select-Object -Skip 1 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        return $dataLines.Count
+    } catch { return 0 }
 }
 
 function Import-CsvSafely {
@@ -3650,7 +3693,7 @@ try {
 
             # INIT-DEAD-PROCESS-CHECK: detect when B stage already terminal (FAIL/BLOCKED)
             # but session is still RUNNING — indicates B process exited before the main
-            # supervisor loop could detect it. Enter main-process-exit grace to allow
+            # guard loop could detect it. Enter main-process-exit grace to allow
             # time for recovery or clean shutdown.
             if ($null -eq $mainProcessExitGraceStartedAt -and $bStatus -in @('FAIL', 'BLOCKED') -and $sessionStatus -eq 'RUNNING') {
                 $deadBLaunchPid = 0
@@ -4276,7 +4319,7 @@ try {
                     else {
                         # Fallback: if failure ticket meta is unknown, try reading
                         # A_FAIL_CATEGORY / A_FAIL_REASON from start file (written
-                        # by supervisor from exit artifact).
+                        # by guard from exit artifact).
                         $startFileFailCategory = ''
                         $startFileFailReason = ''
                         if ($settings.Contains('A_FAIL_CATEGORY')) {
@@ -4294,7 +4337,7 @@ try {
                                 $failureTicketMeta.SelfHealable = $true
                             }
                         }
-                        # Read compile error pattern from supervisor shutdown write-back
+                        # Read compile error pattern from guard shutdown write-back
                         $startFileCompilePattern = ''
                         if ($settings.Contains('A_FAIL_COMPILE_PATTERN')) {
                             $startFileCompilePattern = (Convert-ToSingleLineText -Text ([string]$settings.A_FAIL_COMPILE_PATTERN))
@@ -5118,12 +5161,12 @@ try {
         }
         finally {
             # Health check runs every ~300s even after continue/break to ensure
-            # offline monitors (companion/supervisor/trigger) are restarted.
+            # offline monitors (trigger) are restarted.
             $healthCheckIterationCounter++
             $healthCheckIntervalIterations = [Math]::Max(1, [int][Math]::Round(300.0 / [Math]::Max(15, $PollSec)))
             if ($healthCheckIterationCounter -ge $healthCheckIntervalIterations) {
                 $healthCheckIterationCounter = 0
-                Invoke-MonitorChainHealthCheck -Roles @('companion', 'supervisor', 'trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
+                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
             }
         }
 

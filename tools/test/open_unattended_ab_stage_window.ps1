@@ -2888,15 +2888,13 @@ else {
 
 $monitorStates = @{}
 if (-not $bForceMonitorRestart) {
-    $monitorStates.supervisor = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
-    $monitorStates.companion = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_companion.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.guard = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
     $monitorStates.trigger = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
 
     # Verify matched processes are truly alive (not empty shells).
     # Zombie processes have matching command lines but the script has terminated.
     # If a zombie is found, clear its binding so the launcher will kill it and start fresh.
-    $zombieCheckRoles = @('supervisor', 'companion', 'guard', 'trigger')
+    $zombieCheckRoles = @('guard', 'trigger')
     foreach ($zRole in $zombieCheckRoles) {
         if (-not $monitorStates.ContainsKey($zRole)) { continue }
         $state = $monitorStates[$zRole]
@@ -2929,7 +2927,7 @@ if (-not $bForceMonitorRestart) {
         }
     }
 
-    $requiredMonitorRoles = @('supervisor', 'companion', 'guard')
+    $requiredMonitorRoles = @('guard')
     if ($autoStartTakeoverTrigger) {
         $requiredMonitorRoles += 'trigger'
     }
@@ -2948,7 +2946,7 @@ if (-not $bForceMonitorRestart) {
             # self-manage anchor rebinding:
             #   supervisor   — re-reads run_dir from SESSION_FINAL_NOTES via
             #                  anchorRunDirFromNotes and auto-realigns
-            #   companion    — reads stage PID + run_dir from live_status.json
+            #   guard         — reads stage PID + run_dir from start file
             #                  (supervisor's output) each heartbeat
             #   guard/trigger — read A_LAUNCH_PID / B_LAUNCH_PID from start-file
             #                   each cycle and auto-rebind on change.

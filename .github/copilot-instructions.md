@@ -43,6 +43,7 @@
   - **V1-V4 验证阶段（不是 JSON 轮次键名——只有 D1-D4 是轮次条目）**：将修复作为新 op 追加到 D4 operations 数组末尾，不得创建 V1-V4 轮次条目。
 - **改动量评估优先**：先评估代码改动量。改动量小，在当前 D 轮次末尾追加 op 补丁（追加模式）；改动量大，则重设计当前 D 轮次所有 ops（重构模式）。追加模式优先，重构模式仅当追加模式导致 ops 数量膨胀或语义混乱时选用。
 - 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；静态检查通过后才可重启。
+- 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。发现后应在该轮次末尾追加删除孤儿体的 op，或修改原 op 的 pattern 使其一并消耗原函数体。
 - D 轮次代码设计必须基于 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md) 中的方案。Step47 矩阵契约是不可逾越的红线，不得因代码变更改变其预期结果。
 
 ## 协作与文档

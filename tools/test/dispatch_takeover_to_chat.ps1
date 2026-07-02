@@ -952,7 +952,7 @@ function Get-DispatchAnchorMap {
     }
 
     $anchors = [ordered]@{}
-    foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'guard_log', 'guard_state', 'live_status')) {
+    foreach ($key in @('run_dir', 'guard_log', 'guard_state', 'live_status')) {
         $anchors[$key] = Get-LatestAnchorValueFromNote -Notes $notes -Key $key
     }
 
@@ -1168,16 +1168,6 @@ function Get-LatestHeartbeatDigest {
             }
 
             $time = Get-LineTimeToken -Line $line
-            if ($roleToken -eq 'supervisor' -and $line -match 'heartbeat.*stage=([A-Z]).*row_count=([0-9]+).*file_count=([0-9]+).*latest_path=([^ ]+).*remote_chain_count=([0-9]+)') {
-                $leaf = Get-PathLeafToken -Token $Matches[4]
-                return ('supervisor={0} stage={1} rows={2} files={3} chain={4} latest={5}' -f $time, $Matches[1], $Matches[2], $Matches[3], $Matches[5], $leaf)
-            }
-
-            if ($roleToken -eq 'companion' -and $line -match 'heartbeat.*stage=([A-Z]).*row_count=([0-9]+).*file_count=([0-9]+).*latest_path=([^ ]+).*remote_chain_count=([0-9]+)') {
-                $leaf = Get-PathLeafToken -Token $Matches[4]
-                return ('companion={0} stage={1} rows={2} files={3} chain={4} latest={5}' -f $time, $Matches[1], $Matches[2], $Matches[3], $Matches[5], $leaf)
-            }
-
             if ($roleToken -eq 'guard' -and $line -match 'heartbeat\s+session=([A-Z]+)\s+a=([A-Z]+)\s+b=([A-Z]+)\s+running=([A-Za-z]+)\s+run_dir=([^ ]+)') {
                 $runId = Get-PathLeafToken -Token $Matches[5]
                 return ('guard={0} session={1} a={2} b={3} running={4} run={5}' -f $time, $Matches[1], $Matches[2], $Matches[3], $Matches[4], $runId)
@@ -3844,16 +3834,6 @@ $sessionClosedByFlag = $sessionClosedByFlagRaw -and $sessionClosedByPassFinal
 
 $dispatchAnchors = Get-DispatchAnchorMap -Settings $startSettings
 
-$supervisorLogPath = Resolve-RepoPathAllowMissing -Path ([string]$dispatchAnchors.supervisor_log)
-if ([string]::IsNullOrWhiteSpace($supervisorLogPath) -or -not (Test-Path -LiteralPath $supervisorLogPath)) {
-    $supervisorLogPath = Get-LatestArtifactFilePath -RootRelative 'out\artifacts\ab_supervisor' -FileName 'supervisor.log'
-}
-
-$companionLogPath = Resolve-RepoPathAllowMissing -Path ([string]$dispatchAnchors.companion_log)
-if ([string]::IsNullOrWhiteSpace($companionLogPath) -or -not (Test-Path -LiteralPath $companionLogPath)) {
-    $companionLogPath = Get-LatestArtifactFilePath -RootRelative 'out\artifacts\ab_companion' -FileName 'companion.log'
-}
-
 $guardLogPath = Resolve-RepoPathAllowMissing -Path ([string]$dispatchAnchors.guard_log)
 if ([string]::IsNullOrWhiteSpace($guardLogPath) -or -not (Test-Path -LiteralPath $guardLogPath)) {
     $guardLogPath = Get-LatestArtifactFilePath -RootRelative 'out\artifacts\ab_session_guard' -FileName 'guard.log'
@@ -3866,7 +3846,7 @@ if ([string]::IsNullOrWhiteSpace($guardStatePath) -or -not (Test-Path -LiteralPa
 
 $liveStatusPath = Resolve-RepoPathAllowMissing -Path ([string]$dispatchAnchors.live_status)
 if ([string]::IsNullOrWhiteSpace($liveStatusPath) -or -not (Test-Path -LiteralPath $liveStatusPath)) {
-    $liveStatusPath = Get-LatestArtifactFilePath -RootRelative 'out\artifacts\ab_supervisor' -FileName 'live_status.json'
+    $liveStatusPath = Get-LatestArtifactFilePath -RootRelative 'out\artifacts\ab_session_guard' -FileName 'live_status.json'
 }
 
 $runningStatusRunDirRaw = Convert-ToSingleLineText -Text ([string]$dispatchAnchors.run_dir)
@@ -3903,8 +3883,6 @@ else {
 
 $runningStatusMainRound = Get-MainProcessRoundDigest -RunDirPath $runningStatusRunDirPath -LiveStatusPath $liveStatusPath
 
-$runningStatusSupervisorHeartbeat = Get-LatestHeartbeatDigest -Role 'supervisor' -LogPath $supervisorLogPath
-$runningStatusCompanionHeartbeat = Get-LatestHeartbeatDigest -Role 'companion' -LogPath $companionLogPath
 $runningStatusGuardHeartbeat = Get-LatestHeartbeatDigest -Role 'guard' -LogPath $guardLogPath
 
 $runningStatusStateSummary = "SESSION={0}, A={1}, B={2}" -f (Get-CompactStatusToken -Value $sessionStatus), (Get-CompactStatusToken -Value $aStatus), (Get-CompactStatusToken -Value $bStatus)
@@ -3915,7 +3893,7 @@ $runningStatusBExitDigestRequired = if ([string]::IsNullOrWhiteSpace($runningSta
 else {
     $runningStatusBExitDigest
 }
-$runningStatusHeartbeatSummary = "{0}; {1}; {2}" -f $runningStatusSupervisorHeartbeat, $runningStatusCompanionHeartbeat, $runningStatusGuardHeartbeat
+$runningStatusHeartbeatSummary = $runningStatusGuardHeartbeat
 $runningStatusSummaryParts = New-Object 'System.Collections.Generic.List[string]'
 [void]$runningStatusSummaryParts.Add($runningStatusStateSummary)
 [void]$runningStatusSummaryParts.Add(("run_dir={0}" -f $runningStatusRunDirDisplay))
@@ -3972,7 +3950,7 @@ $runningStatusFullMessageEn = @'
 [FULL-RUNBOOK] Keep this chat session active in "event-driven + scheduled status tickets + proactive heartbeat" mode. Do not end the session. Keep the start-file encoded as UTF-8 with BOM + LF line endings. For every incident/status ticket, report root cause plus exact remediation path first. For running-status-report, execute only the provided business_command as health check and then continue_watch_command; do not stage-restart A/B from this status ticket unless a separate incident ticket is raised. Ticket-level mandatory receipt: after completing each ticket cycle, MUST return handled_at (YYYY-MM-DD HH:mm:ss). For running-status-report, handled_at must be returned immediately after business/continue_watch and cannot be omitted even when monitoring continues. Session-level closure receipt is separate: return session_closed_at only when I explicitly say "stop monitoring" or both A and B are terminal. If a script fault is found, you may fix the script directly and perform bounded closed-loop auto-repair (fix -> restart -> verify -> record). Read tickets from LOCAL_GUARD_AGENT_QUEUE_PATH (default out/artifacts/ab_agent_queue/agent_tickets.jsonl) and actively poll every round via tools/test/poll_agent_tickets.ps1. After each handling action, switch to read-only watch mode and keep monitoring with scheduled status-ticket heartbeat + poll cadence (do not repeatedly restart guard): heartbeat via tools/test/update_chat_session_heartbeat.ps1, poll in read-heartbeat mode (AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false). Report on each scheduled status-ticket cycle (include main_round, event_policy_strict_mode, event_policy_adjustments, and heartbeat summary; text label chat_heartbeat; JSON key chat_session_heartbeat). If brief/ticket returns ticket_closure_check_command, event_dedup_health_check_command, final_status_closeout_command (and final_status_closeout_apply_ack_command for final-status), run them after route_guard_command passes in next_command_order and summarize results. If strict policy is violated, fix LOCAL_GUARD_POLL_* settings first, then continue. Only stop when both A and B reach terminal states or I explicitly say "stop monitoring". When sending final session closure, include the session end date/time explicitly.
 Fault-phase enforcement: when route_guard_expected != status-health-check-only, low-disturb/two-line reply is forbidden; use normal/full response and mandatory handled_at immediate receipt.
 '@
-$runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1) Report root cause + remediation in one concise block. For a healthy running-status-report, root cause is "no active fault / routine status ticket" and remediation is "continue watch only". 2) Run the provided business_command as health check, then continue_watch_command; do not stage-restart A/B from this status ticket unless a separate incident ticket is raised. 3) Return to read-only watch (scheduled status-ticket heartbeat + poll) until "stop monitoring". Do not ask for extra approval to continue polling/watch. 4) Mandatory receipts: always return handled_at (YYYY-MM-DD HH:mm:ss) after this ticket cycle; for running-status-report, handled_at must be returned immediately after business/continue_watch; return session_closed_at only when stop monitoring is requested or both A/B are terminal, and include the explicit session end date/time in the final closure message. If ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command (including final_status_closeout_apply_ack_command) are present, continue in next_command_order after route_guard_command. Do not infer a B restart from stale exit artifacts. Do not create ad-hoc handled/heartbeat files and do not create new scripts outside tmp. During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn. Return chat_heartbeat fields: SESSION/A/B, run_dir, main_round, supervisor/companion/guard latest heartbeats, B exit digest. Status: {3}.'
+$runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1) Report root cause + remediation in one concise block. For a healthy running-status-report, root cause is "no active fault / routine status ticket" and remediation is "continue watch only". 2) Run the provided business_command as health check, then continue_watch_command; do not stage-restart A/B from this status ticket unless a separate incident ticket is raised. 3) Return to read-only watch (scheduled status-ticket heartbeat + poll) until "stop monitoring". Do not ask for extra approval to continue polling/watch. 4) Mandatory receipts: always return handled_at (YYYY-MM-DD HH:mm:ss) after this ticket cycle; for running-status-report, handled_at must be returned immediately after business/continue_watch; return session_closed_at only when stop monitoring is requested or both A/B are terminal, and include the explicit session end date/time in the final closure message. If ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command (including final_status_closeout_apply_ack_command) are present, continue in next_command_order after route_guard_command. Do not infer a B restart from stale exit artifacts. Do not create ad-hoc handled/heartbeat files and do not create new scripts outside tmp. During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn. Return chat_heartbeat fields: SESSION/A/B, run_dir, main_round, guard latest heartbeat, B exit digest. Status: {3}.'
 $finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
 $taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. If the target round is known, name the stage / round / file explicitly (for example, B D4).
 
@@ -4010,9 +3988,9 @@ $runningStatusFullMessageZh = @'
 [FULL-RUNBOOK] 请保持当前会话持续运行，并采用“事件驱动 + 定时状态票 + 主动心跳”模式；不要结束会话。保持 start-file 为 UTF-8 with BOM 编码 + LF 行尾。对每一张事件票/状态票，先汇报根因与明确修复路径。对于 running-status-report，只执行已给出的 business_command 作为健康检查，再执行 continue_watch_command；除非出现独立事故票据，否则不得从该状态票发起 A/B 阶段重启。票级强制回执：每张票完成当轮动作后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）。对于 running-status-report，执行完 business/continue_watch 后必须立即回传 handled_at，即使会话继续监控也不得省略。会话级收尾回执与票级分离：仅在我明确下达“stop monitoring”或 A/B 均终态时回传 session_closed_at。对 healthy 的 running-status-report，根因应明确写成“无活动故障/常规定时状态票”，修复路径应明确写成“continue_watch only”，不得仅凭旧的 exit 日志、旧失败摘要或残留 latest_b_exit.json 推断需要重启 B。若发现脚本故障，可直接修复并执行有界闭环自愈（fix -> restart -> verify -> record）。每轮都要从 LOCAL_GUARD_AGENT_QUEUE_PATH（默认 out/artifacts/ab_agent_queue/agent_tickets.jsonl）主动轮询票据（tools/test/poll_agent_tickets.ps1）。每次处置后切回只读监控（票据驱动），按“定时状态票节奏心跳 + 轮询”持续监控（避免频繁重启 guard）：心跳通过 tools/test/update_chat_session_heartbeat.ps1 发送，poll 保持 read-heartbeat 模式（AI_CHAT_HEARTBEAT_WRITE_ON_POLL=false）。按定时状态票节奏回报一次（包含 main_round、event_policy_strict_mode、event_policy_adjustments 及心跳摘要；文本标签 chat_heartbeat；JSON 键 chat_session_heartbeat）。若 brief/票据返回 ticket_closure_check_command、event_dedup_health_check_command、final_status_closeout_command（final-status 场景可含 final_status_closeout_apply_ack_command），在 route_guard_command 通过后按 next_command_order 执行并简报结果。运行期不得再询问是否继续轮询/继续监控，也不得在未获明确要求时提出 PR、服务化改造、额外脚本方案。不得手工创建 chat_heartbeat*.jsonl、handled_tickets/*.md 等临时回执产物；仅使用现有 heartbeat/poll 脚本。若 strict 策略被破坏，先修复 LOCAL_GUARD_POLL_* 配置再继续。仅当 A 与 B 都达到终态，或我明确说“stop monitoring”时才停止。会话最终收尾时，需显式上报会话结束日期时间。
 故障期强约束：当 route_guard_expected != status-health-check-only 时，禁止 low-disturb 两行短回执，必须使用 normal/full 口径并立即回传 handled_at。
 '@
-$runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 {2}。1）用一段话先报根因+修复路径；若本票是 healthy 的 running-status-report，根因应写“无活动故障/常规定时状态票”，修复路径应写“continue_watch only”。2）执行已给出的 business_command 作为健康检查，然后执行 continue_watch_command；除非出现独立事故票据，否则不得从该状态票发起 A/B 阶段重启。3）处置后回到票据驱动只读监控（沿用定时状态票节奏），直到“stop monitoring”，不要再询问是否继续轮询/监控。4）强制回执：本票当轮动作完成后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）；running-status-report 在 business/continue_watch 后必须立即回传 handled_at；session_closed_at 仅在 stop monitoring 或 A/B 终态时回传，且最终收尾消息必须显式写出会话结束日期时间；若返回 ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command（含 final_status_closeout_apply_ack_command）则按 next_command_order 继续执行。不得仅凭旧 exit 证据推断需要重启 B；不得手工创建 chat_heartbeat/handled 临时回执文件；不得在未获同意时创建非 tmp 新脚本。无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。回传 chat_heartbeat：SESSION/A/B、run_dir、main_round、supervisor/companion/guard 最新心跳、B exit digest。状态：{3}。'
-$runningStatusLowDisturbMessageEn = '[LOW-DISTURB] Ticket {0} (event={1}). Read {2} first, run route_guard_command from the brief and follow its classification before any action, then run only the minimal health check from business_command: current run status plus live main process and monitor-chain processes (supervisor/companion/guard/trigger), and do not treat lingering -NoExit shells as healthy stage processes. If the result is healthy and no repair/restart is triggered, reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss". If the result is abnormal, or any self-heal/fault-handling action is triggered, switch to normal status-report style immediately, execute continue_watch_command to re-arm guard/event chain, explain root cause and remediation/self-heal actions, report current status, then return handled_at.'
-$runningStatusLowDisturbMessageZh = '[LOW-DISTURB] 票据 {0}（event={1}），先读 {2}，并先执行 brief 中的 route_guard_command，必须按其 classification 决定分支后再执行动作；然后只执行 business_command 中的最小健康检查：当前运行状态，以及主进程与监控链进程（supervisor/companion/guard/trigger）是否真实存活；不要把残留的 -NoExit 空壳 shell 当作阶段主进程健康。若检查结果正常，且没有触发任何自愈/重启/故障处理动作，则根因视为“无活动故障/常规定时状态票”，不要建议重启 B，回复内容只保留两行："运行正常" 和 "handled_at: YYYY-MM-DD HH:mm:ss"。若检查结果异常，或触发了自愈修复/故障处理，则立即切换为 normal 状态票口径，并先执行 continue_watch_command 以恢复 guard/事件链，再说明根因与修复/自愈动作、当前运行状态，然后回传 handled_at。不得手工创建 chat_heartbeat/handled 临时回执文件，也不得在未获同意时创建非 tmp 新脚本。'
+$runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 {2}。1）用一段话先报根因+修复路径；若本票是 healthy 的 running-status-report，根因应写“无活动故障/常规定时状态票”，修复路径应写“continue_watch only”。2）执行已给出的 business_command 作为健康检查，然后执行 continue_watch_command；除非出现独立事故票据，否则不得从该状态票发起 A/B 阶段重启。3）处置后回到票据驱动只读监控（沿用定时状态票节奏），直到“stop monitoring”，不要再询问是否继续轮询/监控。4）强制回执：本票当轮动作完成后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）；running-status-report 在 business/continue_watch 后必须立即回传 handled_at；session_closed_at 仅在 stop monitoring 或 A/B 终态时回传，且最终收尾消息必须显式写出会话结束日期时间；若返回 ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command（含 final_status_closeout_apply_ack_command）则按 next_command_order 继续执行。不得仅凭旧 exit 证据推断需要重启 B；不得手工创建 chat_heartbeat/handled 临时回执文件；不得在未获同意时创建非 tmp 新脚本。无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。回传 chat_heartbeat：SESSION/A/B、run_dir、main_round、guard 最新心跳、B exit digest。状态：{3}。'
+$runningStatusLowDisturbMessageEn = '[LOW-DISTURB] Ticket {0} (event={1}). Read {2} first, run route_guard_command from the brief and follow its classification before any action, then run only the minimal health check from business_command: current run status plus live main process and monitor-chain processes (guard/trigger), and do not treat lingering -NoExit shells as healthy stage processes. If the result is healthy and no repair/restart is triggered, reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss". If the result is abnormal, or any self-heal/fault-handling action is triggered, switch to normal status-report style immediately, execute continue_watch_command to re-arm guard/event chain, explain root cause and remediation/self-heal actions, report current status, then return handled_at.'
+$runningStatusLowDisturbMessageZh = '[LOW-DISTURB] 票据 {0}（event={1}），先读 {2}，并先执行 brief 中的 route_guard_command，必须按其 classification 决定分支后再执行动作；然后只执行 business_command 中的最小健康检查：当前运行状态，以及主进程与监控链进程（guard/trigger）是否真实存活；不要把残留的 -NoExit 空壳 shell 当作阶段主进程健康。若检查结果正常，且没有触发任何自愈/重启/故障处理动作，则根因视为“无活动故障/常规定时状态票”，不要建议重启 B，回复内容只保留两行："运行正常" 和 "handled_at: YYYY-MM-DD HH:mm:ss"。若检查结果异常，或触发了自愈修复/故障处理，则立即切换为 normal 状态票口径，并先执行 continue_watch_command 以恢复 guard/事件链，再说明根因与修复/自愈动作、当前运行状态，然后回传 handled_at。不得手工创建 chat_heartbeat/handled 临时回执文件，也不得在未获同意时创建非 tmp 新脚本。'
 $finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
 $taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码；若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
 
@@ -4289,10 +4267,10 @@ else {
     # Resume-rule suffix for all business-resume-capable scenarios
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix','incident-manual-code-fix','incident-auto-resume-script-fix','incident-manual-script-fix','incident-auto-resume-noncode','incident-manual-noncode')) {
         $resumeRuleSuffix = if ($useChineseDispatchMessage) {
-            'Resume 规则：使用 business_command 中预置的 open_unattended_ab_stage_window.ps1 重启主进程；禁止使用 open_unattended_ab_resume_window.ps1。重启时不会杀掉正在运行的监控链进程（监控链已实现自管理：guard/trigger 自动绑定新主进程，supervisor/companion 启动时自动清理旧进程）。源码基线在 task_static_precheck 前已自动恢复（A：git checkout；B：A snapshot restore），无需手动清理。重启后继续监控并回传 handled_at。'
+            'Resume 规则：使用 business_command 中预置的 open_unattended_ab_stage_window.ps1 重启主进程；禁止使用 open_unattended_ab_resume_window.ps1。重启时不会杀掉正在运行的监控链进程（监控链已实现自管理：guard/trigger 自动绑定新主进程，guard 启动时自动清理旧进程）。源码基线在 task_static_precheck 前已自动恢复（A：git checkout；B：A snapshot restore），无需手动清理。重启后继续监控并回传 handled_at。'
         }
         else {
-            'Resume rules: Use the open_unattended_ab_stage_window.ps1 from business_command to restart the main process; do NOT use open_unattended_ab_resume_window.ps1. The restart does NOT kill running monitor chain processes (monitors self-manage: guard/trigger auto-bind to new main process, supervisor/companion clean up old instances on startup). Source baseline is auto-restored before task_static_precheck (A: git checkout; B: A snapshot restore), no manual cleanup needed. After restart, continue monitoring and return handled_at.'
+            'Resume rules: Use the open_unattended_ab_stage_window.ps1 from business_command to restart the main process; do NOT use open_unattended_ab_resume_window.ps1. The restart does NOT kill running monitor chain processes (monitors self-manage: guard/trigger auto-bind to new main process, guard cleans up old instances on startup). Source baseline is auto-restored before task_static_precheck (A: git checkout; B: A snapshot restore), no manual cleanup needed. After restart, continue monitoring and return handled_at.'
         }
         if (-not [string]::IsNullOrWhiteSpace($resumeRuleSuffix)) {
             $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $resumeRuleSuffix)
