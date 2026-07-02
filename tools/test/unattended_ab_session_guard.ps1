@@ -1673,6 +1673,71 @@ function Save-IncidentPackage {
     return $incidentDir
 }
 
+function Save-ASuccessSnapshot {
+    param([string]$RunDir)
+
+    $snapshotDir = Join-Path $RunDir 'a_success_snapshot'
+    $sourceDir = Join-Path $snapshotDir 'source'
+    New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+
+    $result = [pscustomobject]@{
+        FinalStatus = (Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'final_status.json'))
+        Summary = (Convert-ToRepoRelativePath -Path (Join-Path $RunDir 'summary.csv'))
+        SourceState = ''
+        SnapshotDir = ''
+    }
+
+    try {
+        $gitWarningPattern = '^\s*(warning:|git(\.exe)?\s*:\s*warning:)'
+        $invokeGitCapture = {
+            param([string[]]$GitArgs)
+            $nativePrefExists = $null -ne (Get-Variable -Name 'PSNativeCommandUseErrorActionPreference' -ErrorAction SilentlyContinue)
+            if ($nativePrefExists) { $PSNativeCommandUseErrorActionPreference = $false }
+            $eaBackup = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+            $lines = @(); $exitCode = 0
+            try {
+                $lines = @((& git -C $script:RepoRoot @GitArgs 2>&1) | ForEach-Object { [string]$_ })
+                $exitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $eaBackup
+                if ($nativePrefExists) { $PSNativeCommandUseErrorActionPreference = $false }
+            }
+            if ($exitCode -ne 0) { throw "git exit=$exitCode args=$($GitArgs -join ' ')" }
+            return @($lines)
+        }
+
+        $statusRaw = @(& $invokeGitCapture @('status', '--short'))
+        $statusFiltered = @($statusRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+        $result.SourceState = if ($statusFiltered.Count -eq 0) { 'CLEAN' } else { ($statusFiltered -join ' | ') }
+        $result.SourceState | Out-File -FilePath (Join-Path $snapshotDir 'source_state.txt') -Encoding utf8
+
+        $diffNamesRaw = @(& $invokeGitCapture @('diff', '--name-only', '--', 'src', 'include'))
+        $diffNames = @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+        $diffNames | Out-File -FilePath (Join-Path $snapshotDir 'source_files.txt') -Encoding utf8
+
+        foreach ($relPath in $diffNames) {
+            $srcPath = Join-Path $script:RepoRoot $relPath
+            if (-not (Test-Path -LiteralPath $srcPath)) { continue }
+            $dstPath = Join-Path $sourceDir ($relPath -replace '/', '\\')
+            $dstParent = Split-Path -Parent $dstPath
+            if (-not (Test-Path -LiteralPath $dstParent)) { New-Item -ItemType Directory -Path $dstParent -Force | Out-Null }
+            Copy-Item -LiteralPath $srcPath -Destination $dstPath -Force
+        }
+
+        $patchRaw = @(& $invokeGitCapture @('diff', '--binary', '--', 'src', 'include'))
+        $patchFiltered = @($patchRaw | Where-Object { [string]$_ -notmatch $gitWarningPattern })
+        $patchFiltered | Out-File -FilePath (Join-Path $snapshotDir 'source.patch') -Encoding utf8
+
+        $result.SnapshotDir = Convert-ToRepoRelativePath -Path $snapshotDir
+    }
+    catch {
+        Write-GuardLog ("a_snapshot_error detail={0}" -f $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' '))
+    }
+
+    return $result
+}
+
 function Invoke-BStageRestart {
     param([int]$Attempt)
 
@@ -3288,6 +3353,7 @@ $statusTicketIntervalMinutes = 30
 $lastStatusTicketAt = [datetime]::MinValue
 $lastMainProcessExitReviewSignature = ''
 $lastAPassConclusionSignature = ''
+$aSuccessSnapshotDir = ''
 $mainProcessExitGraceStartedAt = $null
 $mainProcessExitGraceLastNoticeAt = $null
 $mainProcessExitGraceShutdownDetail = ''
@@ -3666,6 +3732,25 @@ try {
                     [string]$monitorChainShutdownRequest.Reason,
                     [string]$monitorChainShutdownRequest.RequestedAt)
                 break
+            }
+
+            # A success snapshot capture (before B starts)
+            if ($aStatus -eq 'PASS' -and [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $runDirAnchor -ne 'unknown' -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
+                $resolvedSnapshotRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
+                if (-not [string]::IsNullOrWhiteSpace($resolvedSnapshotRunDir) -and (Test-Path -LiteralPath $resolvedSnapshotRunDir)) {
+                    $snapshotResult = Save-ASuccessSnapshot -RunDir $resolvedSnapshotRunDir
+                    if (-not [string]::IsNullOrWhiteSpace($snapshotResult.SnapshotDir)) {
+                        $aSuccessSnapshotDir = $snapshotResult.SnapshotDir
+                        $snapshotFinalRel = Convert-ToRepoRelativePath -Path (Join-Path $resolvedSnapshotRunDir 'final_status.json')
+                        $snapshotSummaryRel = Convert-ToRepoRelativePath -Path (Join-Path $resolvedSnapshotRunDir 'summary.csv')
+                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                            A_SUCCESS_SNAPSHOT_FINAL_STATUS = $snapshotFinalRel
+                            A_SUCCESS_SNAPSHOT_SUMMARY = $snapshotSummaryRel
+                            A_SUCCESS_SNAPSHOT_SOURCE_STATE = $snapshotResult.SourceState
+                        }
+                        Write-GuardLog ("a_snapshot_captured dir={0} source_state={1}" -f $aSuccessSnapshotDir, $snapshotResult.SourceState)
+                    }
+                }
             }
 
             $aPassConclusionEligible = ($sessionStatus -eq 'RUNNING' -and $aStatus -eq 'PASS' -and $bStatus -eq 'RUNNING')
