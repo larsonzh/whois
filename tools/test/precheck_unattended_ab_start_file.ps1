@@ -361,8 +361,6 @@ function Get-LocalRelatedProcessRole {
     param([string]$CommandLine)
 
     $line = ([string]$CommandLine).ToLowerInvariant()
-    if ($line -match 'unattended_ab_supervisor\.ps1') { return 'monitor-supervisor' }
-    if ($line -match 'unattended_ab_companion\.ps1') { return 'monitor-companion' }
     if ($line -match 'unattended_ab_session_guard\.ps1') { return 'monitor-guard' }
     if ($line -match 'open_unattended_ab_stage_window\.ps1') { return 'launcher-stage-window' }
     if ($line -match 'open_unattended_ab_resume_window\.ps1') { return 'launcher-resume-window' }
@@ -518,10 +516,10 @@ function Get-LocalRelatedProcess {
 
     $repoRootLower = $RepoRoot.ToLowerInvariant()
     $repoRootSlash = $repoRootLower.Replace('\\', '/')
-    $keywordPattern = 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1|unattended_ab_session_guard\.ps1|open_unattended_ab_stage_window\.ps1|open_unattended_ab_resume_window\.ps1|start_dev_verify_fastmode_a\.ps1|start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|autopilot_dev_recheck_8round\.ps1|remote_build_and_test\.sh'
+    $keywordPattern = 'unattended_ab_session_guard\.ps1|open_unattended_ab_stage_window\.ps1|open_unattended_ab_resume_window\.ps1|start_dev_verify_fastmode_a\.ps1|start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|autopilot_dev_recheck_8round\.ps1|remote_build_and_test\.sh'
     $ancestorExcludePattern = 'open_unattended_ab_stage_window\.ps1|check_unattended_ab_launch_ready\.ps1'
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
-    $reusableRoles = @('monitor-supervisor', 'monitor-companion', 'monitor-guard')
+    $reusableRoles = @('monitor-guard')
     $excludePids = New-Object 'System.Collections.Generic.HashSet[int]'
     [void]$excludePids.Add([int]$SelfPid)
 

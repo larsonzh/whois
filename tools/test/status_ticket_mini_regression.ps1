@@ -152,7 +152,6 @@ $dispatchPath = Resolve-RepoPath -Path $DispatchScript
 $mainHealthPath = Resolve-RepoPath -Path $MainHealthScript
 $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
-$companionPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_companion.ps1'
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
 
@@ -160,7 +159,6 @@ $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
 $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
-$companionText = Get-Content -LiteralPath $companionPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
 
@@ -194,15 +192,6 @@ $promptNoNonTmp = [regex]::IsMatch($promptDocText, 'chat_heartbeat\*\.jsonl.*han
 $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
 [void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
-
-# Case 5: companion stage context must fall back across run_dir anchors.
-$companionHasRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'run_dir'")
-$companionHasBRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'b_run_dir'")
-$companionHasCurrentStageRunDirFallback = $companionText.Contains("Get-LatestAnchorValueFromNoteText -Notes `$sessionNotes -Key 'current_stage_run_dir'")
-$companionHasStageContextResolver = $companionText.Contains('function Get-CurrentStageContext')
-$companionFallbackPass = ($companionHasStageContextResolver -and $companionHasRunDirFallback -and $companionHasBRunDirFallback -and $companionHasCurrentStageRunDirFallback)
-$companionFallbackReason = if ($companionFallbackPass) { 'companion-run-dir-fallback-present' } else { 'missing-companion-run-dir-fallback' }
-[void]$results.Add((Get-CaseResult -Name 'companion-run-dir-fallback' -Pass $companionFallbackPass -Reason $companionFallbackReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
 $stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")
