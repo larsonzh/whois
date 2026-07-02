@@ -1397,7 +1397,7 @@ function Get-FallbackMonitoringState {
         $fallbackReason = 'live-status-state'
     }
 
-    if (-not $fallbackRequired -and $liveStatusEvent -in @('blocked_package', 'supervisor_error', 'd1_no_progress', 'post_d1_no_progress', 'stage_process_exit_no_final')) {
+    if (-not $fallbackRequired -and $liveStatusEvent -in @('blocked_package', 'd1_no_progress', 'post_d1_no_progress', 'stage_process_exit_no_final')) {
         $fallbackRequired = $true
         $fallbackReason = 'live-status-event'
     }
