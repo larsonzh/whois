@@ -2384,6 +2384,28 @@ if (-not [string]::IsNullOrWhiteSpace($taskTargetFile)) {
     }
 }
 
+# Clean up stale remote build processes and lock BEFORE killing local processes.
+# Order: remote kill -> remote lock cleanup -> local stale process cleanup.
+# This prevents orphaned remote builds from continuing after local one_click_release is killed.
+try {
+    $sshCleanupPath = 'C:\Windows\System32\OpenSSH\ssh.exe'
+    if (Test-Path $sshCleanupPath) {
+        $remoteTarget = 'larson@10.0.0.199'
+        $remoteBase = '/home/larson/whois_remote'
+        $remoteLockDir = "$remoteBase/.remote_build.lock"
+        & $sshCleanupPath -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no $remoteTarget @"
+pkill -f 'whois_remote' 2>/dev/null || true
+sleep 1
+rm -rf '$remoteLockDir' 2>/dev/null
+echo REMOTE_CLEANUP_DONE
+"@ 2>&1 | Out-Null
+        Write-Output ("[OPEN-AB-STAGE] remote_build_cleanup host=10.0.0.199")
+    }
+}
+catch {
+    Write-Output ("[OPEN-AB-STAGE] remote_build_cleanup_skipped detail={0}" -f $_.Exception.Message)
+}
+
 # Clean up stale one_click_release.ps1 processes from prior A stage runs
 $staleBuildName = 'one_click_release.ps1'
 try {
@@ -2404,22 +2426,6 @@ try {
     }
 }
 catch { $null = $_ }
-
-# Clean up stale remote build lock and zombie processes (from the killed one_click_release)
-try {
-    $sshCleanupPath = 'C:\Windows\System32\OpenSSH\ssh.exe'
-    if (Test-Path $sshCleanupPath) {
-        $remoteTarget = 'larson@10.0.0.199'
-        $remoteBase = '/home/larson/whois_remote'
-        $remoteLockDir = "$remoteBase/.remote_build.lock"
-        & $sshCleanupPath -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no $remoteTarget `
-            "rm -rf '$remoteLockDir' 2>/dev/null; echo REMOTE_LOCK_CLEANED" 2>&1 | Out-Null
-        Write-Output ("[OPEN-AB-STAGE] remote_lock_cleanup host=10.0.0.199")
-    }
-}
-catch {
-    Write-Output ("[OPEN-AB-STAGE] remote_lock_cleanup_skipped detail={0}" -f $_.Exception.Message)
-}
 
 $powershellPath = Join-Path $PSHOME 'powershell.exe'
 if (-not (Test-Path -LiteralPath $powershellPath)) {

@@ -541,6 +541,37 @@ $stopResult = New-Object 'System.Collections.Generic.List[string]'
 $stopped = 0
 $failed = 0
 $alreadyExited = 0
+
+# Clean up stale remote build processes and lock BEFORE local process kill.
+# Order: remote kill -> remote lock cleanup -> local process kill.
+$sshExe = "C:\Windows\System32\OpenSSH\ssh.exe"
+$remoteHost = $SshHost
+$remoteUser = $SshUser
+$remoteKey = $SshKeyPath
+$remoteLockDir = $RemoteLockDir
+
+if (-not $DryRun.IsPresent -and (Test-Path -LiteralPath $sshExe)) {
+    $remoteCleanupCmd = (& $sshExe -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i $remoteKey "${remoteUser}@${remoteHost}" @"
+pkill -f 'whois_remote' 2>/dev/null || true
+sleep 1
+rm -rf '$remoteLockDir' 2>/dev/null
+echo LOCK_CLEANED
+"@ 2>&1) -join ' '
+    $rc = $LASTEXITCODE
+    if ($remoteCleanupCmd -match 'LOCK_CLEANED') {
+        Write-Output ("[AB-STOP] remote_build_cleaned host={0} dir={1}" -f $remoteHost, $remoteLockDir)
+    }
+    elseif ($rc -eq 0 -or $rc -eq 255) {
+        Write-Output ("[AB-STOP] remote_build_check host={0} exit={1} output={2}" -f $remoteHost, $rc, $remoteCleanupCmd)
+    }
+}
+elseif ($DryRun.IsPresent) {
+    Write-Output ("[AB-STOP] remote_build_dryrun host={0} dir={1}" -f $remoteHost, $remoteLockDir)
+}
+else {
+    Write-Output ("[AB-STOP] remote_build_skip reason=ssh-not-found path={0}" -f $sshExe)
+}
+
 $orderedPids = @($targetPids | Sort-Object -Descending)
 
 if ($DryRun.IsPresent) {
@@ -624,30 +655,6 @@ if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($sta
     }
 
     Write-Output ("[AB-STOP] start_file_updated={0}" -f $startFilePath)
-}
-
-# Clean up stale remote lock on VM if local processes owned it
-$sshExe = "C:\Windows\System32\OpenSSH\ssh.exe"
-$remoteHost = $SshHost
-$remoteUser = $SshUser
-$remoteKey = $SshKeyPath
-$remoteLockDir = $RemoteLockDir
-
-if (-not $DryRun.IsPresent -and (Test-Path -LiteralPath $sshExe)) {
-    $removeLockCmd = (& $sshExe -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i $remoteKey "${remoteUser}@${remoteHost}" "rm -rf '$remoteLockDir' 2>/dev/null; echo LOCK_CLEANED" 2>&1) -join ' '
-    $rc = $LASTEXITCODE
-    if ($removeLockCmd -match 'LOCK_CLEANED') {
-        Write-Output ("[AB-STOP] remote_lock_cleaned host={0} dir={1}" -f $remoteHost, $remoteLockDir)
-    }
-    elseif ($rc -eq 0 -or $rc -eq 255) {
-        Write-Output ("[AB-STOP] remote_lock_check host={0} exit={1} output={2}" -f $remoteHost, $rc, $removeLockCmd)
-    }
-}
-elseif ($DryRun.IsPresent) {
-    Write-Output ("[AB-STOP] remote_lock_dryrun host={0} dir={1}" -f $remoteHost, $remoteLockDir)
-}
-else {
-    Write-Output ("[AB-STOP] remote_lock_skip reason=ssh-not-found path={0}" -f $sshExe)
 }
 
 Write-Output ("[AB-STOP] evidence_dir={0}" -f $evidenceDir)
