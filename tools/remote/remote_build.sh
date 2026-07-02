@@ -707,8 +707,8 @@ done
 if [[ "$RUN_TESTS" == "1" && ${#WIN_SMOKE_BINS[@]} -gt 0 ]]; then
   wine64_resolved="$(resolve_wine_bin 64)"
   wine32_resolved="$(resolve_wine_bin 32)"
-  [[ -n "$wine64_resolved" ]] && log "Wine64 runner: $wine64_resolved" || warn "wine64 not found; win64 smoke skipped"
-  [[ -n "$wine32_resolved" ]] && log "Wine runner (32): $wine32_resolved" || warn "wine (32) not found; win32 smoke skipped"
+  if [[ -n "$wine64_resolved" ]]; then log "Wine64 runner: $wine64_resolved"; else warn "wine64 not found; win64 smoke skipped"; fi
+  if [[ -n "$wine32_resolved" ]]; then log "Wine runner (32): $wine32_resolved"; else warn "wine (32) not found; win32 smoke skipped"; fi
 
   # Clear per-arch wine smoke logs
   : > "$smoke_log_win64"
