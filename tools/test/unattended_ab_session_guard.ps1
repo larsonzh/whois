@@ -1738,6 +1738,90 @@ function Save-ASuccessSnapshot {
     return $result
 }
 
+function Get-ChildProcessMap {
+    param([hashtable]$ProcessMap)
+
+    $childMap = @{}
+    foreach ($processInfo in $ProcessMap.Values) {
+        $parentPid = [int]$processInfo.ParentProcessId
+        if (-not $childMap.ContainsKey($parentPid)) { $childMap[$parentPid] = @() }
+        $childMap[$parentPid] += [int]$processInfo.ProcessId
+    }
+    return $childMap
+}
+
+function Get-DescendantProcessIdList {
+    param([int]$RootPid, [hashtable]$ChildMap)
+
+    $queue = New-Object 'System.Collections.Generic.Queue[int]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[int]'
+    $queue.Enqueue($RootPid)
+    [void]$seen.Add($RootPid)
+    while ($queue.Count -gt 0) {
+        $targetPid = $queue.Dequeue()
+        if (-not $ChildMap.ContainsKey($targetPid)) { continue }
+        foreach ($childPid in @($ChildMap[$targetPid])) {
+            $resolvedChildPid = [int]$childPid
+            if ($seen.Add($resolvedChildPid)) { $queue.Enqueue($resolvedChildPid) }
+        }
+    }
+    return @($seen)
+}
+
+function Get-ProcessDepthFromParentMap {
+    param([int]$TargetPid, [hashtable]$ProcessMap)
+
+    $depth = 0
+    $cursorPid = $TargetPid
+    while ($ProcessMap.ContainsKey($cursorPid)) {
+        $parentPid = [int]$ProcessMap[$cursorPid].ParentProcessId
+        if ($parentPid -le 0 -or $parentPid -eq $cursorPid) { break }
+        $depth++
+        $cursorPid = $parentPid
+    }
+    return $depth
+}
+
+function Stop-ProcessTree {
+    param([int[]]$RootPids)
+
+    if ($RootPids.Count -eq 0) { return @() }
+
+    $processMap = @{}
+    foreach ($processInfo in @(Get-CimInstance Win32_Process)) {
+        $processMap[[int]$processInfo.ProcessId] = $processInfo
+    }
+    $childMap = Get-ChildProcessMap -ProcessMap $processMap
+
+    $killSet = New-Object 'System.Collections.Generic.HashSet[int]'
+    foreach ($rootPid in $RootPids) {
+        foreach ($descendantPid in @(Get-DescendantProcessIdList -RootPid $rootPid -ChildMap $childMap)) {
+            [void]$killSet.Add($descendantPid)
+        }
+    }
+
+    $killed = @()
+    $orderedTargets = @($killSet | Sort-Object { Get-ProcessDepthFromParentMap -TargetPid ([int]$_) -ProcessMap $processMap } -Descending)
+    foreach ($targetPid in $orderedTargets) {
+        try { Stop-Process -Id ([int]$targetPid) -Force -ErrorAction Stop; $killed += [int]$targetPid } catch { $null = $_ }
+    }
+    return @($killed)
+}
+
+function Invoke-SafeRemoteLockCleanup {
+    $lockCleanupScript = Join-Path $script:RepoRoot 'tools\dev\clear_remote_lock.ps1'
+    if (-not (Test-Path -LiteralPath $lockCleanupScript)) { return }
+    try {
+        $settings = Read-KeyValueFile -Path $script:StartFilePath
+        $remoteIp = if ($settings.Contains('REMOTE_IP')) { [string]$settings.REMOTE_IP } else { '10.0.0.199' }
+        $remoteUser = if ($settings.Contains('REMOTE_USER')) { [string]$settings.REMOTE_USER } else { 'larson' }
+        $output = @(& $lockCleanupScript -RemoteIp $remoteIp -RemoteUser $remoteUser 2>&1 | ForEach-Object { [string]$_ })
+        $text = ($output -join ' | ')
+        Write-GuardLog ("remote_lock_cleanup result={0}" -f $text)
+    }
+    catch { Write-GuardLog ("remote_lock_cleanup error={0}" -f $_.Exception.Message) }
+}
+
 function Invoke-BStageRestart {
     param([int]$Attempt)
 
