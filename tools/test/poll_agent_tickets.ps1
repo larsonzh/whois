@@ -1367,13 +1367,9 @@ function Get-FallbackMonitoringState {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
     $liveStatusAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'live_status'
-    $supervisorLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'supervisor_log'
-    $companionLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'companion_log'
     $guardLogAnchor = Get-LatestAnchorValueFromNote -Notes $notes -Key 'guard_log'
 
     $liveStatusPath = Resolve-AnchorPath -Path $liveStatusAnchor
-    $supervisorLogPath = Resolve-AnchorPath -Path $supervisorLogAnchor
-    $companionLogPath = Resolve-AnchorPath -Path $companionLogAnchor
     $guardLogPath = Resolve-AnchorPath -Path $guardLogAnchor
 
     $liveStatusRaw = Read-JsonFileSafely -Path $liveStatusPath
@@ -1433,8 +1429,6 @@ function Get-FallbackMonitoringState {
         live_status_event = $liveStatusEvent
         live_status_error_detail = $liveStatusErrorDetail
         live_status_path = (Convert-ToRepoRelativePath -Path $liveStatusPath)
-        supervisor_log = (Convert-ToRepoRelativePath -Path $supervisorLogPath)
-        companion_log = (Convert-ToRepoRelativePath -Path $companionLogPath)
         guard_log = (Convert-ToRepoRelativePath -Path $guardLogPath)
         blocked_evidence = $blockedEvidenceRel
         business_stage = [string]$resumePlan.stage

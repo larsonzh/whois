@@ -298,62 +298,6 @@ function Test-SamePath {
     }
 }
 
-function Get-FallbackStagePidListFromCompanionLog {
-    param(
-        [string]$RepoRoot,
-        [AllowEmptyString()][string]$StartFilePath,
-        [datetime]$Now,
-        [int]$RecentMinutes = 45
-    )
-
-    $result = New-Object 'System.Collections.Generic.HashSet[int]'
-    $companionRoot = Join-Path $RepoRoot 'out\artifacts\ab_companion'
-    if (-not (Test-Path -LiteralPath $companionRoot)) {
-        return ,$result
-    }
-
-    $recentLogs = @(
-        Get-ChildItem -LiteralPath $companionRoot -Filter 'companion.log' -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -ge $Now.AddMinutes(-$RecentMinutes) } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 5
-    )
-
-    foreach ($log in $recentLogs) {
-        $headLines = @(
-            Get-Content -LiteralPath $log.FullName -Encoding utf8 -TotalCount 20 -ErrorAction SilentlyContinue
-        )
-        $tailLines = @(
-            Get-Content -LiteralPath $log.FullName -Encoding utf8 -Tail 400 -ErrorAction SilentlyContinue
-        )
-
-        $logStartFile = ''
-        foreach ($headLine in $headLines) {
-            if ($headLine -match 'start_file=([^\s]+)') {
-                $logStartFile = Resolve-OptionalPathUnderRepo -RepoRoot $RepoRoot -PathValue ([string]$Matches[1])
-                break
-            }
-        }
-
-        if (-not [string]::IsNullOrWhiteSpace($StartFilePath) -and
-            -not [string]::IsNullOrWhiteSpace($logStartFile) -and
-            -not (Test-SamePath -Left $StartFilePath -Right $logStartFile)) {
-            continue
-        }
-
-        foreach ($tailLine in $tailLines) {
-            if ($tailLine -match 'stage_pid=(\d+).*stage_alive=True') {
-                $parsedPid = Get-ParsedProcessId -Value ([string]$Matches[1])
-                if ($parsedPid -gt 0) {
-                    [void]$result.Add($parsedPid)
-                }
-            }
-        }
-    }
-
-    return ,$result
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
 Set-Location $repoRoot
 
@@ -487,35 +431,8 @@ else {
     }
 }
 
-$fallbackStagePids = @()
-$fallbackLivePidCount = 0
-if ($targetPids.Count -lt 1 -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
-    if (-not $MainProcessOnly.IsPresent) {
-        $fallbackStagePids = Get-FallbackStagePidListFromCompanionLog -RepoRoot $repoRoot -StartFilePath $startFilePath -Now (Get-Date)
-
-        $fallbackStagePidSet = New-Object 'System.Collections.Generic.HashSet[int]'
-        foreach ($fallbackStagePid in $fallbackStagePids) {
-            if (-not $existingProcessIds.Contains([int]$fallbackStagePid)) {
-                continue
-            }
-
-            [void]$fallbackStagePidSet.Add([int]$fallbackStagePid)
-            [void]$rootPids.Add([int]$fallbackStagePid)
-        }
-
-        if ($null -ne $fallbackStagePids -and $fallbackStagePids.Count -gt 0) {
-            $fallbackLivePidCount = $fallbackStagePidSet.Count
-            $fallbackTreePids = Get-DescendantProcessIdList -ChildMap $childMap -RootPids $fallbackStagePidSet
-            foreach ($fallbackTreePid in $fallbackTreePids) {
-                [void]$targetPids.Add([int]$fallbackTreePid)
-            }
-        }
-    }
-}
-
 if ($null -eq $targetPids -or $targetPids.Count -lt 1) {
-    $safeStagePidCount = if ($null -eq $fallbackStagePids) { 0 } else { $fallbackStagePids.Count }
-    Write-Output ("[AB-STOP] no-target-process-found fallback_stage_pid_count={0} fallback_live_pid_count={1}" -f $safeStagePidCount, $fallbackLivePidCount)
+    Write-Output ("[AB-STOP] no-target-process-found")
     exit 0
 }
 

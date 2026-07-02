@@ -914,14 +914,14 @@ function Invoke-SessionAnchorUpdateInStartFile {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|supervisor_log|companion_log|live_status|b_runtime_log)=') {
+        if ($trimmed -match '^(run_dir|guard_log|live_status|b_runtime_log)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'b_runtime_log')) {
+    foreach ($anchorKey in @('run_dir', 'guard_log', 'live_status', 'b_runtime_log')) {
         if (-not $Anchors.ContainsKey($anchorKey)) {
             continue
         }
@@ -1828,7 +1828,7 @@ function Invoke-MonitorProcessStopForStartFile {
                 }
 
                 $line = $commandLine.ToLowerInvariant()
-                if ($line -notmatch 'unattended_ab_supervisor\.ps1|unattended_ab_companion\.ps1|unattended_ab_session_guard\.ps1|unattended_ab_takeover_trigger\.ps1') {
+                if ($line -notmatch 'unattended_ab_session_guard\.ps1|unattended_ab_takeover_trigger\.ps1') {
                     return $false
                 }
 
@@ -1963,7 +1963,7 @@ function Test-MonitorReuseActivity {
     $evidence = New-Object 'System.Collections.Generic.List[string]'
     $fresh = $false
 
-    foreach ($anchorKey in @('supervisor_log', 'live_status')) {
+    foreach ($anchorKey in @('guard_log', 'live_status')) {
         $anchorValue = Get-AnchorValueFromConfig -Settings $Settings -Key $anchorKey
         if ([string]::IsNullOrWhiteSpace($anchorValue)) {
             continue
@@ -2015,7 +2015,7 @@ function Test-MonitorReuseProcessPresence {
         }
     }
 
-    $roles = @('unattended_ab_supervisor.ps1', 'unattended_ab_companion.ps1', 'unattended_ab_session_guard.ps1', 'unattended_ab_takeover_trigger.ps1')
+    $roles = @('unattended_ab_session_guard.ps1', 'unattended_ab_takeover_trigger.ps1')
     $matchCount = 0
     $evidence = New-Object 'System.Collections.Generic.List[string]'
     foreach ($scriptLeaf in $roles) {
@@ -2065,7 +2065,7 @@ function Get-MonitorReuseStaleMinutes {
 
 function Test-MonitorRoleReuseActivity {
     param(
-        [ValidateSet('supervisor', 'companion', 'guard', 'trigger')][string]$Role,
+        [ValidateSet('guard', 'trigger')][string]$Role,
         [System.Collections.IDictionary]$Settings,
         [string]$RepoRoot,
         [string]$StartFilePath,
@@ -2079,8 +2079,6 @@ function Test-MonitorRoleReuseActivity {
 
     $anchorKeys = @()
     switch ($Role) {
-        'supervisor' { $anchorKeys = @('supervisor_log', 'live_status') }
-        'companion' { $anchorKeys = @('companion_log') }
         'guard' { $anchorKeys = @('guard_log') }
         'trigger' { $anchorKeys = @() }
     }
@@ -2801,8 +2799,7 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
     $monitorReuseProbe = Test-MonitorReuseActivity -Settings $settings -RepoRoot $repoRoot -MaxStaleMinutes $monitorReuseMaxStaleMinutes
     if (-not [bool]$monitorPresenceProbe.Active -and -not [bool]$monitorReuseProbe.Active) {
         # STALE: no process presence and no recent anchor activity.
-        # Do NOT stop old monitor processes — they self-manage (guard/trigger exit on stale;
-        # supervisor/companion kill old on startup).  Just signal fresh-launch needed.
+        # Do NOT stop old monitor processes — guard/trigger self-manage.  Just signal fresh-launch needed.
         Write-Output ("[OPEN-AB-STAGE] monitor_reuse_guard status=STALE threshold_min={0} evidence={1} action=self-managed" -f [int]$monitorReuseProbe.ThresholdMinutes, (($monitorReuseProbe.Evidence -join ';')))
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse_guard_stale' -Fields @{
             stage = $Stage
@@ -2840,22 +2837,7 @@ if (-not $bForceMonitorRestart -and -not $skipMonitorRestart) {
 
 # Per-role stale cleanup and B-force-restart stop are intentionally removed.
 # All monitor chain processes self-manage:
-#   guard/trigger   — detect stale state and exit, or bind to new main process
-#   supervisor/companion — kill old on startup (temporary, will align with guard/trigger later)
-
-$supervisorLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_SUPERVISOR') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_SUPERVISOR
-}
-else {
-    'tools/test/open_unattended_ab_supervisor_window.ps1'
-}
-
-$companionLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_COMPANION') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_COMPANION
-}
-else {
-    'tools/test/open_unattended_ab_companion_window.ps1'
-}
+#   guard/trigger — detect stale state and exit, or bind to new main process
 
 $guardLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_GUARD') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_GUARD)) {
     [string]$settings.MONITOR_ENTRY_SCRIPT_GUARD
@@ -2871,8 +2853,6 @@ else {
     'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
 }
 
-$supervisorLauncherPath = Resolve-RepoPath -Path $supervisorLauncherRelative
-$companionLauncherPath = Resolve-RepoPath -Path $companionLauncherRelative
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 $triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
@@ -2944,10 +2924,6 @@ if (-not $bForceMonitorRestart) {
             # ACTIVE-UNANCHORED: monitor processes are alive but bound to a stale
             # (previous-run) main process.  Do NOT force-launch — all monitor roles
             # self-manage anchor rebinding:
-            #   supervisor   — re-reads run_dir from SESSION_FINAL_NOTES via
-            #                  anchorRunDirFromNotes and auto-realigns
-            #   guard         — reads stage PID + run_dir from start file
-            #                  (supervisor's output) each heartbeat
             #   guard/trigger — read A_LAUNCH_PID / B_LAUNCH_PID from start-file
             #                   each cycle and auto-rebind on change.
             # Force-launching them is both unnecessary and harmful (e.g. guard
@@ -3006,177 +2982,6 @@ function Test-ShouldRestartMonitorRole {
     }
 
     return (-not [bool]$States[$Role].RunningForStartFile)
-}
-
-$restartSupervisor = Test-ShouldRestartMonitorRole -Role 'supervisor' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
-$supervisorOutput = @()
-if ($restartSupervisor) {
-    if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('supervisor')) {
-        $supervisorState = $monitorStates.supervisor
-        Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=supervisor reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
-            (Get-RestartReasonFromState -State $supervisorState),
-            [int]$supervisorState.MatchCount,
-            [int]$supervisorState.MismatchCount,
-            [int]$supervisorState.UnboundCount)
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'supervisor'; reason = (Get-RestartReasonFromState -State $supervisorState); match_count = [int]$supervisorState.MatchCount; mismatch_count = [int]$supervisorState.MismatchCount; unbound_count = [int]$supervisorState.UnboundCount }
-    }
-
-    if ($Stage -eq 'A') {
-        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
-        }
-        else {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
-        }
-    }
-    else {
-        $currentBRunDir = $currentStageRunDir
-
-        if ([string]::IsNullOrWhiteSpace($currentBRunDir) -and $settings.Contains('SESSION_FINAL_NOTES')) {
-            $hintRunDir = Get-LatestAnchorValueFromNoteText -Notes ([string]$settings.SESSION_FINAL_NOTES) -Key 'run_dir'
-            if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
-                try {
-                    $currentBRunDir = Resolve-RepoPath -Path $hintRunDir
-                }
-                catch {
-                    $currentBRunDir = ''
-                }
-            }
-        }
-
-        if ([string]::IsNullOrWhiteSpace($currentBRunDir)) {
-            Write-Output '[OPEN-AB-STAGE] monitor_attach_b run_dir=unknown source=fallback-auto'
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
-        }
-        else {
-
-            Write-Output ("[OPEN-AB-STAGE] monitor_attach_b run_dir={0}" -f $currentBRunDir)
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentBRunDir -NoRestartIfRunning
-        }
-    }
-
-    $supervisorLog = ''
-    $liveStatus = ''
-    foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
-        Write-Output $line
-        if ($line -match 'supervisor_log=([^\s]+)') {
-            $supervisorLog = $Matches[1]
-        }
-        if ($line -match 'live_status=([^\s]+)') {
-            $liveStatus = $Matches[1]
-        }
-    }
-}
-else {
-    if ($monitorStates.ContainsKey('supervisor')) {
-        $supervisorState = $monitorStates.supervisor
-        Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=supervisor match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
-            [int]$supervisorState.MatchCount,
-            [int]$supervisorState.MismatchCount,
-            [int]$supervisorState.UnboundCount,
-            ($supervisorState.MatchPids -join ','))
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'supervisor'; match_count = [int]$supervisorState.MatchCount; mismatch_count = [int]$supervisorState.MismatchCount; unbound_count = [int]$supervisorState.UnboundCount; pids = @($supervisorState.MatchPids) }
-    }
-
-    if ($Stage -eq 'A') {
-        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -NoRestartIfRunning
-        }
-        else {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -CurrentAStartRound 1 -CurrentARunDir $currentStageRunDir -NoRestartIfRunning
-        }
-    }
-    else {
-        if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -NoRestartIfRunning
-        }
-        else {
-            $supervisorOutput = & $supervisorLauncherPath -StartFile $StartFile -StartFromStage B -CurrentBRunDir $currentStageRunDir -NoRestartIfRunning
-        }
-    }
-
-    $supervisorLog = ''
-    $liveStatus = ''
-    foreach ($line in @($supervisorOutput | ForEach-Object { [string]$_ })) {
-        Write-Output $line
-        if ($line -match 'supervisor_log=([^\s]+)') {
-            $supervisorLog = $Matches[1]
-        }
-        if ($line -match 'live_status=([^\s]+)') {
-            $liveStatus = $Matches[1]
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-        $supervisorLog = Get-AnchorValueFromConfig -Settings $settings -Key 'supervisor_log'
-    }
-    if ([string]::IsNullOrWhiteSpace($liveStatus)) {
-        $liveStatus = Get-AnchorValueFromConfig -Settings $settings -Key 'live_status'
-    }
-
-    $supervisorRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
-    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=supervisor run_dir={0}" -f $supervisorRunDirText)
-}
-
-$restartCompanion = Test-ShouldRestartMonitorRole -Role 'companion' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
-if ($restartCompanion) {
-    if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('companion')) {
-        $companionState = $monitorStates.companion
-        Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=companion reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
-            (Get-RestartReasonFromState -State $companionState),
-            [int]$companionState.MatchCount,
-            [int]$companionState.MismatchCount,
-            [int]$companionState.UnboundCount)
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'companion'; reason = (Get-RestartReasonFromState -State $companionState); match_count = [int]$companionState.MatchCount; mismatch_count = [int]$companionState.MismatchCount; unbound_count = [int]$companionState.UnboundCount }
-    }
-
-    $companionOutput = if ([string]::IsNullOrWhiteSpace($supervisorLog)) {
-        & $companionLauncherPath -StartFile $StartFile -NoRestartIfRunning
-    }
-    else {
-        & $companionLauncherPath -StartFile $StartFile -SupervisorLog $supervisorLog -NoRestartIfRunning
-    }
-
-    $companionLog = ''
-    foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
-        Write-Output $line
-        if ($line -match 'companion_log=([^\s]+)$') {
-            $companionLog = $Matches[1]
-        }
-    }
-}
-else {
-    if ($monitorStates.ContainsKey('companion')) {
-        $companionState = $monitorStates.companion
-        Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=companion match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
-            [int]$companionState.MatchCount,
-            [int]$companionState.MismatchCount,
-            [int]$companionState.UnboundCount,
-            ($companionState.MatchPids -join ','))
-        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'companion'; match_count = [int]$companionState.MatchCount; mismatch_count = [int]$companionState.MismatchCount; unbound_count = [int]$companionState.UnboundCount; pids = @($companionState.MatchPids) }
-    }
-
-    $companionLaunchArgs = @{ StartFile = $StartFile }
-    if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
-        $companionLaunchArgs.SupervisorLog = $supervisorLog
-    }
-    $companionLaunchArgs.NoRestartIfRunning = $true
-    $companionOutput = & $companionLauncherPath @companionLaunchArgs
-
-    $companionLog = ''
-    foreach ($line in @($companionOutput | ForEach-Object { [string]$_ })) {
-        Write-Output $line
-        if ($line -match 'companion_log=([^\s]+)$') {
-            $companionLog = $Matches[1]
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($companionLog)) {
-        $companionLog = Get-AnchorValueFromConfig -Settings $settings -Key 'companion_log'
-    }
-
-    $companionRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
-    Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=companion run_dir={0}" -f $companionRunDirText)
 }
 
 $restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
@@ -3287,15 +3092,6 @@ else {
 $anchorUpdates = @{}
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
     $anchorUpdates.run_dir = Convert-ToAnchorPath -Path $currentStageRunDir
-}
-if (-not [string]::IsNullOrWhiteSpace($supervisorLog)) {
-    $anchorUpdates.supervisor_log = Convert-ToAnchorPath -Path $supervisorLog
-}
-if (-not [string]::IsNullOrWhiteSpace($companionLog)) {
-    $anchorUpdates.companion_log = Convert-ToAnchorPath -Path $companionLog
-}
-if (-not [string]::IsNullOrWhiteSpace($liveStatus)) {
-    $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatus
 }
 if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
     $anchorUpdates.guard_log = Convert-ToAnchorPath -Path $guardLog

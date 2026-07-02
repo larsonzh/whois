@@ -1563,10 +1563,10 @@ if ($exitCode -ne 0) {
     Write-Output ("B_FAIL_CATEGORY={0}" -f $failureCategory)
     Write-Output ("B_FAIL_REASON={0}" -f $failureReason)
 
-    Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B'
+    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B'
 }
 else {
-    Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B-PASS'
+    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B-PASS'
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }

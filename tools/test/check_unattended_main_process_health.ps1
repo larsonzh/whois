@@ -466,9 +466,7 @@ function Get-BStageProcessCandidate {
                     return $false
                 }
 
-                if ($lineLower.Contains('unattended_ab_supervisor.ps1') -or
-                    $lineLower.Contains('unattended_ab_companion.ps1') -or
-                    $lineLower.Contains('unattended_ab_session_guard.ps1') -or
+                if ($lineLower.Contains('unattended_ab_session_guard.ps1') -or
                     $lineLower.Contains('unattended_ab_takeover_trigger.ps1') -or
                     $lineLower.Contains('open_unattended_ab_stage_window.ps1')) {
                     return $false
@@ -659,18 +657,10 @@ else {
     $false
 }
 
-$supervisorPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_supervisor.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
-$companionPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_companion.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 $guardPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 $triggerPids = @(Get-RunningProcessIdsByScriptLeaf -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)
 
 $monitorChainMissingComponents = New-Object 'System.Collections.Generic.List[string]'
-if ($monitorShouldRun -and $supervisorPids.Count -lt 1) {
-    [void]$monitorChainMissingComponents.Add('supervisor')
-}
-if ($monitorShouldRun -and $companionPids.Count -lt 1) {
-    [void]$monitorChainMissingComponents.Add('companion')
-}
 if ($monitorShouldRun -and $guardPids.Count -lt 1) {
     [void]$monitorChainMissingComponents.Add('guard')
 }
@@ -681,20 +671,6 @@ $monitorChainDegraded = ($monitorChainMissingComponents.Count -gt 0)
 
 $healActions = New-Object 'System.Collections.Generic.List[object]'
 if ($AutoHeal.IsPresent -and $monitorShouldRunOrAbnormal) {
-    $startFromStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
-
-    if ($supervisorPids.Count -lt 1) {
-        $supervisorLauncher = Join-Path $repoRoot 'tools/test/open_unattended_ab_supervisor_window.ps1'
-        $result = Invoke-Launcher -RepoRoot $repoRoot -ScriptPath $supervisorLauncher -LauncherParams @('-StartFile', $startFileRel, '-StartFromStage', $startFromStage)
-        $healActions.Add([pscustomobject]@{ name = 'restart-supervisor'; succeeded = [bool]$result.Succeeded; exit_code = [int]$result.ExitCode; output = [string]$result.Output }) | Out-Null
-    }
-
-    if ($companionPids.Count -lt 1) {
-        $companionLauncher = Join-Path $repoRoot 'tools/test/open_unattended_ab_companion_window.ps1'
-        $result = Invoke-Launcher -RepoRoot $repoRoot -ScriptPath $companionLauncher -LauncherParams @('-StartFile', $startFileRel)
-        $healActions.Add([pscustomobject]@{ name = 'restart-companion'; succeeded = [bool]$result.Succeeded; exit_code = [int]$result.ExitCode; output = [string]$result.Output }) | Out-Null
-    }
-
     if ($guardPids.Count -lt 1 -or $abnormalNoExit) {
         $guardLauncher = Join-Path $repoRoot 'tools/test/open_unattended_ab_session_guard_window.ps1'
         $result = Invoke-Launcher -RepoRoot $repoRoot -ScriptPath $guardLauncher -LauncherParams @('-StartFile', $startFileRel, '-NoRestartIfRunning')
@@ -824,8 +800,6 @@ $output = [ordered]@{
         matched = [bool]$reasonMatched
     }
     monitor_chain = [ordered]@{
-        supervisor = [ordered]@{ count = $supervisorPids.Count; pids = @($supervisorPids) }
-        companion = [ordered]@{ count = $companionPids.Count; pids = @($companionPids) }
         guard = [ordered]@{ count = $guardPids.Count; pids = @($guardPids) }
         trigger = [ordered]@{ count = $triggerPids.Count; pids = @($triggerPids); enabled = [bool]$autoStartTrigger }
         degraded = [bool]$monitorChainDegraded
@@ -1067,7 +1041,7 @@ else {
     Write-Output ('[AB-MAIN-HEALTH] session={0} a={1} b={2} monitor_should_run={3}' -f [string]$output.statuses.session, [string]$output.statuses.a, [string]$output.statuses.b, [bool]$output.monitor_should_run)
     Write-Output ('[AB-MAIN-HEALTH] verdict={0} recommended_action={1} restart_stage_recommended={2} stale_exit_evidence={3}' -f [string]$output.verdict.classification, [string]$output.verdict.recommended_action, [bool]$output.verdict.restart_stage_recommended, [bool]$output.verdict.stale_exit_evidence)
     Write-Output ('[AB-MAIN-HEALTH] b_launch_pid={0} b_launch_alive={1} b_shell_alive_after_exit={2} b_candidates={3} abnormal_no_exit={4}' -f [int]$output.process_health.b_launch_pid, [bool]$output.process_health.b_launch_alive, [bool]$output.process_health.b_shell_alive_after_exit, [int]$output.process_health.b_candidate_count, [bool]$output.process_health.abnormal_no_exit)
-    Write-Output ('[AB-MAIN-HEALTH] monitor_chain supervisor={0} companion={1} guard={2} trigger={3}' -f [int]$output.monitor_chain.supervisor.count, [int]$output.monitor_chain.companion.count, [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
+    Write-Output ('[AB-MAIN-HEALTH] monitor_chain guard={0} trigger={1}' -f [int]$output.monitor_chain.guard.count, [int]$output.monitor_chain.trigger.count)
     Write-Output ('[AB-MAIN-HEALTH] escalation enabled={0} threshold={1} streak={2} incident_emitted={3} ticket={4} reason={5}' -f [bool]$output.escalation.enabled, [int]$output.escalation.threshold, [int]$output.escalation.streak, [bool]$output.escalation.incident_emitted, [string]$output.escalation.incident_ticket_id, [string]$output.escalation.reason)
     Write-Output ('[AB-MAIN-HEALTH] main_process_missing_escalation enabled={0} incident_emitted={1} ticket={2} reason={3}' -f [bool]$output.main_process_missing_escalation.enabled, [bool]$output.main_process_missing_escalation.incident_emitted, [string]$output.main_process_missing_escalation.incident_ticket_id, [string]$output.main_process_missing_escalation.reason)
 

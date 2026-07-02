@@ -2294,7 +2294,7 @@ if ([string]::IsNullOrWhiteSpace($hcStartFilePath)) {
     $hcStartFilePath = Join-Path $repoRoot 'testdata\unattended_start\active\unattended_ab_start_20261116-20261130.md'
 }
 try {
-    $null = Invoke-MonitorChainHealthCheck -Roles @('supervisor', 'companion', 'guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcStartFilePath -LogPrefix 'DEV-VERIFY-MULTI'
+    $null = Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcStartFilePath -LogPrefix 'DEV-VERIFY-MULTI'
 }
 catch {
     Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error detail={0}" -f $_.Exception.Message)

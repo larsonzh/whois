@@ -16,7 +16,7 @@
             tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors
 
         Notes:
-        - When StartMonitors is enabled, supervisor/guard may continue the normal
+        - When StartMonitors is enabled, guard may continue the normal
             A -> snapshot -> B orchestration after A reaches PASS.
         - This script itself only launches Stage A.
 #>

@@ -1606,11 +1606,22 @@ function Save-IncidentPackage {
     Copy-FileIfPresent -Source $script:StartFilePath -Destination (Join-Path $incidentDir 'start_file_snapshot.md')
     Copy-FileIfPresent -Source $liveStatus -Destination (Join-Path $incidentDir 'live_status.json')
 
+    # Copy guard log tail
+    if (-not [string]::IsNullOrWhiteSpace($script:GuardLogPath) -and (Test-Path -LiteralPath $script:GuardLogPath)) {
+        Export-FileTail -Source $script:GuardLogPath -Destination (Join-Path $incidentDir 'guard_tail.log') -Tail 300
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir)) {
         Copy-FileIfPresent -Source (Join-Path $runDir 'final_status.json') -Destination (Join-Path $incidentDir 'run_final_status.json')
         Copy-FileIfPresent -Source (Join-Path $runDir 'final_status.txt') -Destination (Join-Path $incidentDir 'run_final_status.txt')
         Copy-FileIfPresent -Source (Join-Path $runDir 'summary.csv') -Destination (Join-Path $incidentDir 'summary.csv')
         Copy-FileIfPresent -Source (Join-Path $runDir 'summary_partial.csv') -Destination (Join-Path $incidentDir 'summary_partial.csv')
+
+        # Copy stage runtime logs
+        $stageLogFiles = @(Get-ChildItem -LiteralPath $runDir -Filter '*.log' -File -ErrorAction SilentlyContinue)
+        foreach ($logFile in $stageLogFiles) {
+            Copy-FileIfPresent -Source $logFile.FullName -Destination (Join-Path $incidentDir $logFile.Name)
+        }
     }
 
     $startFileLeaf = [System.IO.Path]::GetFileName($script:StartFilePath).ToLowerInvariant()
@@ -1649,7 +1660,8 @@ function Save-IncidentPackage {
         "a_status=$AStatus",
         "b_status=$BStatus",
         "run_dir_anchor=$runDirAnchor",
-        "live_status_anchor=$liveStatusAnchor"
+        "live_status_anchor=$liveStatusAnchor",
+        "guard_log_anchor=$script:GuardLogPath"
     )
     $summaryLines = @($summary | ForEach-Object { [string]$_ })
     $summaryText = [string]::Join("`n", $summaryLines)
@@ -3245,6 +3257,15 @@ $lastBMissingRuntimeTailEvidence = $null
 $script:GuardStartAt = Get-Date
 $guardStartupAStatus = ''
 $guardStartupSessionStatus = ''
+
+# D1 round progress stall detection state
+$d1StallPrevFileCount = -1
+$d1StallPrevLatestWrite = [datetime]::MinValue
+$d1StallPrevRowCount = -1
+$script:d1StallSince = $null
+$d1StallLastReportAt = $null
+$d1StallTriggeredSignature = ''
+$d1StallFailMinutes = 20
 $manualPauseActive = $false
 $manualPauseSignature = ''
 $manualPauseNoticeCount = 0
@@ -3278,6 +3299,64 @@ $monitorChainGraceShutdownStage = ''
 $monitorChainGraceShutdownReason = ''
 $monitorChainGraceShutdownSource = ''
 $healthCheckIterationCounter = 0
+
+function Test-D1ProgressSince {
+    param(
+        [string]$RunDirPath,
+        [int]$PrevFileCount,
+        [datetime]$PrevLatestWrite,
+        [int]$PrevRowCount,
+        [System.Collections.IDictionary]$SessionSettings
+    )
+
+    $result = [pscustomobject]@{
+        HasProgress = $false
+        FileCount = -1
+        LatestWrite = [datetime]::MinValue
+        LatestPath = ''
+        RowCount = -1
+        RemoteChainCount = 0
+        Detail = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RunDirPath) -or -not (Test-Path -LiteralPath $RunDirPath)) {
+        $result.Detail = 'run-dir-unavailable'
+        return $result
+    }
+
+    # Scan artifacts
+    $artifactState = Get-ArtifactState -Paths @($RunDirPath)
+    $result.FileCount = [int]$artifactState.FileCount
+    $result.LatestWrite = [datetime]$artifactState.LatestWriteTime
+    $result.LatestPath = [string]$artifactState.LatestPath
+
+    # Scan CSV row count
+    $csvPath = Join-Path $RunDirPath 'summary_partial.csv'
+    $result.RowCount = Get-CsvRowCount -Path $csvPath
+
+    # Scan remote chain
+    $result.RemoteChainCount = Get-RemoteChainCount -Settings $SessionSettings
+
+    if ($PrevFileCount -lt 0) {
+        $result.Detail = 'initial-count'
+        return $result
+    }
+
+    $result.HasProgress = (
+        ($result.FileCount -gt $PrevFileCount) -or
+        ($result.LatestWrite -gt $PrevLatestWrite) -or
+        ($result.RowCount -gt $PrevRowCount)
+    )
+
+    $result.Detail = if ($result.HasProgress) {
+        'progress-detected'
+    }
+    else {
+        "no_progress file=$($result.FileCount) prev_file=$PrevFileCount csv=$($result.RowCount) prev_csv=$PrevRowCount remote=$($result.RemoteChainCount)"
+    }
+
+    return $result
+}
 
 try {
     while ($true) {
@@ -3760,6 +3839,75 @@ try {
                 if ([bool]$aProcessSnapshot.HasAliveProcess) {
                     $aRunningNoProcessSince = $null
                     $lastMissingAProcessReportAt = $null
+
+                    # D1 round progress stall detection
+                    $nowA = Get-Date
+                    $d1Eligible = ($runDirAnchor -ne 'unknown' -and -not [string]::IsNullOrWhiteSpace($runDirAnchor))
+                    if ($d1Eligible) {
+                        $d1ResolvedRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
+                        if ([string]::IsNullOrWhiteSpace($d1ResolvedRunDir)) { $d1Eligible = $false }
+                    }
+
+                    if ($d1Eligible) {
+                        $d1ProgressResult = Test-D1ProgressSince -RunDirPath $d1ResolvedRunDir -PrevFileCount $d1StallPrevFileCount -PrevLatestWrite $d1StallPrevLatestWrite -PrevRowCount $d1StallPrevRowCount -SessionSettings $settings
+
+                        if ($d1ProgressResult.FileCount -ge 0) {
+                            $d1StallPrevFileCount = $d1ProgressResult.FileCount
+                            $d1StallPrevLatestWrite = $d1ProgressResult.LatestWrite
+                            $d1StallPrevRowCount = $d1ProgressResult.RowCount
+                        }
+
+                        if ($d1ProgressResult.HasProgress) {
+                            # Progress detected — reset stall timer
+                            $script:d1StallSince = $null
+                            $d1StallTriggeredSignature = ''
+                        }
+                        else {
+                            # No progress — track stall duration
+                            if ($null -eq $script:d1StallSince) {
+                                $script:d1StallSince = $nowA
+                            }
+
+                            $d1StallMinutes = ($nowA - $script:d1StallSince).TotalMinutes
+                            $d1Detail = ("stage=A stall_min={0:N1} threshold={1} {2}" -f $d1StallMinutes, $d1StallFailMinutes, $d1ProgressResult.Detail)
+
+                            if ($d1StallMinutes -ge $d1StallFailMinutes -and $d1ProgressResult.RemoteChainCount -eq 0) {
+                                $stallSig = ("{0}|{1}|{2}|{3}" -f $aStatus, $bStatus, $d1ResolvedRunDir, [math]::Floor($d1StallMinutes / 10))
+                                if ($stallSig -ne $d1StallTriggeredSignature) {
+                                    Write-GuardLog ("d1_stall_detected detail={0}" -f $d1Detail)
+
+                                    # Save incident package
+                                    $d1IncidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                                    $d1IncidentRel = Convert-ToRepoRelativePath -Path $d1IncidentDir
+                                    Write-GuardLog ("d1_stall_incident evidence={0}" -f $d1IncidentRel)
+
+                                    # Create agent ticket for D1 stall
+                                    $d1StallDetail = ("D1 round stall detected: {0}; evidence={1}" -f $d1Detail, $d1IncidentRel)
+                                    $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $d1IncidentDir -Detail $d1StallDetail -DedupSuffix $stallSig -RecommendedAction 'D1 round stall detected — run script-level self-heal or restart A stage' -PreferredStage 'A' -MainRound 'D1' -FailureKind 'runner-fail' -FailureCategory 'd1-stall' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $d1Detail -SelfHealable $true -NonRecoverableEnv $false
+                                    $d1StallTriggeredSignature = $stallSig
+                                }
+
+                                # Log periodic stall heartbeat (every 5 min)
+                                if ($null -eq $d1StallLastReportAt -or (($nowA - $d1StallLastReportAt).TotalMinutes -ge 5)) {
+                                    Write-GuardLog ("d1_stall_ongoing detail={0}" -f $d1Detail)
+                                    $d1StallLastReportAt = $nowA
+                                }
+                            }
+                            elseif (($d1StallMinutes % 10) -lt 1 -or $null -eq $d1StallLastReportAt) {
+                                # Periodic no-progress log (every ~10 min)
+                                Write-GuardLog ("d1_no_progress detail={0}" -f $d1Detail)
+                                $d1StallLastReportAt = $nowA
+                            }
+                        }
+                    }
+                    else {
+                        # Run dir unavailable — reset D1 tracking
+                        $script:d1StallSince = $null
+                        $d1StallTriggeredSignature = ''
+                        $d1StallPrevFileCount = -1
+                        $d1StallPrevLatestWrite = [datetime]::MinValue
+                        $d1StallPrevRowCount = -1
+                    }
                 }
                 else {
                     $nowA = Get-Date
