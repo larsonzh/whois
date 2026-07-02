@@ -1741,9 +1741,9 @@ function Get-ArtifactState {
 function Get-RemoteChainCount {
     param([hashtable]$Settings)
 
-    $remoteIp = [string]$Settings.RENOTE_IP
+    $remoteIp = [string]$Settings.REMOTE_IP
     if ([string]::IsNullOrWhiteSpace($remoteIp)) { $remoteIp = '10.0.0.199' }
-    $remoteUser = [string]$Settings.RENOTE_USER
+    $remoteUser = [string]$Settings.REMOTE_USER
     if ([string]::IsNullOrWhiteSpace($remoteUser)) { $remoteUser = 'larson' }
 
     $count = 0
