@@ -599,6 +599,15 @@ function Write-GuardState {
     }
 
     if ($writeSucceeded) {
+        # Also write same content as live_status.json for backward compatibility
+        try {
+            $normalizedJsonLive = [string]$json -replace "`r`n", "`n"
+            [System.IO.File]::WriteAllText($script:LiveStatusPath, $normalizedJsonLive, [System.Text.UTF8Encoding]::new($false))
+        }
+        catch {
+            $null = $_
+        }
+
         if (($script:GuardStateWriteFailureCount -as [int]) -gt 0) {
             Write-GuardLog ("state_write_recovered path={0} suppressed_failures={1}" -f $script:GuardStatePath, [int]$script:GuardStateWriteFailureCount)
             $script:GuardStateWriteFailureCount = 0
@@ -1077,6 +1086,115 @@ function Get-BStageExitReasonEvidence {
         Available = $false
         ArtifactPath = (Convert-ToRepoRelativePath -Path $artifactPath)
         Stage = 'B'
+        ProcessId = 0
+        ExitCode = 0
+        Result = ''
+        FailCategory = ''
+        FailReason = ''
+        GeneratedAt = ''
+        StartFilePath = ''
+        RuntimeLogPath = ''
+        TaskDefinitionPath = ''
+        SourceScript = ''
+        StartFileMatch = $false
+        ProcessIdMatch = $false
+        ParseError = ''
+    }
+
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        return [pscustomobject]$result
+    }
+
+    $payload = $null
+    try {
+        $payloadRaw = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 -ErrorAction Stop
+        $payload = $payloadRaw | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        $result.ParseError = Convert-ToSingleLineText -Text $_.Exception.Message
+        return [pscustomobject]$result
+    }
+
+    $result.Available = $true
+
+    if ($payload.PSObject.Properties.Name -contains 'stage') {
+        $result.Stage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'process_id') {
+        $parsedPid = Convert-ToNullablePositiveInt -Value ([string]$payload.process_id)
+        if ($null -ne $parsedPid) {
+            $result.ProcessId = [int]$parsedPid
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'exit_code') {
+        $parsedExitCode = 0
+        if ([int]::TryParse(([string]$payload.exit_code), [ref]$parsedExitCode)) {
+            $result.ExitCode = [int]$parsedExitCode
+        }
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'result') {
+        $result.Result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_category') {
+        $result.FailCategory = Convert-ToSingleLineText -Text ([string]$payload.fail_category)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'fail_reason') {
+        $result.FailReason = Convert-ToSingleLineText -Text ([string]$payload.fail_reason)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'generated_at') {
+        $result.GeneratedAt = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
+    }
+
+    $artifactStartFilePath = ''
+    if ($payload.PSObject.Properties.Name -contains 'start_file_path') {
+        $artifactStartFilePath = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+        $result.StartFilePath = $artifactStartFilePath
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'runtime_log_path') {
+        $result.RuntimeLogPath = Convert-ToSingleLineText -Text ([string]$payload.runtime_log_path)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'task_definition') {
+        $result.TaskDefinitionPath = Convert-ToSingleLineText -Text ([string]$payload.task_definition)
+    }
+
+    if ($payload.PSObject.Properties.Name -contains 'source_script') {
+        $result.SourceScript = Convert-ToSingleLineText -Text ([string]$payload.source_script)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($artifactStartFilePath)) {
+        $result.StartFileMatch = $true
+    }
+    else {
+        try {
+            $expectedStartFile = [System.IO.Path]::GetFullPath($script:StartFilePath)
+            $artifactStartFile = [System.IO.Path]::GetFullPath($artifactStartFilePath)
+            $result.StartFileMatch = $artifactStartFile.Equals($expectedStartFile, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $result.StartFileMatch = $false
+        }
+    }
+
+    $result.ProcessIdMatch = ($ExpectedProcessId -gt 0 -and [int]$result.ProcessId -eq $ExpectedProcessId)
+    return [pscustomobject]$result
+}
+
+function Get-AStageExitReasonEvidence {
+    param([int]$ExpectedProcessId)
+
+    $artifactPath = Get-StageExitReasonArtifactPath -Stage 'A'
+    $result = [ordered]@{
+        Available = $false
+        ArtifactPath = (Convert-ToRepoRelativePath -Path $artifactPath)
+        Stage = 'A'
         ProcessId = 0
         ExitCode = 0
         Result = ''
@@ -3336,6 +3454,7 @@ $script:GuardOutDir = Join-Path $script:RepoRoot (Join-Path 'out\artifacts\ab_se
 New-Item -ItemType Directory -Path $script:GuardOutDir -Force | Out-Null
 $script:GuardLogPath = Join-Path $script:GuardOutDir 'guard.log'
 $script:GuardStatePath = Join-Path $script:GuardOutDir 'guard_state.json'
+$script:LiveStatusPath = Join-Path $script:GuardOutDir 'live_status.json'
 $script:GuardState = [ordered]@{
     schema = 'AB_SESSION_GUARD_STATE_V1'
     status = 'starting'
@@ -3360,6 +3479,7 @@ $script:GuardState = [ordered]@{
     last_ticket_event = ''
     b_recovery_attempts = 0
     last_recovery_at = ''
+    d1_auto_restart_enabled = $true
 }
 
 $script:GuardStateWriteFailureCount = 0
@@ -3415,6 +3535,8 @@ $script:d1StallSince = $null
 $d1StallLastReportAt = $null
 $d1StallTriggeredSignature = ''
 $d1StallFailMinutes = 20
+$d1AutoRestartEnabled = $true
+$d1AutoRestartAttempted = $false
 $manualPauseActive = $false
 $manualPauseSignature = ''
 $manualPauseNoticeCount = 0
@@ -3716,6 +3838,10 @@ try {
                         $startupWarmupMin = [int]$parsedWarmup
                     }
                 }
+            }
+
+            if ($settings.Contains('LOCAL_GUARD_D1_AUTO_RESTART')) {
+                $d1AutoRestartEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_D1_AUTO_RESTART) -Default $true
             }
 
             $aLaunchPid = 0
@@ -4057,6 +4183,11 @@ try {
                             # Progress detected — reset stall timer
                             $script:d1StallSince = $null
                             $d1StallTriggeredSignature = ''
+                            # Allow another D1 auto-restart if progress resumes after previous restart
+                            if ($d1AutoRestartAttempted) {
+                                $d1AutoRestartAttempted = $false
+                                Write-GuardLog ("d1_auto_restart_reset reason=progress-detected")
+                            }
                         }
                         else {
                             # No progress — track stall duration
@@ -4081,6 +4212,58 @@ try {
                                     $d1StallDetail = ("D1 round stall detected: {0}; evidence={1}" -f $d1Detail, $d1IncidentRel)
                                     $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $d1IncidentDir -Detail $d1StallDetail -DedupSuffix $stallSig -RecommendedAction 'D1 round stall detected — run script-level self-heal or restart A stage' -PreferredStage 'A' -MainRound 'D1' -FailureKind 'runner-fail' -FailureCategory 'd1-stall' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $d1Detail -SelfHealable $true -NonRecoverableEnv $false
                                     $d1StallTriggeredSignature = $stallSig
+
+                                    # D1 stall auto-restart
+                                    if ($d1AutoRestartEnabled -and -not $d1AutoRestartAttempted) {
+                                        Write-GuardLog ("d1_stall_auto_restart_start detail={0}" -f $d1Detail)
+
+                                        # Stop stalled A process tree
+                                        try {
+                                            Stop-ProcessTree -TargetProcessId $aLaunchPid -Settings $settings
+                                            Write-GuardLog ("d1_stall_process_tree_stopped pid={0}" -f $aLaunchPid)
+                                        }
+                                        catch {
+                                            Write-GuardLog ("d1_stall_process_tree_stop_error pid={0} detail={1}" -f $aLaunchPid, (Convert-ToSingleLineText -Text $_.Exception.Message))
+                                        }
+
+                                        # Clean remote build lock
+                                        Invoke-SafeRemoteLockCleanup
+
+                                        # Write FAIL status to start file
+                                        $stallFailNote = "guard_d1_stall_auto_restart file_count={0} csv_rows={1} stall_min={2:N1}" -f $d1ProgressResult.FileCount, $d1ProgressResult.RowCount, $d1StallMinutes
+                                        $updatedANotes = Add-DelimitedNote -Existing $notes -Append $stallFailNote
+                                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                                            A_FINAL_STATUS = 'FAIL'
+                                            A_LAUNCH_PID = '0'
+                                            A_FAIL_CATEGORY = 'd1-stall'
+                                            A_FAIL_REASON = ('D1 round stall: no_progress_for_{0:N1}_min file_count={1} csv_rows={2}' -f $d1StallMinutes, $d1ProgressResult.FileCount, $d1ProgressResult.RowCount)
+                                            SESSION_FINAL_STATUS = 'RUNNING'
+                                            SESSION_FINAL_NOTES = $updatedANotes
+                                        }
+                                        Write-GuardLog ("d1_stall_fail_written")
+
+                                        # Reset D1 tracking variables
+                                        $script:d1StallSince = $null
+                                        $d1StallTriggeredSignature = ''
+                                        $d1StallPrevFileCount = -1
+                                        $d1StallPrevLatestWrite = [datetime]::MinValue
+                                        $d1StallPrevRowCount = -1
+                                        $d1StallLastReportAt = $null
+                                        $d1AutoRestartAttempted = $true
+
+                                        # Restart A stage
+                                        Write-GuardLog ("d1_stall_restart_begin")
+                                        $stallRestartResult = Invoke-AStageRestart -Attempt 1 -RoundTag 'D1'
+                                        if ([bool]$stallRestartResult.Succeeded) {
+                                            Write-GuardLog ("d1_stall_restart_succeeded")
+                                        }
+                                        else {
+                                            Write-GuardLog ("d1_stall_restart_failed exit_code={0}" -f [int]$stallRestartResult.ExitCode)
+                                        }
+
+                                        Start-Sleep -Seconds 5
+                                        continue
+                                    }
                                 }
 
                                 # Log periodic stall heartbeat (every 5 min)
@@ -4546,6 +4729,8 @@ try {
                 auto_fix_d_compile = [bool]$autoFixCompileEnabled
                 auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
                 auto_fix_cooldown_minutes = [int]$autoFixCooldownMinutes
+                d1_auto_restart_enabled = [bool]$d1AutoRestartEnabled
+                d1_auto_restart_attempted = [bool]$d1AutoRestartAttempted
             }
 
             if ($sessionStatus -eq 'PASS' -and -not $running) {

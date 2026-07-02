@@ -3095,6 +3095,11 @@ if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($guardLog)) {
     $anchorUpdates.guard_log = Convert-ToAnchorPath -Path $guardLog
+    # Derive live_status path from guard_log (same directory, different filename)
+    $liveStatusFromGuardLog = $guardLog -replace 'guard\.log$', 'live_status.json'
+    if ($liveStatusFromGuardLog -ne $guardLog) {
+        $anchorUpdates.live_status = Convert-ToAnchorPath -Path $liveStatusFromGuardLog
+    }
 }
 if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
     $anchorUpdates.b_runtime_log = Convert-ToAnchorPath -Path $stageRuntimeLogPath
