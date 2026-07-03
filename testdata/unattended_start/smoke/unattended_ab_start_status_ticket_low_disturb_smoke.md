@@ -1,4 +1,4 @@
-AB_UNATTENDED_START_V1
+﻿AB_UNATTENDED_START_V1
 # smoke sample: low-disturb mode
 # keeps scheduled status tickets enabled but suppresses interactive status-report dispatch
 # use this when you want low-noise relay behavior without removing routine status tickets

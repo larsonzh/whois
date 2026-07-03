@@ -1,4 +1,4 @@
-AB_UNATTENDED_START_V1
+﻿AB_UNATTENDED_START_V1
 # smoke sample: event-only mode
 # disables scheduled status tickets and keeps only event-driven tickets
 # use this for the lowest-noise validation path when routine status reports are not wanted
