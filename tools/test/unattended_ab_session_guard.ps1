@@ -4339,6 +4339,37 @@ try {
 
                     $missingASec = [Math]::Max(0, [int][Math]::Round(((Get-Date) - $aRunningNoProcessSince).TotalSeconds))
                     if ($missingASec -ge $aRunningNoProcessGraceSec) {
+                        # Check exit artifact before declaring A=FAIL.
+                        # If A actually passed (exit_code=0, result=pass), write PASS instead
+                        # so guard can proceed to B auto-launch.
+                        $aExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $aLaunchPid
+                        $aActuallyPassed = (
+                            $null -ne $aExitEvidence -and
+                            [bool]$aExitEvidence.Available -and
+                            [bool]$aExitEvidence.ProcessIdMatch -and
+                            ([string]$aExitEvidence.Result -eq 'pass') -and
+                            [int]$aExitEvidence.ExitCode -eq 0
+                        )
+
+                        if ($aActuallyPassed) {
+                            $passNote = ("guard_detected a_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2} pass_from_artifact" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
+                            $newANotes = Add-DelimitedNote -Existing $notes -Append $passNote
+                            Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                                A_FINAL_STATUS = 'PASS'
+                                SESSION_FINAL_STATUS = 'RUNNING'
+                                A_LAUNCH_PID = '0'
+                                SESSION_FINAL_NOTES = $newANotes
+                            }
+                            Write-GuardLog ("a_process_missing_pass expected_pid={0} elapsed_sec={1} grace_sec={2} exit_code=0" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
+                            # Force re-read status so next poll iteration sees A=PASS and triggers B launch
+                            $settings = Read-KeyValueFile -Path $script:StartFilePath
+                            $aStatusRawAfterA = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { 'NOT_RUN' }
+                            $aStatus = Get-StatusValue -Value $aStatusRawAfterA
+                            $sessionStatusRawAfterA = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { 'NOT_RUN' }
+                            $sessionStatus = Get-StatusValue -Value $sessionStatusRawAfterA
+                            continue
+                        }
+
                         $sessionStatusAfterAMissing = if ($bStatus -eq 'RUNNING') { $sessionStatus } else { 'FAIL' }
                         $aFailureNote = ("guard_detected a_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                         $newANotes = Add-DelimitedNote -Existing $notes -Append $aFailureNote

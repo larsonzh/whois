@@ -1151,6 +1151,85 @@ if ($exitCode -ne 0) {
 }
 else {
     Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A-PASS'
+
+    # A stage PASS: write A_FINAL_STATUS and A_SUCCESS_SNAPSHOT to start file
+    # so guard can detect PASS and auto-launch B
+    $sourceState = 'CLEAN'
+    try {
+        $eaBackup = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        $gitStatus = @(& git -C $repoRoot status --short 2>&1 | ForEach-Object { [string]$_ })
+        $ErrorActionPreference = $eaBackup
+        $filtered = @($gitStatus | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch '^\s*(warning:|git(\.exe)?\s*:\s*warning:)' })
+        $sourceState = if ($filtered.Count -eq 0) { 'CLEAN' } else { ($filtered -join ' | ') }
+    }
+    catch {
+        $sourceState = 'CLEAN'
+    }
+    # Derive run dir name from latest multiround output directory
+    $runDirName = ''
+    $multiroundBase = Join-Path $repoRoot 'out/artifacts/dev_verify_multiround'
+    if (Test-Path -LiteralPath $multiroundBase) {
+        $latestRunDir = @(Get-ChildItem -LiteralPath $multiroundBase -Directory | Sort-Object Name -Descending | Select-Object -First 1)
+        if ($latestRunDir.Count -gt 0) { $runDirName = $latestRunDir[0].Name }
+    }
+    if ([string]::IsNullOrWhiteSpace($runDirName)) { $runDirName = 'unknown-run' }
+    $snapshotFinalRel = "out/artifacts/dev_verify_multiround/$runDirName/final_status.json"
+    $snapshotSummaryRel = "out/artifacts/dev_verify_multiround/$runDirName/summary.csv"
+
+    $maxAttempts = 5
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            $startLines = @(Get-Content -LiteralPath $startFilePath -Encoding utf8 -ErrorAction Stop)
+            $updatedLines = @()
+            $updatedKeys = @{
+                'A_FINAL_STATUS' = $false
+                'SESSION_FINAL_STATUS' = $false
+                'A_SUCCESS_SNAPSHOT_FINAL_STATUS' = $false
+                'A_SUCCESS_SNAPSHOT_SUMMARY' = $false
+                'A_SUCCESS_SNAPSHOT_SOURCE_STATE' = $false
+            }
+            foreach ($line in $startLines) {
+                $matched = $false
+                if ($line -match '^A_FINAL_STATUS=') { $updatedLines += 'A_FINAL_STATUS=PASS'; $updatedKeys['A_FINAL_STATUS'] = $true; $matched = $true }
+                if ($line -match '^SESSION_FINAL_STATUS=') { $updatedLines += 'SESSION_FINAL_STATUS=RUNNING'; $updatedKeys['SESSION_FINAL_STATUS'] = $true; $matched = $true }
+                if ($line -match '^A_SUCCESS_SNAPSHOT_FINAL_STATUS=') { $updatedLines += "A_SUCCESS_SNAPSHOT_FINAL_STATUS=$snapshotFinalRel"; $updatedKeys['A_SUCCESS_SNAPSHOT_FINAL_STATUS'] = $true; $matched = $true }
+                if ($line -match '^A_SUCCESS_SNAPSHOT_SUMMARY=') { $updatedLines += "A_SUCCESS_SNAPSHOT_SUMMARY=$snapshotSummaryRel"; $updatedKeys['A_SUCCESS_SNAPSHOT_SUMMARY'] = $true; $matched = $true }
+                if ($line -match '^A_SUCCESS_SNAPSHOT_SOURCE_STATE=') { $updatedLines += "A_SUCCESS_SNAPSHOT_SOURCE_STATE=$sourceState"; $updatedKeys['A_SUCCESS_SNAPSHOT_SOURCE_STATE'] = $true; $matched = $true }
+                if (-not $matched) { $updatedLines += $line }
+            }
+            # Append missing keys after A_LAUNCH_PID line (or at end)
+            $missingKeys = @($updatedKeys.Keys | Where-Object { -not $updatedKeys[$_] })
+            if ($missingKeys.Count -gt 0) {
+                $insertIdx = -1
+                for ($i = 0; $i -lt $updatedLines.Count; $i++) {
+                    if ($updatedLines[$i] -match '^A_LAUNCH_PID=') { $insertIdx = $i + 1; break }
+                }
+                if ($insertIdx -lt 0) { $insertIdx = $updatedLines.Count }
+                $appendLines = @()
+                foreach ($key in $missingKeys) {
+                    $val = switch ($key) {
+                        'A_FINAL_STATUS' { 'PASS' }
+                        'SESSION_FINAL_STATUS' { 'RUNNING' }
+                        'A_SUCCESS_SNAPSHOT_FINAL_STATUS' { $snapshotFinalRel }
+                        'A_SUCCESS_SNAPSHOT_SUMMARY' { $snapshotSummaryRel }
+                        'A_SUCCESS_SNAPSHOT_SOURCE_STATE' { $sourceState }
+                    }
+                    $appendLines += "$key=$val"
+                }
+                $updatedLines = @($updatedLines[0..($insertIdx - 1)]) + $appendLines + @($updatedLines[$insertIdx..($updatedLines.Count - 1)])
+            }
+            $text = ($updatedLines -join "`n") + "`n"
+            $tempPath = "$startFilePath.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+            [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
+            Move-Item -LiteralPath $tempPath -Destination $startFilePath -Force
+            Write-Output ("[FASTMODE-A] start_file_update A_FINAL_STATUS=PASS source_state={0}" -f $sourceState)
+            break
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) { Write-Output ("[FASTMODE-A] start_file_update_failed detail={0}" -f (Convert-ToSingleLineText -Text $_.Exception.Message)) }
+            else { Start-Sleep -Milliseconds 200 }
+        }
+    }
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }
