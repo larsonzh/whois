@@ -1551,10 +1551,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $effectiveMode = "gate-only"
     $roundDecision = "EXECUTE"
     # Resume-failed-round role: pre-resume (code-step only), resume (no gate), normal
+    # D-prefix (e.g., D4): resume at the named DEV round; includes full autopilot compile+verify.
+    # V-prefix (e.g., V4): resume at a VERIFY round; the LAST DEV round (D4) gets resume role
+    # so the source modification is compiled before V-round validation.
     $roundResumeRole = "normal"
     if (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and $phase -eq "DEV") {
         $resumeRoundNum = 0
-        if ($ResumeFailedRound -match '^D(\d)$') { $resumeRoundNum = [int]$Matches[1] }
+        if ($ResumeFailedRound -match '^D(\d)$') {
+            $resumeRoundNum = [int]$Matches[1]
+        }
+        elseif ($ResumeFailedRound -match '^V[1-4]$') {
+            $resumeRoundNum = 4  # V-resume: last DEV round (D4) runs full autopilot
+        }
         if ($resumeRoundNum -gt 0) {
             if ($phaseRound -lt $resumeRoundNum) { $roundResumeRole = "pre-resume" }
             elseif ($phaseRound -eq $resumeRoundNum) { $roundResumeRole = "resume" }
