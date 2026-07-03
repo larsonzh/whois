@@ -4158,6 +4158,42 @@ try {
                     $aLaunchPid = $newALaunchPid
                 }
 
+                # Detect no-exit shell cases: process PID is still alive but
+                # stage-exit artifact is already terminal.  This mirrors the
+                # existing B-stage exit artifact check (Get-BStageExitReasonEvidence).
+                if ([bool]$aProcessSnapshot.HasAliveProcess -and $aLaunchPid -gt 0) {
+                    $aShellLikeExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $aLaunchPid
+                    $aShellLikeExitMatched = (
+                        $null -ne $aShellLikeExitEvidence -and
+                        [bool]$aShellLikeExitEvidence.Available -and
+                        ([string]$aShellLikeExitEvidence.Stage -eq 'A') -and
+                        [bool]$aShellLikeExitEvidence.StartFileMatch -and
+                        [bool]$aShellLikeExitEvidence.ProcessIdMatch -and
+                        ([string]$aShellLikeExitEvidence.Result -in @('pass', 'fail'))
+                    )
+
+                    if ($aShellLikeExitMatched) {
+                        Write-GuardLog ("a_shell_alive_after_terminal_exit expected_pid={0} artifact_pid={1} result={2} exit_code={3} category={4} artifact={5}" -f
+                            $aLaunchPid,
+                            [int]$aShellLikeExitEvidence.ProcessId,
+                            [string]$aShellLikeExitEvidence.Result,
+                            [int]$aShellLikeExitEvidence.ExitCode,
+                            [string]$aShellLikeExitEvidence.FailCategory,
+                            [string]$aShellLikeExitEvidence.ArtifactPath)
+
+                        $aProcessSnapshot = [pscustomobject]@{
+                            ExpectedProcessId = [int]$aProcessSnapshot.ExpectedProcessId
+                            ExpectedAlive = $false
+                            CandidateCount = [int]$aProcessSnapshot.CandidateCount
+                            CandidateIds = @($aProcessSnapshot.CandidateIds)
+                            ResolvedProcessId = [int]$aProcessSnapshot.ResolvedProcessId
+                            ResolvedSource = 'terminal-exit-artifact'
+                            HasAliveProcess = $false
+                            AnchorUpdateRequired = $false
+                        }
+                    }
+                }
+
                 if ([bool]$aProcessSnapshot.HasAliveProcess) {
                     $aRunningNoProcessSince = $null
                     $lastMissingAProcessReportAt = $null
@@ -4219,7 +4255,7 @@ try {
 
                                         # Stop stalled A process tree
                                         try {
-                                            Stop-ProcessTree -TargetProcessId $aLaunchPid -Settings $settings
+                                            Stop-ProcessTree -RootPids @($aLaunchPid)
                                             Write-GuardLog ("d1_stall_process_tree_stopped pid={0}" -f $aLaunchPid)
                                         }
                                         catch {

@@ -14,9 +14,7 @@ function Test-RoleProcessTrulyAlive {
         # Derive state file path from role and start-file
         $roleStateRoot = switch ($Role) {
             'guard'      { Join-Path $RepoRoot 'out\artifacts\ab_session_guard' }
-            'supervisor' { Join-Path $RepoRoot 'out\artifacts\ab_supervisor' }
             'trigger'    { Join-Path $RepoRoot 'out\artifacts\ab_agent_queue' }
-            'companion'  { Join-Path $RepoRoot 'out\artifacts\ab_companion' }
             default      { '' }
         }
         if ([string]::IsNullOrWhiteSpace($roleStateRoot)) { return $true }  # unknown role: assume alive
@@ -24,8 +22,6 @@ function Test-RoleProcessTrulyAlive {
         # Find the state file by scanning for the latest timestamped directory
         $stateFileName = switch ($Role) {
             'guard'      { 'guard_state.json' }
-            'supervisor' { 'live_status.json' }
-            'companion'  { 'companion.log' }
             'trigger'    { $null }  # handled separately below
         }
 
@@ -53,7 +49,7 @@ function Test-RoleProcessTrulyAlive {
             }
         }
         else {
-            # Guard / supervisor: scan for the latest timestamped subdirectory
+            # Guard: scan for the latest timestamped subdirectory
             if (Test-Path -LiteralPath $roleStateRoot) {
                 $dirs = @(Get-ChildItem -LiteralPath $roleStateRoot -Directory -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -match '^\d{8}-\d{6}$' } |
@@ -77,7 +73,7 @@ function Test-RoleProcessTrulyAlive {
             if (-not [string]::IsNullOrWhiteSpace($rawState)) {
                 $lowerState = $rawState.ToLowerInvariant()
 
-                # JSON state file terminal markers (supervisor/guard/trigger)
+                # JSON state file terminal markers (guard/trigger)
                 if ($lowerState -match '"status":\s+"stopped"' -or
                     $lowerState -match '"status":\s+"shutdown"' -or
                     $lowerState -match '"status":\s+"fail"' -or
@@ -85,21 +81,7 @@ function Test-RoleProcessTrulyAlive {
                     continue  # This instance terminated, check next process
                 }
 
-                # Companion plain-text log terminal markers
-                $companionTerminated = $false
-                if ($Role -eq 'companion') {
-                    $lastLines = @($rawState -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 3)
-                    foreach ($lastLine in $lastLines) {
-                        $ll = $lastLine.Trim().ToLowerInvariant()
-                        if ($ll -match '^complete\s+' -or $ll -match '^shutdown_pid\s+') {
-                            $companionTerminated = $true
-                            break
-                        }
-                    }
-                }
-                if ($companionTerminated) {
-                    continue  # Companion script has exited, treat as zombie
-                }
+
             }
         }
         catch { $null = $_ }
@@ -109,8 +91,6 @@ function Test-RoleProcessTrulyAlive {
         # This catch-all covers killed/crashed processes that couldn't write
         # terminal markers.
         $staleThreshold = switch ($Role) {
-            'supervisor' { 300 }
-            'companion'  { 180 }
             'guard'      { 300 }
             'trigger'    { 300 }
             default      { 0 }
@@ -142,8 +122,6 @@ function Invoke-MonitorChainHealthCheck {
     )
 
     $roleMap = @(
-        @{ n = 'companion';  p = 'tools/test/open_unattended_ab_companion_window.ps1' }
-        @{ n = 'supervisor'; p = 'tools/test/open_unattended_ab_supervisor_window.ps1' }
         @{ n = 'guard';      p = 'tools/test/open_unattended_ab_session_guard_window.ps1' }
         @{ n = 'trigger';    p = 'tools/test/open_unattended_ab_takeover_trigger_window.ps1' }
     )
@@ -225,8 +203,6 @@ function Invoke-KillOldRoleInstances {
     )
 
     $scriptName = switch ($Role) {
-        'supervisor' { 'unattended_ab_supervisor.ps1' }
-        'companion'  { 'unattended_ab_companion.ps1' }
         'guard'      { 'unattended_ab_session_guard.ps1' }
         'trigger'    { 'unattended_ab_takeover_trigger.ps1' }
         default      { '' }

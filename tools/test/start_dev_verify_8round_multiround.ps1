@@ -1784,6 +1784,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
         catch { Write-Warning ("[DEV-VERIFY-MULTI] encoding_gate=src_lf_exception round={0} detail={1}" -f $roundTag, $_.Exception.Message) }
 
+        # Monitor chain health check after code step — ensures guard/trigger
+        # are alive before proceeding to potentially expensive autopilot run.
+        $hcCodeStepStartFile = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+        if (-not [string]::IsNullOrWhiteSpace($hcCodeStepStartFile)) {
+            try {
+                $null = Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcCodeStepStartFile -LogPrefix 'DEV-VERIFY-MULTI'
+            }
+            catch {
+                Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error stage=code-step round={0} detail={1}" -f $roundTag, $_.Exception.Message)
+            }
+        }
+
         $afterCodeStepSnapshot = Get-GitSnapshot -RepoPath $repoRoot
         Write-GitSnapshot -Snapshot $afterCodeStepSnapshot -Tag ("{0}_after_code_step" -f $roundTag)
 
@@ -2212,6 +2224,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         if ($roundTag -eq $ResumeFailedRound) {
             Set-StartFileResumeFailedRound -StartFilePath $startFilePathForResume -RoundTag ''
             Write-Output ("[DEV-VERIFY-MULTI] resume_failed_round_cleared round={0}" -f $roundTag)
+        }
+    }
+
+    # Monitor chain health check between rounds — catch guard/trigger
+    # failures before the next round starts.
+    $hcBetweenRoundStartFile = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+    if (-not [string]::IsNullOrWhiteSpace($hcBetweenRoundStartFile)) {
+        try {
+            $null = Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcBetweenRoundStartFile -LogPrefix 'DEV-VERIFY-MULTI'
+        }
+        catch {
+            Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error round={0} detail={1}" -f $roundTag, $_.Exception.Message)
         }
     }
 }
