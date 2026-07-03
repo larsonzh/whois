@@ -1,4 +1,4 @@
-﻿AB_UNATTENDED_START_V1
+AB_UNATTENDED_START_V1
 BINDING_SENTENCE=Dispatch probe minimal template for local sender policy validation.
 PRECHECK_REQUIRED=true
 LAUNCH_READY_GATE_ENABLED=true

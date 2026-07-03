@@ -1,4 +1,4 @@
-﻿AB_UNATTENDED_START_V1
+AB_UNATTENDED_START_V1
 BINDING_SENTENCE=进入定时状态票/事件票驱动监控，后续动作按票据指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）。
 PRECHECK_REQUIRED=true
 LAUNCH_READY_GATE_ENABLED=true

@@ -1,4 +1,4 @@
-﻿AB_UNATTENDED_START_V1
+AB_UNATTENDED_START_V1
 # smoke sample: normal mode
 # keeps scheduled status tickets enabled and allows interactive status-report dispatch
 # use this when validating the standard unattended chat/ticket flow
