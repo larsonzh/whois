@@ -1689,10 +1689,10 @@ function Get-BudgetExhaustedLivenessEvidence {
         $bLaunchPid,
         $pidAlive,
         $WindowMinutes,
-        (Format-AgeMinutesForLog -AgeMinutes [double]$guardFreshness.AgeMinutes),
-        (Format-AgeMinutesForLog -AgeMinutes [double]$liveStatusFreshness.AgeMinutes),
-        (Format-AgeMinutesForLog -AgeMinutes [double]$runtimeFreshness.AgeMinutes),
-        (Format-AgeMinutesForLog -AgeMinutes [double]$runDirFreshness.AgeMinutes))
+        (Format-AgeMinutesForLog -AgeMinutes ([double]$guardFreshness.AgeMinutes)),
+        (Format-AgeMinutesForLog -AgeMinutes ([double]$liveStatusFreshness.AgeMinutes)),
+        (Format-AgeMinutesForLog -AgeMinutes ([double]$runtimeFreshness.AgeMinutes)),
+        (Format-AgeMinutesForLog -AgeMinutes ([double]$runDirFreshness.AgeMinutes)))
 
     return [pscustomobject]@{
         Active = [bool]$active

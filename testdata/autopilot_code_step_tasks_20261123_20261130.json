@@ -55,6 +55,10 @@
         {
           "pattern": "return wc_preclass_class_special_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,",
           "replacement": "return wc_preclass_class_special_literal();\r\n}\r\n\r\nstatic const char* wc_preclass_non_ip_reason_literal(void)\r\n{\r\n\treturn \"NON_IP_INPUT\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result(const char** cls,"
+        },
+        {
+          "pattern": "\\tif \\(inet_pton\\(AF_INET, normalized, &addr4\\) == 1\\) \\{\\r?\\n\\t\\tconst wc_preclass_table_row_t\\* row;\\r?\\n\\t\\tunsigned char b\\[4\\];\\r?\\n\\t\\tuint32_t ip;\\r?\\n\\t\\tmemcpy\\(b, &addr4, sizeof\\(b\\)\\);\\r?\\n\\t\\tip = \\(\\(\\(uint32_t\\)b\\[0\\]\\) << 24\\) \\|\\r?\\n\\t\\t\\t\\(\\(\\(uint32_t\\)b\\[1\\]\\) << 16\\) \\|\\r?\\n\\t\\t\\t\\(\\(\\(uint32_t\\)b\\[2\\]\\) << 8\\) \\|\\r?\\n\\t\\t\\t\\(\\(uint32_t\\)b\\[3\\]\\);\\r?\\n\\t\\tif \\(!wc_preclass_lookup_row_v4\\(ip, &row\\)\\)\\r?\\n\\t\\t\\treturn 0;\\r?\\n\\t\\t\\*family = wc_preclass_family_v4_literal\\(\\);\\r?\\n\\t\\twc_preclass_assign_from_row\\(row, cls, rir, reason, confidence\\);\\r?\\n\\t\\treturn 1;\\r?\\n\\t}",
+          "replacement": "\tif (inet_pton(AF_INET, normalized, &addr4) == 1) {\n\t\treturn wc_preclass_lookup_row_and_assign_v4(addr4, family, cls, rir, reason, confidence);\n\t}"
         }
       ]
     },
