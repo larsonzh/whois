@@ -297,11 +297,9 @@ function Get-LatestTimestampedDirectory {
 function Test-ExistingMonitorProcessAlive {
     param(
         [int[]]$ProcessIds,
-        [string[]]$EvidencePaths,
-        [int]$MaxStaleMinutes = 15
+        [string[]]$EvidencePaths
     )
 
-    $thresholdMinutes = if ($MaxStaleMinutes -gt 0) { $MaxStaleMinutes } else { 15 }
     $alivePidCount = 0
     foreach ($candidatePid in @($ProcessIds | Sort-Object -Unique)) {
         if ($candidatePid -le 0) {
@@ -317,7 +315,6 @@ function Test-ExistingMonitorProcessAlive {
         return $false
     }
 
-    $now = Get-Date
     foreach ($path in @($EvidencePaths)) {
         if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
             continue
@@ -328,32 +325,30 @@ function Test-ExistingMonitorProcessAlive {
             continue
         }
 
-        $ageMinutes = (New-TimeSpan -Start $item.LastWriteTime -End $now).TotalMinutes
-        if ($ageMinutes -le $thresholdMinutes) {
-            # \u00e9\u0081\u00bf\u00e5\u0085\u008d PID \u00e8\u00bf\u0098\u00e5\u009c\u00a8\u00e4\u00bd\u0086\u00e8\u0084\u009a\u00e6\u009c\u00ac\u00e9\u0080\u00bb\u00e8\u00be\u0091\u00e5\u00b7\u00b2\u00e7\u00bb\u0088\u00e6\u00ad\u00a2\u00ef\u00bc\u009a
-            # \u00e6\u00a3\u0080\u00e6\u009f\u00a5 JSON \u00e7\u008a\u00b6\u00e6\u0080\u0081\u00e6\u0096\u0087\u00e4\u00bb\u00b6\u00e6\u0098\u00af\u00e5\u0090\u00a6\u00e5\u008c\u00ab\u00e5\u0090\u00ab\u00e7\u00bb\u0088\u00e6\u00ad\u00a2\u00e6\u00a0\u0087\u00e8\u00ae\u00b0
-            if ($path -like '*.json') {
-                try {
-                    $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
-                    if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
-                        $lowerTerminal = $rawTerminal.ToLowerInvariant()
-                        $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
-                        $hasTerminal = $false
-                        foreach ($tp in $terminalPatterns) {
-                            if ($lowerTerminal.Contains($tp)) {
-                                $hasTerminal = $true
-                                break
-                            }
-                        }
-                        if ($hasTerminal) {
-                            continue
+        # PID is alive; check JSON state file for explicit shutdown markers.
+        # Skip stale-age threshold because a live process may have an idle
+        # state file during quiet periods — don't mistake it for a zombie.
+        if ($path -like '*.json') {
+            try {
+                $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
+                    $lowerTerminal = $rawTerminal.ToLowerInvariant()
+                    $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
+                    $hasTerminal = $false
+                    foreach ($tp in $terminalPatterns) {
+                        if ($lowerTerminal.Contains($tp)) {
+                            $hasTerminal = $true
+                            break
                         }
                     }
+                    if ($hasTerminal) {
+                        continue
+                    }
                 }
-                catch { $null = $_ }
             }
-            return $true
+            catch { $null = $_ }
         }
+        return $true
     }
 
     return $false

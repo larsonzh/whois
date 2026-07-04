@@ -437,13 +437,25 @@ try {
                     }
                 }
             } catch { $null = $_ }
-            # Also treat as empty shell if state file is stale (> 300s)
+            # If state file has explicit shutdown markers the process is dead.
+            # Otherwise, verify process aliveness directly. A live process
+            # may have an idle state file during quiet periods (no recent
+            # failures or status changes) — don't mistake it for a zombie.
             if ($isTrulyAlive) {
-                try {
-                    $fileAge = ((Get-Date) - (Get-Item -LiteralPath $triggerStatePath).LastWriteTime).TotalSeconds
-                    if ($fileAge -gt 300) { $isTrulyAlive = $false }
-                } catch { $null = $_ }
+                $anyProcessAlive = $false
+                foreach ($procPid in $existingPids) {
+                    $proc = Get-Process -Id $procPid -ErrorAction SilentlyContinue
+                    if ($null -ne $proc -and -not $proc.HasExited) { $anyProcessAlive = $true; break }
+                }
+                if (-not $anyProcessAlive) {
+                    # No process alive — treat as empty shell regardless of state file age
+                    $isTrulyAlive = $false
+                }
             }
+        }
+        else {
+            # No state file at all — process cannot be truly alive without one
+            $isTrulyAlive = $false
         }
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }

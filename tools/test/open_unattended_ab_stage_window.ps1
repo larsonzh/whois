@@ -2324,7 +2324,22 @@ if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag '
 
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 
+# ── Orphan cleanup: terminate any lingering stage process windows ──
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
+$orphanEntryScript = Resolve-RepoPath -Path ([string]$settings[$entryScriptKey]) -ErrorAction SilentlyContinue
+if (-not [string]::IsNullOrWhiteSpace($orphanEntryScript)) {
+    try {
+        $orphanProcs = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$orphanEntryScript*" })
+        foreach ($orphanProc in $orphanProcs) {
+            Write-Output ("[OPEN-AB-STAGE] orphan_cleanup stage={0} pid={1} cmdline_match=entry_script" -f $Stage, $orphanProc.ProcessId)
+            $null = Stop-Process -Id ([int]$orphanProc.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        Write-Output ("[OPEN-AB-STAGE] orphan_cleanup_skipped reason=wmi_error stage={0}" -f $Stage)
+    }
+}
+
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
 
 $entryScriptPath = Resolve-RepoPath -Path ([string]$settings[$entryScriptKey])
@@ -2677,13 +2692,6 @@ if ($keepWindowOnExit) {
     $stageArgumentList = @('-NoExit') + $stageArgumentList
 }
 
-$processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $stageArgumentList -PassThru
-
-Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskDefinitionRelative)
-if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
-    Write-Output ("[OPEN-AB-STAGE] runtime_log={0}" -f (Convert-ToAnchorPath -Path $stageRuntimeLogPath))
-}
-
 $stageLaunchProbeDelayMs = 1200
 if ($settings.Contains('STAGE_LAUNCH_PROBE_DELAY_MS')) {
     $parsedProbeDelayMs = 0
@@ -2694,11 +2702,36 @@ if ($settings.Contains('STAGE_LAUNCH_PROBE_DELAY_MS')) {
     }
 }
 
-if ($stageLaunchProbeDelayMs -gt 0) {
-    Start-Sleep -Milliseconds $stageLaunchProbeDelayMs
+$stageAliveAfterProbe = $false
+$launchRetryAttempt = 0
+$launchMaxRetries = 3
+while (-not $stageAliveAfterProbe -and $launchRetryAttempt -lt $launchMaxRetries) {
+    if ($launchRetryAttempt -gt 0) {
+        Write-Output ("[OPEN-AB-STAGE] launch_retry stage={0} attempt={1}/{2}" -f $Stage, ($launchRetryAttempt + 1), $launchMaxRetries)
+        Start-Sleep -Milliseconds 500
+    }
+    $launchRetryAttempt++
+
+    # ── Clean up orphan window from a prior retry if it somehow ghosted ──
+    if ($null -ne $processInfo -and (Test-ProcessAlive -ProcessId ([int]$processInfo.Id))) {
+        Write-Output ("[OPEN-AB-STAGE] clean_orphan_retry_proc pid={0}" -f $processInfo.Id)
+        Stop-Process -Id ([int]$processInfo.Id) -Force -ErrorAction SilentlyContinue
+    }
+
+    $processInfo = Start-Process -FilePath $powershellPath -WorkingDirectory $repoRoot -ArgumentList $stageArgumentList -PassThru
+
+    Write-Output ("[OPEN-AB-STAGE] stage={0} pid={1} launcher_pid={2} entry={3} task={4}" -f $Stage, $processInfo.Id, $PID, $entryScriptPath, $taskDefinitionRelative)
+    if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
+        Write-Output ("[OPEN-AB-STAGE] runtime_log={0}" -f (Convert-ToAnchorPath -Path $stageRuntimeLogPath))
+    }
+
+    if ($stageLaunchProbeDelayMs -gt 0) {
+        Start-Sleep -Milliseconds $stageLaunchProbeDelayMs
+    }
+
+    $stageAliveAfterProbe = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
 }
 
-$stageAliveAfterProbe = Test-ProcessAlive -ProcessId ([int]$processInfo.Id)
 if (-not $stageAliveAfterProbe) {
     $failureDetail = ("stage={0} pid={1} exited_during_launch_probe delay_ms={2}" -f $Stage, $processInfo.Id, $stageLaunchProbeDelayMs)
     $failureNotes = "stage_launch_fail $failureDetail"
