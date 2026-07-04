@@ -36,7 +36,7 @@
 - DNS 候选/健康/回退策略已在 v3.2.8–v3.2.9 冻结，仅做可观测性或 bugfix 级别改动。
 - 新增诊断/指标一律写 stderr，沿用已有标签风格；避免更改标签名称，防止黄金与脚本失效。
 
-## D 轮次任务定义设计指导（自愈修复专用）
+## D/V 轮次任务定义设计指导（自愈修复专用）
 - 故障轮次未指定时，按以下规则判断修复方式：
   - **D1-D4 code-step 阶段失败（code-edit-failure / task-definition-mismatch）**：源码尚未变更，可修改/追加/删除该轮次中的 op。
   - **D1-D4 code-step 阶段已通过，但编译/验证阶段失败**：源码已被该轮次修改。在末尾追加新 op，不可修改或删除该轮次原有 op。
@@ -44,7 +44,13 @@
 - **改动量评估优先**：先评估代码改动量。改动量小，在当前 D 轮次末尾追加 op 补丁（追加模式）；改动量大，则重设计当前 D 轮次所有 ops（重构模式）。追加模式优先，重构模式仅当追加模式导致 ops 数量膨胀或语义混乱时选用。
 - 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；静态检查通过后才可重启。
 - 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。发现后应在该轮次末尾追加删除孤儿体的 op，或修改原 op 的 pattern 使其一并消耗原函数体。
-- D 轮次代码设计必须基于 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md) 中的方案。Step47 矩阵契约是不可逾越的红线，不得因代码变更改变其预期结果。
+- D 轮次代码设计必须基于 whois 项目的整体方案，包括但不限于：
+  - 项目架构文档与 RFC（`docs/` 目录下），当前代码改动涉及的具体方案见 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md)。
+  - 输出契约（标题行、尾行、折叠行格式等），详见 [../docs/USAGE_CN.md](../docs/USAGE_CN.md) 与 [../docs/USAGE_EN.md](../docs/USAGE_EN.md)。
+  - IPv4/IPv6 查询规则契约，详见 [../docs/RFC-ipv4-ipv6-whois-lookup-rules.md](../docs/RFC-ipv4-ipv6-whois-lookup-rules.md)。
+  - DNS 与重试策略契约（v3.2.8–v3.2.9 冻结），详见 [../docs/RFC-dns-phase2.md](../docs/RFC-dns-phase2.md)、[../docs/RFC-dns-phase4-ip-health.md](../docs/RFC-dns-phase4-ip-health.md)。
+- Step47 矩阵契约是不可逾越的红线，不得因代码变更改变其预期结果。
+- **预算耗尽与待办修复的优先级（2026-07-05）**：当收到 `budget-exhausted-stop` 通告时，若此前同一会话中已有一张 `incident-captured`（或类似）票据允许了 `code-fix-workflow` / `script-fix-workflow` 但尚未执行对应的修复动作，则**先完成已有修复后再处理预算通告**。budget-exhausted 仅限制 guard 自动重启次数，不影响 task-definition 修复的手动执行。修复完成并静态检查通过后，再按 rerun-scope-decision 的结论重启对应阶段（A 或 B），不要等待额外的人工确认——budget-exhausted 的 `blocked_actions` 不影响 Agent 在修复后通过 launcher 手动重启。
 
 ## 协作与文档
 - 交流用中文；代码/注释/提交信息用英文。

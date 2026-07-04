@@ -4013,7 +4013,17 @@ try {
                     $bLaunchPidForConclusion,
                     $aSnapshotFinalHint)
 
-                if ($aPassConclusionDedup -ne $lastAPassConclusionSignature) {
+                # Only generate the ticket when the snapshot reference is settled
+                # (points to current run_dir, meaning launcher has finished updating the start file).
+                # Skip on the first poll where B is detected as RUNNING but the start file
+                # still has the pre-launch snapshot path.
+                $aSnapshotSettled = $false
+                if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint) -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
+                    $snapshotDir = Split-Path $aSnapshotFinalHint -Parent
+                    $aSnapshotSettled = (($snapshotDir -replace '[/\\]', '\') -eq ($runDirAnchor -replace '[/\\]', '\'))
+                }
+
+                if ($aPassConclusionDedup -ne $lastAPassConclusionSignature -and $aSnapshotSettled) {
                     $aPassConclusionDetail = ("A stage PASS confirmed; B stage launch observed (b_status={0}, b_launch_pid={1}); run_dir={2}" -f $bStatus, $bLaunchPidForConclusion, $runDirAnchor)
                     if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint)) {
                         $aPassConclusionDetail = ("{0}; a_snapshot_final={1}" -f $aPassConclusionDetail, $aSnapshotFinalHint)
@@ -4680,7 +4690,29 @@ try {
                             [bool]$autoRecoverB,
                             $mainExitEvidenceToken)
 
-                        if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
+                        # Skip main-process-exit-review when the exit is caused by a D-round
+                        # code-step failure, compile failure, or verify failure. These will be
+                        # handled by the incident-captured path via Get-FailureTicketMeta with
+                        # proper code-fix classification. Only emit main-process-exit-review for
+                        # true script/environment crashes (guard script failure, network issue, etc.).
+                        $skipMainExitReviewForCodeFault = $false
+                        if (-not $skipMainExitReviewForCodeFault -and -not [string]::IsNullOrWhiteSpace($runDirAnchor) -and $runDirAnchor -ne 'unknown') {
+                            $resolvedRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
+                            if (-not [string]::IsNullOrWhiteSpace($resolvedRunDir) -and (Test-Path -LiteralPath $resolvedRunDir)) {
+                                foreach ($roundTag in @('D1', 'D2', 'D3', 'D4')) {
+                                    $roundLog = Join-Path $resolvedRunDir "${roundTag}.log"
+                                    if ((Test-Path -LiteralPath $roundLog)) {
+                                        $hasFatal = Select-String -LiteralPath $roundLog -Pattern '\[CODE-STEP\] fatal_error=' -SimpleMatch -Quiet
+                                        if ($hasFatal) {
+                                            $skipMainExitReviewForCodeFault = $true
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if ($mainExitDedupSuffix -ne $lastMainProcessExitReviewSignature -and -not $skipMainExitReviewForCodeFault) {
                             $mainExitRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
                             $mainExitFailureCategory = ''
                             $mainExitFailureEvidence = ''
