@@ -2554,6 +2554,20 @@ Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_POLICY' -Settings $set
 Invoke-EnvFromSetting -EnvName 'AUTO_TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS' -Settings $settings -Key 'TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS'
 Invoke-EnvFromSetting -EnvName 'AUTO_RESUME_FAILED_ROUND' -Settings $settings -Key 'RESUME_FAILED_ROUND'
 if ($Stage -eq 'A') {
+    # Anti-infinite-loop gate for A stage: detect consecutive identical failures
+    $aFailureFingerprint = if ($settings.Contains('A_FAILURE_FINGERPRINT')) { [string]$settings.A_FAILURE_FINGERPRINT } else { '' }
+    $aFailureMainRound = if ($settings.Contains('A_FAILURE_MAIN_ROUND')) { [string]$settings.A_FAILURE_MAIN_ROUND } else { '' }
+    $aPreviousFailureFingerprint = if ($settings.Contains('A_PREVIOUS_FAILURE_FINGERPRINT')) { [string]$settings.A_PREVIOUS_FAILURE_FINGERPRINT } else { '' }
+    $aPreviousFailureMainRound = if ($settings.Contains('A_PREVIOUS_FAILURE_MAIN_ROUND')) { [string]$settings.A_PREVIOUS_FAILURE_MAIN_ROUND } else { '' }
+    if (-not [string]::IsNullOrWhiteSpace($aFailureMainRound) -and
+        -not [string]::IsNullOrWhiteSpace($aPreviousFailureMainRound) -and
+        $aFailureMainRound -eq $aPreviousFailureMainRound -and
+        -not [string]::IsNullOrWhiteSpace($aFailureFingerprint) -and
+        -not [string]::IsNullOrWhiteSpace($aPreviousFailureFingerprint) -and
+        $aFailureFingerprint -eq $aPreviousFailureFingerprint) {
+        throw ("[OPEN-AB-STAGE] infinite-loop-protection: A failed twice with identical fingerprint (main_round={0}, fingerprint={1}). Self-healing fix did not resolve the fault. Manual intervention required." -f $aFailureMainRound, $aFailureFingerprint)
+    }
+
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_ENABLED' -Value 'true'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_START_ROUND' -Value '1'
     Set-Item -Path 'Env:AUTO_ROUND_TASK_STATIC_GATE_END_ROUND' -Value '8'
@@ -2600,6 +2614,25 @@ if ($Stage -eq 'B') {
     }
 
     Write-Output ("[OPEN-AB-STAGE] b_restore_decision previous_a={0} previous_b={1} restore={2} reason={3}" -f $previousAFinalStatus, $previousBFinalStatus, $restoreFromASnapshot, $restoreDecisionReason)
+
+    # Anti-infinite-loop gate: detect consecutive identical B failures
+    # before launching. Reads failure fingerprint from start file (written
+    # by guard on incident-captured). If main_round+fingerprint match the
+    # previous failure consecutively, the self-healing fix did not take
+    # effect — block restart to avoid infinite loop.
+    $bFailureFingerprint = if ($settings.Contains('B_FAILURE_FINGERPRINT')) { [string]$settings.B_FAILURE_FINGERPRINT } else { '' }
+    $bFailureMainRound = if ($settings.Contains('B_FAILURE_MAIN_ROUND')) { [string]$settings.B_FAILURE_MAIN_ROUND } else { '' }
+    $bPreviousFailureFingerprint = if ($settings.Contains('B_PREVIOUS_FAILURE_FINGERPRINT')) { [string]$settings.B_PREVIOUS_FAILURE_FINGERPRINT } else { '' }
+    $bPreviousFailureMainRound = if ($settings.Contains('B_PREVIOUS_FAILURE_MAIN_ROUND')) { [string]$settings.B_PREVIOUS_FAILURE_MAIN_ROUND } else { '' }
+
+    if (-not [string]::IsNullOrWhiteSpace($bFailureMainRound) -and
+        -not [string]::IsNullOrWhiteSpace($bPreviousFailureMainRound) -and
+        $bFailureMainRound -eq $bPreviousFailureMainRound -and
+        -not [string]::IsNullOrWhiteSpace($bFailureFingerprint) -and
+        -not [string]::IsNullOrWhiteSpace($bPreviousFailureFingerprint) -and
+        $bFailureFingerprint -eq $bPreviousFailureFingerprint) {
+        throw ("[OPEN-AB-STAGE] infinite-loop-protection: B failed twice with identical fingerprint (main_round={0}, fingerprint={1}). Self-healing fix did not resolve the fault. Manual intervention required." -f $bFailureMainRound, $bFailureFingerprint)
+    }
 }
 
 Write-Output ("[OPEN-AB-STAGE] launch_banner stage={0} start_file={1} start_monitors={2} skip_monitor_restart={3} b_restart_hint={4}" -f

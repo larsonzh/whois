@@ -4979,6 +4979,27 @@ try {
                             $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
                         }
                         $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
+
+                        # Roll failure fingerprint for anti-infinite-loop detection.
+                        # Compute a fingerprint from main_round + failure category + evidence
+                        # so that identical failures produce the same hash. The launcher
+                        # (open_unattended_ab_stage_window.ps1) compares *FAILURE_FINGERPRINT
+                        # against *PREVIOUS_FAILURE_FINGERPRINT before restarting.
+                        $fpMainRound = [string]$failureTicketMeta.MainRound
+                        $fpInput = "{0}|{1}|{2}" -f $fpMainRound, [string]$failureTicketMeta.FailureCategory, [string]$failureTicketMeta.FailureEvidence
+                        $fpBytes = [System.Text.Encoding]::UTF8.GetBytes($fpInput)
+                        $fpHash = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpBytes)
+                        $fpHashed = "fp_{0}" -f ([System.BitConverter]::ToString($fpHash)).Replace('-','').ToLowerInvariant()
+                        $fpStage = [string]$failureTicketMeta.PreferredStage
+                        $fpKeyPrefix = if ($fpStage -eq 'A') { 'A' } else { 'B' }
+                        $fpPrevFp = if ($settings.Contains("${fpKeyPrefix}_FAILURE_FINGERPRINT")) { [string]$settings["${fpKeyPrefix}_FAILURE_FINGERPRINT"] } else { '' }
+                        $fpPrevRound = if ($settings.Contains("${fpKeyPrefix}_FAILURE_MAIN_ROUND")) { [string]$settings["${fpKeyPrefix}_FAILURE_MAIN_ROUND"] } else { '' }
+                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_FINGERPRINT" = $fpPrevFp
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_MAIN_ROUND" = $fpPrevRound
+                            "${fpKeyPrefix}_FAILURE_FINGERPRINT" = $fpHashed
+                            "${fpKeyPrefix}_FAILURE_MAIN_ROUND" = $fpMainRound
+                        }
                     }
                 }
 
