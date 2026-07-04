@@ -1184,6 +1184,7 @@ else {
             $updatedKeys = @{
                 'A_FINAL_STATUS' = $false
                 'SESSION_FINAL_STATUS' = $false
+                'A_LAUNCH_PID' = $false
                 'A_SUCCESS_SNAPSHOT_FINAL_STATUS' = $false
                 'A_SUCCESS_SNAPSHOT_SUMMARY' = $false
                 'A_SUCCESS_SNAPSHOT_SOURCE_STATE' = $false
@@ -1192,6 +1193,7 @@ else {
                 $matched = $false
                 if ($line -match '^A_FINAL_STATUS=') { $updatedLines += 'A_FINAL_STATUS=PASS'; $updatedKeys['A_FINAL_STATUS'] = $true; $matched = $true }
                 if ($line -match '^SESSION_FINAL_STATUS=') { $updatedLines += 'SESSION_FINAL_STATUS=RUNNING'; $updatedKeys['SESSION_FINAL_STATUS'] = $true; $matched = $true }
+                if ($line -match '^A_LAUNCH_PID=') { $updatedLines += 'A_LAUNCH_PID=0'; $updatedKeys['A_LAUNCH_PID'] = $true; $matched = $true }
                 if ($line -match '^A_SUCCESS_SNAPSHOT_FINAL_STATUS=') { $updatedLines += "A_SUCCESS_SNAPSHOT_FINAL_STATUS=$snapshotFinalRel"; $updatedKeys['A_SUCCESS_SNAPSHOT_FINAL_STATUS'] = $true; $matched = $true }
                 if ($line -match '^A_SUCCESS_SNAPSHOT_SUMMARY=') { $updatedLines += "A_SUCCESS_SNAPSHOT_SUMMARY=$snapshotSummaryRel"; $updatedKeys['A_SUCCESS_SNAPSHOT_SUMMARY'] = $true; $matched = $true }
                 if ($line -match '^A_SUCCESS_SNAPSHOT_SOURCE_STATE=') { $updatedLines += "A_SUCCESS_SNAPSHOT_SOURCE_STATE=$sourceState"; $updatedKeys['A_SUCCESS_SNAPSHOT_SOURCE_STATE'] = $true; $matched = $true }
@@ -1210,6 +1212,7 @@ else {
                     $val = switch ($key) {
                         'A_FINAL_STATUS' { 'PASS' }
                         'SESSION_FINAL_STATUS' { 'RUNNING' }
+                        'A_LAUNCH_PID' { '0' }
                         'A_SUCCESS_SNAPSHOT_FINAL_STATUS' { $snapshotFinalRel }
                         'A_SUCCESS_SNAPSHOT_SUMMARY' { $snapshotSummaryRel }
                         'A_SUCCESS_SNAPSHOT_SOURCE_STATE' { $sourceState }
