@@ -7,37 +7,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'EVENT-QUEUE-IDEMPOTENT-REGRESSION'
 
 if ([string]::IsNullOrWhiteSpace($OutDirRoot)) {
     $OutDirRoot = Join-Path $PSScriptRoot '..\..\out\artifacts\event_queue_idempotent_regression'
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $fullPath = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
-    }
-
-    if (-not (Test-Path -LiteralPath $fullPath)) {
-        throw ('Path not found: {0}' -f $fullPath)
-    }
-
-    return $fullPath
-}
 
 function Write-JsonLineFile {
     param(

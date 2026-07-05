@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'STATUS-TICKET-MINI-REGRESSION'
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
@@ -19,41 +20,6 @@ if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $fullPath = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
-    }
-
-    if (-not (Test-Path -LiteralPath $fullPath)) {
-        throw ("Path not found: {0}" -f $fullPath)
-    }
-
-    return $fullPath
-}
-
-function Convert-ToRepoRelativePath {
-    param([string]$Path)
-
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRootFull = [System.IO.Path]::GetFullPath($repoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-    }
-
-    return $fullPath.Replace('\\', '/')
-}
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -78,7 +44,7 @@ function New-SyntheticDispatchEvidence {
     }
 
     $token = Get-StableStartFileToken -StartFilePath $StartFilePath
-    $queueRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue'
+    $queueRoot = Join-Path (Get-UnattendedRepoRoot) 'out\artifacts\ab_agent_queue'
     $dispatchRoot = Join-Path $queueRoot 'chat_dispatch'
     New-Item -ItemType Directory -Path $queueRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null

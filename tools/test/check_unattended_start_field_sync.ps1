@@ -37,33 +37,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'CHECK-UNATTENDED-START-FIELD-SYNC'
 
 trap {
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-    }
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $resolved)) {
-        throw ('path not found: {0}' -f $resolved)
-    }
-
-    return $resolved
 }
 
 function Test-FieldLinePresent {
@@ -187,20 +167,19 @@ function Get-EffectiveTemplateMatchFieldNameList {
     return @($values.ToArray())
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $effectiveFieldNames = Get-EffectiveFieldNameList -SingleFieldName $FieldName -MultipleFieldNames $FieldNames
 $effectiveNonEmptyFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredNonEmptyFields
 $effectiveRequiredPresenceFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredPresenceFields
 $effectiveTemplateMatchFieldNames = Get-EffectiveTemplateMatchFieldNameList -Names $TemplateMatchFields
 
-$template = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplatePath -MustExist $true
-$resetScript = Resolve-RepoPath -RepoRoot $repoRoot -Path $ResetScriptPath -MustExist $true
-$routineScript = Resolve-RepoPath -RepoRoot $repoRoot -Path $RoutineScriptPath -MustExist $true
+$template = Resolve-RepoPath -Path $TemplatePath -MustExist $true
+$resetScript = Resolve-RepoPath -Path $ResetScriptPath -MustExist $true
+$routineScript = Resolve-RepoPath -Path $RoutineScriptPath -MustExist $true
 
 $startFiles = New-Object 'System.Collections.Generic.List[string]'
 $effectiveStartFile = ([string]$StartFile).Trim()
 if (-not [string]::IsNullOrWhiteSpace($effectiveStartFile)) {
-    $resolvedStartFile = Resolve-RepoPath -RepoRoot $repoRoot -Path $effectiveStartFile -MustExist $true
+    $resolvedStartFile = Resolve-RepoPath -Path $effectiveStartFile -MustExist $true
     if (-not ([string]$resolvedStartFile).ToLowerInvariant().EndsWith('.md')) {
         throw ('StartFile must be a .md file: {0}' -f $resolvedStartFile)
     }
@@ -209,7 +188,7 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveStartFile)) {
 }
 else {
     foreach ($dir in $StartFileDirs) {
-        $resolvedDir = Resolve-RepoPath -RepoRoot $repoRoot -Path $dir -MustExist $true
+        $resolvedDir = Resolve-RepoPath -Path $dir -MustExist $true
         foreach ($file in @(Get-ChildItem -LiteralPath $resolvedDir -Filter '*.md' -File -ErrorAction Stop)) {
             [void]$startFiles.Add($file.FullName)
         }

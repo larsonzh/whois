@@ -10,23 +10,8 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'PRECLASS-TABLE-GUARD'
-
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-
-function Resolve-RepoPath {
-    param(
-        [string]$PathValue
-    )
-
-    if ([string]::IsNullOrWhiteSpace($PathValue)) {
-        return ""
-    }
-    if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        return (Resolve-Path $PathValue).Path
-    }
-    return (Resolve-Path (Join-Path $repoRoot $PathValue)).Path
-}
 
 function Get-Sha256Lower {
     param(
@@ -36,10 +21,10 @@ function Get-Sha256Lower {
     return (Get-FileHash -Algorithm SHA256 -Path $PathValue).Hash.ToLowerInvariant()
 }
 
-$manifestFullPath = Resolve-RepoPath -PathValue $ManifestPath
-$reasonMapFullPath = Resolve-RepoPath -PathValue $ReasonMapPath
-$tableSourceFullPath = Resolve-RepoPath -PathValue $TableSourcePath
-$preclassCoreSourceFullPath = Resolve-RepoPath -PathValue $PreclassCoreSourcePath
+$manifestFullPath = Resolve-RepoPath -Path $ManifestPath
+$reasonMapFullPath = Resolve-RepoPath -Path $ReasonMapPath
+$tableSourceFullPath = Resolve-RepoPath -Path $TableSourcePath
+$preclassCoreSourceFullPath = Resolve-RepoPath -Path $PreclassCoreSourcePath
 
 function Get-FunctionText {
     param(
@@ -122,7 +107,7 @@ function Get-EnumValueMap {
 }
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
-    $OutDirRoot = Join-Path $repoRoot "out/artifacts/preclass_table_guard"
+    $OutDirRoot = Join-Path (Get-UnattendedRepoRoot) "out/artifacts/preclass_table_guard"
 }
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $outDir = Join-Path $OutDirRoot $stamp
@@ -131,8 +116,8 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $manifest = Get-Content -Raw -Path $manifestFullPath | ConvertFrom-Json
 $reasonObj = Get-Content -Raw -Path $reasonMapFullPath | ConvertFrom-Json
 
-$manifestIpv4Path = Resolve-RepoPath -PathValue $manifest.source_ipv4
-$manifestIpv6Path = Resolve-RepoPath -PathValue $manifest.source_ipv6
+$manifestIpv4Path = Resolve-RepoPath -Path $manifest.source_ipv4
+$manifestIpv6Path = Resolve-RepoPath -Path $manifest.source_ipv6
 
 $hashIpv4Actual = Get-Sha256Lower -PathValue $manifestIpv4Path
 $hashIpv6Actual = Get-Sha256Lower -PathValue $manifestIpv6Path

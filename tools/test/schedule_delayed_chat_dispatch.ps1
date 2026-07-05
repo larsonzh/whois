@@ -30,6 +30,7 @@ if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
     throw "Missing script: $pathGuardModulePath"
 }
 . $pathGuardModulePath
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -40,47 +41,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Convert-ToRepoRelativePath {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
-function Resolve-AbsolutePathAllowMissing {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
 }
 
 function Get-SafeToken {
@@ -170,14 +130,14 @@ $wrapperDir = Join-Path $repoRoot 'tmp\scheduled_dispatch'
 New-Item -ItemType Directory -Path $dispatchDir -Force | Out-Null
 New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
 
-$startFileAbs = Resolve-AbsolutePathAllowMissing -Path $StartFile -RepoRoot $repoRoot
+$startFileAbs = Resolve-RepoPathAllowMissing -Path $StartFile
 if ([string]::IsNullOrWhiteSpace($startFileAbs) -or -not (Test-Path -LiteralPath $startFileAbs)) {
     throw ('StartFile not found: {0}' -f $StartFile)
 }
 
-$queuePathAbs = Resolve-AbsolutePathAllowMissing -Path $QueuePath -RepoRoot $repoRoot
-$startFileRel = Convert-ToRepoRelativePath -Path $startFileAbs -RepoRoot $repoRoot
-$queuePathRel = Convert-ToRepoRelativePath -Path $queuePathAbs -RepoRoot $repoRoot
+$queuePathAbs = Resolve-RepoPathAllowMissing -Path $QueuePath
+$startFileRel = Convert-ToRepoRelativePath -Path $startFileAbs
+$queuePathRel = Convert-ToRepoRelativePath -Path $queuePathAbs
 
 $now = Get-Date
 $desiredRunAt = $now.AddSeconds($DelaySeconds)

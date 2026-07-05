@@ -18,6 +18,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -34,20 +35,6 @@ function Convert-ToInvariantNumber {
     param([double]$Value)
 
     return $Value.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
 }
 
 function Resolve-AhkExecutablePath {
