@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'RESET-UNATTENDED-AB-START-FILE'
 
 trap {
@@ -41,44 +42,6 @@ function Test-Utf8TextReplacementChar {
     if ($Text -match '\ufffd') {
         throw ("UTF-8 replacement char U+FFFD detected in {0}; tag={1}" -f $Path, $Tag)
     }
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $combined = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $RepoRoot $Path }
-    $fullPath = [System.IO.Path]::GetFullPath($combined)
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
 }
 
 function Get-TemplateBlock {
@@ -323,8 +286,8 @@ function Get-ResetValue {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
-$templatePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $TemplateFile -MustExist $true
+$startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
+$templatePath = Resolve-RepoPath -Path $TemplateFile -MustExist $true
 
 $defaultSelectorText = 'PRECHECK_*;NETWORK_PRECHECK_LAST_RESULT;NETWORK_PRECHECK_LAST_AT;NETWORK_PRECHECK_LAST_REASON;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;SESSION_CLOSED;SESSION_CLOSED_AT;SESSION_CLOSED_REASON;SESSION_FINAL_NOTES;AI_SESSION_BLOCKING_WATCH_NOTES;RESTART_EVIDENCE_NOTES;A_LAUNCH_PID;B_LAUNCH_PID;WATCH_LAUNCH_PID;WATCH_PARENT_PID;WATCH_LAST_START_AT;WATCH_LAST_EXIT_PID;WATCH_LAST_EXIT_AT;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND'
 

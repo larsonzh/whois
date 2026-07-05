@@ -12,50 +12,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'PRECHECK-UNATTENDED-AB-START-FILE'
 
 trap {
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $combined = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $RepoRoot $Path }
-    $fullPath = [System.IO.Path]::GetFullPath($combined)
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
 }
 
 function Read-KeyValueFile {
@@ -694,7 +657,7 @@ function Test-TaskDefinition {
 
     $taskPath = ''
     try {
-        $taskPath = Resolve-RepoPath -RepoRoot $RepoRoot -Path $TaskValue -MustExist $false
+        $taskPath = Resolve-RepoPath -Path $TaskValue -MustExist $false
     }
     catch {
         return [pscustomobject]@{
@@ -752,7 +715,7 @@ function Test-EntryScript {
 
     $scriptPath = ''
     try {
-        $scriptPath = Resolve-RepoPath -RepoRoot $RepoRoot -Path $ScriptValue -MustExist $false
+        $scriptPath = Resolve-RepoPath -Path $ScriptValue -MustExist $false
     }
     catch {
         return [pscustomobject]@{
@@ -808,7 +771,7 @@ function Write-CheckLine {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
+$startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
 $state = Read-KeyValueFile -Path $startFilePath
 $settings = $state.Map
 $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')

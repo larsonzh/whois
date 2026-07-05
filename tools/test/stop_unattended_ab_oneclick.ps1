@@ -14,33 +14,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'STOP-UNATTENDED-AB-ONECLICK'
 
 trap {
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
     Write-UnattendedUnhandledResult -Tag $script:UnhandledExitTag -Record $_ -ExitCode $exitCode
     exit $exitCode
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $combined = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $RepoRoot $Path }
-    $fullPath = [System.IO.Path]::GetFullPath($combined)
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
 }
 
 function Read-KeyValueFile {
@@ -112,25 +92,6 @@ function Get-ParsedProcessId {
     }
 
     return 0
-}
-
-function Get-RelativeRepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $full = [System.IO.Path]::GetFullPath($Path)
-    $repo = [System.IO.Path]::GetFullPath($RepoRoot)
-    if ($full.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $full.Substring($repo.Length).TrimStart('\\')
-    }
-
-    return $full
 }
 
 function Get-ChildMap {
@@ -304,7 +265,7 @@ Set-Location $repoRoot
 $startFilePath = ''
 $startSettings = [ordered]@{}
 if (-not [string]::IsNullOrWhiteSpace($StartFile)) {
-    $startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
+    $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
     $startSettings = Read-KeyValueFile -Path $startFilePath
 }
 
@@ -553,7 +514,7 @@ if ($normalizedResultLines.Count -gt 0) {
 
 if ($UpdateStartFileStatus.IsPresent -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
     $existingNotes = if ($startSettings.Contains('SESSION_FINAL_NOTES')) { [string]$startSettings['SESSION_FINAL_NOTES'] } else { '' }
-    $relativeEvidence = Get-RelativeRepoPath -RepoRoot $repoRoot -Path $evidenceDir
+    $relativeEvidence = Convert-ToRepoRelativePath -Path $evidenceDir
     $updatedNotes = Get-AppendedSessionNoteText -Existing $existingNotes -Segments @(
         ("manual_stop_at={0}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')),
         ("stop_evidence={0}" -f $relativeEvidence)

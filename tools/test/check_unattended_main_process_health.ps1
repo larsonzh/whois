@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'CHECK-UNATTENDED-MAIN-PROCESS-HEALTH'
 
 trap {
@@ -27,55 +28,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $fullPath = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-    }
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw ('Path not found: {0}' -f $fullPath)
-    }
-
-    return $fullPath
-}
-
-function Convert-ToRepoRelativePath {
-    param(
-        [string]$RepoRoot,
-        [AllowEmptyString()][string]$Path
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
 }
 
 function Get-StatusValue {
@@ -143,46 +95,6 @@ function Test-ProcessAlive {
     catch {
         return $false
     }
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    $lineMap = @{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$lineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $lineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
 }
 
 function Set-KeyValueFileValue {
@@ -371,7 +283,7 @@ function Get-AgentTicketQueuePath {
         $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
     }
 
-    return (Resolve-RepoPath -RepoRoot $RepoRoot -Path $rawPath -MustExist $false)
+    return (Resolve-RepoPath -Path $rawPath -MustExist $false)
 }
 
 function Get-StartFilePathFromCommandLine {
@@ -577,8 +489,8 @@ function Invoke-Launcher {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
-$startFileRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $startFilePath
+$startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
+$startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
 $startFileIdentity = [System.IO.Path]::GetFullPath($startFilePath).ToLowerInvariant()
 $startFileLeaf = [System.IO.Path]::GetFileName($startFilePath).ToLowerInvariant()
 
@@ -796,7 +708,7 @@ $output = [ordered]@{
         fail_reason = [string]$bExitEvidence.FailReason
         start_file_match = [bool]$bExitEvidence.StartFileMatch
         process_id_match = [bool]$bExitEvidence.ProcessIdMatch
-        artifact_path = (Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path ([string]$bExitEvidence.ArtifactPath))
+        artifact_path = (Convert-ToRepoRelativePath -Path ([string]$bExitEvidence.ArtifactPath))
         matched = [bool]$reasonMatched
     }
     monitor_chain = [ordered]@{
@@ -821,13 +733,13 @@ $escalationInfo = [ordered]@{
     incident_emitted = $false
     incident_ticket_id = ''
     queue_path = ''
-    state_path = (Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $escalationStatePath)
+    state_path = (Convert-ToRepoRelativePath -Path $escalationStatePath)
     reason = 'disabled'
 }
 
 if ($EscalateMonitorChainDegraded.IsPresent) {
     $queuePath = Get-AgentTicketQueuePath -Settings $settings -RepoRoot $repoRoot
-    $queuePathRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $queuePath
+    $queuePathRel = Convert-ToRepoRelativePath -Path $queuePath
     $escalationInfo.queue_path = $queuePathRel
 
     $stateRaw = Read-JsonFileSafely -Path $escalationStatePath
@@ -940,7 +852,7 @@ $mainProcessMissingEscalationInfo = [ordered]@{
     incident_emitted = $false
     incident_ticket_id = ''
     queue_path = ''
-    state_path = (Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $mainProcessMissingEscalationStatePath)
+    state_path = (Convert-ToRepoRelativePath -Path $mainProcessMissingEscalationStatePath)
     reason = 'disabled'
 }
 
@@ -953,7 +865,7 @@ if ($AutoHeal.IsPresent -and $monitorShouldRunOrAbnormal) {
     }
     else {
         $queuePath = Get-AgentTicketQueuePath -Settings $settings -RepoRoot $repoRoot
-        $queuePathRel = Convert-ToRepoRelativePath -RepoRoot $repoRoot -Path $queuePath
+        $queuePathRel = Convert-ToRepoRelativePath -Path $queuePath
         $mainProcessMissingEscalationInfo.queue_path = $queuePathRel
 
         $stateRaw = Read-JsonFileSafely -Path $mainProcessMissingEscalationStatePath

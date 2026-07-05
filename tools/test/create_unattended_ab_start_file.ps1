@@ -17,6 +17,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'CREATE-UNATTENDED-AB-START-FILE'
 
 trap {
@@ -68,27 +69,6 @@ function Test-Utf8TextReplacementChar {
     }
 
     throw ("[{0}] detected replacement character (U+FFFD) in {1} at line(s): {2}. Please repair file encoding/content before proceeding." -f $Tag, $Path, ($lineNumbers -join ','))
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $combined = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $RepoRoot $Path }
-    $fullPath = [System.IO.Path]::GetFullPath($combined)
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
 }
 
 function Get-TemplateBlock {
@@ -224,16 +204,16 @@ function Get-ModeTemplatePath {
 
     switch ($SelectedMode) {
         'normal' {
-            return Resolve-RepoPath -RepoRoot $RepoRoot -Path $DefaultTemplateFile -MustExist $true
+            return Resolve-RepoPath -Path $DefaultTemplateFile -MustExist $true
         }
         'anti-missent' {
-            return Resolve-RepoPath -RepoRoot $RepoRoot -Path $DefaultTemplateFile -MustExist $true
+            return Resolve-RepoPath -Path $DefaultTemplateFile -MustExist $true
         }
         'low-disturb' {
-            return Resolve-RepoPath -RepoRoot $RepoRoot -Path 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_low_disturb_smoke.md' -MustExist $true
+            return Resolve-RepoPath -Path 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_low_disturb_smoke.md' -MustExist $true
         }
         'event-only' {
-            return Resolve-RepoPath -RepoRoot $RepoRoot -Path 'testdata\unattended_start\smoke\unattended_ab_start_event_only_smoke.md' -MustExist $true
+            return Resolve-RepoPath -Path 'testdata\unattended_start\smoke\unattended_ab_start_event_only_smoke.md' -MustExist $true
         }
     }
 
@@ -282,7 +262,7 @@ function Resolve-OutputPathForMode {
     $extension = [System.IO.Path]::GetExtension($ResolvedBaseOutput)
     $suffix = Get-ModeFileSuffix -SelectedMode $SelectedMode
     $candidate = Join-Path $directory ($fileName + $suffix + $extension)
-    return Resolve-RepoPath -RepoRoot $RepoRoot -Path $candidate -MustExist $false
+    return Resolve-RepoPath -Path $candidate -MustExist $false
 }
 
 function Write-StartFileForMode {
@@ -396,10 +376,10 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $resolvedBaseOutput = if ([string]::IsNullOrWhiteSpace($OutputFile)) {
     $defaultName = "unattended_ab_start_{0}.md" -f (Get-Date -Format 'yyyyMMdd-HHmm')
     $defaultDir = Join-Path 'testdata\unattended_start' $OutputCategory
-    Resolve-RepoPath -RepoRoot $repoRoot -Path (Join-Path $defaultDir $defaultName) -MustExist $false
+    Resolve-RepoPath -Path (Join-Path $defaultDir $defaultName) -MustExist $false
 }
 else {
-    Resolve-RepoPath -RepoRoot $repoRoot -Path $OutputFile -MustExist $false
+    Resolve-RepoPath -Path $OutputFile -MustExist $false
 }
 
 $resolvedBaseOutput = Assert-GuardUnattendedStartFileOutputPath -RepoRoot $repoRoot -Path $resolvedBaseOutput

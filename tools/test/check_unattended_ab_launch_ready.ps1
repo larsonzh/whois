@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'CHECK-UNATTENDED-AB-LAUNCH-READY'
 
 trap {
@@ -22,59 +23,6 @@ trap {
 
 $useDetailedOutput = $DetailedOutput.IsPresent
 $useAsJsonOutput = $AsJson.IsPresent
-
-
-
-function Resolve-RepoPath {
-    param(
-        [string]$RepoRoot,
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-    }
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $resolved)) {
-        throw ('path not found: {0}' -f $resolved)
-    }
-
-    return $resolved
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-    $map = [ordered]@{}
-    $lineNo = 0
-    $seen = @{}
-
-    foreach ($line in $lines) {
-        $lineNo++
-        if ($line -notmatch '^([^=]+)=(.*)$') {
-            continue
-        }
-
-        $key = $Matches[1].Trim()
-        if ($seen.ContainsKey($key)) {
-            throw ('duplicate key in start-file: {0} line1={1} line2={2}' -f $key, [int]$seen[$key], $lineNo)
-        }
-
-        $seen[$key] = $lineNo
-        $map[$key] = $Matches[2]
-    }
-
-    return $map
-}
 
 function Convert-ToBooleanSetting {
     param(
@@ -297,7 +245,7 @@ else {
 $startSettings = $null
 
 try {
-    $startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile -MustExist $true
+    $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
     $startSettings = Read-KeyValueFile -Path $startFilePath
 }
 catch {
@@ -326,8 +274,8 @@ $expectedRunMode = [string]$startSettings.RUN_MODE
 $expectedEntryMode = [string]$startSettings.ENTRY_MODE
 
 try {
-    $resolvedATask = Resolve-RepoPath -RepoRoot $repoRoot -Path $aTaskDefinition -MustExist $true
-    $resolvedBTask = Resolve-RepoPath -RepoRoot $repoRoot -Path $bTaskDefinition -MustExist $true
+    $resolvedATask = Resolve-RepoPath -Path $aTaskDefinition -MustExist $true
+    $resolvedBTask = Resolve-RepoPath -Path $bTaskDefinition -MustExist $true
 }
 catch {
     Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason $_.Exception.Message -OutputLines @(
@@ -346,15 +294,15 @@ $startFileLines = @(
     ('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS={0}' -f $taskStaticFailOnWarnings)
 )
 
-$staticCheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_task_definition_static.ps1' -MustExist $true
-$ps51FormatGuardScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_ps51_format_inline_if_guard.ps1' -MustExist $true
-$fieldSyncScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
-$statusMiniRegressionScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
-$routeGuardSmokeSuiteScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/route_guard_smoke_suite.ps1' -MustExist $true
-$incrementalEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
-$encodingFormatScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
-$srcEncodingScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/dev/enforce_utf8_lf_src_changed.ps1' -MustExist $true
-$precheckScript = Resolve-RepoPath -RepoRoot $repoRoot -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
+$staticCheckScript = Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1' -MustExist $true
+$ps51FormatGuardScript = Resolve-RepoPath -Path 'tools/test/check_ps51_format_inline_if_guard.ps1' -MustExist $true
+$fieldSyncScript = Resolve-RepoPath -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
+$statusMiniRegressionScript = Resolve-RepoPath -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
+$routeGuardSmokeSuiteScript = Resolve-RepoPath -Path 'tools/test/route_guard_smoke_suite.ps1' -MustExist $true
+$incrementalEncodingScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
+$encodingFormatScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
+$srcEncodingScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_lf_src_changed.ps1' -MustExist $true
+$precheckScript = Resolve-RepoPath -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
 
 $staticCheckMessages = New-Object 'System.Collections.Generic.List[string]'
 if ($Stage -eq 'A') {
