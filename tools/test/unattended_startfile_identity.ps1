@@ -82,6 +82,46 @@ function Get-UnattendedRepoRoot {
     return [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 }
 
+function Convert-ToBooleanSetting {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [bool]$Default = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Convert-ToSingleLineText {
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Convert-MsysPathToWindowsPath {
+    param([AllowNull()][AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ($Path -match '^/([a-zA-Z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\'
+        return ("{0}:\\{1}" -f $drive, $rest)
+    }
+
+    return $Path
+}
+
 function ConvertTo-PathLikeValue {
     param([AllowEmptyString()][string]$Value)
 
@@ -103,7 +143,8 @@ function ConvertTo-PathLikeValue {
 function Resolve-RepoPath {
     param(
         [AllowEmptyString()][string]$Path,
-        [bool]$MustExist = $true
+        [bool]$MustExist = $true,
+        [AllowEmptyString()][string]$RepoRoot = ''
     )
 
     $Path = ConvertTo-PathLikeValue -Value $Path
@@ -115,7 +156,10 @@ function Resolve-RepoPath {
         [System.IO.Path]::GetFullPath($Path)
     }
     else {
-        [System.IO.Path]::GetFullPath((Join-Path (Get-UnattendedRepoRoot) $Path))
+        if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+            $RepoRoot = Get-UnattendedRepoRoot
+        }
+        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
     }
 
     if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
@@ -126,18 +170,30 @@ function Resolve-RepoPath {
 }
 
 function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
+    param(
+        [AllowEmptyString()][string]$Path,
+        [AllowEmptyString()][string]$RepoRoot = ''
+    )
 
     $Path = ConvertTo-PathLikeValue -Value $Path
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
     }
 
-    return Resolve-RepoPath -Path $Path -MustExist $false
+    try {
+        return Resolve-RepoPath -Path $Path -MustExist $false -RepoRoot $RepoRoot
+    }
+    catch {
+        return ''
+    }
 }
 
 function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
+    param(
+        [Alias('AbsolutePath')]
+        [AllowEmptyString()][string]$Path,
+        [AllowEmptyString()][string]$RepoRoot = ''
+    )
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return ''
@@ -145,7 +201,10 @@ function Convert-ToRepoRelativePath {
 
     try {
         $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath((Get-UnattendedRepoRoot))
+        if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+            $RepoRoot = Get-UnattendedRepoRoot
+        }
+        $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
         if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
             return $fullPath.Substring($repoRootFull.Length).TrimStart('\').Replace('\', '/')
         }
@@ -155,6 +214,40 @@ function Convert-ToRepoRelativePath {
     catch {
         return $Path.Replace('\', '/')
     }
+}
+
+function Resolve-TaskDefinitionRelativePath {
+    param(
+        [AllowEmptyString()][string]$InputName,
+        [AllowEmptyString()][string]$SettingKey = ''
+    )
+
+    $effectiveKey = 'TaskDefinitionFileName'
+    if (-not [string]::IsNullOrWhiteSpace($SettingKey)) {
+        $effectiveKey = $SettingKey
+    }
+
+    if ([string]::IsNullOrWhiteSpace($InputName)) {
+        if ([string]::IsNullOrWhiteSpace($SettingKey)) {
+            throw "TaskDefinitionFileName is required."
+        }
+        throw ("{0} is missing in start file." -f $effectiveKey)
+    }
+
+    $normalized = $InputName.Trim().Replace('\', '/')
+    if ($normalized.StartsWith('./')) {
+        $normalized = $normalized.Substring(2)
+    }
+
+    if ($normalized -match '^(?:[A-Za-z]:|/|\\\\)') {
+        throw ("{0} must be a repository-relative path under testdata/." -f $effectiveKey)
+    }
+
+    if (-not $normalized.StartsWith('testdata/')) {
+        $normalized = 'testdata/' + $normalized
+    }
+
+    return $normalized
 }
 
 function Read-KeyValueFile {
@@ -175,6 +268,54 @@ function Read-KeyValueFile {
 
     $lineNo = 0
     foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        $lineNo++
+        if ($line -match '^([^=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            if ($map.Contains($key)) {
+                $firstLine = [int]$keyLineMap[$key]
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
+            }
+
+            $keyLineMap[$key] = $lineNo
+            $map[$key] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
+function Read-KeyValueFileWithRetry {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [ValidateRange(1, 20)][int]$MaxAttempts = 8
+    )
+
+    $lines = @()
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+            break
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+
+            $delayMs = switch ($attempt) {
+                1 { 50 }
+                2 { 100 }
+                3 { 200 }
+                4 { 400 }
+                default { 800 }
+            }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+
+    $keyLineMap = @{}
+    $map = [ordered]@{}
+    $lineNo = 0
+    foreach ($line in $lines) {
         $lineNo++
         if ($line -match '^([^=]+)=(.*)$') {
             $key = $Matches[1].Trim()
@@ -230,4 +371,24 @@ function Get-StartFileMutexName {
 
     $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
     return "Local\whois-unattended-startfile-write-$hash"
+}
+
+function Get-StartFileRoleMutexName {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
 }

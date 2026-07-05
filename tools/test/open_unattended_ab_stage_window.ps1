@@ -59,42 +59,6 @@ if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
 }
 . $dispatchPolicyModulePath
 
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return (Resolve-Path -LiteralPath $Path).Path
-    }
-
-    return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
-}
-
-function Resolve-RepoPathAllowMissing {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        if ([System.IO.Path]::IsPathRooted($Path)) {
-            return [System.IO.Path]::GetFullPath($Path)
-        }
-
-        return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-    }
-    catch {
-        return ''
-    }
-}
-
 function Get-CurrentSourceDiffSet {
     param([string]$RepoRoot)
 
@@ -564,32 +528,6 @@ function Assert-BStartEligibility {
     }
 }
 
-function Resolve-TaskDefinitionRelativePath {
-    param(
-        [AllowEmptyString()][string]$InputName,
-        [string]$SettingKey
-    )
-
-    if ([string]::IsNullOrWhiteSpace($InputName)) {
-        throw ("{0} is missing in start file." -f $SettingKey)
-    }
-
-    $normalized = $InputName.Trim().Replace('\\', '/')
-    if ($normalized.StartsWith('./')) {
-        $normalized = $normalized.Substring(2)
-    }
-
-    if ($normalized -match '^(?:[A-Za-z]:|/|\\\\)') {
-        throw ("{0} must be a repository-relative path under testdata/." -f $SettingKey)
-    }
-
-    if (-not $normalized.StartsWith('testdata/')) {
-        $normalized = 'testdata/' + $normalized
-    }
-
-    return $normalized
-}
-
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -643,40 +581,6 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
-        throw 'Start file path must not be empty when creating write lock.'
-    }
-
-    try {
-        $fullPath = if (Test-Path -LiteralPath $StartFilePath) {
-            (Resolve-Path -LiteralPath $StartFilePath).Path
-        }
-        else {
-            [System.IO.Path]::GetFullPath($StartFilePath)
-        }
-        $fullPath = $fullPath.ToLowerInvariant()
-    }
-    catch {
-        $sanitized = [regex]::Replace(([string]$StartFilePath), '[\r\n\t]+', ' ')
-        throw ("Invalid start file path for write lock: '{0}'" -f $sanitized)
-    }
-
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
-}
-
 function Get-MonitorTimelinePath {
     param(
         [string]$StartFilePath,
@@ -721,29 +625,6 @@ function Write-MonitorTimelineEvent {
     catch {
         Write-Warning ("[OPEN-AB-STAGE] monitor_timeline_write_failed path={0} detail={1}" -f $TimelinePath, $_.Exception.Message)
     }
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Invoke-KeyValueFileValueUpdate {
@@ -1031,29 +912,6 @@ function Resolve-CurrentStageRunDir {
     return ''
 }
 
-function Convert-ToBooleanSetting {
-    param(
-        [AllowEmptyString()][string]$Value,
-        [bool]$Default = $false
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Default
-    }
-
-    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-}
-
-function Convert-ToSingleLineText {
-    param([AllowEmptyString()][string]$Text)
-
-    if ([string]::IsNullOrWhiteSpace($Text)) {
-        return ''
-    }
-
-    return ([regex]::Replace($Text.Trim(), '\s+', ' '))
-}
-
 function Convert-ToBoundedSingleLineText {
     param(
         [AllowEmptyString()][string]$Text,
@@ -1339,22 +1197,6 @@ function Clear-MonitorChainShutdownRequest {
     }
     Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
-}
-
-function Convert-MsysPathToWindowsPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ($Path -match '^/([a-zA-Z])/(.*)$') {
-        $drive = $Matches[1].ToUpperInvariant()
-        $rest = $Matches[2] -replace '/', '\\'
-        return ("{0}:\\{1}" -f $drive, $rest)
-    }
-
-    return $Path
 }
 
 function Resolve-RemoteKeyPathForNetworkPrecheck {

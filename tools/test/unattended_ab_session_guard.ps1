@@ -34,74 +34,6 @@ if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
 
 
 
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return (Resolve-Path -LiteralPath $Path).Path
-    }
-
-    return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
-}
-
-function Convert-ToRepoRelativePath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-    }
-
-    return $Path.Replace('\\', '/')
-}
-
-function Convert-ToBooleanSetting {
-    param(
-        [AllowEmptyString()][string]$Value,
-        [bool]$Default = $false
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Default
-    }
-
-    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-}
-
-function Convert-ToSingleLineText {
-    param([AllowEmptyString()][string]$Text)
-
-    if ([string]::IsNullOrWhiteSpace($Text)) {
-        return ''
-    }
-
-    $singleLine = (($Text -split "`r?`n") -join ' ')
-    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
 function Convert-ToBoundedSingleLineText {
     param(
         [AllowEmptyString()][string]$Text,
@@ -154,33 +86,13 @@ function Get-FilteredRuntimeTailLineList {
     return @($filtered)
 }
 
-function Get-StartFileMutexName {
-    param(
-        [string]$Role,
-        [string]$StartFilePath
-    )
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-{0}-{1}" -f $Role, $hash
-}
-
 function Lock-InstanceMutex {
     param(
         [string]$Role,
         [string]$StartFilePath
     )
 
-    $name = Get-StartFileMutexName -Role $Role -StartFilePath $StartFilePath
+    $name = Get-StartFileRoleMutexName -Role $Role -StartFilePath $StartFilePath
     $mutex = New-Object System.Threading.Mutex($false, $name)
     $acquired = $false
     try {
@@ -207,59 +119,13 @@ function Lock-InstanceMutex {
     return $mutex
 }
 
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $maxAttempts = 8
-    $lines = @()
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        try {
-            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-            break
-        }
-        catch {
-            if ($attempt -eq $maxAttempts) {
-                throw
-            }
-
-            $delayMs = switch ($attempt) {
-                1 { 50 }
-                2 { 100 }
-                3 { 200 }
-                4 { 400 }
-                default { 800 }
-            }
-            Start-Sleep -Milliseconds $delayMs
-        }
-    }
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in $lines) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
 function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
     )
 
-    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -Role 'startfile-write' -StartFilePath $Path))
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
     $locked = $false
     $tempPath = ''
     try {
@@ -891,7 +757,7 @@ function Request-MonitorChainShutdown {
 
     Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values $updates
     Write-GuardLog ("monitor_chain_shutdown_request applied reason={0} source={1} detail={2}" -f $reasonCompact, $sourceCompact, $detailCompact)
-    return (Read-KeyValueFile -Path $script:StartFilePath)
+    return (Read-KeyValueFileWithRetry -Path $script:StartFilePath)
 }
 
 function Get-StatusValue {
@@ -1930,7 +1796,7 @@ function Invoke-SafeRemoteLockCleanup {
     $lockCleanupScript = Join-Path $script:RepoRoot 'tools\dev\clear_remote_lock.ps1'
     if (-not (Test-Path -LiteralPath $lockCleanupScript)) { return }
     try {
-        $settings = Read-KeyValueFile -Path $script:StartFilePath
+        $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
         $remoteIp = if ($settings.Contains('REMOTE_IP')) { [string]$settings.REMOTE_IP } else { '10.0.0.199' }
         $remoteUser = if ($settings.Contains('REMOTE_USER')) { [string]$settings.REMOTE_USER } else { 'larson' }
         $output = @(& $lockCleanupScript -RemoteIp $remoteIp -RemoteUser $remoteUser 2>&1 | ForEach-Object { [string]$_ })
@@ -3412,7 +3278,7 @@ function Invoke-ACompileAutoFixRecovery {
     }
 
     try {
-        $currentSettings = Read-KeyValueFile -Path $script:StartFilePath
+        $currentSettings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
         $existingNotes = if ($currentSettings.Contains('SESSION_FINAL_NOTES')) { [string]$currentSettings.SESSION_FINAL_NOTES } else { '' }
         $note = ('guard_autofix stage=A round={0} attempt={1}/{2} restarted={3} reason={4} strict_log={5}' -f
             [string]$context.RoundTag,
@@ -3682,7 +3548,7 @@ try {
                 break
             }
 
-            $settings = Read-KeyValueFile -Path $script:StartFilePath
+            $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
 
             $sessionStatusRaw = 'NOT_RUN'
             if ($settings.Contains('SESSION_FINAL_STATUS')) {
@@ -4058,7 +3924,7 @@ try {
                 }
                 Write-GuardLog ("b_auto_launch_done")
                 # Force re-read settings on next iteration
-                $settings = Read-KeyValueFile -Path $script:StartFilePath
+                $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
                 $bStatusRaw = if ($settings.Contains('B_FINAL_STATUS')) { [string]$settings.B_FINAL_STATUS } else { 'NOT_RUN' }
                 $bStatus = Get-StatusValue -Value $bStatusRaw
             }
@@ -4139,7 +4005,7 @@ try {
                     }
                     Write-GuardLog ('status_conflict_reconciled action=write_fail_status artifact={0}' -f [string]$bPassFailConflict.artifact_path)
 
-                    $settings = Read-KeyValueFile -Path $script:StartFilePath
+                    $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
 
                     $sessionStatusRaw = 'NOT_RUN'
                     if ($settings.Contains('SESSION_FINAL_STATUS')) {
@@ -4463,7 +4329,7 @@ try {
                             }
                             Write-GuardLog ("a_process_missing_pass expected_pid={0} elapsed_sec={1} grace_sec={2} exit_code=0" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                             # Force re-read status so next poll iteration sees A=PASS and triggers B launch
-                            $settings = Read-KeyValueFile -Path $script:StartFilePath
+                            $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
                             $aStatusRawAfterA = if ($settings.Contains('A_FINAL_STATUS')) { [string]$settings.A_FINAL_STATUS } else { 'NOT_RUN' }
                             $aStatus = Get-StatusValue -Value $aStatusRawAfterA
                             $sessionStatusRawAfterA = if ($settings.Contains('SESSION_FINAL_STATUS')) { [string]$settings.SESSION_FINAL_STATUS } else { 'NOT_RUN' }
@@ -4483,7 +4349,7 @@ try {
                         }
                         Write-GuardLog ("a_process_missing_fail expected_pid={0} elapsed_sec={1} grace_sec={2} session_status={3}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec, $sessionStatusAfterAMissing)
 
-                        $settings = Read-KeyValueFile -Path $script:StartFilePath
+                        $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
                         $sessionStatusRawAfterA = 'NOT_RUN'
                         if ($settings.Contains('SESSION_FINAL_STATUS')) {
                             $sessionStatusRawAfterA = [string]$settings.SESSION_FINAL_STATUS
@@ -4761,7 +4627,7 @@ try {
                         }
                         Write-GuardLog ("b_process_missing_fail expected_pid={0} elapsed_sec={1} grace_sec={2} session_status={3}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec, $sessionStatusToWrite)
 
-                        $settings = Read-KeyValueFile -Path $script:StartFilePath
+                        $settings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
                         $sessionStatusRawAfter = 'NOT_RUN'
                         if ($settings.Contains('SESSION_FINAL_STATUS')) {
                             $sessionStatusRawAfter = [string]$settings.SESSION_FINAL_STATUS
@@ -5192,7 +5058,7 @@ try {
                     # (e.g. by AI processing incident ticket and restarting A stage).
                     # If revived, cancel grace and resume normal monitoring.
                     # Re-read start file for fresh status (session may have been re-launched).
-                    $freshSettings = Read-KeyValueFile -Path $startFilePath
+                    $freshSettings = Read-KeyValueFileWithRetry -Path $startFilePath
                     $freshAStatus = if ($freshSettings.Contains('A_FINAL_STATUS')) { [string]$freshSettings.A_FINAL_STATUS } else { '' }
                     $freshALaunchPid = if ($freshSettings.Contains('A_LAUNCH_PID')) { [int]$freshSettings.A_LAUNCH_PID } else { 0 }
                     if ($freshAStatus -eq 'RUNNING' -and $freshALaunchPid -gt 0) {
@@ -5726,7 +5592,7 @@ try {
                                 last_recovery_at = $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
                             }
                             $restartNote = "guard_recovery action=restart-b attempt={0} at={1}" -f $attempt, $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
-                            $newNotes = Add-DelimitedNote -Existing ([string](Read-KeyValueFile -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
+                            $newNotes = Add-DelimitedNote -Existing ([string](Read-KeyValueFileWithRetry -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
                             Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
                             Write-GuardLog ("recovery_triggered stage=B attempt={0}" -f $attempt)
                             Start-Sleep -Seconds 5
@@ -5792,7 +5658,7 @@ try {
                     # and skip the grace entirely.
                     if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
                         try {
-                            $reviveSettings = Read-KeyValueFile -Path $script:StartFilePath
+                            $reviveSettings = Read-KeyValueFileWithRetry -Path $script:StartFilePath
                             if ($null -ne $reviveSettings) {
                                 $reviveAPid = 0; $reviveBPid = 0
                                 $reviveAPidStr = if ($null -ne $reviveSettings -and $reviveSettings.Contains('A_LAUNCH_PID')) { [string]$reviveSettings.A_LAUNCH_PID } else { '0' }

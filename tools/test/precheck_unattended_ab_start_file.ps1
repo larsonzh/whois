@@ -21,34 +21,6 @@ trap {
     exit $exitCode
 }
 
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-
-    foreach ($line in $lines) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return [pscustomobject]@{
-        Lines = $lines
-        Map = $map
-    }
-}
-
 function Set-KeyValueFileValue {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -133,35 +105,6 @@ function Set-KeyValueFileValue {
         }
         $mutex.Dispose()
     }
-}
-
-function Convert-ToBooleanSetting {
-    param(
-        [AllowEmptyString()][string]$Value,
-        [bool]$Default = $false
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Default
-    }
-
-    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-}
-
-function Convert-MsysPathToWindowsPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ($Path -match '^/([a-zA-Z])/(.*)$') {
-        $drive = $Matches[1].ToUpperInvariant()
-        $rest = $Matches[2] -replace '/', '\\'
-        return ("{0}:\\{1}" -f $drive, $rest)
-    }
-
-    return $Path
 }
 
 function Resolve-RemoteKeyPath {
@@ -772,8 +715,7 @@ function Write-CheckLine {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
-$state = Read-KeyValueFile -Path $startFilePath
-$settings = $state.Map
+$settings = Read-KeyValueFile -Path $startFilePath
 $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 
 $failReasons = New-Object 'System.Collections.Generic.List[string]'

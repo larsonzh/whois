@@ -177,29 +177,6 @@ function Invoke-RunningFastmodeProcessStop {
     return @($stopped)
 }
 
-function Resolve-TaskDefinitionRelativePath {
-    param([string]$InputName)
-
-    if ([string]::IsNullOrWhiteSpace($InputName)) {
-        throw "TaskDefinitionFileName is required."
-    }
-
-    $normalized = $InputName.Trim().Replace("\\", "/")
-    if ($normalized.StartsWith("./")) {
-        $normalized = $normalized.Substring(2)
-    }
-
-    if ($normalized -match "^(?:[A-Za-z]:|/|\\\\)") {
-        throw "TaskDefinitionFileName must be a repository-relative path under testdata/."
-    }
-
-    if (-not $normalized.StartsWith("testdata/")) {
-        $normalized = "testdata/$normalized"
-    }
-
-    return $normalized
-}
-
 function Resolve-StartFilePathFromEnv {
     if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
         return ''
@@ -421,35 +398,6 @@ function Invoke-SrcCodeEncodingFixGate {
     }
 
     Write-Output ("[{0}] src encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
-}
-
-function Convert-MsysPathToWindowsPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ($Path -match '^/([a-zA-Z])/(.*)$') {
-        $drive = $Matches[1].ToUpperInvariant()
-        $rest = $Matches[2] -replace '/', '\\'
-        return ("{0}:\\{1}" -f $drive, $rest)
-    }
-
-    return $Path
-}
-
-function Convert-ToBooleanSetting {
-    param(
-        [AllowEmptyString()][string]$Value,
-        [bool]$Default = $false
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Default
-    }
-
-    return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 }
 
 function Resolve-RemoteKeyPathForLock {
@@ -787,36 +735,6 @@ function Assert-NetworkPrecheckReady {
     }
 
     Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $RoleTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
-}
-
-function Convert-ToSingleLineText {
-    param([AllowEmptyString()][string]$Text)
-
-    if ([string]::IsNullOrWhiteSpace($Text)) {
-        return ''
-    }
-
-    $singleLine = (($Text -split "`r?`n") -join ' ')
-    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Convert-ToRepoRelativePath {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-    }
-
-    return $fullPath.Replace('\\', '/')
 }
 
 function Write-StageExitReasonArtifact {

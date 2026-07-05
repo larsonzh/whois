@@ -172,26 +172,6 @@ function Get-NormalizedContentHash {
     }
 }
 
-function Convert-ToRepoRelativePath {
-    param(
-        [string]$RepoRoot,
-        [string]$AbsolutePath
-    )
-
-    $repoFull = [System.IO.Path]::GetFullPath($RepoRoot)
-    $pathFull = [System.IO.Path]::GetFullPath($AbsolutePath)
-    if (-not $pathFull.StartsWith($repoFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $null
-    }
-
-    $rel = $pathFull.Substring($repoFull.Length).TrimStart([char]'\', [char]'/')
-    if ([string]::IsNullOrWhiteSpace($rel)) {
-        return $null
-    }
-
-    return ($rel -replace '\\', '/')
-}
-
 function Test-BaselineMatchesHead {
     param(
         [string]$RepoRoot,
