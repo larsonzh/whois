@@ -50,6 +50,58 @@ function Read-JsonLinesSafely {
     param([string]$Path)
 
     $items = New-Object 'System.Collections.Generic.List[object]'
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return @($items.ToArray())
+    }
+
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        try {
+            $obj = $line | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $obj) {
+                [void]$items.Add($obj)
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return @($items.ToArray())
+}
+
+function Get-TicketTimeValue {
+    param([AllowEmptyString()][string]$Value)
+
+    $text = Convert-ToSingleLineText -Text $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    $parsed = [datetime]::MinValue
+    $ok = [datetime]::TryParseExact($text, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeLocal, [ref]$parsed)
+    if ($ok) {
+        return $parsed
+    }
+
+    if ([datetime]::TryParse($text, [ref]$parsed)) {
+        return $parsed
+    }
+
+    return $null
+}
+
+$startFilePath = Resolve-RepoPathAllowMissing -Path $StartFile
+if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+    throw 'start file path must not be empty'
+}
+
+$startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
+$ticketToken = Convert-ToSingleLineText -Text $TicketId
+if ([string]::IsNullOrWhiteSpace($ticketToken)) {
     throw 'ticket id must not be empty'
 }
 

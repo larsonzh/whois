@@ -285,7 +285,6 @@ function Get-ResetValue {
     return $CurrentValue
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
 $templatePath = Resolve-RepoPath -Path $TemplateFile -MustExist $true
 
