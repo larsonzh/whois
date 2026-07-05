@@ -314,6 +314,232 @@ function Get-StartFilePathFromCommandLine {
     return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
+function Get-StartFileLaunchMutexName {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-monitor-launch-{0}-{1}" -f $Role, $hash
+}
+
+function Enter-LaunchMutex {
+    param(
+        [string]$Role,
+        [string]$StartFilePath
+    )
+
+    $name = Get-StartFileLaunchMutexName -Role $Role -StartFilePath $StartFilePath
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Timed out waiting for monitor launch mutex: $name"
+        }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { $mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{
+        Name = $name
+        Mutex = $mutex
+        Acquired = $acquired
+    }
+}
+
+function Exit-LaunchMutex {
+    param($Context)
+
+    if ($null -eq $Context -or $null -eq $Context.Mutex) {
+        return
+    }
+
+    if ([bool]$Context.Acquired) {
+        try { $Context.Mutex.ReleaseMutex() | Out-Null } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+    }
+
+    try { $Context.Mutex.Dispose() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+}
+
+function Get-RunningStartFileProcessIdList {
+    param(
+        [string]$ScriptLeaf,
+        [string]$StartFileIdentity,
+        [string]$RepoRoot,
+        [int]$CurrentProcessId = 0,
+        [AllowEmptyString()][string]$ExcludeCommandLinePattern = ''
+    )
+
+    $ids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                if ($CurrentProcessId -gt 0 -and [int]$_.ProcessId -eq $CurrentProcessId) {
+                    return $false
+                }
+
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains($ScriptLeaf)) {
+                    return $false
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($ExcludeCommandLinePattern) -and $commandLine -match $ExcludeCommandLinePattern) {
+                    return $false
+                }
+
+                if ([string]::IsNullOrWhiteSpace($StartFileIdentity)) {
+                    return $true
+                }
+
+                $processStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
+                if ([string]::IsNullOrWhiteSpace($processStartFileIdentity)) {
+                    return $false
+                }
+
+                return ($processStartFileIdentity -eq $StartFileIdentity)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    return @($ids)
+}
+
+function Invoke-RunningProcessStop {
+    param(
+        [int[]]$ProcessIds,
+        [switch]$UseTaskkill,
+        [ValidateRange(0, 30000)][int]$TaskkillGraceMs = 1500,
+        [ValidateRange(1, 120)][int]$WaitTimeoutSec = 15
+    )
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        try {
+            if ($UseTaskkill.IsPresent) {
+                $null = & 'taskkill.exe' '/PID', ([string]$targetPid) 2>&1
+                if ($TaskkillGraceMs -gt 0) {
+                    Start-Sleep -Milliseconds $TaskkillGraceMs
+                }
+            }
+
+            if ($null -ne (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {
+                Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            }
+            Wait-Process -Id $targetPid -Timeout $WaitTimeoutSec -ErrorAction SilentlyContinue
+            [void]$stopped.Add([int]$targetPid)
+        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+    }
+
+    return @($stopped)
+}
+
+function Get-LatestAnchorValueFromNoteLog {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Get-AnchorValueFromConfig {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    if (-not $Settings.Contains('SESSION_FINAL_NOTES')) {
+        return ''
+    }
+
+    return Get-LatestAnchorValueFromNoteLog -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
+}
+
+function Get-LatestTimestampedDirectory {
+    param(
+        [string]$Root,
+        [Nullable[datetime]]$After = $null
+    )
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        return $null
+    }
+
+    $dirs = Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
+
+    if ($null -ne $After) {
+        $afterValue = [datetime]$After
+        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
+            [datetime]::MinValue
+        }
+        else {
+            $afterValue.AddSeconds(-2)
+        }
+
+        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
+    }
+
+    $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)
+    if ($candidates.Count -lt 1) {
+        return $null
+    }
+
+    return $candidates[0]
+}
+
 function Resolve-TaskDefinitionRelativePath {
     param(
         [AllowEmptyString()][string]$InputName,

@@ -416,6 +416,29 @@ function Get-LatestAnchorValueFromNoteText {
         $segment = [string]$parts[$index]
         if ([string]::IsNullOrWhiteSpace($segment)) {
             continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Resolve-RepoScopedPath {
+    param(
+        [string]$RepoRoot,
+        [AllowEmptyString()][string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $normalized = $Path.Trim().Replace('/', '\')
+        if ([System.IO.Path]::IsPathRooted($normalized)) {
             return [System.IO.Path]::GetFullPath($normalized)
         }
 

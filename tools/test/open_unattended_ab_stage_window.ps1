@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'OPEN-AB-STAGE'
 
 trap {
@@ -1488,39 +1489,6 @@ function Invoke-EnvFromSetting {
     Set-Item -Path ("Env:{0}" -f $EnvName) -Value $value
 }
 
-function Get-LatestTimestampedDirectory {
-    param(
-        [string]$Root,
-        [Nullable[datetime]]$After = $null
-    )
-
-    if (-not (Test-Path -LiteralPath $Root)) {
-        return $null
-    }
-
-    $dirs = Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^[0-9]{8}-[0-9]{6}$' }
-
-    if ($null -ne $After) {
-        $afterValue = [datetime]$After
-        $threshold = if ($afterValue -le [datetime]::MinValue.AddSeconds(2)) {
-            [datetime]::MinValue
-        }
-        else {
-            $afterValue.AddSeconds(-2)
-        }
-
-        $dirs = @($dirs | Where-Object { $_.CreationTime -ge $threshold -or $_.LastWriteTime -ge $threshold })
-    }
-
-    $candidates = @($dirs | Sort-Object CreationTime, LastWriteTime -Descending | Select-Object -First 1)
-    if ($candidates.Count -lt 1) {
-        return $null
-    }
-
-    return $candidates[0]
-}
-
 function Stop-MonitorProcessGracefully {
     param([int[]]$ProcessIds)
 
@@ -1882,23 +1850,6 @@ function Test-MonitorRoleReuseActivity {
         ThresholdMinutes = [int]$thresholdMinutes
         Evidence = @($evidence)
     }
-}
-
-function Get-AnchorValueFromConfig {
-    param(
-        [System.Collections.IDictionary]$Settings,
-        [string]$Key
-    )
-
-    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key)) {
-        return ''
-    }
-
-    if (-not $Settings.Contains('SESSION_FINAL_NOTES')) {
-        return ''
-    }
-
-    return Get-LatestAnchorValueFromNoteText -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key $Key
 }
 
 function Invoke-PreV1EncodingFixGates {
