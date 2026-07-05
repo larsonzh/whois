@@ -16,6 +16,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'RUN-UNATTENDED-STATUS-ONLY-AUTOFLOW'
 
 trap {
@@ -52,19 +53,6 @@ function Get-NormalizedListValueSet {
     }
 
     return @($items.ToArray())
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Get-ObjectPropertyString {
@@ -407,7 +395,7 @@ if (-not (Test-Path -LiteralPath $startFilePath)) {
     throw ('start file not found: {0}' -f $startFilePath)
 }
 
-$startSettings = Read-KeyValueFile -Path $startFilePath
+$startSettings = Read-KeyValueFileLastWins -Path $startFilePath
 $tokenSettingKey = Convert-ToSingleLineText -Text $ExecutionTokenSettingKey
 if ([string]::IsNullOrWhiteSpace($tokenSettingKey)) {
     $tokenSettingKey = 'LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN'

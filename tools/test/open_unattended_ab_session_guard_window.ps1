@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'OPEN-AB-SESSION-GUARD'
 
 trap {
@@ -201,19 +202,6 @@ function Invoke-RunningGuardProcessStop {
     }
 
     return @($stopped)
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Get-LatestAnchorValueFromNoteLog {
@@ -413,7 +401,7 @@ $startFilePath = if ([System.IO.Path]::IsPathRooted($StartFile)) {
 else {
     (Resolve-Path -LiteralPath (Join-Path $repoRoot $StartFile)).Path
 }
-$settings = Read-KeyValueFile -Path $startFilePath
+$settings = Read-KeyValueFileLastWins -Path $startFilePath
 $startFileIdentity = Get-NormalizedPathIdentity -Path $startFilePath -RepoRoot $repoRoot
 $scriptPath = Join-Path $repoRoot 'tools\test\unattended_ab_session_guard.ps1'
 $powershellPath = Join-Path $PSHOME 'powershell.exe'

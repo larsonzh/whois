@@ -6,6 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
 function Get-RepoScopedMutexName {
     param(
@@ -210,36 +211,6 @@ function Resolve-StartFilePathFromEnv {
     catch {
         return [string]$env:AUTO_START_FILE_PATH
     }
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Start file path is empty.'
-    }
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "Start file not found: $Path"
-    }
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Assert-StageWindowInvocation {

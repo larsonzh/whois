@@ -34,6 +34,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'OPEN-AB-RESUME'
 
 trap {
@@ -47,61 +48,6 @@ if (-not (Test-Path -LiteralPath $dispatchPolicyModulePath)) {
     throw "Missing script: $dispatchPolicyModulePath"
 }
 . $dispatchPolicyModulePath
-
-
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return (Resolve-Path -LiteralPath $Path).Path
-    }
-
-    return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
-}
 
 function Invoke-KeyValueFileValueUpdate {
     param(

@@ -23,19 +23,6 @@ trap {
     exit $exitCode
 }
 
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
 function Set-KeyValueFileValue {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -266,7 +253,7 @@ $startFilePath = ''
 $startSettings = [ordered]@{}
 if (-not [string]::IsNullOrWhiteSpace($StartFile)) {
     $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
-    $startSettings = Read-KeyValueFile -Path $startFilePath
+    $startSettings = Read-KeyValueFileLastWins -Path $startFilePath
 }
 
 $keywords = @(

@@ -191,6 +191,30 @@ function Read-KeyValueFile {
     return $map
 }
 
+function Read-KeyValueFileLastWins {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [switch]$AllowMissing
+    )
+
+    $map = [ordered]@{}
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        if ($AllowMissing.IsPresent) {
+            return $map
+        }
+
+        throw ("Path not found: {0}" -f $Path)
+    }
+
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            $map[$Matches[1].Trim()] = $Matches[2]
+        }
+    }
+
+    return $map
+}
+
 function Get-StartFileMutexName {
     param([string]$StartFilePath)
 
