@@ -18,6 +18,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:TailLines = $TailLines
 
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+
 function Resolve-RepoPath {
     param([string]$Path)
 
@@ -47,39 +49,6 @@ function Get-StartFileMutexName {
 
     $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
     return "Local\whois-unattended-startfile-write-$hash"
-}
-
-function Get-StableStartFileToken {
-    param([string]$StartFilePath)
-
-    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
-        return 'sf_unknown'
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-        $hashBytes = $sha1.ComputeHash($bytes)
-        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    return ('sf_{0}' -f $hash)
-}
-
-function Get-LegacyStartFileToken {
-    param([string]$StartFilePath)
-
-    $leaf = [System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant()
-    $safe = ([regex]::Replace($leaf, '[^A-Za-z0-9._-]', '_')).Trim('_')
-    if ([string]::IsNullOrWhiteSpace($safe)) {
-        return 'default'
-    }
-
-    return $safe
 }
 
 function Resolve-PreferredDefaultPath {
@@ -754,12 +723,12 @@ function Get-LogTailMatch {
     }
 
     $scanLines = [Math]::Min(500, [Math]::Max($Lines, $Lines * 8))
-    $matches = @(Get-Content -LiteralPath $Path -Tail $scanLines -ErrorAction SilentlyContinue | Where-Object { $_ -match $Pattern })
-    if ($matches.Count -le $Lines) {
-        return @($matches)
+    $matchedLines = @(Get-Content -LiteralPath $Path -Tail $scanLines -ErrorAction SilentlyContinue | Where-Object { $_ -match $Pattern })
+    if ($matchedLines.Count -le $Lines) {
+        return @($matchedLines)
     }
 
-    return @($matches | Select-Object -Last $Lines)
+    return @($matchedLines | Select-Object -Last $Lines)
 }
 
 function Write-Snapshot {

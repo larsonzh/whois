@@ -1,5 +1,7 @@
 ﻿Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+
 function Test-RoleProcessTrulyAlive {
     param(
         [string]$Role,
@@ -38,19 +40,8 @@ function Test-RoleProcessTrulyAlive {
                 else {
                     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $triggerStartFile))
                 }
-                $fullPath = $fullPath.ToLowerInvariant()
-                $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-                $sha1 = [System.Security.Cryptography.SHA1]::Create()
-                try {
-                    $hashBytes = $sha1.ComputeHash($bytes)
-                }
-                finally {
-                    $sha1.Dispose()
-                }
-                $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
-                $stableToken = ('sf_{0}' -f $hash)
-                $legacyToken = ([regex]::Replace(([System.IO.Path]::GetFileNameWithoutExtension($fullPath)), '[^A-Za-z0-9._-]', '_')).Trim('_')
-                if ([string]::IsNullOrWhiteSpace($legacyToken)) { $legacyToken = 'default' }
+                $stableToken = Get-StableStartFileToken -StartFilePath $fullPath
+                $legacyToken = Get-LegacyStartFileToken -StartFilePath $fullPath
 
                 foreach ($candidateStatePath in @(
                     (Join-Path $roleStateRoot ("takeover_trigger_state_{0}.json" -f $stableToken)),

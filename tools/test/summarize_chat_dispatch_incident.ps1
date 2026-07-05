@@ -12,6 +12,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+
 function Resolve-RepoPathAllowMissing {
     param([AllowEmptyString()][string]$Path)
 
@@ -56,44 +58,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Get-SafeToken {
-    param([AllowEmptyString()][string]$Text)
-
-    $normalized = Convert-ToSingleLineText -Text $Text
-    if ([string]::IsNullOrWhiteSpace($normalized)) {
-        return 'default'
-    }
-
-    return ([regex]::Replace($normalized, '[^A-Za-z0-9._-]', '_')).Trim('_')
-}
-
-function Get-StableStartFileToken {
-    param([string]$StartFilePath)
-
-    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
-        return 'sf_unknown'
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-        $hashBytes = $sha1.ComputeHash($bytes)
-        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    return ('sf_{0}' -f $hash)
-}
-
-function Get-LegacyStartFileToken {
-    param([string]$StartFilePath)
-
-    return Get-SafeToken -Text ([System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant())
 }
 
 function Resolve-PreferredDefaultPath {

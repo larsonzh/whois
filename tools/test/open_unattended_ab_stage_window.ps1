@@ -677,27 +677,6 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-startfile-write-$hash"
 }
 
-function Get-StableStartFileToken {
-    param([string]$StartFilePath)
-
-    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
-        return 'sf_unknown'
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-        $hashBytes = $sha1.ComputeHash($bytes)
-        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    return ('sf_{0}' -f $hash)
-}
-
 function Get-MonitorTimelinePath {
     param(
         [string]$StartFilePath,

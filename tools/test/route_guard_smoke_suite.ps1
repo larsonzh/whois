@@ -53,6 +53,7 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $triggerScript = Join-Path $repoRoot 'tools\test\trigger_route_guard_gate_smoke.ps1'
 $dispatchScript = Join-Path $repoRoot 'tools\test\dispatch_route_guard_live_override_smoke.ps1'
 $classificationScript = Join-Path $repoRoot 'tools\test\classification_contract_tests.ps1'
+$watchScript = Join-Path $repoRoot 'tools\test\watch_ab_light_smoke.ps1'
 
 if (-not (Test-Path -LiteralPath $triggerScript)) {
     throw ('trigger smoke not found: {0}' -f $triggerScript)
@@ -63,23 +64,30 @@ if (-not (Test-Path -LiteralPath $dispatchScript)) {
 if (-not (Test-Path -LiteralPath $classificationScript)) {
     throw ('classification contract test not found: {0}' -f $classificationScript)
 }
+if (-not (Test-Path -LiteralPath $watchScript)) {
+    throw ('watch smoke not found: {0}' -f $watchScript)
+}
 
 $triggerResult = Invoke-SmokeScript -ScriptPath $triggerScript -Arguments @('-StartFile', $StartFile)
 $dispatchResult = Invoke-SmokeScript -ScriptPath $dispatchScript -Arguments @('-StartFile', $StartFile)
 $classificationResult = Invoke-SmokeScript -ScriptPath $classificationScript -Arguments @()
+$watchResult = Invoke-SmokeScript -ScriptPath $watchScript -Arguments @()
 
 $triggerLog = Join-Path $outDir 'trigger_smoke.log'
 $dispatchLog = Join-Path $outDir 'dispatch_smoke.log'
 $classificationLog = Join-Path $outDir 'classification_contract.log'
+$watchLog = Join-Path $outDir 'watch_ab_light_smoke.log'
 $triggerResult.Output | Out-File -LiteralPath $triggerLog -Encoding utf8
 $dispatchResult.Output | Out-File -LiteralPath $dispatchLog -Encoding utf8
 $classificationResult.Output | Out-File -LiteralPath $classificationLog -Encoding utf8
+$watchResult.Output | Out-File -LiteralPath $watchLog -Encoding utf8
 
 $triggerSummaryLine = Get-ResultLine -Lines $triggerResult.Output -Prefix '[TRIGGER-ROUTE-GATE-SMOKE] checks '
 $dispatchSummaryLine = Get-ResultLine -Lines $dispatchResult.Output -Prefix '[DISPATCH-LIVE-OVERRIDE-SMOKE] checks '
 $classificationSummaryLine = Get-ResultLine -Lines $classificationResult.Output -Prefix '[CLASSIFICATION-CONTRACT] result='
+$watchSummaryLine = Get-ResultLine -Lines $watchResult.Output -Prefix '[WATCH-AB-LIGHT-SMOKE] stable_pass='
 
-$pass = ($triggerResult.ExitCode -eq 0 -and $dispatchResult.ExitCode -eq 0 -and $classificationResult.ExitCode -eq 0)
+$pass = ($triggerResult.ExitCode -eq 0 -and $dispatchResult.ExitCode -eq 0 -and $classificationResult.ExitCode -eq 0 -and $watchResult.ExitCode -eq 0)
 
 $summary = [ordered]@{
     schema = 'AB_ROUTE_GUARD_SMOKE_SUITE_V1'
@@ -101,6 +109,11 @@ $summary = [ordered]@{
         summary_line = $classificationSummaryLine
         log_path = $classificationLog
     }
+    watch_ab_light = [ordered]@{
+        exit_code = $watchResult.ExitCode
+        summary_line = $watchSummaryLine
+        log_path = $watchLog
+    }
     pass = $pass
 }
 
@@ -110,10 +123,11 @@ $summary | ConvertTo-Json -Depth 8 | Out-File -LiteralPath $summaryJson -Encodin
 $summary | Format-List | Out-String | Out-File -LiteralPath $summaryTxt -Encoding utf8
 
 Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] out_dir={0}' -f $outDir)
-Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] trigger_exit={0} dispatch_exit={1} classification_exit={2}' -f $triggerResult.ExitCode, $dispatchResult.ExitCode, $classificationResult.ExitCode)
+Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] trigger_exit={0} dispatch_exit={1} classification_exit={2} watch_exit={3}' -f $triggerResult.ExitCode, $dispatchResult.ExitCode, $classificationResult.ExitCode, $watchResult.ExitCode)
 Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] trigger_summary={0}' -f $triggerSummaryLine)
 Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] dispatch_summary={0}' -f $dispatchSummaryLine)
 Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] classification_summary={0}' -f $classificationSummaryLine)
+Write-Output ('[ROUTE-GUARD-SMOKE-SUITE] watch_summary={0}' -f $watchSummaryLine)
 
 if (-not $pass) {
     Write-Output '[ROUTE-GUARD-SMOKE-SUITE] result=fail'
