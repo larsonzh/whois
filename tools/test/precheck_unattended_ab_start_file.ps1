@@ -107,52 +107,6 @@ function Set-KeyValueFileValue {
     }
 }
 
-function Resolve-RemoteKeyPath {
-    param([string]$InputPath)
-
-    if (-not [string]::IsNullOrWhiteSpace($InputPath) -and (Test-Path -LiteralPath $InputPath)) {
-        return (Resolve-Path -LiteralPath $InputPath).Path
-    }
-
-    $converted = Convert-MsysPathToWindowsPath -Path $InputPath
-    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
-        return (Resolve-Path -LiteralPath $converted).Path
-    }
-
-    throw "Unable to resolve SSH private key path. input=$InputPath"
-}
-
-function Get-LockField {
-    param(
-        [string[]]$Lines,
-        [string]$Key
-    )
-
-    $escapedKey = [regex]::Escape($Key)
-    foreach ($record in @($Lines)) {
-        if ($null -eq $record) {
-            continue
-        }
-
-        foreach ($rawLine in @(([string]$record) -split "`r?`n")) {
-            if ([string]::IsNullOrWhiteSpace($rawLine)) {
-                continue
-            }
-
-            $line = $rawLine.Trim().TrimStart([char]0xFEFF)
-            if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + $escapedKey + '=(.*)$')) {
-                return $Matches[1].Trim()
-            }
-
-            if ($line -match ('(?:^|\s)' + $escapedKey + '=(.*)$')) {
-                return $Matches[1].Trim()
-            }
-        }
-    }
-
-    return ''
-}
-
 function Get-CommandPreview {
     param(
         [AllowEmptyString()][string]$CommandLine,
@@ -169,59 +123,6 @@ function Get-CommandPreview {
     }
 
     return $single.Substring(0, $MaxLength) + '...'
-}
-
-function Get-NormalizedPathIdentity {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
-            [System.IO.Path]::GetFullPath($Path)
-        }
-        else {
-            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-        }
-
-        return $resolved.ToLowerInvariant()
-    }
-    catch {
-        return ''
-    }
-}
-
-function Get-StartFilePathFromCommandLine {
-    param(
-        [AllowEmptyString()][string]$CommandLine,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
-        return ''
-    }
-
-    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
-    if (-not $match.Success) {
-        return ''
-    }
-
-    $rawPath = if ($match.Groups[2].Success) {
-        $match.Groups[2].Value
-    }
-    elseif ($match.Groups[3].Success) {
-        $match.Groups[3].Value
-    }
-    else {
-        $match.Groups[4].Value
-    }
-
-    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
 }
 
 function Get-TaskDefinitionPathFromCommandLine {
@@ -958,7 +859,7 @@ else {
             }
             else {
                 $sshPass = $true
-                $rawState = (Get-LockField -Lines $lockLines -Key 'state').ToLowerInvariant()
+                $rawState = (Get-RemoteLockField -Lines $lockLines -Key 'state').ToLowerInvariant()
                 if ([string]::IsNullOrWhiteSpace($rawState)) {
                     $rawState = 'unknown'
                 }

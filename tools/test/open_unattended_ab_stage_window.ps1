@@ -528,59 +528,6 @@ function Assert-BStartEligibility {
     }
 }
 
-function Get-NormalizedPathIdentity {
-    param(
-        [AllowEmptyString()][string]$Path,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
-            [System.IO.Path]::GetFullPath($Path)
-        }
-        else {
-            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
-        }
-
-        return $resolved.ToLowerInvariant()
-    }
-    catch {
-        return ''
-    }
-}
-
-function Get-StartFilePathFromCommandLine {
-    param(
-        [AllowEmptyString()][string]$CommandLine,
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
-        return ''
-    }
-
-    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
-    if (-not $match.Success) {
-        return ''
-    }
-
-    $rawPath = if ($match.Groups[2].Success) {
-        $match.Groups[2].Value
-    }
-    elseif ($match.Groups[3].Success) {
-        $match.Groups[3].Value
-    }
-    else {
-        $match.Groups[4].Value
-    }
-
-    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
-}
-
 function Get-MonitorTimelinePath {
     param(
         [string]$StartFilePath,
@@ -912,24 +859,6 @@ function Resolve-CurrentStageRunDir {
     return ''
 }
 
-function Convert-ToBoundedSingleLineText {
-    param(
-        [AllowEmptyString()][string]$Text,
-        [ValidateRange(32, 4000)][int]$MaxChars = 800
-    )
-
-    $singleLine = Convert-ToSingleLineText -Text $Text
-    if ([string]::IsNullOrWhiteSpace($singleLine)) {
-        return ''
-    }
-
-    if ($singleLine.Length -le $MaxChars) {
-        return $singleLine
-    }
-
-    return ($singleLine.Substring(0, $MaxChars).TrimEnd() + '...')
-}
-
 function Get-AgentTicketQueuePath {
     param([System.Collections.IDictionary]$Settings)
 
@@ -1197,21 +1126,6 @@ function Clear-MonitorChainShutdownRequest {
     }
     Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
     return (Read-KeyValueFile -Path $Path)
-}
-
-function Resolve-RemoteKeyPathForNetworkPrecheck {
-    param([string]$InputPath)
-
-    if (-not [string]::IsNullOrWhiteSpace($InputPath) -and (Test-Path -LiteralPath $InputPath)) {
-        return (Resolve-Path -LiteralPath $InputPath).Path
-    }
-
-    $converted = Convert-MsysPathToWindowsPath -Path $InputPath
-    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
-        return (Resolve-Path -LiteralPath $converted).Path
-    }
-
-    throw "Unable to resolve SSH private key for network precheck. input=$InputPath"
 }
 
 function Assert-PrecheckGateReady {
@@ -1502,7 +1416,7 @@ function Assert-NetworkPrecheckReady {
 
     $resolvedKeyPath = ''
     if ($checkRemote) {
-        $resolvedKeyPath = Resolve-RemoteKeyPathForNetworkPrecheck -InputPath $remoteKeyRaw
+        $resolvedKeyPath = Resolve-RemoteKeyPath -InputPath $remoteKeyRaw -Purpose 'SSH private key for network precheck'
     }
 
     $outputLines = @()

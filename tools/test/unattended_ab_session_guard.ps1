@@ -34,24 +34,6 @@ if (-not (Test-Path -LiteralPath $pathGuardModulePath)) {
 
 
 
-function Convert-ToBoundedSingleLineText {
-    param(
-        [AllowEmptyString()][string]$Text,
-        [ValidateRange(32, 4000)][int]$MaxChars = 800
-    )
-
-    $singleLine = Convert-ToSingleLineText -Text $Text
-    if ([string]::IsNullOrWhiteSpace($singleLine)) {
-        return ''
-    }
-
-    if ($singleLine.Length -le $MaxChars) {
-        return $singleLine
-    }
-
-    return ($singleLine.Substring(0, $MaxChars).TrimEnd() + '...')
-}
-
 function Get-FilteredRuntimeTailLineList {
     param([string[]]$Lines)
 

@@ -400,155 +400,6 @@ function Invoke-SrcCodeEncodingFixGate {
     Write-Output ("[{0}] src encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
 }
 
-function Resolve-RemoteKeyPathForLock {
-    param([string]$KeyPath)
-
-    if (-not [string]::IsNullOrWhiteSpace($KeyPath) -and (Test-Path -LiteralPath $KeyPath)) {
-        return (Resolve-Path -LiteralPath $KeyPath).Path
-    }
-
-    $converted = Convert-MsysPathToWindowsPath -Path $KeyPath
-    if (-not [string]::IsNullOrWhiteSpace($converted) -and (Test-Path -LiteralPath $converted)) {
-        return (Resolve-Path -LiteralPath $converted).Path
-    }
-
-    $fallback = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.ssh\id_rsa'
-    if (Test-Path -LiteralPath $fallback) {
-        return (Resolve-Path -LiteralPath $fallback).Path
-    }
-
-    throw "Unable to resolve SSH private key for remote lock check. input=$KeyPath"
-}
-
-function Get-RemoteLockField {
-    param(
-        [string[]]$Lines,
-        [string]$Key
-    )
-
-    $escapedKey = [regex]::Escape($Key)
-    foreach ($record in @($Lines)) {
-        if ($null -eq $record) {
-            continue
-        }
-
-        foreach ($rawLine in @(([string]$record) -split "`r?`n")) {
-            if ([string]::IsNullOrWhiteSpace($rawLine)) {
-                continue
-            }
-
-            $line = $rawLine.Trim().TrimStart([char]0xFEFF)
-            if ($line -match ('^\[CHECK-REMOTE-LOCK\]\s+' + $escapedKey + '=(.*)$')) {
-                return $Matches[1].Trim()
-            }
-
-            # Fallback for aggregated/mixed output lines.
-            if ($line -match ('(?:^|\s)' + $escapedKey + '=(.*)$')) {
-                return $Matches[1].Trim()
-            }
-        }
-    }
-
-    return ''
-}
-
-function Save-RemoteLockScene {
-    param(
-        [string]$RepoRoot,
-        [string]$RoleTag,
-        [string]$StageTag,
-        [string]$RemoteIp,
-        [string]$RemoteUser,
-        [string]$KeyPath,
-        [string]$LockScope,
-        [string]$ConflictAction,
-        [string[]]$ObservedCheckLines
-    )
-
-    try {
-        $sceneRoot = Join-Path $RepoRoot 'out\artifacts\ab_remote_lock_scene'
-        if (-not (Test-Path -LiteralPath $sceneRoot)) {
-            New-Item -ItemType Directory -Path $sceneRoot -Force | Out-Null
-        }
-
-        $stageLower = if ([string]::IsNullOrWhiteSpace($StageTag)) { 'x' } else { $StageTag.Trim().ToLowerInvariant() }
-        $timestamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
-        $sceneDir = Join-Path $sceneRoot ("{0}_{1}_pid{2}" -f $timestamp, $stageLower, $PID)
-        New-Item -ItemType Directory -Path $sceneDir -Force | Out-Null
-
-        $observedPath = Join-Path $sceneDir 'remote_lock_check_observed.txt'
-        @($ObservedCheckLines | ForEach-Object { [string]$_ }) | Out-File -FilePath $observedPath -Encoding utf8
-
-        $checkScript = Join-Path $RepoRoot 'tools\dev\check_remote_lock.ps1'
-        $checkNowPath = Join-Path $sceneDir 'remote_lock_check_now.txt'
-        if (Test-Path -LiteralPath $checkScript) {
-            try {
-                $checkNowLines = @((& $checkScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 2>&1) | ForEach-Object { [string]$_ })
-                @($checkNowLines) | Out-File -FilePath $checkNowPath -Encoding utf8
-            }
-            catch {
-                (Convert-ToSingleLineText -Text $_.Exception.Message) | Out-File -FilePath $checkNowPath -Encoding utf8
-            }
-        }
-
-        $clearScript = Join-Path $RepoRoot 'tools\dev\clear_remote_lock.ps1'
-        $clearDryRunPath = Join-Path $sceneDir 'remote_lock_dryrun.txt'
-        if (Test-Path -LiteralPath $clearScript) {
-            try {
-                $clearLines = @((& $clearScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 -DryRun 2>&1) | ForEach-Object { [string]$_ })
-                @($clearLines) | Out-File -FilePath $clearDryRunPath -Encoding utf8
-            }
-            catch {
-                (Convert-ToSingleLineText -Text $_.Exception.Message) | Out-File -FilePath $clearDryRunPath -Encoding utf8
-            }
-        }
-
-        $startFilePath = ''
-        if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
-            try {
-                $startFilePath = [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
-            }
-            catch {
-                $startFilePath = [string]$env:AUTO_START_FILE_PATH
-            }
-        }
-
-        $metadata = [ordered]@{
-            schema = 'AB_REMOTE_LOCK_SCENE_V1'
-            generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-            role_tag = $RoleTag
-            stage = if ([string]::IsNullOrWhiteSpace($StageTag)) { '' } else { $StageTag.Trim().ToUpperInvariant() }
-            process_id = [int]$PID
-            remote_ip = $RemoteIp
-            remote_user = $RemoteUser
-            key_path = $KeyPath
-            lock_scope = $LockScope
-            conflict_action = $ConflictAction
-            observed_state = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'state')
-            observed_stale = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'stale')
-            observed_age_sec = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'age_sec')
-            observed_token = (Get-RemoteLockField -Lines $ObservedCheckLines -Key 'token')
-            start_file_path = $startFilePath
-            observed_file = 'remote_lock_check_observed.txt'
-            check_now_file = if (Test-Path -LiteralPath $checkNowPath) { 'remote_lock_check_now.txt' } else { '' }
-            dryrun_file = if (Test-Path -LiteralPath $clearDryRunPath) { 'remote_lock_dryrun.txt' } else { '' }
-        }
-
-        ($metadata | ConvertTo-Json -Depth 8) | Out-File -FilePath (Join-Path $sceneDir 'metadata.json') -Encoding utf8
-
-        return [pscustomobject]@{
-            SceneDir = $sceneDir
-            ErrorDetail = ''
-        }
-    }
-    catch {
-        return [pscustomobject]@{
-            SceneDir = ''
-            ErrorDetail = (Convert-ToSingleLineText -Text $_.Exception.Message)
-        }
-    }
-}
-
 function Assert-RemoteBuildLockReady {
     param(
         [string]$RepoRoot,
@@ -693,7 +544,7 @@ function Assert-NetworkPrecheckReady {
 
     $resolvedKeyPath = ''
     if ($checkRemote) {
-        $resolvedKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $KeyPath
+        $resolvedKeyPath = Resolve-RemoteKeyPath -KeyPath $KeyPath -UseDefaultSshKeyFallback -Purpose 'SSH private key for remote lock check'
     }
 
     $lines = @()
@@ -943,7 +794,7 @@ try {
     $remoteBuildLockConflictAction = if ([string]::IsNullOrWhiteSpace($env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION)) { 'stop-before-build' } else { [string]$env:AUTO_REMOTE_BUILD_LOCK_CONFLICT_ACTION }
 
     if ($remoteBuildLockRequired) {
-        $lockCheckKeyPath = Resolve-RemoteKeyPathForLock -KeyPath $keyPath
+        $lockCheckKeyPath = Resolve-RemoteKeyPath -KeyPath $keyPath -UseDefaultSshKeyFallback -Purpose 'SSH private key for remote lock check'
         Assert-RemoteBuildLockReady -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -RemoteIp $remoteIp -RemoteUser $remoteUser -KeyPath $lockCheckKeyPath -LockScope $remoteBuildLockScope -ConflictAction $remoteBuildLockConflictAction
     }
     else {
