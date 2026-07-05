@@ -11,41 +11,6 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -55,19 +20,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
 }
 
 function Get-ObjectPropertyString {

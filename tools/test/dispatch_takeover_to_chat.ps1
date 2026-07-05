@@ -22,41 +22,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 $script:UnhandledExitTag = 'DISPATCH-TAKEOVER-TO-CHAT'
 
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -186,19 +151,6 @@ function Get-SafeToken {
     }
 
     return ([regex]::Replace($raw, '[^A-Za-z0-9._-]', '_')).Trim('_')
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
 }
 
 function Convert-ToBooleanSetting {
@@ -1243,29 +1195,6 @@ function Test-EventAllowedByList {
     }
 
     return $false
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Resolve-TicketEventFromQueue {

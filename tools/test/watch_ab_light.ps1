@@ -20,50 +20,6 @@ $script:TailLines = $TailLines
 
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return (Resolve-Path -LiteralPath $Path).Path
-    }
-
-    return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
-}
-
 function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
@@ -285,35 +241,6 @@ function Invoke-StartupWatchDedupe {
     Write-Output ("[WATCH-AB-LIGHT] startup_dedupe existing_count={0} existing_pids={1}" -f $existingPids.Count, ($existingPids -join ','))
     $stoppedPids = @(Invoke-RunningWatchProcessStop -ProcessIds $existingPids)
     Write-Output ("[WATCH-AB-LIGHT] startup_dedupe stopped_count={0} stopped_pids={1}" -f $stoppedPids.Count, ($stoppedPids -join ','))
-}
-
-function Convert-ToRepoRelativePath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\')
-    }
-
-    return $Path
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Invoke-WatchLifecycleStateUpdate {

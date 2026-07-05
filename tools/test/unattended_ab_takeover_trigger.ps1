@@ -32,55 +32,6 @@ trap {
 
 
 
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return (Resolve-Path -LiteralPath $Path).Path
-    }
-
-    return (Resolve-Path -LiteralPath (Join-Path $script:RepoRoot $Path)).Path
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowNull()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowNull()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
 function Convert-MsysPathToWindowsPath {
     param([AllowNull()][string]$Path)
 
@@ -809,29 +760,6 @@ function Get-BPassFailConflictEvidence {
     return [pscustomobject]$result
 }
 
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
 function Get-StartFileWriteMutexName {
     param([string]$StartFilePath)
 
@@ -849,15 +777,11 @@ function Get-StartFileWriteMutexName {
     return "Local\whois-unattended-startfile-write-$hash"
 }
 
-function Set-KeyValueFileValue {
+function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
         [hashtable]$Values
     )
-
-    if ([string]::IsNullOrWhiteSpace($Path) -or $null -eq $Values -or $Values.Count -lt 1) {
-        return $false
-    }
 
     $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileWriteMutexName -StartFilePath $Path))
     $locked = $false
@@ -979,19 +903,6 @@ function Get-SafeToken {
     }
 
     return ([regex]::Replace($normalized, '[^A-Za-z0-9._-]', '_')).Trim('_')
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
 }
 
 function Write-TriggerLog {

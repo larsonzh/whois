@@ -203,19 +203,6 @@ function Invoke-RunningTriggerProcessStop {
     return @($stopped)
 }
 
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
 function Convert-ToBooleanSetting {
     param(
         [AllowEmptyString()][string]$Value,
@@ -227,19 +214,6 @@ function Convert-ToBooleanSetting {
     }
 
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
 }
 
 function Test-ExistingMonitorProcessAlive {

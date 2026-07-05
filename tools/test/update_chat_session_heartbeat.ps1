@@ -83,84 +83,6 @@ function Assert-Ps51Utf8BomCompatibility {
     }
 }
 
-function ConvertTo-PathLikeValue {
-    param([AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return ''
-    }
-
-    $normalized = $Value.Trim()
-    if ($normalized.Length -ge 2) {
-        if (($normalized.StartsWith('"') -and $normalized.EndsWith('"')) -or
-            ($normalized.StartsWith("'") -and $normalized.EndsWith("'"))) {
-            $normalized = $normalized.Substring(1, $normalized.Length - 2).Trim()
-        }
-    }
-
-    return $normalized
-}
-
-function Resolve-RepoPath {
-    param(
-        [string]$Path,
-        [bool]$MustExist = $true
-    )
-
-    $Path = ConvertTo-PathLikeValue -Value $Path
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $fullPath = ''
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-    }
-    else {
-        $fullPath = [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path))
-    }
-
-    if ($MustExist -and -not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([string]$Path)
-
-    return Resolve-RepoPath -Path $Path -MustExist $false
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $fullPath = Resolve-RepoPathAllowMissing -Path $Path
-    if ($fullPath.StartsWith($script:RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($script:RepoRoot.Length).TrimStart('\\')
-    }
-
-    return $fullPath
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
 function Convert-ToBooleanValue {
     param(
         [AllowNull()][object]$Value,
@@ -181,19 +103,6 @@ function Convert-ToBooleanValue {
     }
 
     return $text.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [string]$PreferredPath,
-        [string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    return $PreferredPath
 }
 
 function Write-JsonFileSafely {

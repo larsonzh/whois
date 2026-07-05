@@ -23,60 +23,6 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($Text.Trim(), '\s+', ' '))
 }
 
-function ConvertTo-PathLikeValue {
-    param([AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return ''
-    }
-
-    $normalized = $Value.Trim()
-    if ($normalized.Length -ge 2) {
-        if (($normalized.StartsWith('"') -and $normalized.EndsWith('"')) -or
-            ($normalized.StartsWith("'") -and $normalized.EndsWith("'"))) {
-            $normalized = $normalized.Substring(1, $normalized.Length - 2).Trim()
-        }
-    }
-
-    return $normalized
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    $normalized = ConvertTo-PathLikeValue -Value $Path
-    if ([string]::IsNullOrWhiteSpace($normalized)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($normalized)) {
-        return [System.IO.Path]::GetFullPath($normalized)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $normalized))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
 function Convert-ToBooleanValue {
     param(
         [object]$Value,
@@ -97,19 +43,6 @@ function Convert-ToBooleanValue {
     }
 
     return $raw -in @('1', 'true', 'yes', 'on')
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Read-JsonFileSafely {
@@ -163,27 +96,6 @@ function Get-SafeToken {
     }
 
     return ([regex]::Replace($normalized, '[^A-Za-z0-9._-]', '_')).Trim('_')
-}
-
-function Resolve-PreferredDefaultPath {
-    param(
-        [AllowEmptyString()][string]$PreferredPath,
-        [AllowEmptyString()][string]$LegacyPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($PreferredPath) -and (Test-Path -LiteralPath $PreferredPath)) {
-        return $PreferredPath
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and (Test-Path -LiteralPath $LegacyPath)) {
-        return $LegacyPath
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($PreferredPath)) {
-        return $PreferredPath
-    }
-
-    return $LegacyPath
 }
 
 function Add-JsonLine {
