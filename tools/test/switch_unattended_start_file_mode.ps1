@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'SWITCH-UNATTENDED-START-FILE-MODE'
 
 trap {
@@ -18,38 +19,6 @@ trap {
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
-function Resolve-RepoPath {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'Path must not be empty.'
-    }
-
-    $combined = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $script:RepoRoot $Path }
-    $fullPath = [System.IO.Path]::GetFullPath($combined)
-    if (-not (Test-Path -LiteralPath $fullPath)) {
-        throw "Path not found: $fullPath"
-    }
-
-    return $fullPath
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRoot = [System.IO.Path]::GetFullPath($script:RepoRoot)
-    if ($fullPath.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRoot.Length).TrimStart('\').Replace('\', '/')
-    }
-
-    return $fullPath.Replace('\', '/')
-}
-
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -59,48 +28,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-    $keyLineMap = @{}
-    $map = [ordered]@{}
-    $lineNo = 0
-
-    foreach ($line in $lines) {
-        $lineNo++
-        if ($line -match '^([^=]+)=(.*)$') {
-            $key = $Matches[1].Trim()
-            if ($map.Contains($key)) {
-                $firstLine = [int]$keyLineMap[$key]
-                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, $firstLine, $lineNo)
-            }
-
-            $keyLineMap[$key] = $lineNo
-            $map[$key] = $Matches[2]
-        }
-    }
-
-    return $map
-}
-
-function Get-StartFileMutexName {
-    param([string]$StartFilePath)
-
-    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
-    $sha1 = [System.Security.Cryptography.SHA1]::Create()
-    try {
-        $hashBytes = $sha1.ComputeHash($bytes)
-    }
-    finally {
-        $sha1.Dispose()
-    }
-
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-    return "Local\whois-unattended-startfile-write-$hash"
 }
 
 function Invoke-KeyValueFileValueUpdate {

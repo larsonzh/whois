@@ -6,6 +6,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -16,73 +17,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function ConvertTo-PathLikeValue {
-    param([AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return ''
-    }
-
-    $normalized = $Value.Trim()
-    if ($normalized.Length -ge 2) {
-        if (($normalized.StartsWith('"') -and $normalized.EndsWith('"')) -or
-            ($normalized.StartsWith("'") -and $normalized.EndsWith("'"))) {
-            $normalized = $normalized.Substring(1, $normalized.Length - 2).Trim()
-        }
-    }
-
-    return $normalized
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    $normalized = ConvertTo-PathLikeValue -Value $Path
-    if ([string]::IsNullOrWhiteSpace($normalized)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($normalized)) {
-        return [System.IO.Path]::GetFullPath($normalized)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $normalized))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            $map[$Matches[1].Trim()] = $Matches[2]
-        }
-    }
-
-    return $map
 }
 
 function Get-ObjectPropertyString {

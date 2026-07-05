@@ -7,6 +7,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -17,60 +18,6 @@ function Convert-ToSingleLineText {
 
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function ConvertTo-PathLikeValue {
-    param([AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return ''
-    }
-
-    $normalized = $Value.Trim()
-    if ($normalized.Length -ge 2) {
-        if (($normalized.StartsWith('"') -and $normalized.EndsWith('"')) -or
-            ($normalized.StartsWith("'") -and $normalized.EndsWith("'"))) {
-            $normalized = $normalized.Substring(1, $normalized.Length - 2).Trim()
-        }
-    }
-
-    return $normalized
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-
-    $normalized = ConvertTo-PathLikeValue -Value $Path
-    if ([string]::IsNullOrWhiteSpace($normalized)) {
-        return ''
-    }
-
-    if ([System.IO.Path]::IsPathRooted($normalized)) {
-        return [System.IO.Path]::GetFullPath($normalized)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $normalized))
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    try {
-        $fullPath = [System.IO.Path]::GetFullPath($Path)
-        $repoRootFull = [System.IO.Path]::GetFullPath($script:RepoRoot)
-        if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return $fullPath.Substring($repoRootFull.Length).TrimStart('\\').Replace('\\', '/')
-        }
-
-        return $fullPath.Replace('\\', '/')
-    }
-    catch {
-        return $Path.Replace('\\', '/')
-    }
 }
 
 function Get-ObjectPropertyString {
@@ -103,60 +50,6 @@ function Read-JsonLinesSafely {
     param([string]$Path)
 
     $items = New-Object 'System.Collections.Generic.List[object]'
-    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
-        return @($items.ToArray())
-    }
-
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        try {
-            $obj = $line | ConvertFrom-Json -ErrorAction Stop
-            if ($null -ne $obj) {
-                [void]$items.Add($obj)
-            }
-        }
-        catch {
-            continue
-        }
-    }
-
-    return @($items.ToArray())
-}
-
-function Get-TicketTimeValue {
-    param([AllowEmptyString()][string]$Value)
-
-    $text = Convert-ToSingleLineText -Text $Value
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $null
-    }
-
-    $parsed = [datetime]::MinValue
-    $ok = [datetime]::TryParseExact($text, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeLocal, [ref]$parsed)
-    if ($ok) {
-        return $parsed
-    }
-
-    if ([datetime]::TryParse($text, [ref]$parsed)) {
-        return $parsed
-    }
-
-    return $null
-}
-
-$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-
-$startFilePath = Resolve-RepoPathAllowMissing -Path $StartFile
-if ([string]::IsNullOrWhiteSpace($startFilePath)) {
-    throw 'start file path must not be empty'
-}
-
-$startFileRel = Convert-ToRepoRelativePath -Path $startFilePath
-$ticketToken = Convert-ToSingleLineText -Text $TicketId
-if ([string]::IsNullOrWhiteSpace($ticketToken)) {
     throw 'ticket id must not be empty'
 }
 

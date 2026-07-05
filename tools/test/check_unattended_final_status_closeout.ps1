@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'CHECK-UNATTENDED-FINAL-STATUS-CLOSEOUT'
 
 trap {
@@ -19,53 +20,11 @@ trap {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
-function Resolve-RepoPath {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'Path must not be empty.' }
-    if ([System.IO.Path]::IsPathRooted($Path)) { return (Resolve-Path -LiteralPath $Path).Path }
-    return (Resolve-Path -LiteralPath (Join-Path $repoRoot $Path)).Path
-}
-
-function Resolve-RepoPathAllowMissing {
-    param([AllowEmptyString()][string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
-    try {
-        if ([System.IO.Path]::IsPathRooted($Path)) { return [System.IO.Path]::GetFullPath($Path) }
-        return [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Path))
-    }
-    catch { return '' }
-}
-
-function Convert-ToRepoRelativePath {
-    param([AllowEmptyString()][string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
-    $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $repoRootFull = [System.IO.Path]::GetFullPath($repoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\').Replace('\', '/')
-    }
-    return $fullPath.Replace('\', '/')
-}
-
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
     $singleLine = (($Text -split "`r?`n") -join ' ')
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
-}
-
-function ConvertTo-PathLikeValue {
-    param([AllowEmptyString()][string]$Value)
-    return (Convert-ToSingleLineText -Text $Value).Replace('/', '\')
-}
-
-function Read-KeyValueFile {
-    param([string]$Path)
-    $map = [ordered]@{}
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)) {
-        if ($line -match '^([^=]+)=(.*)$') { $map[$Matches[1].Trim()] = $Matches[2] }
-    }
-    return $map
 }
 
 function Read-JsonFileSafely {
