@@ -423,8 +423,9 @@ try {
 
     if ($existingPids.Count -gt 0) {
         # Check whether the existing process is a live monitor or an empty shell
-        # by inspecting trigger state file for terminal markers.
+        # by inspecting trigger state file for terminal markers and staleness.
         $isTrulyAlive = $true
+        $staleStateFile = $false
         if (Test-Path -LiteralPath $triggerStatePath) {
             try {
                 $rawState = Get-Content -LiteralPath $triggerStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
@@ -433,6 +434,24 @@ try {
                     if ($lowerState -match '"status":\s+"stopped"' -or
                             $lowerState -match '"status":\s+"shutdown"' -or
                             $lowerState -match '"event":\s+"shutdown"') {
+                        $isTrulyAlive = $false
+                    }
+                }
+
+                # Staleness guard: if state file was last written more than
+                # (3 * poll_sec + 10) seconds ago, the script inside the
+                # -NoExit shell has likely terminated. A live PowerShell
+                # process with an idle state file is just an empty zombie
+                # window — treat it as dead.
+                # Multiplier 3x gives margin for slow poll cycles under
+                # heavy load (process + sleep + margin).
+                if ($isTrulyAlive) {
+                    $pollSecForStale = 30
+                    if ($PollSec -gt 0) { $pollSecForStale = $PollSec }
+                    $staleThresholdSec = 3 * $pollSecForStale + 10
+                    $stateAge = (Get-Date) - (Get-Item -LiteralPath $triggerStatePath).LastWriteTime
+                    if ($stateAge.TotalSeconds -gt $staleThresholdSec) {
+                        $staleStateFile = $true
                         $isTrulyAlive = $false
                     }
                 }
@@ -464,7 +483,8 @@ try {
             $processId = [int]$existingPids[0]
         }
         else {
-            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean" -f $existingPids.Count, ($existingPids -join ','))
+            $staleSuffix = if ($staleStateFile) { ' stale-state-file' } else { '' }
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean{2}" -f $existingPids.Count, ($existingPids -join ','), $staleSuffix)
             Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
             Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
         }

@@ -362,6 +362,7 @@ function Get-LocalRelatedProcessRole {
 
     $line = ([string]$CommandLine).ToLowerInvariant()
     if ($line -match 'unattended_ab_session_guard\.ps1') { return 'monitor-guard' }
+    if ($line -match 'unattended_ab_takeover_trigger\.ps1') { return 'monitor-trigger' }
     if ($line -match 'open_unattended_ab_stage_window\.ps1') { return 'launcher-stage-window' }
     if ($line -match 'open_unattended_ab_resume_window\.ps1') { return 'launcher-resume-window' }
     if ($line -match 'start_dev_verify_fastmode_a\.ps1') { return 'launcher-fastmode-a' }
@@ -519,7 +520,7 @@ function Get-LocalRelatedProcess {
     $keywordPattern = 'unattended_ab_session_guard\.ps1|open_unattended_ab_stage_window\.ps1|open_unattended_ab_resume_window\.ps1|start_dev_verify_fastmode_a\.ps1|start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1|autopilot_dev_recheck_8round\.ps1|remote_build_and_test\.sh'
     $ancestorExcludePattern = 'open_unattended_ab_stage_window\.ps1|check_unattended_ab_launch_ready\.ps1'
     $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
-    $reusableRoles = @('monitor-guard')
+    $reusableRoles = @('monitor-guard', 'monitor-trigger')
     $excludePids = New-Object 'System.Collections.Generic.HashSet[int]'
     [void]$excludePids.Add([int]$SelfPid)
 
@@ -571,7 +572,7 @@ function Get-LocalRelatedProcess {
                 }
 
                 $line = $cmd.ToLowerInvariant()
-                if ($line.Contains('precheck_unattended_ab_start_file.ps1')) {
+                if ($line.Contains('precheck_unattended_ab_start_file.ps1') -or $line.Contains('check_unattended_ab_launch_ready.ps1')) {
                     return $false
                 }
 

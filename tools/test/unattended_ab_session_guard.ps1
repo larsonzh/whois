@@ -4415,7 +4415,22 @@ try {
 
                         $aMainExitDetail = ("main_process=A expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                         $aMainExitDedupSuffix = ("{0}|{1}|{2}|{3}|{4}|stage=A" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $aLaunchPid)
-                        if ($aMainExitDedupSuffix -ne $lastMainProcessExitReviewSignature) {
+
+                        # Skip main-process-exit-review when A's exit artifact indicates a known
+                        # round failure. These will be handled by incident-captured via
+                        # Get-FailureTicketMeta with proper classification.
+                        $skipAMainExitReview = $false
+                        if (-not $skipAMainExitReview -and $null -ne $aExitEvidence -and [bool]$aExitEvidence.Available) {
+                            $aExitFailCat = [string]$aExitEvidence.FailCategory
+                            if (-not [string]::IsNullOrWhiteSpace($aExitFailCat)) {
+                                $aRoundFailureCategories = @('runner-fail', 'script-fault', 'code-or-unknown', 'verify-failure', 'compile-failure', 'compile-warning', 'task-definition-mismatch')
+                                if ($aRoundFailureCategories -contains $aExitFailCat) {
+                                    $skipAMainExitReview = $true
+                                }
+                            }
+                        }
+
+                        if ($aMainExitDedupSuffix -ne $lastMainProcessExitReviewSignature -and -not $skipAMainExitReview) {
                             $aMainExitRecommendedAction = 'Review A-stage main-process exit evidence and root cause, then run script-level self-heal for recoverable faults before deciding the next restart step.'
                             $aMainExitEvidence = Convert-ToBoundedSingleLineText -Text $aMainExitDetail -MaxChars 220
                             $aMainExitTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'main-process-exit-review' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aMainExitDetail -DedupSuffix $aMainExitDedupSuffix -RecommendedAction $aMainExitRecommendedAction -PreferredStage 'A' -MainRound '' -FailureKind 'main-process-exit' -FailureCategory 'script-fault' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $aMainExitEvidence -SelfHealable $true -NonRecoverableEnv $false
@@ -4695,7 +4710,20 @@ try {
                         # handled by the incident-captured path via Get-FailureTicketMeta with
                         # proper code-fix classification. Only emit main-process-exit-review for
                         # true script/environment crashes (guard script failure, network issue, etc.).
+                        #
+                        # Primary: check exit artifact fail_category for known round failure
+                        # types (runner-fail = runner script detected non-zero exit, etc.).
+                        # Fallback: scan D1-D4 round logs for code-step fatal errors.
                         $skipMainExitReviewForCodeFault = $false
+                        if (-not $skipMainExitReviewForCodeFault -and $reasonMatchedForNotes) {
+                            $exitFailCategory = [string]$lastBMissingExitReasonEvidence.FailCategory
+                            if (-not [string]::IsNullOrWhiteSpace($exitFailCategory)) {
+                                $roundFailureCategories = @('runner-fail', 'script-fault', 'code-or-unknown', 'verify-failure', 'compile-failure', 'compile-warning', 'task-definition-mismatch')
+                                if ($roundFailureCategories -contains $exitFailCategory) {
+                                    $skipMainExitReviewForCodeFault = $true
+                                }
+                            }
+                        }
                         if (-not $skipMainExitReviewForCodeFault -and -not [string]::IsNullOrWhiteSpace($runDirAnchor) -and $runDirAnchor -ne 'unknown') {
                             $resolvedRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
                             if (-not [string]::IsNullOrWhiteSpace($resolvedRunDir) -and (Test-Path -LiteralPath $resolvedRunDir)) {

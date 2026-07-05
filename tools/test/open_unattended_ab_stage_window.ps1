@@ -2713,7 +2713,9 @@ while (-not $stageAliveAfterProbe -and $launchRetryAttempt -lt $launchMaxRetries
     $launchRetryAttempt++
 
     # ── Clean up orphan window from a prior retry if it somehow ghosted ──
-    if ($null -ne $processInfo -and (Test-ProcessAlive -ProcessId ([int]$processInfo.Id))) {
+    $priorAlive = $false
+    try { $priorAlive = ($null -ne (Get-Variable -Name 'processInfo' -ErrorAction Stop) -and $null -ne $processInfo -and (Test-ProcessAlive -ProcessId ([int]$processInfo.Id))) } catch { $priorAlive = $false }
+    if ($priorAlive) {
         Write-Output ("[OPEN-AB-STAGE] clean_orphan_retry_proc pid={0}" -f $processInfo.Id)
         Stop-Process -Id ([int]$processInfo.Id) -Force -ErrorAction SilentlyContinue
     }
