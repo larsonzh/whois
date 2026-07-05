@@ -4475,6 +4475,32 @@ try {
                             [string]$shellLikeExitEvidence.FailCategory,
                             [string]$shellLikeExitEvidence.ArtifactPath)
 
+                        # B's work is done (exit artifact is terminal). The -NoExit
+                        # PowerShell window is just an empty shell — no real B process.
+                        # If the exit artifact shows pass+code 0, treat as B PASS
+                        # completion immediately, skipping the grace-period wait and
+                        # avoiding incorrect FAIL marking.
+                        $bShellPass = (
+                            [string]$shellLikeExitEvidence.Result -eq 'pass' -and
+                            [int]$shellLikeExitEvidence.ExitCode -eq 0
+                        )
+                        if ($bShellPass) {
+                            Write-GuardLog ("b_shell_pass_detected expected_pid={0} a_status={1}" -f $bLaunchPid, $aStatus)
+                            if ($aStatus -eq 'PASS') {
+                                Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                                    SESSION_FINAL_STATUS = 'PASS'
+                                    SESSION_CLOSED = 'true'
+                                    SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                                    SESSION_CLOSED_REASON = 'b-pass-shell-exit'
+                                }
+                            }
+                            $bRunningNoProcessSince = $null
+                            $lastMissingBProcessReportAt = $null
+                            $lastBMissingExitReasonEvidence = $null
+                            $lastBMissingRuntimeTailEvidence = $null
+                            continue
+                        }
+
                         $bProcessSnapshot = [pscustomobject]@{
                             ExpectedProcessId = [int]$bProcessSnapshot.ExpectedProcessId
                             ExpectedAlive = $false
