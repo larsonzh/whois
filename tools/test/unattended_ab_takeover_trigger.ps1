@@ -770,10 +770,7 @@ function Get-BPassFailConflictEvidence {
         $notes = [string]$Settings.SESSION_FINAL_NOTES
     }
 
-    $runDirAnchor = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'b_run_dir'
-    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
-        $runDirAnchor = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'run_dir'
-    }
+    $runDirAnchor = Resolve-RunDirAnchorFromNoteLog -Notes $notes
     $runDirResolved = ''
     if (-not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
         try {
@@ -954,6 +951,19 @@ function Get-LatestAnchorValueFromNoteLog {
 
         if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
             return $Matches[1].Trim()
+        }
+    }
+
+    return ''
+}
+
+function Resolve-RunDirAnchorFromNoteLog {
+    param([AllowNull()][string]$Notes)
+
+    foreach ($anchorKey in @('b_run_dir', 'run_dir', 'a_run_dir')) {
+        $anchorValue = Get-LatestAnchorValueFromNoteLog -Notes $Notes -Key $anchorKey
+        if (-not [string]::IsNullOrWhiteSpace($anchorValue)) {
+            return (Convert-ToSingleLineText -Text $anchorValue)
         }
     }
 
@@ -2125,10 +2135,18 @@ function New-TakeoverBrief {
     $null = (Write-TriggerLog ('brief_route_command_consistency ticket={0} route={1} expected_policy={2} actual_policy={3} pass={4} order={5} reason={6}' -f $ticketId, $routeGuardExpected, $expectedNextCommandPolicy, $nextCommandPolicy, [bool]$routeNextCommandConsistencyPass, $nextCommandOrderJoined, $routeNextCommandConsistencyReason))
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDir = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'run_dir'
+    $runDir = Resolve-RunDirAnchorFromNoteLog -Notes $notes
     $supervisorLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'supervisor_log'
     $companionLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'companion_log'
+    $guardLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'guard_log'
+    $guardState = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'guard_state'
     $liveStatus = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'live_status'
+    $ticketGuardLog = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_log')
+    $ticketGuardState = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_state')
+    if ([string]::IsNullOrWhiteSpace($guardLog)) { $guardLog = $ticketGuardLog }
+    if ([string]::IsNullOrWhiteSpace($guardState)) { $guardState = $ticketGuardState }
+    $triggerLog = Convert-ToRepoRelativePath -Path $script:TriggerLogPath
+    $triggerState = Convert-ToRepoRelativePath -Path $statePath
     $finalStatusCloseoutApplyAckCommandForBrief = ''
     if ($eventNameNormalized -eq 'chat-session-final-status') {
         $finalStatusCloseoutApplyAckCommandForBrief = $finalStatusCloseoutApplyAckCommand
@@ -2151,8 +2169,10 @@ function New-TakeoverBrief {
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),
-        ('guard_state={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_state'))),
-        ('guard_log={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'guard_log'))),
+        ('guard_state={0}' -f $guardState),
+        ('guard_log={0}' -f $guardLog),
+        ('trigger_state={0}' -f $triggerState),
+        ('trigger_log={0}' -f $triggerLog),
         ('incident_dir={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'incident_dir'))),
         ('session_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'session_final_status'))),
         ('a_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'a_final_status'))),
@@ -2425,28 +2445,9 @@ while ($true) {
                 [string]$bPassFailConflict.fail_reason,
                 [string]$bPassFailConflict.artifact_path)
 
-            $existingNotes = if ($settings.Contains('SESSION_FINAL_NOTES')) { [string]$settings.SESSION_FINAL_NOTES } else { '' }
-            $conflictNote = ('trigger_pass_conflict b_exit_fail artifact={0} exit_code={1} fail_category={2}' -f [string]$bPassFailConflict.artifact_path, [int]$bPassFailConflict.exit_code, [string]$bPassFailConflict.fail_category)
-            $updatedNotes = Add-DelimitedNote -Existing $existingNotes -Append $conflictNote
-
-            try {
-                $applied = Set-KeyValueFileValue -Path $startFilePath -Values @{
-                    B_FINAL_STATUS = 'FAIL'
-                    B_LAUNCH_PID = '0'
-                    SESSION_FINAL_STATUS = 'FAIL'
-                    SESSION_CLOSED = 'false'
-                    SESSION_CLOSED_AT = ''
-                    SESSION_CLOSED_REASON = 'b-exit-fail-conflict'
-                    SESSION_FINAL_NOTES = $updatedNotes
-                }
-                Write-TriggerLog ('status_conflict_reconciled applied={0} artifact={1}' -f [bool]$applied, [string]$bPassFailConflict.artifact_path)
-                if ($applied) {
-                    $settings = Read-KeyValueFile -Path $startFilePath
-                }
-            }
-            catch {
-                Write-TriggerLog ('status_conflict_reconcile_failed detail={0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message))
-            }
+            $fastPollUntilUtc = (Get-Date).ToUniversalTime().AddSeconds(30)
+            $fastPollReason = ('status-conflict;artifact={0}' -f [string]$bPassFailConflict.artifact_path)
+            Write-TriggerLog ('status_conflict_deferred owner=guard action=fast-poll artifact={0}' -f [string]$bPassFailConflict.artifact_path)
         }
 
         $triggerCommandValue = $TriggerCommand

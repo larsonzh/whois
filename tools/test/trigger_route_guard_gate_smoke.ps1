@@ -34,6 +34,11 @@ if (-not (Test-Path -LiteralPath $triggerScript)) {
     throw ('trigger script not found: {0}' -f $triggerScript)
 }
 
+$watchScript = Join-Path $repoRoot 'tools\test\watch_ab_light.ps1'
+if (-not (Test-Path -LiteralPath $watchScript)) {
+    throw ('watch script not found: {0}' -f $watchScript)
+}
+
 $tmpStartFile = Join-Path $outDir 'startfile_probe.md'
 Copy-Item -LiteralPath $resolvedStartFile -Destination $tmpStartFile -Force
 
@@ -50,6 +55,7 @@ $statusOverrides = [ordered]@{
     A_FINAL_STATUS = 'RUNNING'
     B_FINAL_STATUS = 'RUNNING'
     SESSION_CLOSED = 'false'
+    SESSION_FINAL_NOTES = 'a_run_dir=out/artifacts/dev_verify_multiround/smoke_a; run_dir=out/artifacts/dev_verify_multiround/smoke_generic; b_run_dir=out/artifacts/dev_verify_multiround/smoke_b; guard_log=out/artifacts/ab_session_guard/smoke/guard.log; guard_state=out/artifacts/ab_session_guard/smoke/guard_state.json; live_status=out/artifacts/ab_session_guard/smoke/live_status.json'
 }
 foreach ($k in $statusOverrides.Keys) {
     $pattern = '(?m)^{0}=.*$' -f [regex]::Escape($k)
@@ -224,6 +230,10 @@ $evidence = @($logLines | Where-Object {
 $evidencePath = Join-Path $outDir 'evidence.log'
 $evidence | Out-File -LiteralPath $evidencePath -Encoding utf8
 
+$watchOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $watchScript -StartFile $tmpStartFile -Once -NoClear 2>&1 | ForEach-Object { [string]$_ })
+$watchOutputPath = Join-Path $outDir 'watch_output.log'
+$watchOutput | Out-File -LiteralPath $watchOutputPath -Encoding utf8
+
 $hasStatusAllowed = $false
 $hasIncidentAllowed = $false
 $hasStatusFailure = $false
@@ -234,6 +244,10 @@ $hasIncidentConfidenceLogged = $false
 $hasIncidentFactorsLogged = $false
 $hasFastPollWindowOpen = $false
 $hasTriggerLatencyLogged = $false
+$watchHasTriggerLogAnchor = @($watchOutput | Where-Object { $_ -match '^\s*trigger_log:\s+ok@' }).Count -gt 0
+$watchHasTriggerStateAnchor = @($watchOutput | Where-Object { $_ -match '^\s*trigger_state:\s+ok@' }).Count -gt 0
+$watchHasTriggerEventSection = @($watchOutput | Where-Object { $_ -match '^\s*Trigger:' }).Count -gt 0
+$watchHasTriggerRouteAllowed = @($watchOutput | Where-Object { $_ -match 'route_allowed id=' }).Count -gt 0
 
 $statusIds = @($statusTicketId, $statusTicketId2)
 $incidentIds = @($incidentTicketId, $incidentTicketId2)
@@ -273,6 +287,11 @@ $incidentBriefHasNextCommandOrder = $false
 $incidentBriefNextCommandOrderStartsWithRouteGuard = $false
 $incidentBriefHasRouteNextCommandConsistency = $false
 $incidentBriefRouteNextCommandConsistencyPass = $false
+$incidentBriefRunDirPrefersB = $false
+$incidentBriefHasGuardLogAnchor = $false
+$incidentBriefHasGuardStateAnchor = $false
+$incidentBriefHasTriggerLogAnchor = $false
+$incidentBriefHasTriggerStateAnchor = $false
 if ($briefCandidates.Count -gt 0) {
     foreach ($briefCandidate in $briefCandidates) {
         $briefLines = @(Get-Content -LiteralPath $briefCandidate.FullName -Encoding utf8)
@@ -289,10 +308,15 @@ if ($briefCandidates.Count -gt 0) {
         if ($nextCommandOrderLine.Count -gt 0 -and $nextCommandOrderLine[0] -match '^next_command_order=route_guard_command\|') {
             $incidentBriefNextCommandOrderStartsWithRouteGuard = $true
         }
+        $incidentBriefRunDirPrefersB = ($incidentBriefRunDirPrefersB -or (@($briefLines | Where-Object { $_ -eq 'run_dir=out/artifacts/dev_verify_multiround/smoke_b' }).Count -gt 0))
+        $incidentBriefHasGuardLogAnchor = ($incidentBriefHasGuardLogAnchor -or (@($briefLines | Where-Object { $_ -eq 'guard_log=out/artifacts/ab_session_guard/smoke/guard.log' }).Count -gt 0))
+        $incidentBriefHasGuardStateAnchor = ($incidentBriefHasGuardStateAnchor -or (@($briefLines | Where-Object { $_ -eq 'guard_state=out/artifacts/ab_session_guard/smoke/guard_state.json' }).Count -gt 0))
+        $incidentBriefHasTriggerLogAnchor = ($incidentBriefHasTriggerLogAnchor -or (@($briefLines | Where-Object { $_ -match '^trigger_log=out[\\/]artifacts[\\/]ab_agent_queue[\\/]takeover_trigger_sf_[0-9a-f]+\.log$' }).Count -gt 0))
+        $incidentBriefHasTriggerStateAnchor = ($incidentBriefHasTriggerStateAnchor -or (@($briefLines | Where-Object { $_ -match '^trigger_state=out[\\/]artifacts[\\/]ab_agent_queue[\\/]takeover_trigger_state_sf_[0-9a-f]+\.json$' }).Count -gt 0))
     }
 }
 
-$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource -and $hasIncidentConfidenceLogged -and $hasIncidentFactorsLogged -and $hasFastPollWindowOpen -and $hasTriggerLatencyLogged -and $incidentBriefHasCauseBucket -and $incidentBriefHasFingerprint -and $incidentBriefHasNextCommandPolicy -and $incidentBriefHasNextCommandOrder -and $incidentBriefNextCommandOrderStartsWithRouteGuard -and $incidentBriefHasRouteNextCommandConsistency -and $incidentBriefRouteNextCommandConsistencyPass)
+$pass = ($hasStatusAllowed -and $hasIncidentAllowed -and $hasStatusFailure -and $hasIncidentFailure -and $hasIncidentCodeFixExpected -and $hasIncidentExpectedSource -and $hasIncidentConfidenceLogged -and $hasIncidentFactorsLogged -and $hasFastPollWindowOpen -and $hasTriggerLatencyLogged -and $incidentBriefHasCauseBucket -and $incidentBriefHasFingerprint -and $incidentBriefHasNextCommandPolicy -and $incidentBriefHasNextCommandOrder -and $incidentBriefNextCommandOrderStartsWithRouteGuard -and $incidentBriefHasRouteNextCommandConsistency -and $incidentBriefRouteNextCommandConsistencyPass -and $incidentBriefRunDirPrefersB -and $incidentBriefHasGuardLogAnchor -and $incidentBriefHasGuardStateAnchor -and $incidentBriefHasTriggerLogAnchor -and $incidentBriefHasTriggerStateAnchor -and $watchHasTriggerLogAnchor -and $watchHasTriggerStateAnchor -and $watchHasTriggerEventSection -and $watchHasTriggerRouteAllowed)
 
 $summary = [ordered]@{
     schema = 'AB_TRIGGER_ROUTE_GUARD_GATE_SMOKE_V1'
@@ -301,6 +325,7 @@ $summary = [ordered]@{
     temp_start_file = $tmpStartFile
     temp_queue = $tmpQueue
     trigger_output = $triggerOutputPath
+    watch_output = $watchOutputPath
     trigger_state_path = $statePath
     trigger_log_path = $logPath
     evidence_log = $evidencePath
@@ -328,6 +353,15 @@ $summary = [ordered]@{
         incident_brief_next_command_order_starts_with_route_guard = $incidentBriefNextCommandOrderStartsWithRouteGuard
         incident_brief_has_route_next_command_consistency = $incidentBriefHasRouteNextCommandConsistency
         incident_brief_route_next_command_consistency_pass = $incidentBriefRouteNextCommandConsistencyPass
+        incident_brief_run_dir_prefers_b = $incidentBriefRunDirPrefersB
+        incident_brief_has_guard_log_anchor = $incidentBriefHasGuardLogAnchor
+        incident_brief_has_guard_state_anchor = $incidentBriefHasGuardStateAnchor
+        incident_brief_has_trigger_log_anchor = $incidentBriefHasTriggerLogAnchor
+        incident_brief_has_trigger_state_anchor = $incidentBriefHasTriggerStateAnchor
+        watch_has_trigger_log_anchor = $watchHasTriggerLogAnchor
+        watch_has_trigger_state_anchor = $watchHasTriggerStateAnchor
+        watch_has_trigger_event_section = $watchHasTriggerEventSection
+        watch_has_trigger_route_allowed = $watchHasTriggerRouteAllowed
     }
     pass = ($pass -and $firstRunOneShotPass)
 }

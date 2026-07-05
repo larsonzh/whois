@@ -2112,8 +2112,9 @@ function Test-MonitorRoleReuseActivity {
     if ($Role -eq 'trigger') {
         $queueRoot = Join-Path $RepoRoot 'out\artifacts\ab_agent_queue'
         $token = Get-StableStartFileToken -StartFilePath $StartFilePath
-        $triggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $token)
-        $triggerStatePath = Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $token)
+        $legacyToken = Get-LegacyStartFileToken -StartFilePath $StartFilePath
+        $triggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $token)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $legacyToken))
+        $triggerStatePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $token)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $legacyToken))
         foreach ($itemPath in @($triggerLogPath, $triggerStatePath)) {
             $label = [System.IO.Path]::GetFileName($itemPath)
             if (-not (Test-Path -LiteralPath $itemPath)) {

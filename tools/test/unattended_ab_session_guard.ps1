@@ -3534,9 +3534,11 @@ $d1StallPrevRowCount = -1
 $script:d1StallSince = $null
 $d1StallLastReportAt = $null
 $d1StallTriggeredSignature = ''
+$script:D1ObserveStartedAt = $null
 $d1StallFailMinutes = 20
 $d1AutoRestartEnabled = $true
 $d1AutoRestartAttempted = $false
+$script:LastWatchHeartbeatAt = $null
 $manualPauseActive = $false
 $manualPauseSignature = ''
 $manualPauseNoticeCount = 0
@@ -3628,6 +3630,41 @@ function Test-D1ProgressSince {
     }
 
     return $result
+}
+
+function Write-StructuredWatchHeartbeat {
+    param(
+        [AllowEmptyString()][string]$RunDirAnchor,
+        [hashtable]$Settings,
+        [AllowEmptyString()][string]$StageName,
+        [int]$IntervalMinutes,
+        [AllowEmptyString()][string]$Scopes
+    )
+
+    $scanStartedAt = Get-Date
+    $resolvedRunDir = ''
+    if (-not [string]::IsNullOrWhiteSpace($RunDirAnchor) -and $RunDirAnchor -ne 'unknown') {
+        $resolvedRunDir = Resolve-RepoPathAllowMissing -Path $RunDirAnchor
+    }
+
+    $artifactState = Get-ArtifactState -Paths @($resolvedRunDir)
+    $rowCount = 0
+    if (-not [string]::IsNullOrWhiteSpace($resolvedRunDir)) {
+        $rowCount = Get-CsvRowCount -Path (Join-Path $resolvedRunDir 'summary_partial.csv')
+    }
+
+    $remoteChainCount = Get-RemoteChainCount -Settings $Settings
+    $scanDurationMs = [int][Math]::Round(((Get-Date) - $scanStartedAt).TotalMilliseconds)
+
+    Write-GuardLog ("watch_heartbeat required=true interval_min={0} scopes={1} stage={2} row_count={3} file_count={4} latest_path={5} remote_chain_count={6} mode=guard scan_age_sec=0 scan_duration_ms={7}" -f
+        $IntervalMinutes,
+        $Scopes,
+        $StageName,
+        $rowCount,
+        [int]$artifactState.FileCount,
+        (Convert-ToRepoRelativePath -Path ([string]$artifactState.LatestPath)),
+        [int]$remoteChainCount,
+        $scanDurationMs)
 }
 
 try {
@@ -3842,6 +3879,42 @@ try {
 
             if ($settings.Contains('LOCAL_GUARD_D1_AUTO_RESTART')) {
                 $d1AutoRestartEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_D1_AUTO_RESTART) -Default $true
+            }
+
+            $d1ObserveOnlyMinutes = 30
+            if ($settings.Contains('LOCAL_GUARD_D1_OBSERVE_MINUTES')) {
+                $parsedD1Observe = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_D1_OBSERVE_MINUTES), [ref]$parsedD1Observe)) {
+                    if ($parsedD1Observe -ge 0 -and $parsedD1Observe -le 180) {
+                        $d1ObserveOnlyMinutes = [int]$parsedD1Observe
+                    }
+                }
+            }
+
+            $d1StallFailMinutes = 20
+            if ($settings.Contains('LOCAL_GUARD_D1_STALL_MINUTES')) {
+                $parsedD1Stall = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_D1_STALL_MINUTES), [ref]$parsedD1Stall)) {
+                    if ($parsedD1Stall -ge 1 -and $parsedD1Stall -le 180) {
+                        $d1StallFailMinutes = [int]$parsedD1Stall
+                    }
+                }
+            }
+
+            $watchReportIntervalMin = 10
+            if ($settings.Contains('AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN')) {
+                $parsedWatchInterval = 0
+                if ([int]::TryParse(([string]$settings.AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN), [ref]$parsedWatchInterval)) {
+                    if ($parsedWatchInterval -ge 1 -and $parsedWatchInterval -le 180) {
+                        $watchReportIntervalMin = [int]$parsedWatchInterval
+                    }
+                }
+            }
+            $watchScopes = if ($settings.Contains('AI_SESSION_BLOCKING_WATCH_SCOPES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.AI_SESSION_BLOCKING_WATCH_SCOPES)) {
+                Convert-ToSingleLineText -Text ([string]$settings.AI_SESSION_BLOCKING_WATCH_SCOPES)
+            }
+            else {
+                'artifacts;guard_log;compile-step'
             }
 
             $aLaunchPid = 0
@@ -4217,6 +4290,11 @@ try {
                     }
 
                     if ($d1Eligible) {
+                        if ($null -eq $script:D1ObserveStartedAt) {
+                            $script:D1ObserveStartedAt = $nowA
+                            Write-GuardLog ("d1_observe_start observe_min={0} stall_min={1} run_dir={2}" -f $d1ObserveOnlyMinutes, $d1StallFailMinutes, $runDirAnchor)
+                        }
+
                         $d1ProgressResult = Test-D1ProgressSince -RunDirPath $d1ResolvedRunDir -PrevFileCount $d1StallPrevFileCount -PrevLatestWrite $d1StallPrevLatestWrite -PrevRowCount $d1StallPrevRowCount -SessionSettings $settings
 
                         if ($d1ProgressResult.FileCount -ge 0) {
@@ -4224,6 +4302,9 @@ try {
                             $d1StallPrevLatestWrite = $d1ProgressResult.LatestWrite
                             $d1StallPrevRowCount = $d1ProgressResult.RowCount
                         }
+
+                        $d1ObserveElapsedMinutes = ($nowA - $script:D1ObserveStartedAt).TotalMinutes
+                        $d1ObserveOnlyActive = ($d1ObserveElapsedMinutes -lt $d1ObserveOnlyMinutes)
 
                         if ($d1ProgressResult.HasProgress) {
                             # Progress detected — reset stall timer
@@ -4236,13 +4317,21 @@ try {
                             }
                         }
                         else {
-                            # No progress — track stall duration
-                            if ($null -eq $script:d1StallSince) {
-                                $script:d1StallSince = $nowA
+                            if ($d1ObserveOnlyActive) {
+                                if ($null -eq $d1StallLastReportAt -or (($nowA - $d1StallLastReportAt).TotalMinutes -ge 10)) {
+                                    Write-GuardLog ("d1_observe_no_progress elapsed_min={0:N1} observe_min={1} {2}" -f $d1ObserveElapsedMinutes, $d1ObserveOnlyMinutes, $d1ProgressResult.Detail)
+                                    $d1StallLastReportAt = $nowA
+                                }
                             }
+                            else {
 
-                            $d1StallMinutes = ($nowA - $script:d1StallSince).TotalMinutes
-                            $d1Detail = ("stage=A stall_min={0:N1} threshold={1} {2}" -f $d1StallMinutes, $d1StallFailMinutes, $d1ProgressResult.Detail)
+                                # No progress — track stall duration
+                                if ($null -eq $script:d1StallSince) {
+                                    $script:d1StallSince = $nowA
+                                }
+
+                                $d1StallMinutes = ($nowA - $script:d1StallSince).TotalMinutes
+                                $d1Detail = ("stage=A stall_min={0:N1} threshold={1} {2}" -f $d1StallMinutes, $d1StallFailMinutes, $d1ProgressResult.Detail)
 
                             if ($d1StallMinutes -ge $d1StallFailMinutes -and $d1ProgressResult.RemoteChainCount -eq 0) {
                                 $stallSig = ("{0}|{1}|{2}|{3}" -f $aStatus, $bStatus, $d1ResolvedRunDir, [math]::Floor($d1StallMinutes / 10))
@@ -4323,6 +4412,7 @@ try {
                                 Write-GuardLog ("d1_no_progress detail={0}" -f $d1Detail)
                                 $d1StallLastReportAt = $nowA
                             }
+                            }
                         }
                     }
                     else {
@@ -4332,6 +4422,7 @@ try {
                         $d1StallPrevFileCount = -1
                         $d1StallPrevLatestWrite = [datetime]::MinValue
                         $d1StallPrevRowCount = -1
+                        $script:D1ObserveStartedAt = $null
                     }
                 }
                 else {
@@ -4884,6 +4975,18 @@ try {
                 auto_fix_cooldown_minutes = [int]$autoFixCooldownMinutes
                 d1_auto_restart_enabled = [bool]$d1AutoRestartEnabled
                 d1_auto_restart_attempted = [bool]$d1AutoRestartAttempted
+                d1_observe_only_minutes = [int]$d1ObserveOnlyMinutes
+                d1_stall_fail_minutes = [int]$d1StallFailMinutes
+            }
+
+            if ($running) {
+                $nowWatchHeartbeat = Get-Date
+                $watchHeartbeatDue = ($null -eq $script:LastWatchHeartbeatAt -or (($nowWatchHeartbeat - $script:LastWatchHeartbeatAt).TotalMinutes -ge $watchReportIntervalMin))
+                if ($watchHeartbeatDue) {
+                    $currentWatchStage = if ($aStatus -eq 'RUNNING') { 'A' } elseif ($bStatus -eq 'RUNNING') { 'B' } else { 'SESSION' }
+                    Write-StructuredWatchHeartbeat -RunDirAnchor $runDirAnchor -Settings $settings -StageName $currentWatchStage -IntervalMinutes $watchReportIntervalMin -Scopes $watchScopes
+                    $script:LastWatchHeartbeatAt = $nowWatchHeartbeat
+                }
             }
 
             if ($sessionStatus -eq 'PASS' -and -not $running) {

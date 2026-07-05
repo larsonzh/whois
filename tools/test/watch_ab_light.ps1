@@ -49,6 +49,52 @@ function Get-StartFileMutexName {
     return "Local\whois-unattended-startfile-write-$hash"
 }
 
+function Get-StableStartFileToken {
+    param([string]$StartFilePath)
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        return 'sf_unknown'
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($StartFilePath).ToLowerInvariant()
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+        $hashBytes = $sha1.ComputeHash($bytes)
+        $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    return ('sf_{0}' -f $hash)
+}
+
+function Get-LegacyStartFileToken {
+    param([string]$StartFilePath)
+
+    $leaf = [System.IO.Path]::GetFileNameWithoutExtension($StartFilePath).ToLowerInvariant()
+    $safe = ([regex]::Replace($leaf, '[^A-Za-z0-9._-]', '_')).Trim('_')
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        return 'default'
+    }
+
+    return $safe
+}
+
+function Resolve-PreferredDefaultPath {
+    param(
+        [string]$PreferredPath,
+        [string]$LegacyPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($LegacyPath) -and -not (Test-Path -LiteralPath $PreferredPath) -and (Test-Path -LiteralPath $LegacyPath)) {
+        return $LegacyPath
+    }
+
+    return $PreferredPath
+}
+
 function Invoke-KeyValueFileValueUpdate {
     param(
         [string]$Path,
@@ -432,7 +478,7 @@ function Get-AnchorMap {
     }
 
     $anchors = [ordered]@{}
-    foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state')) {
+    foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state', 'trigger_log', 'trigger_state')) {
         $anchors[$key] = Get-LatestAnchorValueFromNoteText -Notes $notes -Key $key
     }
 
@@ -457,6 +503,22 @@ function Get-LatestGuardArtifactSet {
         Dir = $latest.FullName
         Log = (Join-Path $latest.FullName 'guard.log')
         State = (Join-Path $latest.FullName 'guard_state.json')
+    }
+}
+
+function Get-TriggerArtifactSet {
+    param([string]$StartFilePath)
+
+    $queueRoot = Join-Path $script:RepoRoot 'out\artifacts\ab_agent_queue'
+    $stableToken = Get-StableStartFileToken -StartFilePath $StartFilePath
+    $legacyToken = Get-LegacyStartFileToken -StartFilePath $StartFilePath
+
+    $logPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $stableToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $legacyToken))
+    $statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $stableToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $legacyToken))
+
+    return [pscustomobject]@{
+        Log = $logPath
+        State = $statePath
     }
 }
 
@@ -600,8 +662,44 @@ function Format-GuardEventLine {
         return ('[{0}] heartbeat session={1} a={2} b={3} running={4} run={5}' -f $time, $Matches[1], $Matches[2], $Matches[3], $Matches[4], $runId)
     }
 
+    if ($Line -match 'watch_heartbeat.*stage=([^ ]+).*row_count=([0-9]+).*file_count=([0-9]+).*latest_path=([^ ]+).*remote_chain_count=([0-9]+)') {
+        $leaf = Get-PathLeafToken -Token $Matches[4]
+        return ('[{0}] watch_heartbeat stage={1} rows={2} files={3} chain={4} latest={5}' -f $time, $Matches[1], $Matches[2], $Matches[3], $Matches[5], $leaf)
+    }
+
     if ($Line -match 'loop_error\s+detail=(.+)$') {
         return ('[{0}] loop_error {1}' -f $time, $Matches[1])
+    }
+
+    $compact = [regex]::Replace($Line, '^\[[^\]]+\]\s*', '')
+    $compact = [regex]::Replace($compact, '\s+', ' ').Trim()
+    if ($compact.Length -gt 135) {
+        $compact = $compact.Substring(0, 132) + '...'
+    }
+
+    return ('[{0}] {1}' -f $time, $compact)
+}
+
+function Format-TriggerEventLine {
+    param([string]$Line)
+
+    $time = Get-TimestampShort -Line $Line
+
+    if ($Line -match 'ticket_dispatch\s+id=([^ ]+)\s+event=([^ ]+)\s+brief=([^ ]+)') {
+        return ('[{0}] ticket_dispatch id={1} event={2}' -f $time, $Matches[1], $Matches[2])
+    }
+
+    if ($Line -match 'external_trigger_route_allowed\s+id=([^ ]+).*classification=([^ ]+).*latency_ms=([0-9]+)') {
+        return ('[{0}] route_allowed id={1} class={2} latency_ms={3}' -f $time, $Matches[1], $Matches[2], $Matches[3])
+    }
+
+    if ($Line -match 'status_conflict_deferred\s+owner=guard\s+action=([^ ]+)\s+artifact=([^ ]+)') {
+        $artifact = Get-PathLeafToken -Token $Matches[2]
+        return ('[{0}] status_conflict_deferred action={1} artifact={2}' -f $time, $Matches[1], $artifact)
+    }
+
+    if ($Line -match 'fast_poll_window_open\s+ttl_sec=([0-9]+)\s+reason=(.+)$') {
+        return ('[{0}] fast_poll ttl_sec={1} reason={2}' -f $time, $Matches[1], $Matches[2])
     }
 
     $compact = [regex]::Replace($Line, '^\[[^\]]+\]\s*', '')
@@ -633,11 +731,11 @@ function Write-EventSection {
         return $false
     }
 
-    Write-Output ('  ' + $Title + ':')
+    Write-Host ('  ' + $Title + ':')
     foreach ($line in $lineList) {
         $formatted = & $Formatter $line
         if (-not [string]::IsNullOrWhiteSpace($formatted)) {
-            Write-Output ('    - ' + $formatted)
+            Write-Host ('    - ' + $formatted)
         }
     }
 
@@ -655,7 +753,13 @@ function Get-LogTailMatch {
         return @()
     }
 
-    return @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue | Where-Object { $_ -match $Pattern })
+    $scanLines = [Math]::Min(500, [Math]::Max($Lines, $Lines * 8))
+    $matches = @(Get-Content -LiteralPath $Path -Tail $scanLines -ErrorAction SilentlyContinue | Where-Object { $_ -match $Pattern })
+    if ($matches.Count -le $Lines) {
+        return @($matches)
+    }
+
+    return @($matches | Select-Object -Last $Lines)
 }
 
 function Write-Snapshot {
@@ -678,6 +782,14 @@ function Write-Snapshot {
         $anchors.guard_state = $guardArtifacts.State
     }
 
+    $triggerArtifacts = Get-TriggerArtifactSet -StartFilePath $StartFilePath
+    if ([string]::IsNullOrWhiteSpace([string]$anchors.trigger_log) -and $null -ne $triggerArtifacts -and (Test-Path -LiteralPath $triggerArtifacts.Log)) {
+        $anchors.trigger_log = $triggerArtifacts.Log
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$anchors.trigger_state) -and $null -ne $triggerArtifacts -and (Test-Path -LiteralPath $triggerArtifacts.State)) {
+        $anchors.trigger_state = $triggerArtifacts.State
+    }
+
     $resolved = [ordered]@{}
     foreach ($key in $anchors.Keys) {
         $resolved[$key] = Resolve-AnchorPath -Path ([string]$anchors[$key])
@@ -688,7 +800,7 @@ function Write-Snapshot {
     Write-Host ''
     Write-Host 'Anchors'
 
-    foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state')) {
+    foreach ($key in @('run_dir', 'supervisor_log', 'companion_log', 'live_status', 'guard_log', 'guard_state', 'trigger_log', 'trigger_state')) {
         $path = [string]$resolved[$key]
         $status = Get-PathStatus -Path $path
         $statusText = if ($status.State -eq 'ok') { 'ok@' + $status.Time } else { $status.State }
@@ -702,6 +814,8 @@ function Write-Snapshot {
 
     $guardTail = Get-LogTailMatch -Path ([string]$resolved.guard_log) -Pattern 'incident|restart_begin|recovery_triggered|loop_error|manual_action_required|heartbeat' -Lines $script:TailLines
 
+    $triggerTail = Get-LogTailMatch -Path ([string]$resolved.trigger_log) -Pattern 'ticket_dispatch|external_trigger_route_allowed|status_conflict_deferred|fast_poll_window_open|loop_error|shutdown|auto_stop' -Lines $script:TailLines
+
     Write-Host ''
     Write-Host ('Events (last ' + $script:TailLines + ' matching lines)')
     $printed = $false
@@ -712,6 +826,9 @@ function Write-Snapshot {
         $printed = $true
     }
     if (Write-EventSection -Title 'Guard' -Lines $guardTail -Formatter { param($line) Format-GuardEventLine -Line $line }) {
+        $printed = $true
+    }
+    if (Write-EventSection -Title 'Trigger' -Lines $triggerTail -Formatter { param($line) Format-TriggerEventLine -Line $line }) {
         $printed = $true
     }
     if (-not $printed) {

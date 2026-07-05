@@ -31,8 +31,14 @@ function Test-RoleProcessTrulyAlive {
             $sfMatch = [regex]::Match($cmdLine, '-StartFile\s+"([^"]+)"')
             if (-not $sfMatch.Success) { $sfMatch = [regex]::Match($cmdLine, '-StartFile\s+(\S+)') }
             if ($sfMatch.Success) {
-                $triggerStartFile = $sfMatch.Groups[1].Value
-                $fullPath = [System.IO.Path]::GetFullPath($triggerStartFile).ToLowerInvariant()
+                $triggerStartFile = $sfMatch.Groups[1].Value.Trim('"')
+                $fullPath = if ([System.IO.Path]::IsPathRooted($triggerStartFile)) {
+                    [System.IO.Path]::GetFullPath($triggerStartFile)
+                }
+                else {
+                    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $triggerStartFile))
+                }
+                $fullPath = $fullPath.ToLowerInvariant()
                 $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
                 $sha1 = [System.Security.Cryptography.SHA1]::Create()
                 try {
@@ -41,8 +47,20 @@ function Test-RoleProcessTrulyAlive {
                 finally {
                     $sha1.Dispose()
                 }
-                $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
-                $statePath = Join-Path $roleStateRoot "takeover_trigger_state_sf_$hash.json"
+                $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+                $stableToken = ('sf_{0}' -f $hash)
+                $legacyToken = ([regex]::Replace(([System.IO.Path]::GetFileNameWithoutExtension($fullPath)), '[^A-Za-z0-9._-]', '_')).Trim('_')
+                if ([string]::IsNullOrWhiteSpace($legacyToken)) { $legacyToken = 'default' }
+
+                foreach ($candidateStatePath in @(
+                    (Join-Path $roleStateRoot ("takeover_trigger_state_{0}.json" -f $stableToken)),
+                    (Join-Path $roleStateRoot ("takeover_trigger_state_{0}.json" -f $legacyToken))
+                )) {
+                    if (Test-Path -LiteralPath $candidateStatePath) {
+                        $statePath = $candidateStatePath
+                        break
+                    }
+                }
             }
             if ([string]::IsNullOrWhiteSpace($statePath) -or -not (Test-Path -LiteralPath $statePath)) {
                 return $true  # Can't find state file, assume alive
@@ -122,8 +140,8 @@ function Invoke-MonitorChainHealthCheck {
     )
 
     $roleMap = @(
-        @{ n = 'guard';      p = 'tools/test/open_unattended_ab_session_guard_window.ps1' }
-        @{ n = 'trigger';    p = 'tools/test/open_unattended_ab_takeover_trigger_window.ps1' }
+        @{ n = 'guard';      p = 'tools/test/open_unattended_ab_session_guard_window.ps1'; s = 'unattended_ab_session_guard.ps1' }
+        @{ n = 'trigger';    p = 'tools/test/open_unattended_ab_takeover_trigger_window.ps1'; s = 'unattended_ab_takeover_trigger.ps1' }
     )
 
     # Normalize start file identity for single-instance matching
@@ -142,7 +160,7 @@ function Invoke-MonitorChainHealthCheck {
         $entry = $roleMap | Where-Object { $_.n -eq $rn } | Select-Object -First 1
         if ($null -eq $entry) { continue }
 
-        $scriptLeaf = ('unattended_ab_{0}.ps1' -f $rn)
+        $scriptLeaf = [string]$entry.s
         $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
             $procCmdLine = [string]$_.CommandLine
             if ([string]::IsNullOrWhiteSpace($procCmdLine)) { return $false }
