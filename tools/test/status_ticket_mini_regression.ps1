@@ -32,6 +32,67 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
+function Write-Utf8BomText {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $value = if ($null -eq $Text) { '' } else { [string]$Text }
+    [System.IO.File]::WriteAllText($Path, $value, [System.Text.UTF8Encoding]::new($true))
+}
+
+function Add-Utf8LineWithRetry {
+    param(
+        [string]$Path,
+        [string]$Line,
+        [int]$MaxAttempts = 8,
+        [int]$RetryDelayMs = 120
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Utf8BomText -Path $Path -Text $Line
+        return
+    }
+
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            try {
+                $writer = New-Object System.IO.StreamWriter($stream, [System.Text.UTF8Encoding]::new($false))
+                try {
+                    $writer.WriteLine($Line)
+                    $writer.Flush()
+                    return
+                }
+                finally {
+                    $writer.Dispose()
+                }
+            }
+            finally {
+                $stream.Dispose()
+            }
+        }
+        catch {
+            $lastError = $_
+            if ($attempt -lt $MaxAttempts) {
+                Start-Sleep -Milliseconds $RetryDelayMs
+                continue
+            }
+        }
+    }
+
+    if ($null -ne $lastError) {
+        throw $lastError.Exception
+    }
+}
+
 function New-SyntheticDispatchEvidence {
     param(
         [string]$StartFilePath,
@@ -54,9 +115,9 @@ function New-SyntheticDispatchEvidence {
     $relayPath = Join-Path $dispatchRoot ("relay_{0}_{1}.md" -f $TicketId, (Get-Date -Format 'yyyyMMdd-HHmmssfff'))
     $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 
-    Add-Content -LiteralPath $triggerLogPath -Encoding utf8 -Value ("[SYNTHETIC] ticket_dispatch id={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
-    Add-Content -LiteralPath $dispatchLogPath -Encoding utf8 -Value ("[SYNTHETIC] relay_created ticket={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
-    Set-Content -LiteralPath $relayPath -Encoding utf8 -Value (("# synthetic relay`nticket: {0}`nevent: {1}`ncreated_at: {2}" -f $TicketId, $EventName, $nowText))
+    Add-Utf8LineWithRetry -Path $triggerLogPath -Line ("[SYNTHETIC] ticket_dispatch id={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
+    Add-Utf8LineWithRetry -Path $dispatchLogPath -Line ("[SYNTHETIC] relay_created ticket={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
+    Write-Utf8BomText -Path $relayPath -Text (("# synthetic relay`nticket: {0}`nevent: {1}`ncreated_at: {2}" -f $TicketId, $EventName, $nowText))
 }
 
 function Get-CaseResult {
