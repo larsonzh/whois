@@ -298,6 +298,7 @@ $staticCheckScript = Resolve-RepoPath -Path 'tools/test/check_task_definition_st
 $ps51FormatGuardScript = Resolve-RepoPath -Path 'tools/test/check_ps51_format_inline_if_guard.ps1' -MustExist $true
 $fieldSyncScript = Resolve-RepoPath -Path 'tools/test/check_unattended_start_field_sync.ps1' -MustExist $true
 $statusMiniRegressionScript = Resolve-RepoPath -Path 'tools/test/status_ticket_mini_regression.ps1' -MustExist $true
+$retryBudgetMiniRegressionScript = Resolve-RepoPath -Path 'tools/test/retry_budget_minimal_regression.ps1' -MustExist $true
 $routeGuardSmokeSuiteScript = Resolve-RepoPath -Path 'tools/test/route_guard_smoke_suite.ps1' -MustExist $true
 $incrementalEncodingScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_bom_lf_changed.ps1' -MustExist $true
 $encodingFormatScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_bom_lf.ps1' -MustExist $true
@@ -354,6 +355,30 @@ if ($statusMiniRegression.ExitCode -ne 0) {
     foreach ($line in @($statusMiniRegression.Lines)) {
         Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
     }
+}
+
+$retryBudgetMiniRegressionEnabled = $true
+if ($startSettings.Contains('RETRY_BUDGET_MINI_REGRESSION_ENABLED')) {
+    $retryBudgetMiniRegressionEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.RETRY_BUDGET_MINI_REGRESSION_ENABLED) -Default $true
+}
+
+$retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression skipped (disabled by start-file setting).'
+if ($retryBudgetMiniRegressionEnabled) {
+    $retryBudgetMiniRegressionArgs = @(
+        '-StartFile', $startFilePath,
+        '-AsJson'
+    )
+    $retryBudgetMiniRegression = Invoke-PowerShellScriptStep -ScriptPath $retryBudgetMiniRegressionScript -Arguments $retryBudgetMiniRegressionArgs
+    if ($retryBudgetMiniRegression.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $retryBudgetMiniRegression.Lines -Pattern 'all_pass=false|ledger_status|retry-budget-receipt-missing-or-mismatch|result=FAIL'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $retryBudgetMiniRegression.Lines
+        }
+
+        Write-ResultAndExit -Step 'retry-budget-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $retryBudgetMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+    }
+
+    $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression passed.'
 }
 
 $routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()
@@ -487,6 +512,7 @@ $precheckModeMessage = if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } els
 $successDetails = @($staticCheckMessages.ToArray()) + @(
     'Start-file field sync passed.',
     'Status-ticket mini regression passed.',
+    $retryBudgetMiniRegressionSummary,
     'Route-guard smoke suite passed.',
     'PS5.1 inline-if format guard passed.',
     $incrementalEncodingMessage,

@@ -2383,7 +2383,11 @@ if ($acknowledgeTicketSet.Count -gt 0) {
 
         if (-not [string]::IsNullOrWhiteSpace($expectedRetryBudgetUsed) -and $ackRetryBudgetUsed -ne $expectedRetryBudgetUsed) {
             $failedAt = Get-NowText
-            $failureReason = ('retry-budget-receipt-missing-or-mismatch expected={0} actual={1}' -f $expectedRetryBudgetUsed, (if ([string]::IsNullOrWhiteSpace($ackRetryBudgetUsed)) { 'missing' } else { $ackRetryBudgetUsed }))
+            $actualRetryBudgetUsed = 'missing'
+            if (-not [string]::IsNullOrWhiteSpace($ackRetryBudgetUsed)) {
+                $actualRetryBudgetUsed = $ackRetryBudgetUsed
+            }
+            $failureReason = ('retry-budget-receipt-missing-or-mismatch expected={0} actual={1}' -f $expectedRetryBudgetUsed, $actualRetryBudgetUsed)
             Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'failed' -At $failedAt -Note $failureReason
             if ($ledgerRecords.ContainsKey($ticketId)) {
                 $failedRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
