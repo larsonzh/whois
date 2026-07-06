@@ -160,7 +160,9 @@ $stageWindowTimelineReason = if ($stageWindowTimelinePass) { 'stage-window-monit
 # Case 8: session guard must keep monitors alive during main-exit grace before shutdown.
 $sessionGuardHasGraceSetting = $sessionGuardText.Contains('LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES')
 $sessionGuardHasGraceStart = $sessionGuardText.Contains('main_process_exit_grace_start stage=B')
-$sessionGuardHasGraceWait = $sessionGuardText.Contains('main_process_exit_grace_wait stage={0}')
+$sessionGuardHasGraceWaitLegacy = $sessionGuardText.Contains('main_process_exit_grace_wait stage={0}')
+$sessionGuardHasGraceWaitHelper = $sessionGuardText.Contains("Write-GraceWaitLog -Prefix 'main_process_exit_grace_wait'")
+$sessionGuardHasGraceWait = ($sessionGuardHasGraceWaitLegacy -or $sessionGuardHasGraceWaitHelper)
 $sessionGuardHasGraceClear = $sessionGuardText.Contains('main_process_exit_grace_cleared stage={0}')
 $sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear)
 $sessionGuardGraceReason = if ($sessionGuardGracePass) { 'session-guard-main-exit-grace-present' } else { 'missing-session-guard-main-exit-grace' }
