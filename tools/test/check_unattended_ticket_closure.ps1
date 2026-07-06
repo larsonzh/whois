@@ -4,6 +4,9 @@
     [AllowEmptyString()][string]$LedgerPath = '',
     [AllowEmptyString()][string]$TakeoverRoot = '',
     [AllowEmptyString()][string]$OutDirRoot = '',
+    [ValidateRange(100, 200000)][int]$QueueTailLines = 5000,
+    [ValidateRange(10, 20000)][int]$TakeoverBriefMaxFiles = 2000,
+    [ValidateRange(10, 5000)][int]$MaxIssuesInSummary = 200,
     [switch]$AsJson
 )
 
@@ -53,14 +56,25 @@ function Read-JsonFileSafely {
 }
 
 function Read-JsonLinesSafely {
-    param([AllowEmptyString()][string]$Path)
+    param(
+        [AllowEmptyString()][string]$Path,
+        [int]$MaxLines = 0
+    )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         return @($items.ToArray())
     }
 
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
+    if ($MaxLines -lt 0) { $MaxLines = 0 }
+    $lines = if ($MaxLines -gt 0) {
+        @(Get-Content -LiteralPath $Path -Encoding utf8 -Tail $MaxLines -ErrorAction SilentlyContinue)
+    }
+    else {
+        @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)
+    }
+
+    foreach ($line in $lines) {
         $trimmed = Convert-ToSingleLineText -Text ([string]$line)
         if ([string]::IsNullOrWhiteSpace($trimmed)) {
             continue
@@ -156,7 +170,7 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $OutDirRoot $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
-$queueTickets = @(Read-JsonLinesSafely -Path $queueFilePath)
+$queueTickets = @(Read-JsonLinesSafely -Path $queueFilePath -MaxLines $QueueTailLines)
 $ledgerRaw = Read-JsonFileSafely -Path $ledgerFilePath
 $ledgerEntries = @()
 if ($null -ne $ledgerRaw -and $ledgerRaw.PSObject.Properties.Name -contains 'records') {
@@ -200,7 +214,11 @@ foreach ($ticketId in @($queueById.Keys | Sort-Object)) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($takeoverRootResolved) -and (Test-Path -LiteralPath $takeoverRootResolved)) {
-    foreach ($briefFile in @(Get-ChildItem -LiteralPath $takeoverRootResolved -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+    $briefFiles = @(Get-ChildItem -LiteralPath $takeoverRootResolved -Filter '*.md' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First $TakeoverBriefMaxFiles)
+
+    foreach ($briefFile in $briefFiles) {
         $briefMeta = Read-KeyValueFile -Path $briefFile.FullName
         $ticketId = if ($briefMeta.Contains('ticket_id')) { Convert-ToSingleLineText -Text ([string]$briefMeta.ticket_id) } else { '' }
         if ([string]::IsNullOrWhiteSpace($ticketId)) {
@@ -224,6 +242,8 @@ if (-not [string]::IsNullOrWhiteSpace($takeoverRootResolved) -and (Test-Path -Li
 }
 
 $issuesArray = @($issues.ToArray())
+$issuesSummary = @($issuesArray | Select-Object -First $MaxIssuesInSummary)
+$issuesTruncated = ($issuesArray.Count -gt $issuesSummary.Count)
 $counts = [ordered]@{
     total = $issuesArray.Count
     queue_without_ledger = @($issuesArray | Where-Object { [string]$_.type -eq 'queue-without-ledger' }).Count
@@ -239,7 +259,9 @@ $summary = [ordered]@{
     ledger_path = (Convert-ToRepoRelativePath -Path $ledgerFilePath)
     takeover_root = (Convert-ToRepoRelativePath -Path $takeoverRootResolved)
     counts = $counts
-    issues = $issuesArray
+    issues = $issuesSummary
+    issues_total = $issuesArray.Count
+    issues_truncated = $issuesTruncated
     pass = ($issuesArray.Count -eq 0)
 }
 
@@ -255,8 +277,11 @@ $txtLines = New-Object 'System.Collections.Generic.List[string]'
 [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] ledger_path={0}' -f $summary.ledger_path))
 [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] takeover_root={0}' -f $summary.takeover_root))
 [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] counts total={0} queue_without_ledger={1} terminal_missing_handled_at={2} brief_without_queue_or_ledger={3}' -f $counts.total, $counts.queue_without_ledger, $counts.terminal_ledger_missing_handled_at, $counts.brief_without_queue_or_ledger))
-foreach ($issue in $issuesArray) {
+foreach ($issue in $issuesSummary) {
     [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] issue type={0} severity={1} ticket={2} detail={3} command={4}' -f [string]$issue.type, [string]$issue.severity, [string]$issue.ticket_id, [string]$issue.detail, [string]$issue.suggested_command))
+}
+if ($issuesTruncated) {
+    [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] issue_summary_truncated shown={0} total={1}' -f $issuesSummary.Count, $issuesArray.Count))
 }
 [void]$txtLines.Add(('[AB-TICKET-CLOSURE-CHECK] result={0}' -f $resultToken))
 $txtLines | Set-Content -LiteralPath $summaryTxtPath -Encoding utf8

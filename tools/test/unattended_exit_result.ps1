@@ -2,6 +2,149 @@
 
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
+function Convert-ToSingleLineTextForMonitorChain {
+    param([AllowEmptyString()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ''
+    }
+
+    $singleLine = (($Text -split "`r?`n") -join ' ')
+    return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
+}
+
+function Get-TriggerRestartRequestFromStartFile {
+    param([string]$StartFilePath)
+
+    $result = [ordered]@{
+        Requested = $false
+        Reason = ''
+        Source = ''
+        RequestedAt = ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or -not (Test-Path -LiteralPath $StartFilePath)) {
+        return [pscustomobject]$result
+    }
+
+    try {
+        $settings = Read-KeyValueFile -Path $StartFilePath
+        if ($null -ne $settings -and $settings.Contains('TRIGGER_RESTART_REQUESTED')) {
+            $requestedRaw = [string]$settings.TRIGGER_RESTART_REQUESTED
+            $result.Requested = Convert-ToBooleanSetting -Value $requestedRaw -Default $false
+        }
+        if ($null -ne $settings -and $settings.Contains('TRIGGER_RESTART_REQUEST_REASON')) {
+            $result.Reason = Convert-ToSingleLineTextForMonitorChain -Text ([string]$settings.TRIGGER_RESTART_REQUEST_REASON)
+        }
+        if ($null -ne $settings -and $settings.Contains('TRIGGER_RESTART_REQUEST_SOURCE')) {
+            $result.Source = Convert-ToSingleLineTextForMonitorChain -Text ([string]$settings.TRIGGER_RESTART_REQUEST_SOURCE)
+        }
+        if ($null -ne $settings -and $settings.Contains('TRIGGER_RESTART_REQUEST_AT')) {
+            $result.RequestedAt = Convert-ToSingleLineTextForMonitorChain -Text ([string]$settings.TRIGGER_RESTART_REQUEST_AT)
+        }
+    }
+    catch {
+        return [pscustomobject]$result
+    }
+
+    return [pscustomobject]$result
+}
+
+function Request-TriggerRestartInStartFile {
+    param(
+        [string]$StartFilePath,
+        [AllowEmptyString()][string]$Reason,
+        [AllowEmptyString()][string]$Source
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or -not (Test-Path -LiteralPath $StartFilePath)) {
+        return $false
+    }
+
+    $reasonText = Convert-ToSingleLineTextForMonitorChain -Text $Reason
+    if ([string]::IsNullOrWhiteSpace($reasonText)) {
+        $reasonText = 'trigger-healthcheck-missing'
+    }
+
+    $sourceText = Convert-ToSingleLineTextForMonitorChain -Text $Source
+    if ([string]::IsNullOrWhiteSpace($sourceText)) {
+        $sourceText = 'monitor-chain-healthcheck'
+    }
+
+    try {
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
+            TRIGGER_RESTART_REQUESTED = 'true'
+            TRIGGER_RESTART_REQUEST_REASON = $reasonText
+            TRIGGER_RESTART_REQUEST_SOURCE = $sourceText
+            TRIGGER_RESTART_REQUEST_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Write-TriggerLastActionInStartFile {
+    param(
+        [string]$StartFilePath,
+        [AllowEmptyString()][string]$Action,
+        [AllowEmptyString()][string]$ActionBy,
+        [AllowEmptyString()][string]$Detail,
+        [bool]$ClearRequest = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or -not (Test-Path -LiteralPath $StartFilePath)) {
+        return $false
+    }
+
+    $actionText = Convert-ToSingleLineTextForMonitorChain -Text $Action
+    if ([string]::IsNullOrWhiteSpace($actionText)) {
+        $actionText = 'unknown'
+    }
+
+    $actionByText = Convert-ToSingleLineTextForMonitorChain -Text $ActionBy
+    if ([string]::IsNullOrWhiteSpace($actionByText)) {
+        $actionByText = 'monitor-chain'
+    }
+
+    $detailText = Convert-ToSingleLineTextForMonitorChain -Text $Detail
+
+    $updates = @{
+        TRIGGER_LAST_ACTION = $actionText
+        TRIGGER_LAST_ACTION_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        TRIGGER_LAST_ACTION_BY = $actionByText
+        TRIGGER_LAST_ACTION_DETAIL = $detailText
+    }
+
+    if ($ClearRequest) {
+        $updates['TRIGGER_RESTART_REQUESTED'] = 'false'
+        $updates['TRIGGER_RESTART_REQUEST_REASON'] = ''
+        $updates['TRIGGER_RESTART_REQUEST_SOURCE'] = ''
+        $updates['TRIGGER_RESTART_REQUEST_AT'] = ''
+    }
+
+    try {
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values $updates
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-IsGuardArbitratorContext {
+    $tag = ''
+    try {
+        $tag = [string]$script:UnhandledExitTag
+    }
+    catch {
+        $tag = ''
+    }
+
+    return ($tag -eq 'UNATTENDED-AB-SESSION-GUARD')
+}
+
 function Test-RoleProcessTrulyAlive {
     param(
         [string]$Role,
@@ -101,7 +244,10 @@ function Test-RoleProcessTrulyAlive {
         # terminal markers.
         $staleThreshold = switch ($Role) {
             'guard'      { 300 }
-            'trigger'    { 300 }
+            # For trigger, stale state alone is not reliable enough to classify
+            # zombie: state writes can be delayed/skipped under lock contention.
+            # Keep classification conservative to avoid killing a live trigger.
+            'trigger'    { 0 }
             default      { 0 }
         }
         if ($staleThreshold -gt 0) {
@@ -127,7 +273,8 @@ function Invoke-MonitorChainHealthCheck {
         [string]$RepoRoot,
         [Parameter(Mandatory = $true)]
         [string]$StartFilePath,
-        [string]$LogPrefix = 'health_check'
+        [string]$LogPrefix = 'health_check',
+        [bool]$GuardArbitratedTrigger = $true
     )
 
     $roleMap = @(
@@ -150,6 +297,8 @@ function Invoke-MonitorChainHealthCheck {
         $rn = $role.Trim().ToLowerInvariant()
         $entry = $roleMap | Where-Object { $_.n -eq $rn } | Select-Object -First 1
         if ($null -eq $entry) { continue }
+
+        $isGuardContext = Test-IsGuardArbitratorContext
 
         $scriptLeaf = [string]$entry.s
         $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
@@ -190,15 +339,42 @@ function Invoke-MonitorChainHealthCheck {
         }
 
         if (@($found).Count -eq 0) {
+            if ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and -not $isGuardContext) {
+                $requestSource = $LogPrefix
+                $requestReason = ('role=trigger missing_process start_file={0}' -f $StartFilePath)
+                $requested = Request-TriggerRestartInStartFile -StartFilePath $StartFilePath -Reason $requestReason -Source $requestSource
+                if ($requested) {
+                    Write-Output ("[{0}] role={1} action=requested-via-guard source={2}" -f $LogPrefix, $rn, $requestSource)
+                }
+                else {
+                    Write-Output ("[{0}] role={1} action=request-failed source={2}" -f $LogPrefix, $rn, $requestSource)
+                }
+                continue
+            }
+
             $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
             if (Test-Path -LiteralPath $launcherPath) {
                 try {
                     Start-Process -WindowStyle Hidden -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
                     Write-Output ("[{0}] role={1} action=restart" -f $LogPrefix, $rn)
+                    if ($rn -eq 'trigger' -and $isGuardContext) {
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger' -ActionBy 'guard' -Detail ('source={0}' -f $LogPrefix) -ClearRequest $true
+                    }
                 }
                 catch {
                     Write-Output ("[{0}] role={1} action=restart_failed detail={2}" -f $LogPrefix, $rn, $_.Exception.Message)
+                    if ($rn -eq 'trigger' -and $isGuardContext) {
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-failed' -ActionBy 'guard' -Detail (Convert-ToSingleLineTextForMonitorChain -Text $_.Exception.Message) -ClearRequest $false
+                    }
                 }
+            }
+        }
+        elseif ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and $isGuardContext) {
+            $requestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $StartFilePath
+            if ([bool]$requestState.Requested) {
+                $requestDetail = ('request_source={0} request_reason={1}' -f [string]$requestState.Source, [string]$requestState.Reason)
+                $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-no-restart' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                Write-Output ("[{0}] role={1} action=request-cleared-no-restart" -f $LogPrefix, $rn)
             }
         }
     }

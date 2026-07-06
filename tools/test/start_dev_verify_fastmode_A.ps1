@@ -213,6 +213,9 @@ else {
         'A_FINAL_STATUS' = 'PASS'
         'SESSION_FINAL_STATUS' = 'RUNNING'
         'A_LAUNCH_PID' = '0'
+        'AB_HANDOVER_STATE' = 'A_TO_B_PENDING'
+        'AB_HANDOVER_STARTED_AT' = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        'AB_HANDOVER_STARTED_BY' = 'start_dev_verify_fastmode_A.ps1'
         'A_SUCCESS_SNAPSHOT_FINAL_STATUS' = $snapshotFinalRel
         'A_SUCCESS_SNAPSHOT_SUMMARY' = $snapshotSummaryRel
         'A_SUCCESS_SNAPSHOT_SOURCE_STATE' = $sourceState

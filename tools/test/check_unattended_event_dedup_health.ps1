@@ -4,6 +4,8 @@
     [AllowEmptyString()][string]$TakeoverRoot = '',
     [ValidateRange(1, 180)][int]$WindowMinutes = 30,
     [AllowEmptyString()][string]$OutDirRoot = '',
+    [ValidateRange(100, 200000)][int]$QueueTailLines = 5000,
+    [ValidateRange(10, 20000)][int]$TakeoverBriefMaxFiles = 2000,
     [switch]$AsJson
 )
 
@@ -34,14 +36,25 @@ function Convert-ToSingleLineText {
 }
 
 function Read-JsonLinesSafely {
-    param([AllowEmptyString()][string]$Path)
+    param(
+        [AllowEmptyString()][string]$Path,
+        [int]$MaxLines = 0
+    )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         return @($items.ToArray())
     }
 
-    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)) {
+    if ($MaxLines -lt 0) { $MaxLines = 0 }
+    $lines = if ($MaxLines -gt 0) {
+        @(Get-Content -LiteralPath $Path -Encoding utf8 -Tail $MaxLines -ErrorAction SilentlyContinue)
+    }
+    else {
+        @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue)
+    }
+
+    foreach ($line in $lines) {
         $trimmed = Convert-ToSingleLineText -Text ([string]$line)
         if ([string]::IsNullOrWhiteSpace($trimmed)) {
             continue
@@ -150,7 +163,7 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $windowStart = (Get-Date).AddMinutes(-1 * $WindowMinutes)
 
 $eventRows = New-Object 'System.Collections.Generic.List[object]'
-foreach ($ticket in @(Read-JsonLinesSafely -Path $queueFilePath)) {
+foreach ($ticket in @(Read-JsonLinesSafely -Path $queueFilePath -MaxLines $QueueTailLines)) {
     $createdAtRaw = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'created_at')
     $createdAt = Get-DateTimeOrNull -Text $createdAtRaw
     if ($null -eq $createdAt -or $createdAt -lt $windowStart) {
@@ -168,7 +181,11 @@ foreach ($ticket in @(Read-JsonLinesSafely -Path $queueFilePath)) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($takeoverRootResolved) -and (Test-Path -LiteralPath $takeoverRootResolved)) {
-    foreach ($briefFile in @(Get-ChildItem -LiteralPath $takeoverRootResolved -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+    $briefFiles = @(Get-ChildItem -LiteralPath $takeoverRootResolved -Filter '*.md' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First $TakeoverBriefMaxFiles)
+
+    foreach ($briefFile in $briefFiles) {
         $briefMeta = Read-KeyValueFile -Path $briefFile.FullName
         $createdAtRaw = if ($briefMeta.Contains('generated_at')) { Convert-ToSingleLineText -Text ([string]$briefMeta.generated_at) } else { '' }
         $createdAt = Get-DateTimeOrNull -Text $createdAtRaw

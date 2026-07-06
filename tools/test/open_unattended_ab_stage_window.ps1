@@ -2189,6 +2189,9 @@ if ($Stage -eq 'A') {
 else {
     $statusUpdates['B_FINAL_STATUS'] = 'RUNNING'
     $statusUpdates['B_LAUNCH_PID'] = [string]$processInfo.Id
+    $statusUpdates['AB_HANDOVER_STATE'] = 'A_TO_B_COMPLETE'
+    $statusUpdates['AB_HANDOVER_COMPLETED_AT'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $statusUpdates['AB_HANDOVER_COMPLETED_BY'] = 'open_unattended_ab_stage_window.ps1'
     if (-not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath)) {
         $statusUpdates['B_RUNTIME_LOG'] = Convert-ToAnchorPath -Path $stageRuntimeLogPath
     }
@@ -2319,15 +2322,7 @@ else {
     'tools/test/open_unattended_ab_session_guard_window.ps1'
 }
 
-$triggerLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_TRIGGER') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER)) {
-    [string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER
-}
-else {
-    'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
-}
-
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
-$triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
 
 $autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
     Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
@@ -2509,53 +2504,23 @@ else {
 }
 
 if ($autoStartTakeoverTrigger) {
-    $restartTrigger = Test-ShouldRestartMonitorRole -Role 'trigger' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
-    if ($restartTrigger) {
-        if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('trigger')) {
-            $triggerStateObj = $monitorStates.trigger
-            Write-Output ("[OPEN-AB-STAGE] monitor_restart_single role=trigger reason={0} match_count={1} mismatch_count={2} unbound_count={3}" -f
-                (Get-RestartReasonFromState -State $triggerStateObj),
-                [int]$triggerStateObj.MatchCount,
-                [int]$triggerStateObj.MismatchCount,
-                [int]$triggerStateObj.UnboundCount)
-            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'trigger'; reason = (Get-RestartReasonFromState -State $triggerStateObj); match_count = [int]$triggerStateObj.MatchCount; mismatch_count = [int]$triggerStateObj.MismatchCount; unbound_count = [int]$triggerStateObj.UnboundCount }
-        }
+    if ($monitorStates.ContainsKey('trigger')) {
+        $triggerStateObj = $monitorStates.trigger
+        Write-Output ("[OPEN-AB-STAGE] monitor_probe role=trigger match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
+            [int]$triggerStateObj.MatchCount,
+            [int]$triggerStateObj.MismatchCount,
+            [int]$triggerStateObj.UnboundCount,
+            ($triggerStateObj.MatchPids -join ','))
+    }
 
-        try {
-            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
-            foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
-                Write-Output $line
-            }
-        }
-        catch {
-            $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
-            Write-Output ("[OPEN-AB-STAGE] trigger_autostart_failed stage={0} detail={1}" -f $Stage, $detail)
-        }
+    $triggerRequestReason = ('stage={0} monitor_chain_bootstrap auto_start_takeover_trigger=true' -f $Stage)
+    $requestOk = Request-TriggerRestartInStartFile -StartFilePath $startFilePath -Reason $triggerRequestReason -Source 'open_unattended_ab_stage_window.ps1'
+    if ($requestOk) {
+        Write-Output ("[OPEN-AB-STAGE] trigger_restart_requested_via_guard stage={0}" -f $Stage)
+        Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'trigger_restart_requested' -Fields @{ stage = $Stage; source = 'stage-window'; reason = $triggerRequestReason }
     }
     else {
-        if ($monitorStates.ContainsKey('trigger')) {
-            $triggerStateObj = $monitorStates.trigger
-            Write-Output ("[OPEN-AB-STAGE] monitor_reuse role=trigger match_count={0} mismatch_count={1} unbound_count={2} pids={3}" -f
-                [int]$triggerStateObj.MatchCount,
-                [int]$triggerStateObj.MismatchCount,
-                [int]$triggerStateObj.UnboundCount,
-                ($triggerStateObj.MatchPids -join ','))
-            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'trigger'; match_count = [int]$triggerStateObj.MatchCount; mismatch_count = [int]$triggerStateObj.MismatchCount; unbound_count = [int]$triggerStateObj.UnboundCount; pids = @($triggerStateObj.MatchPids) }
-        }
-
-        try {
-            $triggerOutput = & $triggerLauncherPath -StartFile $StartFile -NoRestartIfRunning
-            foreach ($line in @($triggerOutput | ForEach-Object { [string]$_ })) {
-                Write-Output $line
-            }
-        }
-        catch {
-            $detail = ([regex]::Replace(([string]$_.Exception.Message), '\s+', ' ')).Trim()
-            Write-Output ("[OPEN-AB-STAGE] trigger_rebind_probe_failed stage={0} detail={1}" -f $Stage, $detail)
-        }
-
-        $triggerRunDirText = if ([string]::IsNullOrWhiteSpace($currentStageRunDir)) { 'unknown' } else { (Convert-ToAnchorPath -Path $currentStageRunDir) }
-        Write-Output ("[OPEN-AB-STAGE] monitor_anchor_rebind role=trigger run_dir={0}" -f $triggerRunDirText)
+        Write-Output ("[OPEN-AB-STAGE] trigger_restart_request_failed stage={0}" -f $Stage)
     }
 }
 else {

@@ -3578,11 +3578,58 @@ function Test-IsAnyStageRunning {
 function Test-ShouldEmitMainExitReview {
     param(
         [Parameter(Mandatory = $true)][string]$DedupSuffix,
-        [Parameter(Mandatory = $true)][string]$LastSignature,
+        [AllowNull()][AllowEmptyString()][string]$LastSignature = '',
         [Parameter(Mandatory = $true)][bool]$SkipReview
     )
 
     return ($DedupSuffix -ne $LastSignature -and -not $SkipReview)
+}
+
+function Get-HandoverWindowState {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [ValidateRange(30, 900)][int]$WindowSeconds = 180
+    )
+
+    $state = 'unknown'
+    $startedAtRaw = ''
+    $completedAtRaw = ''
+    if ($null -ne $Settings) {
+        if ($Settings.Contains('AB_HANDOVER_STATE')) {
+            $state = (Convert-ToSingleLineText -Text ([string]$Settings.AB_HANDOVER_STATE)).ToUpperInvariant()
+        }
+        if ($Settings.Contains('AB_HANDOVER_STARTED_AT')) {
+            $startedAtRaw = Convert-ToSingleLineText -Text ([string]$Settings.AB_HANDOVER_STARTED_AT)
+        }
+        if ($Settings.Contains('AB_HANDOVER_COMPLETED_AT')) {
+            $completedAtRaw = Convert-ToSingleLineText -Text ([string]$Settings.AB_HANDOVER_COMPLETED_AT)
+        }
+    }
+
+    $refRaw = if ($state -eq 'A_TO_B_COMPLETE') { $completedAtRaw } else { $startedAtRaw }
+    $refAt = [datetime]::MinValue
+    $hasRef = $false
+    if (-not [string]::IsNullOrWhiteSpace($refRaw)) {
+        $hasRef = [datetime]::TryParse($refRaw, [ref]$refAt)
+    }
+
+    $elapsedSec = -1
+    $active = $false
+    if ($hasRef) {
+        $elapsedSec = [Math]::Max(0, [int][Math]::Round(((Get-Date) - $refAt).TotalSeconds))
+        if ($elapsedSec -le $WindowSeconds -and $state -in @('A_TO_B_PENDING', 'A_TO_B_COMPLETE')) {
+            $active = $true
+        }
+    }
+
+    return [pscustomobject]@{
+        Active = [bool]$active
+        State = $state
+        ElapsedSec = [int]$elapsedSec
+        WindowSec = [int]$WindowSeconds
+        StartedAt = $startedAtRaw
+        CompletedAt = $completedAtRaw
+    }
 }
 
 function Get-NormalizedFailureCategory {
@@ -4694,6 +4741,16 @@ try {
                 }
             }
 
+            $handoverSuppressSeconds = 180
+            if ($settings.Contains('LOCAL_GUARD_HANDOVER_SUPPRESS_SECONDS')) {
+                $parsedHandoverSuppressSeconds = 0
+                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_HANDOVER_SUPPRESS_SECONDS), [ref]$parsedHandoverSuppressSeconds)) {
+                    if ($parsedHandoverSuppressSeconds -ge 30 -and $parsedHandoverSuppressSeconds -le 900) {
+                        $handoverSuppressSeconds = [int]$parsedHandoverSuppressSeconds
+                    }
+                }
+            }
+
             if ($settings.Contains('GUARD_STARTUP_WARMUP_MINUTES')) {
                 $parsedWarmup = 0
                 if ([int]::TryParse(([string]$settings.GUARD_STARTUP_WARMUP_MINUTES), [ref]$parsedWarmup)) {
@@ -4741,6 +4798,12 @@ try {
             }
             else {
                 'artifacts;guard_log;compile-step'
+            }
+
+            $triggerRestartRequest = Get-TriggerRestartRequestFromStartFile -StartFilePath $script:StartFilePath
+            if ([bool]$triggerRestartRequest.Requested) {
+                Write-GuardLog ("trigger_restart_request_consume source={0} reason={1} requested_at={2}" -f [string]$triggerRestartRequest.Source, [string]$triggerRestartRequest.Reason, [string]$triggerRestartRequest.RequestedAt)
+                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ'
             }
 
             if ($null -ne $mainProcessExitGraceStartedAt) {
@@ -5163,6 +5226,13 @@ try {
                     }
                     $missingASec = [Math]::Max(0, [int][Math]::Round(((Get-Date) - $aRunningNoProcessSince).TotalSeconds))
                     if ($missingASec -ge $aRunningNoProcessGraceSec) {
+                        $aHandoverWindow = Get-HandoverWindowState -Settings $settings -WindowSeconds $handoverSuppressSeconds
+                        if ([bool]$aHandoverWindow.Active) {
+                            Write-GuardLog ("a_process_missing_suppressed_by_handover expected_pid={0} elapsed_sec={1} grace_sec={2} handover_state={3} handover_elapsed_sec={4} window_sec={5}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec, [string]$aHandoverWindow.State, [int]$aHandoverWindow.ElapsedSec, [int]$aHandoverWindow.WindowSec)
+                            Reset-AMissingProcessTracking -RunningNoProcessSince ([ref]$aRunningNoProcessSince) -LastMissingProcessReportAt ([ref]$lastMissingAProcessReportAt)
+                            continue
+                        }
+
                         # Check exit artifact before declaring A=FAIL.
                         # If A actually passed (exit_code=0, result=pass), write PASS instead
                         # so guard can proceed to B auto-launch.
@@ -5416,6 +5486,13 @@ try {
 
                     $missingSec = [Math]::Max(0, [int][Math]::Round(((Get-Date) - $bRunningNoProcessSince).TotalSeconds))
                     if ($missingSec -ge $bRunningNoProcessGraceSec) {
+                        $bHandoverWindow = Get-HandoverWindowState -Settings $settings -WindowSeconds $handoverSuppressSeconds
+                        if ([bool]$bHandoverWindow.Active) {
+                            Write-GuardLog ("b_process_missing_suppressed_by_handover expected_pid={0} elapsed_sec={1} grace_sec={2} handover_state={3} handover_elapsed_sec={4} window_sec={5}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec, [string]$bHandoverWindow.State, [int]$bHandoverWindow.ElapsedSec, [int]$bHandoverWindow.WindowSec)
+                            Reset-BMissingProcessTracking -RunningNoProcessSince ([ref]$bRunningNoProcessSince) -LastMissingProcessReportAt ([ref]$lastMissingBProcessReportAt) -LastMissingExitReasonEvidence ([ref]$lastBMissingExitReasonEvidence) -LastMissingRuntimeTailEvidence ([ref]$lastBMissingRuntimeTailEvidence)
+                            continue
+                        }
+
                         $sessionStatusToWrite = if ($aStatus -eq 'RUNNING') { $sessionStatus } else { 'FAIL' }
                         $failureNote = "guard_detected b_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $bLaunchPid, $missingSec, $bRunningNoProcessGraceSec
 
@@ -6385,7 +6462,22 @@ try {
             $healthCheckIntervalIterations = [Math]::Max(1, [int][Math]::Round(300.0 / [Math]::Max(15, $PollSec)))
             if ($healthCheckIterationCounter -ge $healthCheckIntervalIterations) {
                 $healthCheckIterationCounter = 0
-                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
+                $triggerRequestPending = $false
+                try {
+                    $triggerRequestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $script:StartFilePath
+                    $triggerRequestPending = [bool]$triggerRequestState.Requested
+                }
+                catch {
+                    $triggerRequestPending = $false
+                }
+
+                $sessionIdleNotRun = ($sessionStatus -eq 'NOT_RUN' -and $aStatus -eq 'NOT_RUN' -and $bStatus -eq 'NOT_RUN')
+                if ($sessionIdleNotRun -and -not $triggerRequestPending) {
+                    Write-GuardLog 'trigger_health_check_skipped reason=session_idle_not_run'
+                }
+                else {
+                    Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
+                }
             }
         }
 

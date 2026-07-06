@@ -807,7 +807,7 @@ function Invoke-DispatchDeliveryToggle {
     $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
 
     if ($updates.Count -gt 0) {
-        Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
+        Invoke-KeyValueFileValueUpdateCore -Path $Path -Values $updates
         Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
         return (Read-KeyValueFile -Path $Path)
     }
@@ -843,7 +843,7 @@ function Clear-MonitorChainShutdownRequest {
         return $Settings
     }
 
-    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{
+    Invoke-KeyValueFileValueUpdateCore -Path $Path -Values @{
         MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
         MONITOR_CHAIN_SHUTDOWN_REASON = ''
         MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
