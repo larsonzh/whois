@@ -13,6 +13,7 @@
     [AllowNull()][object]$EnableFallbackStatus = $true,
     [AllowNull()][object]$EventPolicyStrict = $null,
     [AllowEmptyString()][string]$AcknowledgeTicketIds = '',
+    [AllowEmptyString()][string]$AcknowledgeRetryBudgetUsed = '',
     [switch]$AsJson
 )
 
@@ -232,11 +233,42 @@ function Get-NormalizedListValue {
     return @($items.ToArray())
 }
 
+function Convert-ToRetryBudgetUsedValue {
+    param([AllowEmptyString()][string]$Value)
+
+    $normalized = (Convert-ToSingleLineText -Text $Value).ToLowerInvariant()
+    if ($normalized -in @('yes', 'no')) {
+        return $normalized
+    }
+
+    return ''
+}
+
+function Get-ExpectedRetryBudgetUsedFromDetail {
+    param([AllowEmptyString()][string]$Detail)
+
+    $text = (Convert-ToSingleLineText -Text $Detail).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    if ($text.Contains('retry_budget_exhausted=true')) {
+        return 'no'
+    }
+
+    if ($text.Contains('one_time_retry_only=true')) {
+        return 'yes'
+    }
+
+    return ''
+}
+
 function Get-MarkProcessedCommand {
     param(
         [string]$StartFileRel,
         [string]$TicketId,
-        [int]$Last
+        [int]$Last,
+        [AllowEmptyString()][string]$RetryBudgetUsed = ''
     )
 
     $ticket = Convert-ToSingleLineText -Text $TicketId
@@ -244,13 +276,20 @@ function Get-MarkProcessedCommand {
         return ''
     }
 
-    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
+    $command = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last {2} -AsJson' -f $StartFileRel, $ticket, $Last)
+    $retryUsed = (Convert-ToSingleLineText -Text $RetryBudgetUsed).ToLowerInvariant()
+    if ($retryUsed -in @('yes', 'no')) {
+        $command = ('{0} -AcknowledgeRetryBudgetUsed "{1}"' -f $command, $retryUsed)
+    }
+
+    return $command
 }
 
 function Get-ValidateHandledReceiptCommand {
     param(
         [string]$StartFileRel,
-        [string]$TicketId
+        [string]$TicketId,
+        [AllowEmptyString()][string]$ExpectedRetryBudgetUsed = ''
     )
 
     $ticket = Convert-ToSingleLineText -Text $TicketId
@@ -258,7 +297,13 @@ function Get-ValidateHandledReceiptCommand {
         return ''
     }
 
-    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $StartFileRel, $ticket)
+    $command = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $StartFileRel, $ticket)
+    $expected = (Convert-ToSingleLineText -Text $ExpectedRetryBudgetUsed).ToLowerInvariant()
+    if ($expected -in @('yes', 'no')) {
+        $command = ('{0} -ExpectedRetryBudgetUsed "{1}"' -f $command, $expected)
+    }
+
+    return $command
 }
 
 function Get-TicketClosureCheckCommand {
@@ -2294,6 +2339,28 @@ foreach ($ticketId in @(Get-NormalizedListValue -Value $AcknowledgeTicketIds)) {
     }
 }
 
+$ackRetryBudgetUsed = Convert-ToRetryBudgetUsedValue -Value $AcknowledgeRetryBudgetUsed
+
+$tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
+$ticketById = @{}
+$expectedRetryBudgetUsedByTicket = @{}
+foreach ($ticket in $tickets) {
+    $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
+    if ([string]::IsNullOrWhiteSpace($ticketId)) {
+        continue
+    }
+
+    if (-not $ticketById.ContainsKey($ticketId)) {
+        $ticketById[$ticketId] = $ticket
+    }
+
+    $ticketDetail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
+    $expectedRetryBudgetUsed = Get-ExpectedRetryBudgetUsedFromDetail -Detail $ticketDetail
+    if (-not [string]::IsNullOrWhiteSpace($expectedRetryBudgetUsed)) {
+        $expectedRetryBudgetUsedByTicket[$ticketId] = $expectedRetryBudgetUsed
+    }
+}
+
 $acknowledgedThisPoll = 0
 $doneThisPoll = 0
 $handledReceipts = New-Object 'System.Collections.Generic.List[object]'
@@ -2309,10 +2376,37 @@ if ($acknowledgeTicketSet.Count -gt 0) {
             continue
         }
 
+        $expectedRetryBudgetUsed = ''
+        if ($expectedRetryBudgetUsedByTicket.ContainsKey($ticketId)) {
+            $expectedRetryBudgetUsed = Convert-ToRetryBudgetUsedValue -Value ([string]$expectedRetryBudgetUsedByTicket[$ticketId])
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($expectedRetryBudgetUsed) -and $ackRetryBudgetUsed -ne $expectedRetryBudgetUsed) {
+            $failedAt = Get-NowText
+            $failureReason = ('retry-budget-receipt-missing-or-mismatch expected={0} actual={1}' -f $expectedRetryBudgetUsed, (if ([string]::IsNullOrWhiteSpace($ackRetryBudgetUsed)) { 'missing' } else { $ackRetryBudgetUsed }))
+            Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'failed' -At $failedAt -Note $failureReason
+            if ($ledgerRecords.ContainsKey($ticketId)) {
+                $failedRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
+                $failedRecord.failure_reason = $failureReason
+                $ledgerRecords[$ticketId] = $failedRecord
+            }
+            Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'retry-budget-receipt-missing-or-mismatch' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes $failureReason
+            continue
+        }
+
         $ackAt = Get-NowText
-        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'executed' -At $ackAt -Note 'acknowledged-by-consumer'
-        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'watch-resumed' -At $ackAt -Note 'acknowledged-by-consumer'
-        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $ackAt -Note 'acknowledged-by-consumer'
+        $ackNote = 'acknowledged-by-consumer'
+        if (-not [string]::IsNullOrWhiteSpace($ackRetryBudgetUsed)) {
+            $ackNote = ('{0} retry_budget_used={1}' -f $ackNote, $ackRetryBudgetUsed)
+        }
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'executed' -At $ackAt -Note $ackNote
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'watch-resumed' -At $ackAt -Note $ackNote
+        Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At $ackAt -Note $ackNote
+        if ($ledgerRecords.ContainsKey($ticketId) -and -not [string]::IsNullOrWhiteSpace($ackRetryBudgetUsed)) {
+            $ackedRecord = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
+            $ackedRecord | Add-Member -NotePropertyName 'retry_budget_used' -NotePropertyValue $ackRetryBudgetUsed -Force
+            $ledgerRecords[$ticketId] = $ackedRecord
+        }
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
         Write-TicketHandled -TicketId $ticketId -Action 'acknowledge' -Outcome 'acknowledged-by-consumer' -Command ('poll_agent_tickets.ps1 -AcknowledgeTicketIds "{0}"' -f $ticketId) -Notes ('ticket acknowledged and closed at {0}' -f $ackAt)
         [void]$handledReceipts.Add([ordered]@{ ticket_id = $ticketId; handled_at = $ackAt; action = 'acknowledge'; outcome = 'acknowledged-by-consumer' })
@@ -2347,7 +2441,6 @@ if ($acknowledgeTicketSet.Count -gt 0) {
 
 $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 
-$tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
 $rows = New-Object 'System.Collections.Generic.List[object]'
 $claimedIds = New-Object 'System.Collections.Generic.List[string]'
 $skippedStatusReports = 0
@@ -2516,6 +2609,7 @@ foreach ($ticket in $tickets) {
         $originalRequiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
         $requiresConfirmation = Get-EffectiveRequiresConfirmation -Requested $originalRequiresConfirmation
         $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
+        $expectedRetryBudgetUsed = Get-ExpectedRetryBudgetUsedFromDetail -Detail $detail
         $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
         $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
         $ticketClosureCheckCommand = Get-TicketClosureCheckCommand -StartFileRel $startFileRel
@@ -2551,16 +2645,16 @@ foreach ($ticket in $tickets) {
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = ''
                 continue_watch_command = $continueWatchCommand
-                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
                 ticket_closure_check_command = $ticketClosureCheckCommand
                 event_dedup_health_check_command = $eventDedupHealthCheckCommand
                 final_status_closeout_command = $finalStatusCloseoutCommand
                 final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2583,6 +2677,7 @@ foreach ($ticket in $tickets) {
     $originalRequiresConfirmation = Get-ObjectPropertyBoolean -InputObject $ticket -Name 'requires_confirmation' -Default $false
     $requiresConfirmation = Get-EffectiveRequiresConfirmation -Requested $originalRequiresConfirmation
     $detail = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'detail')
+    $expectedRetryBudgetUsed = Get-ExpectedRetryBudgetUsedFromDetail -Detail $detail
     $recommendedAction = Get-EffectiveRecommendedAction -RecommendedAction (Get-ObjectPropertyString -InputObject $ticket -Name 'recommended_action') -OriginalRequiresConfirmation $originalRequiresConfirmation
     $queueRel = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'queue_path')
     $ticketClosureCheckCommand = Get-TicketClosureCheckCommand -StartFileRel $startFileRel
@@ -2659,16 +2754,16 @@ foreach ($ticket in $tickets) {
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -EnableMonitorChainDegradedEscalation $statusReportEnableMonitorChainDegradedEscalation -MonitorChainDegradedEscalationThreshold $statusReportMonitorChainDegradedEscalationThreshold -LowDisturbMode $statusReportLowDisturbMode)
                 continue_watch_command = $continueWatchCommand
-                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+                mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+                handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+                validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
                 ticket_closure_check_command = $ticketClosureCheckCommand
                 event_dedup_health_check_command = $eventDedupHealthCheckCommand
                 final_status_closeout_command = $finalStatusCloseoutCommand
                 final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2727,16 +2822,16 @@ foreach ($ticket in $tickets) {
             business_command_reason = [string]$ticketResumePlan.reason
             business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
-            mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-            handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last)
-            validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId)
+            mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+            handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
+            validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
             contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
             route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
             ticket_closure_check_command = $ticketClosureCheckCommand
             event_dedup_health_check_command = $eventDedupHealthCheckCommand
             final_status_closeout_command = $finalStatusCloseoutCommand
             final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
             route_guard_required = $true
             receipt_required = $true
             receipt_type = 'handled_at'

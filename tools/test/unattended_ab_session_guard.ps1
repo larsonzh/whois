@@ -5857,25 +5857,95 @@ try {
                         $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
 
                         # Roll failure fingerprint for anti-infinite-loop detection.
-                        # Compute a fingerprint from main_round + failure category + evidence
-                        # so that identical failures produce the same hash. The launcher
-                        # (open_unattended_ab_stage_window.ps1) compares *FAILURE_FINGERPRINT
-                        # against *PREVIOUS_FAILURE_FINGERPRINT before restarting.
+                        # Include task-definition hash and round source-output hash so
+                        # materially different fixes produce different fingerprints.
                         $fpMainRound = [string]$failureTicketMeta.MainRound
-                        $fpInput = "{0}|{1}|{2}" -f $fpMainRound, [string]$failureTicketMeta.FailureCategory, [string]$failureTicketMeta.FailureEvidence
+                        $fpStage = [string]$failureTicketMeta.PreferredStage
+                        $fpPhase = 'unknown'
+                        $fpFailureKind = (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailureKind)).ToLowerInvariant()
+                        if ($fpFailureKind -in @('task-definition-mismatch', 'code-edit-failure')) {
+                            $fpPhase = 'code-step'
+                        }
+                        elseif ($fpFailureKind -in @('compile-failure', 'compile-warning')) {
+                            $fpPhase = 'compile'
+                        }
+                        elseif ($fpFailureKind -eq 'verify-failure') {
+                            $fpPhase = 'verify'
+                        }
+                        $fpKeyPrefix = if ($fpStage -eq 'A') { 'A' } else { 'B' }
+                        $fpTaskDefHash = ''
+                        $fpRoundSourceHash = ''
+                        $fpFailureOriginRound = $fpMainRound
+                        $fpTaskFirstStartAt = ''
+
+                        $fpTaskDefSettingKey = if ($fpStage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
+                        if ($settings.Contains($fpTaskDefSettingKey)) {
+                            try {
+                                $fpTaskDefPath = Resolve-RepoPathAllowMissing -Path ([string]$settings[$fpTaskDefSettingKey])
+                                if (-not [string]::IsNullOrWhiteSpace($fpTaskDefPath) -and (Test-Path -LiteralPath $fpTaskDefPath)) {
+                                    $fpTaskDefBytes = [System.IO.File]::ReadAllBytes($fpTaskDefPath)
+                                    $fpTaskDefHashBytes = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpTaskDefBytes)
+                                    $fpTaskDefHash = ([System.BitConverter]::ToString($fpTaskDefHashBytes)).Replace('-', '').ToLowerInvariant()
+                                }
+                            }
+                            catch { $null = $_ }
+                        }
+
+                        $fpRunDir = Resolve-AnchorPath -Path ([string]$failurePolicy.RunDir)
+                        if (-not [string]::IsNullOrWhiteSpace($fpRunDir) -and -not [string]::IsNullOrWhiteSpace($fpMainRound)) {
+                            try {
+                                $fpRoundHashPath = Join-Path $fpRunDir ("snapshots\{0}_git_diff_source_hash.txt" -f $fpMainRound)
+                                if (Test-Path -LiteralPath $fpRoundHashPath) {
+                                    $fpRoundSourceHash = Convert-ToSingleLineText -Text ((Get-Content -LiteralPath $fpRoundHashPath -Encoding utf8 -ErrorAction SilentlyContinue | Select-Object -First 1))
+                                }
+                            }
+                            catch { $null = $_ }
+                        }
+
+                        if ($settings.Contains("${fpKeyPrefix}_TASK_FIRST_START_AT")) {
+                            $fpTaskFirstStartAt = Convert-ToSingleLineText -Text ([string]$settings["${fpKeyPrefix}_TASK_FIRST_START_AT"])
+                        }
+                        if ([string]::IsNullOrWhiteSpace($fpTaskFirstStartAt) -and -not [string]::IsNullOrWhiteSpace($fpRunDir)) {
+                            try {
+                                $fpRunDirLeaf = [string](Split-Path -Path $fpRunDir -Leaf)
+                                $fpRunDirLeaf = Convert-ToSingleLineText -Text $fpRunDirLeaf
+                                if (-not [string]::IsNullOrWhiteSpace($fpRunDirLeaf)) {
+                                    $fpTaskFirstStartAt = $fpRunDirLeaf
+                                }
+                            }
+                            catch { $null = $_ }
+                        }
+
+                        if ([string]::IsNullOrWhiteSpace($fpTaskDefHash)) { $fpTaskDefHash = '-' }
+                        if ([string]::IsNullOrWhiteSpace($fpRoundSourceHash)) { $fpRoundSourceHash = '-' }
+                        if ([string]::IsNullOrWhiteSpace($fpFailureOriginRound)) { $fpFailureOriginRound = '-' }
+                        if ([string]::IsNullOrWhiteSpace($fpTaskFirstStartAt)) { $fpTaskFirstStartAt = '-' }
+
+                        $fpInput = "{0}|phase={1}|origin={2}|task_start={3}|{4}|{5}|taskdef={6}|source={7}" -f $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, [string]$failureTicketMeta.FailureCategory, [string]$failureTicketMeta.FailureEvidence, $fpTaskDefHash, $fpRoundSourceHash
                         $fpBytes = [System.Text.Encoding]::UTF8.GetBytes($fpInput)
                         $fpHash = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpBytes)
                         $fpHashed = "fp_{0}" -f ([System.BitConverter]::ToString($fpHash)).Replace('-','').ToLowerInvariant()
-                        $fpStage = [string]$failureTicketMeta.PreferredStage
-                        $fpKeyPrefix = if ($fpStage -eq 'A') { 'A' } else { 'B' }
                         $fpPrevFp = if ($settings.Contains("${fpKeyPrefix}_FAILURE_FINGERPRINT")) { [string]$settings["${fpKeyPrefix}_FAILURE_FINGERPRINT"] } else { '' }
                         $fpPrevRound = if ($settings.Contains("${fpKeyPrefix}_FAILURE_MAIN_ROUND")) { [string]$settings["${fpKeyPrefix}_FAILURE_MAIN_ROUND"] } else { '' }
+                        $fpPrevPhase = if ($settings.Contains("${fpKeyPrefix}_FAILURE_PHASE")) { [string]$settings["${fpKeyPrefix}_FAILURE_PHASE"] } else { '' }
+                        $fpPrevOriginRound = if ($settings.Contains("${fpKeyPrefix}_FAILURE_ORIGIN_ROUND")) { [string]$settings["${fpKeyPrefix}_FAILURE_ORIGIN_ROUND"] } else { '' }
+                        $fpPrevTaskStartAt = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASK_START_AT")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASK_START_AT"] } else { '' }
                         Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_FINGERPRINT" = $fpPrevFp
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_MAIN_ROUND" = $fpPrevRound
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_PHASE" = $fpPrevPhase
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_ORIGIN_ROUND" = $fpPrevOriginRound
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_TASK_START_AT" = $fpPrevTaskStartAt
                             "${fpKeyPrefix}_FAILURE_FINGERPRINT" = $fpHashed
                             "${fpKeyPrefix}_FAILURE_MAIN_ROUND" = $fpMainRound
+                            "${fpKeyPrefix}_FAILURE_PHASE" = $fpPhase
+                            "${fpKeyPrefix}_FAILURE_ORIGIN_ROUND" = $fpFailureOriginRound
+                            "${fpKeyPrefix}_FAILURE_TASK_START_AT" = $fpTaskFirstStartAt
+                            "${fpKeyPrefix}_TASK_FIRST_START_AT" = $fpTaskFirstStartAt
+                            "${fpKeyPrefix}_FAILURE_TASKDEF_HASH" = $fpTaskDefHash
+                            "${fpKeyPrefix}_FAILURE_SOURCE_HASH" = $fpRoundSourceHash
                         }
+                        Write-GuardLog ("failure_fingerprint_rolled stage={0} round={1} phase={2} origin_round={3} task_start_at={4} taskdef_hash={5} source_hash={6}" -f $fpStage, $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, $fpTaskDefHash, $fpRoundSourceHash)
                     }
                 }
 

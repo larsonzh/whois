@@ -3727,6 +3727,12 @@ $modeRestorePolicy = ''
 if ($briefSettings.Contains('mode_restore_policy')) {
     $modeRestorePolicy = Convert-ToSingleLineText -Text ([string]$briefSettings.mode_restore_policy)
 }
+$briefDetail = ''
+if ($briefSettings.Contains('detail')) {
+    $briefDetail = Convert-ToSingleLineText -Text ([string]$briefSettings.detail)
+}
+$retryBudgetOneTimeOnly = ($briefDetail.ToLowerInvariant().Contains('one_time_retry_only=true'))
+$retryBudgetExhausted = ($briefDetail.ToLowerInvariant().Contains('retry_budget_exhausted=true'))
 $sessionClosedByFlagRaw = $false
 if ($startSettings.Contains('SESSION_CLOSED')) {
     $sessionClosedByFlagRaw = Convert-ToBooleanSetting -Value ([string]$startSettings.SESSION_CLOSED) -Default $false
@@ -4265,6 +4271,15 @@ handled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）"
 else {
     "`n`nMandatory Receipt
 handled_at: YYYY-MM-DD HH:mm:ss (required, do not omit)"
+}
+
+if ($retryBudgetOneTimeOnly -or $retryBudgetExhausted) {
+    if ($useChineseDispatchMessage) {
+        $mandatoryReceiptRule = ('{0}`nretry_budget_used: yes|no（必填；one_time_retry_only=true 时本轮必须为 yes；retry_budget_exhausted=true 时必须为 no）' -f $mandatoryReceiptRule)
+    }
+    else {
+        $mandatoryReceiptRule = ('{0}`nretry_budget_used: yes|no (required; must be yes when one_time_retry_only=true in this cycle; must be no when retry_budget_exhausted=true)' -f $mandatoryReceiptRule)
+    }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($eventQueuePolicyHint)) {

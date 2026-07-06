@@ -3,6 +3,7 @@
     [Parameter(Mandatory = $true)][string]$TicketId,
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$LedgerPath = '',
+    [AllowEmptyString()][string]$ExpectedRetryBudgetUsed = '',
     [AllowNull()][object]$EnqueueReminder = $true,
     [AllowEmptyString()][string]$ReminderEvent = 'handled-receipt-reminder',
     [switch]$AsJson
@@ -138,6 +139,17 @@ function Test-HandledAtFormat {
     return [regex]::IsMatch($text, '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')
 }
 
+function Convert-ToRetryBudgetUsedValue {
+    param([AllowEmptyString()][string]$Value)
+
+    $text = (Convert-ToSingleLineText -Text $Value).ToLowerInvariant()
+    if ($text -in @('yes', 'no')) {
+        return $text
+    }
+
+    return ''
+}
+
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $startFilePath = Resolve-RepoPathAllowMissing -Path $StartFile
@@ -175,6 +187,8 @@ if ([string]::IsNullOrWhiteSpace($ticketId)) {
     throw 'TicketId must not be empty.'
 }
 
+$expectedRetryBudgetUsed = Convert-ToRetryBudgetUsedValue -Value $ExpectedRetryBudgetUsed
+
 $enqueueReminder = Convert-ToBooleanValue -Value $EnqueueReminder -Default $true
 $reminderEventName = Convert-ToSingleLineText -Text $ReminderEvent
 if ([string]::IsNullOrWhiteSpace($reminderEventName)) {
@@ -188,6 +202,8 @@ $handledAtValid = $false
 $ledgerStatus = ''
 $sourceEvent = ''
 $sourceSeverity = 'high'
+$retryBudgetUsed = ''
+$retryBudgetUsedValid = $false
 
 if ($null -ne $ledger -and $ledger.PSObject.Properties.Name -contains 'records') {
     foreach ($entry in @($ledger.records)) {
@@ -212,9 +228,16 @@ if ($null -ne $record) {
     if (-not [string]::IsNullOrWhiteSpace($rawSeverity)) {
         $sourceSeverity = $rawSeverity
     }
+    $retryBudgetUsed = Convert-ToRetryBudgetUsedValue -Value (Get-ObjectPropertyString -InputObject $record -Name 'retry_budget_used')
+    $retryBudgetUsedValid = -not [string]::IsNullOrWhiteSpace($retryBudgetUsed)
 }
 
-$missingReceipt = -not $handledAtValid
+$retryBudgetMismatch = $false
+if (-not [string]::IsNullOrWhiteSpace($expectedRetryBudgetUsed)) {
+    $retryBudgetMismatch = ($retryBudgetUsed -ne $expectedRetryBudgetUsed)
+}
+
+$missingReceipt = (-not $handledAtValid) -or $retryBudgetMismatch
 $reminderEnqueued = $false
 $reminderSkippedReason = ''
 $reminderTicketId = ''
@@ -260,6 +283,10 @@ if ($missingReceipt -and $enqueueReminder) {
 
         $detail = ('Missing mandatory handled_at receipt for ticket {0}. Run handled_receipt_command and return handled_at: YYYY-MM-DD HH:mm:ss.' -f $ticketId)
         $recommended = ('Execute handled_receipt_command for ticket {0}, then reply with handled_at: YYYY-MM-DD HH:mm:ss.' -f $ticketId)
+        if ($retryBudgetMismatch) {
+            $detail = ('{0} retry_budget_used expected={1} actual={2}.' -f $detail, $expectedRetryBudgetUsed, (if ([string]::IsNullOrWhiteSpace($retryBudgetUsed)) { 'missing' } else { $retryBudgetUsed }))
+            $recommended = ('{0} Also provide retry_budget_used: {1}.' -f $recommended, $expectedRetryBudgetUsed)
+        }
 
         $reminderTicket = [ordered]@{
             ticket_id = $reminderTicketId
@@ -309,6 +336,10 @@ $output = [ordered]@{
     ledger_status = $ledgerStatus
     handled_at = $handledAt
     handled_at_format_valid = [bool]$handledAtValid
+    expected_retry_budget_used = $expectedRetryBudgetUsed
+    retry_budget_used = $retryBudgetUsed
+    retry_budget_used_format_valid = [bool]$retryBudgetUsedValid
+    retry_budget_mismatch = [bool]$retryBudgetMismatch
     missing_receipt = [bool]$missingReceipt
     reminder = [ordered]@{
         enabled = [bool]$enqueueReminder

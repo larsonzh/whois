@@ -4,7 +4,10 @@
     [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',
     [switch]$FailOnWarnings,
     [AllowEmptyString()][string]$RoundTag = '',
-    [Alias('OperationIndex')][ValidateRange(0, 256)][int]$RequestedOperationIndex = 0
+    [Alias('OperationIndex')][ValidateRange(0, 256)][int]$RequestedOperationIndex = 0,
+    [AllowEmptyString()][string]$StartFilePath = '',
+    [ValidateSet('A', 'B')][string]$Stage = 'A',
+    [switch]$EnableFingerprintCheck
 )
 
 Set-StrictMode -Version Latest
@@ -59,6 +62,45 @@ function Add-WarnIssue {
 function Add-InfoIssue {
     param([string]$Message)
     [void]$infos.Add($Message)
+}
+
+function Read-KeyValuePairs {
+    param([string]$Path)
+
+    $map = @{}
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $map
+    }
+
+    $lines = Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction SilentlyContinue
+    foreach ($line in $lines) {
+        if ($null -eq $line) {
+            continue
+        }
+
+        $text = [string]$line
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+
+        $trimmed = $text.Trim()
+        if ($trimmed.StartsWith('#')) {
+            continue
+        }
+
+        $idx = $trimmed.IndexOf('=')
+        if ($idx -lt 1) {
+            continue
+        }
+
+        $k = $trimmed.Substring(0, $idx).Trim()
+        $v = $trimmed.Substring($idx + 1).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($k)) {
+            $map[$k] = $v
+        }
+    }
+
+    return $map
 }
 
 function Get-RoundTaskType {
@@ -366,6 +408,74 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound)
     }
     else {
         Add-ErrorIssue ("round={0} not found in task definition" -f $effectiveRoundTag)
+    }
+}
+
+if ($EnableFingerprintCheck.IsPresent) {
+    if ([string]::IsNullOrWhiteSpace($StartFilePath)) {
+        Add-WarnIssue 'fingerprint-check skipped: StartFilePath is empty'
+    }
+    else {
+        $resolvedStartFilePath = if ([System.IO.Path]::IsPathRooted($StartFilePath)) {
+            $StartFilePath
+        }
+        else {
+            Join-Path $RepoRoot $StartFilePath
+        }
+
+        if (-not (Test-Path -LiteralPath $resolvedStartFilePath)) {
+            Add-WarnIssue ("fingerprint-check skipped: start file not found path={0}" -f $resolvedStartFilePath)
+        }
+        else {
+            $settings = Read-KeyValuePairs -Path $resolvedStartFilePath
+            $prefix = if ($Stage -eq 'B') { 'B' } else { 'A' }
+
+            $curRound = if ($settings.ContainsKey("${prefix}_FAILURE_MAIN_ROUND")) { [string]$settings["${prefix}_FAILURE_MAIN_ROUND"] } else { '' }
+            $curPhase = if ($settings.ContainsKey("${prefix}_FAILURE_PHASE")) { [string]$settings["${prefix}_FAILURE_PHASE"] } else { '' }
+            $curFp = if ($settings.ContainsKey("${prefix}_FAILURE_FINGERPRINT")) { [string]$settings["${prefix}_FAILURE_FINGERPRINT"] } else { '' }
+            $curTaskStartAt = if ($settings.ContainsKey("${prefix}_FAILURE_TASK_START_AT")) { [string]$settings["${prefix}_FAILURE_TASK_START_AT"] } else { '' }
+
+            $prevRound = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_MAIN_ROUND")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_MAIN_ROUND"] } else { '' }
+            $prevPhase = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_PHASE")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_PHASE"] } else { '' }
+            $prevFp = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_FINGERPRINT")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_FINGERPRINT"] } else { '' }
+            $prevTaskStartAt = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_TASK_START_AT")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_TASK_START_AT"] } else { '' }
+
+            $sameTaskStartWindow = $true
+            if (-not [string]::IsNullOrWhiteSpace($curTaskStartAt) -and
+                -not [string]::IsNullOrWhiteSpace($prevTaskStartAt) -and
+                $curTaskStartAt -ne '-' -and
+                $prevTaskStartAt -ne '-') {
+                $sameTaskStartWindow = ($curTaskStartAt -eq $prevTaskStartAt)
+            }
+
+            $isIdentical =
+                -not [string]::IsNullOrWhiteSpace($curRound) -and
+                -not [string]::IsNullOrWhiteSpace($prevRound) -and
+                $curRound -eq $prevRound -and
+                -not [string]::IsNullOrWhiteSpace($curPhase) -and
+                -not [string]::IsNullOrWhiteSpace($prevPhase) -and
+                $curPhase -eq $prevPhase -and
+                $sameTaskStartWindow -and
+                -not [string]::IsNullOrWhiteSpace($curFp) -and
+                -not [string]::IsNullOrWhiteSpace($prevFp) -and
+                $curFp -eq $prevFp
+
+            if ($isIdentical) {
+                $retryGrantedFingerprint = if ($settings.ContainsKey("${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR")) { [string]$settings["${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR"] } else { '' }
+                if ($curPhase -eq 'code-step' -and $retryGrantedFingerprint -ne $curFp) {
+                    Add-WarnIssue ("fingerprint-check stage={0} identical_failure_detected phase=code-step retry_budget=available round={1} task_start_at={2}" -f $Stage, $curRound, $curTaskStartAt)
+                }
+                elseif ($curPhase -eq 'code-step' -and $retryGrantedFingerprint -eq $curFp) {
+                    Add-ErrorIssue ("fingerprint-check stage={0} identical_failure_detected phase=code-step retry_budget=exhausted round={1} task_start_at={2}" -f $Stage, $curRound, $curTaskStartAt)
+                }
+                else {
+                    Add-ErrorIssue ("fingerprint-check stage={0} identical_failure_detected phase={1} round={2} task_start_at={3}" -f $Stage, $curPhase, $curRound, $curTaskStartAt)
+                }
+            }
+            else {
+                Add-InfoIssue ("fingerprint-check stage={0} status=pass" -f $Stage)
+            }
+        }
     }
 }
 
