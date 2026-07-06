@@ -30,86 +30,6 @@ function Convert-ToSingleLineText {
     return ([regex]::Replace($singleLine, '\s+', ' ')).Trim()
 }
 
-function Invoke-KeyValueFileValueUpdate {
-    param(
-        [string]$Path,
-        [System.Collections.IDictionary]$Values
-    )
-
-    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
-    $locked = $false
-    $tempPath = ''
-    try {
-        try {
-            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
-        }
-        catch [System.Threading.AbandonedMutexException] {
-            $locked = $true
-        }
-
-        if (-not $locked) {
-            throw "Failed to acquire start-file write lock within timeout: $Path"
-        }
-
-        $sourceLines = @()
-        if (Test-Path -LiteralPath $Path) {
-            $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-        }
-
-        $seenKeys = @{}
-        $lineNo = 0
-        foreach ($line in $sourceLines) {
-            $lineNo++
-            if ($line -match '^([^=]+)=(.*)$') {
-                $key = $Matches[1].Trim()
-                if ($seenKeys.ContainsKey($key)) {
-                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
-                }
-
-                $seenKeys[$key] = $lineNo
-            }
-        }
-
-        $buffer = New-Object 'System.Collections.Generic.List[string]'
-        foreach ($line in $sourceLines) {
-            [void]$buffer.Add([string]$line)
-        }
-
-        foreach ($key in $Values.Keys) {
-            $prefix = "$key="
-            $found = $false
-            for ($index = 0; $index -lt $buffer.Count; $index++) {
-                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                    $buffer[$index] = $prefix + [string]$Values[$key]
-                    $found = $true
-                    break
-                }
-            }
-
-            if (-not $found) {
-                [void]$buffer.Add($prefix + [string]$Values[$key])
-            }
-        }
-
-        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        $content = ($buffer.ToArray() -join "`n")
-        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
-        [System.IO.File]::WriteAllText($tempPath, $content, $utf8Bom)
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
-        $tempPath = ''
-    }
-    finally {
-        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($locked) {
-            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
-        }
-        $mutex.Dispose()
-    }
-}
-
 function Get-SettingClone {
     param([System.Collections.IDictionary]$Settings)
 
@@ -233,7 +153,7 @@ if ($DryRun.IsPresent) {
 }
 
 if ($finalUpdates.Count -gt 0) {
-    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $finalUpdates
+    Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $finalUpdates -CommitMode Move
 }
 
 $afterSettings = Read-KeyValueFile -Path $startFilePath

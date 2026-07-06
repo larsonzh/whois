@@ -1,12 +1,5 @@
 ﻿<#
         A-only resume launcher.
-
-        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
-        $text = [string]::Join("`n", $normalizedLines)
-        if ($normalizedLines.Count -gt 0) {
-            $text += "`n"
-        }
-        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
         - Resume or rerun Stage A within a bounded round range.
         - Optionally relaunch monitor chain for the same start file.
 

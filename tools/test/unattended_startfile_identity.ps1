@@ -912,7 +912,7 @@ function Resolve-RoundFromConfig {
 function Update-KeyValueLineList {
     param(
         [string[]]$Lines,
-        [hashtable]$Values,
+        [System.Collections.IDictionary]$Values,
         [string]$Path
     )
 
@@ -1039,7 +1039,7 @@ function Write-Utf8BomTextFile {
 function Invoke-KeyValueFileValueUpdateCore {
     param(
         [string]$Path,
-        [hashtable]$Values,
+        [System.Collections.IDictionary]$Values,
         [ValidateSet('Copy', 'Move')][string]$CommitMode = 'Move',
         [ValidateRange(1, 64)][int]$ReadMaxAttempts = 1,
         [ValidateRange(1, 64)][int]$WriteMaxAttempts = 1,

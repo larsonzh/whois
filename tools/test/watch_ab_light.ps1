@@ -20,89 +20,6 @@ $script:TailLines = $TailLines
 
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 
-function Invoke-KeyValueFileValueUpdate {
-    param(
-        [string]$Path,
-        [hashtable]$Values
-    )
-
-    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
-    $locked = $false
-    $tempPath = ''
-    try {
-        try {
-            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
-        }
-        catch [System.Threading.AbandonedMutexException] {
-            $locked = $true
-        }
-
-        if (-not $locked) {
-            throw "Failed to acquire start-file write lock within timeout: $Path"
-        }
-
-        $lines = @()
-        if (Test-Path -LiteralPath $Path) {
-            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-        }
-
-        $seenKeys = @{}
-        $lineNo = 0
-        foreach ($line in $lines) {
-            $lineNo++
-            if ($line -match '^([^=]+)=(.*)$') {
-                $key = $Matches[1].Trim()
-                if ($seenKeys.ContainsKey($key)) {
-                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
-                }
-
-                $seenKeys[$key] = $lineNo
-            }
-        }
-
-        $buffer = New-Object 'System.Collections.Generic.List[string]'
-        foreach ($line in $lines) {
-            [void]$buffer.Add([string]$line)
-        }
-
-        foreach ($key in $Values.Keys) {
-            $prefix = "$key="
-            $found = $false
-            for ($index = 0; $index -lt $buffer.Count; $index++) {
-                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                    $buffer[$index] = $prefix + [string]$Values[$key]
-                    $found = $true
-                    break
-                }
-            }
-
-            if (-not $found) {
-                [void]$buffer.Add($prefix + [string]$Values[$key])
-            }
-        }
-
-        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
-        $text = [string]::Join("`n", $normalizedLines)
-        if ($normalizedLines.Count -gt 0) {
-            $text += "`n"
-        }
-        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
-        Move-Item -LiteralPath $tempPath -Destination $Path -Force
-        $tempPath = ''
-    }
-    finally {
-        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($locked) {
-            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
-        }
-        $mutex.Dispose()
-    }
-}
-
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -257,11 +174,11 @@ function Invoke-WatchLifecycleStateUpdate {
 
     $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     if ($Phase -eq 'startup') {
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             WATCH_LAUNCH_PID = [string]$WatchPid
             WATCH_PARENT_PID = [string]$ParentPid
             WATCH_LAST_START_AT = $nowText
-        }
+        } -CommitMode Move
         return
     }
 
@@ -277,20 +194,20 @@ function Invoke-WatchLifecycleStateUpdate {
     }
 
     if ($activeWatchPid -gt 0 -and $activeWatchPid -ne $WatchPid) {
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             WATCH_LAST_EXIT_PID = [string]$WatchPid
             WATCH_LAST_EXIT_AT = $nowText
-        }
+        } -CommitMode Move
 
         Write-Output ("[WATCH-AB-LIGHT] lifecycle_skip_clear reason=pid-not-owner active_pid={0} self_pid={1}" -f $activeWatchPid, $WatchPid)
         return
     }
 
-    Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+    Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
         WATCH_LAUNCH_PID = '0'
         WATCH_LAST_EXIT_PID = [string]$WatchPid
         WATCH_LAST_EXIT_AT = $nowText
-    }
+    } -CommitMode Move
 }
 
 function Get-StatusValue {

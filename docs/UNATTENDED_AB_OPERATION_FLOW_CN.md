@@ -225,7 +225,10 @@ AI：
 - tools/test/unattended_startfile_identity.ps1
 - start-file 的 key=value 更新逻辑以 `Invoke-KeyValueFileValueUpdateCore` 为唯一实现入口。
 - stage/resume/guard 仅允许通过参数差异表达策略（如 Copy/Move、重试次数、RequireExistingFile），不再在各脚本内复制独立实现。
+- fastmode（A/B）属于同一活跃路径，新增/调整 start-file 写回时同样优先复用共享核心，不再新增本地同类实现。
 - 如需调整写盘行为，先改共享核心并做全链路回归；禁止在 stage/resume/guard 内重新引入同名本地写盘函数。
+- trigger 可做非 mutex 区域重构；但其内部与特殊 mutex 相关的代码（含单实例锁与触发器内部互斥策略）视为受保护区，重构默认不改动该区块。
+- `tools/test/check_unattended_write_core_guard.ps1` 现支持 `-Scope active|expanded`：默认 `active`（仅活跃路径 + trigger 非 mutex 受保护检查）；需要覆盖辅助脚本时显式使用 `-Scope expanded`。
 
 运行中监控/接管：
 - tools/test/poll_agent_tickets.ps1
