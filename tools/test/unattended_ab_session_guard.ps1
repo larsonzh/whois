@@ -4459,7 +4459,7 @@ function Invoke-InitDeadProcessCheck {
         [bool]$AutoRecoverB,
         [int]$MainProcessExitMonitorGraceMinutes,
         [AllowEmptyString()][string]$RunDirAnchor,
-        [AllowNull()][datetime]$MainProcessExitGraceStartedAt
+        [Nullable[datetime]]$MainProcessExitGraceStartedAt = $null
     )
 
     $result = [pscustomobject]@{
