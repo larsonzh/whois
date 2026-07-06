@@ -221,6 +221,12 @@ AI：
 操作入口（人工/AI 使用）：
 - tools/test/open_unattended_ab_stage_window.ps1
 
+共享写盘核心（维护约束）：
+- tools/test/unattended_startfile_identity.ps1
+- start-file 的 key=value 更新逻辑以 `Invoke-KeyValueFileValueUpdateCore` 为唯一实现入口。
+- stage/resume/guard 仅允许通过参数差异表达策略（如 Copy/Move、重试次数、RequireExistingFile），不再在各脚本内复制独立实现。
+- 如需调整写盘行为，先改共享核心并做全链路回归；禁止在 stage/resume/guard 内重新引入同名本地写盘函数。
+
 运行中监控/接管：
 - tools/test/poll_agent_tickets.ps1
 - tools/test/check_unattended_routine_status.ps1

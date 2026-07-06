@@ -50,6 +50,1082 @@ function Get-LegacyStartFileToken {
     return $safe
 }
 
+function Get-RepoScopedMutexName {
+    param(
+        [string]$Role,
+        [string]$RepoRoot
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($RepoRoot).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-fastmode-$Role-$hash"
+}
+
+function Enter-RunMutex {
+    param(
+        [string]$Role,
+        [string]$RepoRoot
+    )
+
+    $name = Get-RepoScopedMutexName -Role $Role -RepoRoot $RepoRoot
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Another $Role fastmode run is already active in this repository."
+        }
+    }
+    catch {
+        if (-not $acquired -and $null -ne $mutex) {
+            try {
+                $mutex.Dispose()
+            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{
+        Name = $name
+        Mutex = $mutex
+    }
+}
+
+function Get-RepoScopedMainMutexName {
+    param([string]$RepoRoot)
+
+    $fullPath = [System.IO.Path]::GetFullPath($RepoRoot).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-fastmode-main-$hash"
+}
+
+function Enter-MainRunMutex {
+    param([string]$RepoRoot)
+
+    $name = Get-RepoScopedMainMutexName -RepoRoot $RepoRoot
+    $mutex = New-Object System.Threading.Mutex($false, $name)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+
+        if (-not $acquired) {
+            $mutex.Dispose()
+            throw "Another AB main run is already active in this repository."
+        }
+    }
+    catch {
+        if (-not $acquired -and $null -ne $mutex) {
+            try {
+                $mutex.Dispose()
+            }
+            catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        throw
+    }
+
+    return [pscustomobject]@{
+        Name = $name
+        Mutex = $mutex
+    }
+}
+
+function Get-RunningFastmodeProcessIdList {
+    param(
+        [string]$Role,
+        [string]$RepoRoot,
+        [int]$ExcludePid
+    )
+
+    $scriptLeaf = ("start_dev_verify_fastmode_{0}.ps1" -f $Role).ToLowerInvariant()
+    $scriptPath = (Join-Path $PSScriptRoot ("start_dev_verify_fastmode_{0}.ps1" -f $Role)).ToLowerInvariant()
+    $scriptPathSlash = $scriptPath.Replace('\', '/')
+    $repoRootWindows = $RepoRoot.ToLowerInvariant()
+    $repoRootSlash = $repoRootWindows.Replace('\', '/')
+
+    $ids = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $processId = [int]$_.ProcessId
+                if ($processId -eq $ExcludePid) {
+                    return $false
+                }
+
+                $commandLine = [string]$_.CommandLine
+                if ([string]::IsNullOrWhiteSpace($commandLine)) {
+                    return $false
+                }
+
+                $line = $commandLine.ToLowerInvariant()
+                if (-not $line.Contains($scriptLeaf)) {
+                    return $false
+                }
+
+                return $line.Contains($scriptPath) -or $line.Contains($scriptPathSlash) -or $line.Contains($repoRootWindows) -or $line.Contains($repoRootSlash)
+            } |
+            Select-Object -ExpandProperty ProcessId -Unique
+    )
+
+    return @($ids)
+}
+
+function Invoke-RunningFastmodeProcessStop {
+    param([int[]]$ProcessIds)
+
+    $stopped = New-Object 'System.Collections.Generic.List[int]'
+    foreach ($targetPid in @($ProcessIds | Sort-Object -Unique)) {
+        if ($targetPid -le 0) {
+            continue
+        }
+
+        try {
+            Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            Wait-Process -Id $targetPid -Timeout 30 -ErrorAction SilentlyContinue
+            [void]$stopped.Add([int]$targetPid)
+        }
+        catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+    }
+
+    return @($stopped)
+}
+
+function Resolve-StartFilePathFromEnv {
+    if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+        return ''
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+    }
+    catch {
+        return [string]$env:AUTO_START_FILE_PATH
+    }
+}
+
+function Assert-StageWindowInvocation {
+    param(
+        [string]$Stage,
+        [string]$TaskDefinitionRelative
+    )
+
+    $startFilePath = Resolve-StartFilePathFromEnv
+    if ([string]::IsNullOrWhiteSpace($startFilePath)) {
+        throw ("Fastmode {0} must be launched via tools/test/open_unattended_ab_stage_window.ps1; AUTO_START_FILE_PATH is not set." -f $Stage)
+    }
+
+    $settings = Read-KeyValueFile -Path $startFilePath
+    $taskKey = '{0}_TASK_DEFINITION' -f $Stage
+    if (-not $settings.Contains($taskKey)) {
+        throw ("Fastmode {0} requires {1} in start file: {2}" -f $Stage, $taskKey, $startFilePath)
+    }
+
+    $expectedTaskDefinition = Resolve-TaskDefinitionRelativePath -InputName ([string]$settings[$taskKey])
+    if ($expectedTaskDefinition -ne $TaskDefinitionRelative) {
+        throw ("Fastmode {0} task mismatch: start-file {1}={2}, invocation={3}. Use tools/test/open_unattended_ab_stage_window.ps1." -f $Stage, $taskKey, $expectedTaskDefinition, $TaskDefinitionRelative)
+    }
+
+    Write-Output ("[FASTMODE-{0}] stage_window_guard start_file={1} task={2}" -f $Stage, $startFilePath, $TaskDefinitionRelative)
+}
+
+function Invoke-StartFieldSyncStrictGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$StartFilePath
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\test\check_unattended_start_field_sync.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] start-field-sync script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -StartFile $StartFilePath -EnforceRunningStatusMessageTemplateMatch 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] start-field-sync strict gate failed (exit={1}) start_file={2} detail={3}" -f $RoleTag, $exitCode, $StartFilePath, $detail)
+    }
+
+    Write-Output ("[{0}] start-field-sync strict_gate=PASS start_file={1}" -f $RoleTag, $StartFilePath)
+}
+
+function Invoke-StatusTicketMiniRegressionGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\test\status_ticket_mini_regression.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] status-ticket-mini script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] status-ticket-mini gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] status-ticket-mini gate=PASS" -f $RoleTag)
+}
+
+function Invoke-IncrementalEncodingFixGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\enforce_utf8_bom_lf_changed.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] incremental encoding script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -Mode fix -Policy enforce -IncludeUntracked 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] incremental encoding gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] incremental encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
+}
+
+function Invoke-SrcCodeEncodingFixGate {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\enforce_utf8_lf_src_changed.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw ("[{0}] src encoding script not found: {1}" -f $RoleTag, $checkScript)
+    }
+
+    $lines = @()
+    $exitCode = 1
+    try {
+        $lines = @((& $checkScript -Mode fix -Policy enforce -IncludeUntracked 2>&1) | ForEach-Object { [string]$_ })
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    }
+    catch {
+        $errorText = Convert-ToSingleLineText -Text $_.Exception.Message
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            $lines = @($errorText)
+        }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { [int]$LASTEXITCODE }
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Output $line
+        }
+    }
+
+    if ($exitCode -ne 0) {
+        $detailLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        $detail = if ($detailLines.Count -gt 0) {
+            Convert-ToSingleLineText -Text ($detailLines -join ' | ')
+        }
+        else {
+            'no-output'
+        }
+
+        throw ("[{0}] src encoding gate failed (exit={1}) detail={2}" -f $RoleTag, $exitCode, $detail)
+    }
+
+    Write-Output ("[{0}] src encoding gate=PASS mode=fix policy=enforce" -f $RoleTag)
+}
+
+function Assert-RemoteBuildLockReady {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath,
+        [string]$LockScope,
+        [string]$ConflictAction,
+        [switch]$IncludeRuntimeLogPath
+    )
+
+    $checkScript = Join-Path $RepoRoot 'tools\dev\check_remote_lock.ps1'
+    if (-not (Test-Path -LiteralPath $checkScript)) {
+        throw "[$RoleTag] remote lock check script not found: $checkScript"
+    }
+
+    $lines = @()
+    try {
+        $lines = @((& $checkScript -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -TimeoutSec 20 2>&1) | ForEach-Object { [string]$_ })
+    }
+    catch {
+        throw "[$RoleTag] remote lock check failed: $($_.Exception.Message)"
+    }
+
+    $state = (Get-RemoteLockField -Lines $lines -Key 'state').ToLowerInvariant()
+    $stale = Get-RemoteLockField -Lines $lines -Key 'stale'
+    $ageSec = Get-RemoteLockField -Lines $lines -Key 'age_sec'
+    $token = Get-RemoteLockField -Lines $lines -Key 'token'
+
+    Write-Output ("[{0}] remote_lock_check state={1} stale={2} age_sec={3} token={4} scope={5}" -f $RoleTag, $state, $stale, $ageSec, $token, $LockScope)
+
+    if ($state -eq 'absent') {
+        return
+    }
+
+    if ($state -eq 'present') {
+        $stageTag = ''
+        if ($RoleTag -match 'FASTMODE-([A-Za-z0-9]+)') {
+            $stageTag = $Matches[1]
+        }
+
+        $sceneCapture = if ($IncludeRuntimeLogPath.IsPresent) {
+            Save-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines -IncludeRuntimeLogPath
+        }
+        else {
+            Save-RemoteLockScene -RepoRoot $RepoRoot -RoleTag $RoleTag -StageTag $stageTag -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $KeyPath -LockScope $LockScope -ConflictAction $ConflictAction -ObservedCheckLines $lines
+        }
+        $sceneDir = [string]$sceneCapture.SceneDir
+        $sceneErrorDetail = [string]$sceneCapture.ErrorDetail
+
+        if (-not [string]::IsNullOrWhiteSpace($sceneErrorDetail)) {
+            Write-Output ("[{0}] remote_lock_scene_failed detail={1}" -f $RoleTag, $sceneErrorDetail)
+        }
+
+        $sceneRel = Convert-ToRepoRelativePath -Path $sceneDir -RepoRoot $RepoRoot
+        if (-not [string]::IsNullOrWhiteSpace($sceneRel)) {
+            Write-Output ("[{0}] remote_lock_scene={1}" -f $RoleTag, $sceneRel)
+        }
+
+        $message = ("[{0}] remote lock is present (stale={1}, age_sec={2}, token={3}, action={4}, scope={5})" -f $RoleTag, $stale, $ageSec, $token, $ConflictAction, $LockScope)
+        if (-not [string]::IsNullOrWhiteSpace($sceneRel)) {
+            $message = $message + ", scene=" + $sceneRel
+        }
+
+        throw $message
+    }
+
+    throw ("[{0}] remote lock check returned unexpected state='{1}'" -f $RoleTag, $state)
+}
+
+function Assert-NetworkPrecheckReady {
+    param(
+        [string]$RepoRoot,
+        [string]$RoleTag,
+        [string]$RemoteIp,
+        [string]$RemoteUser,
+        [string]$KeyPath
+    )
+
+    $networkPrecheckRequired = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRED) -Default $true
+    if (-not $networkPrecheckRequired) {
+        Write-Output ("[{0}] network_precheck required=false action=skip" -f $RoleTag)
+        return
+    }
+
+    $checkLocal = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_LOCAL_REQUIRED) -Default $true
+    $checkRemote = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REMOTE_REQUIRED) -Default $true
+    $checkIPv4 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_CHECK_IPV4) -Default $true
+    $checkIPv6 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_CHECK_IPV6) -Default $true
+    $requireIPv4 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRE_IPV4) -Default $false
+    $requireIPv6 = Convert-ToBooleanSetting -Value ([string]$env:AUTO_NETWORK_PRECHECK_REQUIRE_IPV6) -Default $true
+
+    if (-not $checkLocal -and -not $checkRemote) {
+        throw ("[{0}] network precheck misconfigured: both local and remote checks are disabled" -f $RoleTag)
+    }
+    if (-not $checkIPv4 -and -not $checkIPv6) {
+        throw ("[{0}] network precheck misconfigured: both IPv4 and IPv6 checks are disabled" -f $RoleTag)
+    }
+    if ($requireIPv4 -and -not $checkIPv4) {
+        $checkIPv4 = $true
+    }
+    if ($requireIPv6 -and -not $checkIPv6) {
+        $checkIPv6 = $true
+    }
+
+    $targets = if ([string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_TARGETS)) {
+        'whois.iana.org;whois.arin.net'
+    }
+    else {
+        [string]$env:AUTO_NETWORK_PRECHECK_TARGETS
+    }
+
+    $timeoutSec = 8
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_TIMEOUT_SEC)) {
+        $parsedTimeout = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_TIMEOUT_SEC), [ref]$parsedTimeout)) {
+            if ($parsedTimeout -ge 1 -and $parsedTimeout -le 30) {
+                $timeoutSec = $parsedTimeout
+            }
+        }
+    }
+
+    $executionMaxAttempts = if ($checkRemote) { 2 } else { 1 }
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_EXEC_MAX_ATTEMPTS)) {
+        $parsedAttemptCount = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_EXEC_MAX_ATTEMPTS), [ref]$parsedAttemptCount)) {
+            if ($parsedAttemptCount -ge 1 -and $parsedAttemptCount -le 3) {
+                $executionMaxAttempts = $parsedAttemptCount
+            }
+        }
+    }
+
+    $executionRetryDelaySec = 3
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_NETWORK_PRECHECK_EXEC_RETRY_DELAY_SEC)) {
+        $parsedRetryDelay = 0
+        if ([int]::TryParse(([string]$env:AUTO_NETWORK_PRECHECK_EXEC_RETRY_DELAY_SEC), [ref]$parsedRetryDelay)) {
+            if ($parsedRetryDelay -ge 1 -and $parsedRetryDelay -le 30) {
+                $executionRetryDelaySec = $parsedRetryDelay
+            }
+        }
+    }
+
+    $precheckScript = Join-Path $RepoRoot 'tools\dev\check_dualstack_whois_connectivity.ps1'
+    if (-not (Test-Path -LiteralPath $precheckScript)) {
+        throw ("[{0}] network precheck script not found: {1}" -f $RoleTag, $precheckScript)
+    }
+
+    $resolvedKeyPath = ''
+    if ($checkRemote) {
+        $resolvedKeyPath = Resolve-RemoteKeyPath -KeyPath $KeyPath -UseDefaultSshKeyFallback -Purpose 'SSH private key for remote lock check'
+    }
+
+    $lines = @()
+    $exitCode = 1
+    $lastExecutionError = ''
+    for ($attempt = 1; $attempt -le $executionMaxAttempts; $attempt++) {
+        $lines = @()
+        $exitCode = 1
+        $lastExecutionError = ''
+
+        try {
+            $lines = @((& $precheckScript -Targets $targets -TimeoutSec $timeoutSec -CheckLocal:$checkLocal -CheckRemote:$checkRemote -CheckIPv4:$checkIPv4 -CheckIPv6:$checkIPv6 -RequireIPv4:$requireIPv4 -RequireIPv6:$requireIPv6 -RemoteIp $RemoteIp -RemoteUser $RemoteUser -KeyPath $resolvedKeyPath 2>&1) | ForEach-Object { [string]$_ })
+            $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            break
+        }
+        catch {
+            $lastExecutionError = $_.Exception.Message
+            if ($attempt -lt $executionMaxAttempts) {
+                Write-Output ("[{0}] network_precheck execution_retry attempt={1}/{2} wait_sec={3} reason={4}" -f $RoleTag, $attempt, $executionMaxAttempts, $executionRetryDelaySec, $lastExecutionError)
+                Start-Sleep -Seconds $executionRetryDelaySec
+                continue
+            }
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($lastExecutionError) -and $exitCode -ne 0 -and $lines.Count -eq 0) {
+        throw ("[{0}] network precheck execution failed: {1}" -f $RoleTag, $lastExecutionError)
+    }
+
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        Write-Output $line
+    }
+
+    if ($exitCode -ne 0) {
+        throw ("[{0}] network precheck failed (exit={1}) targets={2} local={3} remote={4} check_ipv4={5} check_ipv6={6} require_ipv4={7} require_ipv6={8}" -f $RoleTag, $exitCode, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
+    }
+
+    Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $RoleTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
+}
+
+function Write-StageExitReasonArtifact {
+    param(
+        [string]$RepoRoot,
+        [string]$Stage,
+        [string]$ScriptTag,
+        [string]$TaskDefinitionFile,
+        [string]$Result,
+        [int]$ExitCode,
+        [AllowEmptyString()][string]$FailureCategory,
+        [AllowEmptyString()][string]$FailureReason,
+        [AllowEmptyString()][string]$SourceScriptName,
+        [switch]$IncludeRuntimeLogPath
+    )
+
+    $artifactDir = Join-Path $RepoRoot 'out\artifacts\ab_stage_exit'
+    try {
+        if (-not (Test-Path -LiteralPath $artifactDir)) {
+            New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+        }
+
+        $now = Get-Date
+        $pidText = [string]$PID
+        $stageLower = $Stage.Trim().ToLowerInvariant()
+        $timestamp = $now.ToString('yyyyMMdd-HHmmss')
+        $historyFile = Join-Path $artifactDir ("{0}_{1}_pid{2}.json" -f $timestamp, $stageLower, $pidText)
+        $latestFile = Join-Path $artifactDir ("latest_{0}_exit.json" -f $stageLower)
+
+        $startFilePath = ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_START_FILE_PATH)) {
+            try {
+                $startFilePath = [System.IO.Path]::GetFullPath([string]$env:AUTO_START_FILE_PATH)
+            }
+            catch {
+                $startFilePath = [string]$env:AUTO_START_FILE_PATH
+            }
+        }
+
+        $record = [ordered]@{
+            schema = 'AB_STAGE_EXIT_REASON_V1'
+            generated_at = $now.ToString('yyyy-MM-dd HH:mm:ss')
+            stage = $Stage.Trim().ToUpperInvariant()
+            process_id = [int]$PID
+            result = $Result.Trim().ToLowerInvariant()
+            exit_code = [int]$ExitCode
+            fail_category = (Convert-ToSingleLineText -Text $FailureCategory)
+            fail_reason = (Convert-ToSingleLineText -Text $FailureReason)
+            task_definition = (Convert-ToSingleLineText -Text $TaskDefinitionFile)
+            source_script = if ([string]::IsNullOrWhiteSpace($SourceScriptName)) { (Split-Path -Leaf $PSCommandPath) } else { (Convert-ToSingleLineText -Text $SourceScriptName) }
+            start_file_path = $startFilePath
+        }
+
+        if ($IncludeRuntimeLogPath.IsPresent) {
+            $runtimeLogPath = ''
+            if (-not [string]::IsNullOrWhiteSpace([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)) {
+                try {
+                    $runtimeLogPath = [System.IO.Path]::GetFullPath([string]$env:AUTO_STAGE_RUNTIME_LOG_PATH)
+                }
+                catch {
+                    $runtimeLogPath = [string]$env:AUTO_STAGE_RUNTIME_LOG_PATH
+                }
+            }
+
+            $record['runtime_log_path'] = $runtimeLogPath
+        }
+
+        $json = (($record | ConvertTo-Json -Depth 8) -replace "`r`n", "`n")
+        [System.IO.File]::WriteAllText($historyFile, $json, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($latestFile, $json, [System.Text.UTF8Encoding]::new($false))
+
+        Write-Output ("[{0}] exit_reason_file={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $historyFile -RepoRoot $RepoRoot))
+        Write-Output ("[{0}] exit_reason_latest={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $latestFile -RepoRoot $RepoRoot))
+    }
+    catch {
+        Write-Output ("[{0}] exit_reason_write_failed detail={1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $_.Exception.Message))
+    }
+}
+
+function Get-FastmodeFailureCategory {
+    param(
+        [AllowEmptyString()][string]$Message,
+        [switch]$IncludeSnapshotRestore
+    )
+
+    $line = (Convert-ToSingleLineText -Text $Message).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($line)) {
+        return 'unknown-gate'
+    }
+
+    if ($line -match 'remote lock') {
+        return 'remote-lock-gate'
+    }
+    if ($line -match 'network precheck') {
+        return 'network-gate'
+    }
+    if ($line -match 'task definition|todo placeholders') {
+        return 'task-definition-gate'
+    }
+    if ($line -match 'already active in this repository') {
+        return 'single-instance-gate'
+    }
+    if ($line -match 'entry script not found|unable to resolve ssh private key|invalid auto_task_static_precheck_policy|invalid auto_task_static_precheck_fail_on_warnings') {
+        return 'config-gate'
+    }
+    if ($line -match 'start-field-sync strict gate failed|start-field-sync script not found') {
+        return 'start-field-gate'
+    }
+    if ($line -match 'status-ticket-mini gate failed|status-ticket-mini script not found') {
+        return 'status-ticket-mini-gate'
+    }
+    if ($line -match 'incremental encoding gate failed|incremental encoding script not found') {
+        return 'encoding-gate'
+    }
+    if ($line -match 'src encoding gate failed|src encoding script not found') {
+        return 'src-encoding-gate'
+    }
+    if ($IncludeSnapshotRestore.IsPresent -and $line -match 'snapshot restore|a_success_snapshot|a snapshot') {
+        return 'snapshot-restore-gate'
+    }
+
+    return 'runtime-fail'
+}
+
+function Exit-FastmodeProcess {
+    param(
+        [int]$Code,
+        [string]$ScriptName,
+        [string]$ScriptTag,
+        [switch]$StopRuntimeTranscript
+    )
+
+    if ($StopRuntimeTranscript.IsPresent) {
+        Invoke-StageRuntimeTranscriptStop
+    }
+
+    $commandLine = ''
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID)
+        if ($null -ne $proc) {
+            $commandLine = [string]$proc.CommandLine
+        }
+    }
+    catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+
+    $line = $commandLine.ToLowerInvariant()
+    $keepWindowOnExit = Convert-ToBooleanSetting -Value ([string]$env:AUTO_KEEP_WINDOW_ON_EXIT) -Default $true
+    if ($keepWindowOnExit -and -not [string]::IsNullOrWhiteSpace($line) -and $line.Contains('-noexit') -and $line.Contains($ScriptName.ToLowerInvariant())) {
+        $global:LASTEXITCODE = $Code
+        Write-Output ("[{0}] keep_window_on_exit=true exit_code={1} action=return_to_prompt" -f $ScriptTag, $Code)
+        return
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($line) -and $line.Contains('-noexit') -and $line.Contains($ScriptName.ToLowerInvariant())) {
+        [System.Environment]::Exit($Code)
+    }
+
+    exit $Code
+}
+
+function Invoke-DispatchDeliveryToggle {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard'
+    $policyPlan = Get-ChatDispatchPolicyPlan -Settings $Settings -DefaultTriggerCommand $defaultTriggerCommand
+    $updates = if ($null -ne $policyPlan) { [hashtable]$policyPlan.Updates } else { @{} }
+    $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
+
+    if ($updates.Count -gt 0) {
+        Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
+        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
+        return (Read-KeyValueFile -Path $Path)
+    }
+
+    $resolvedPolicy = if ($null -ne $policyPlan) { $policyPlan.ResolvedPolicy } else { $null }
+    $policySummary = ''
+    if ($null -ne $resolvedPolicy) {
+        $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
+    }
+    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
+    return $Settings
+}
+
+function Clear-MonitorChainShutdownRequest {
+    param(
+        [string]$Path,
+        [System.Collections.IDictionary]$Settings,
+        [string]$ScriptTag
+    )
+
+    $requested = $false
+    if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
+        $requested = Convert-ToBooleanSetting -Value ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
+    }
+
+    $reason = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON } else { '' }
+    $source = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_SOURCE } else { '' }
+    $requestedAt = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_AT } else { '' }
+    $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
+
+    if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
+        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
+        return $Settings
+    }
+
+    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{
+        MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
+        MONITOR_CHAIN_SHUTDOWN_REASON = ''
+        MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
+        MONITOR_CHAIN_SHUTDOWN_AT = ''
+        MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
+    }
+    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
+    return (Read-KeyValueFile -Path $Path)
+}
+
+function Get-NormalizedFinalStatus {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return ''
+    }
+
+    $raw = [string]$Settings[$Key]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return ''
+    }
+
+    return $raw.Trim().ToUpperInvariant()
+}
+
+function Get-NormalizedStatusToken {
+    param(
+        [AllowEmptyString()][string]$Value,
+        [AllowEmptyString()][string]$Default = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $Default
+    }
+
+    return $Value.Trim().ToUpperInvariant()
+}
+
+function Resolve-RoundFromConfig {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [int]$DefaultValue
+    )
+
+    if ($null -eq $Settings -or -not $Settings.Contains($Key)) {
+        return $DefaultValue
+    }
+
+    $raw = [string]$Settings[$Key]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $DefaultValue
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse($raw.Trim(), [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 8) {
+        throw ("{0} in start file must be an integer within [1,8], actual value='{1}'" -f $Key, $raw)
+    }
+
+    return $parsed
+}
+
+function Update-KeyValueLineList {
+    param(
+        [string[]]$Lines,
+        [hashtable]$Values,
+        [string]$Path
+    )
+
+    $seenKeys = @{}
+    $lineNo = 0
+    foreach ($line in @($Lines)) {
+        $lineNo++
+        if ($line -match '^([^=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            if ($seenKeys.ContainsKey($key)) {
+                throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
+            }
+
+            $seenKeys[$key] = $lineNo
+        }
+    }
+
+    $buffer = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in @($Lines)) {
+        [void]$buffer.Add([string]$line)
+    }
+
+    foreach ($key in $Values.Keys) {
+        $prefix = "$key="
+        $found = $false
+        for ($index = 0; $index -lt $buffer.Count; $index++) {
+            if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                $buffer[$index] = $prefix + [string]$Values[$key]
+                $found = $true
+                break
+            }
+        }
+
+        if (-not $found) {
+            [void]$buffer.Add($prefix + [string]$Values[$key])
+        }
+    }
+
+    return @($buffer | ForEach-Object { [string]$_ })
+}
+
+function Get-AgentTicketQueuePath {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [AllowEmptyString()][string]$RepoRoot = ''
+    )
+
+    $rawPath = ''
+    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
+        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawPath)) {
+        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return (Resolve-RepoPathAllowMissing -Path $rawPath -RepoRoot $RepoRoot)
+}
+
+function Write-JsonLineWithRetry {
+    param(
+        [string]$Path,
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
+        return $false
+    }
+
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $maxAttempts = 6
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
+            return $true
+        }
+        catch {
+            if ($attempt -eq $maxAttempts) {
+                return $false
+            }
+
+            $delayMs = switch ($attempt) {
+                1 { 30 }
+                2 { 60 }
+                3 { 120 }
+                4 { 200 }
+                default { 300 }
+            }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+
+    return $false
+}
+
+function Convert-LineListToLfText {
+    param(
+        [string[]]$Lines,
+        [switch]$EnsureTrailingLf
+    )
+
+    $normalizedLines = @(@($Lines) | ForEach-Object { [string]$_ })
+    $text = [string]::Join("`n", $normalizedLines)
+    if ($EnsureTrailingLf.IsPresent -and $normalizedLines.Count -gt 0) {
+        $text += "`n"
+    }
+
+    return $text
+}
+
+function Write-Utf8BomTextFile {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($true))
+}
+
+function Invoke-KeyValueFileValueUpdateCore {
+    param(
+        [string]$Path,
+        [hashtable]$Values,
+        [ValidateSet('Copy', 'Move')][string]$CommitMode = 'Move',
+        [ValidateRange(1, 64)][int]$ReadMaxAttempts = 1,
+        [ValidateRange(1, 64)][int]$WriteMaxAttempts = 1,
+        [int[]]$RetryDelayMs = @(50, 100, 200, 400, 800),
+        [bool]$RequireExistingFile = $false
+    )
+
+    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
+    $locked = $false
+    $tempPath = ''
+    try {
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
+
+        if (-not $locked) {
+            throw "Failed to acquire start-file write lock within timeout: $Path"
+        }
+
+        $sourceLines = @()
+        if ($RequireExistingFile -or (Test-Path -LiteralPath $Path)) {
+            for ($attempt = 1; $attempt -le $ReadMaxAttempts; $attempt++) {
+                try {
+                    $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
+                    break
+                }
+                catch {
+                    if ($attempt -eq $ReadMaxAttempts) {
+                        throw
+                    }
+
+                    $delayIndex = [Math]::Min(($attempt - 1), ($RetryDelayMs.Count - 1))
+                    $delayMs = if ($RetryDelayMs.Count -gt 0) { [int]$RetryDelayMs[$delayIndex] } else { 200 }
+                    Start-Sleep -Milliseconds $delayMs
+                }
+            }
+        }
+
+        $updatedLines = @(Update-KeyValueLineList -Lines $sourceLines -Values $Values -Path $Path)
+
+        for ($attempt = 1; $attempt -le $WriteMaxAttempts; $attempt++) {
+            try {
+                $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+                $text = Convert-LineListToLfText -Lines $updatedLines -EnsureTrailingLf
+                Write-Utf8BomTextFile -Path $tempPath -Text $text
+                if ($CommitMode -eq 'Copy') {
+                    Copy-Item -LiteralPath $tempPath -Destination $Path -Force
+                    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+                }
+                else {
+                    Move-Item -LiteralPath $tempPath -Destination $Path -Force
+                }
+                $tempPath = ''
+                break
+            }
+            catch {
+                if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+                    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+                    $tempPath = ''
+                }
+
+                if ($attempt -eq $WriteMaxAttempts) {
+                    throw
+                }
+
+                $delayIndex = [Math]::Min(($attempt - 1), ($RetryDelayMs.Count - 1))
+                $delayMs = if ($RetryDelayMs.Count -gt 0) { [int]$RetryDelayMs[$delayIndex] } else { 200 }
+                Start-Sleep -Milliseconds $delayMs
+            }
+        }
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($locked) {
+            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
+        }
+        $mutex.Dispose()
+    }
+}
+
 function Resolve-PreferredDefaultPath {
     param(
         [AllowEmptyString()][string]$PreferredPath,
@@ -122,6 +1198,77 @@ function Convert-ToBoundedSingleLineText {
     }
 
     return ($singleLine.Substring(0, $MaxChars).TrimEnd() + '...')
+}
+
+function Convert-ToAnchorPath {
+    param([AllowEmptyString()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    $normalized = $Path.Trim().Replace('/', '\\')
+    if (-not [System.IO.Path]::IsPathRooted($normalized)) {
+        return $normalized
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($normalized)
+    $repoRootFull = [System.IO.Path]::GetFullPath((Get-UnattendedRepoRoot))
+    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\')
+    }
+
+    return $fullPath
+}
+
+function Test-ProcessAlive {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    return ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
+}
+
+function Get-ParsedPositiveInt {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 0
+    }
+
+    $parsed = 0
+    if ([int]::TryParse($Value.Trim(), [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+
+    return 0
+}
+
+function Get-LatestAnchorValueFromNoteText {
+    param(
+        [AllowEmptyString()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ''
+    }
+
+    $parts = @($Notes -split ';')
+    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
+        $segment = [string]$parts[$index]
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+
+        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
+            return $Matches[1].Trim()
+        }
+    }
+
+    return ''
 }
 
 function Convert-MsysPathToWindowsPath {

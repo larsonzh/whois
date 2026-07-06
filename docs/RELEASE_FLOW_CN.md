@@ -99,6 +99,11 @@
   4. `Test: Step47 PreRelease Check (reserved, list file)`（启用 preclass gate）
      - 通过标准：`readiness`/`ab`/`rollback`/`preclass-p1-gate` 全 pass。
      - 默认附带 `status-ticket-mini-regression` 专项：覆盖 `healthy status ticket`、`stale latest_b_exit`、`low-disturb 两行回复`、`不得创建非 tmp 脚本`。
+  5. 共享 start-file 写盘核心架构守卫
+     - 检查命令（PowerShell）：
+       - `Select-String -Path .\tools\test\open_unattended_ab_stage_window.ps1,.\tools\test\open_unattended_ab_resume_window.ps1,.\tools\test\unattended_ab_session_guard.ps1 -Pattern '^function\s+Invoke-KeyValueFileValueUpdate\b'`
+       - `Select-String -Path .\tools\test\unattended_startfile_identity.ps1 -Pattern '^function\s+Invoke-KeyValueFileValueUpdateCore\b'`
+     - 通过标准：stage/resume/guard 三个脚本中不存在本地 `Invoke-KeyValueFileValueUpdate` 函数，且 `tools/test/unattended_startfile_identity.ps1` 中仅保留共享核心 `Invoke-KeyValueFileValueUpdateCore`。
 - 异常处理：任一门禁失败即中止发布，不允许“先打标签后补修”。
 - 证据留存（最少项）：
   - `out/artifacts/<timestamp>` 主目录。

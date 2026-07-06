@@ -10,7 +10,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Move'
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:ReadMaxAttempts'] = 8
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:WriteMaxAttempts'] = 8
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:RetryDelayMs'] = @(50, 100, 200, 400, 800)
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:RequireExistingFile'] = $true
 
 trap {
     # Write terminal marker to guard state if path is initialized,
@@ -101,131 +107,6 @@ function Lock-InstanceMutex {
     return $mutex
 }
 
-function Invoke-KeyValueFileValueUpdate {
-    param(
-        [string]$Path,
-        [hashtable]$Values
-    )
-
-    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
-    $locked = $false
-    $tempPath = ''
-    try {
-        try {
-            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
-        }
-        catch [System.Threading.AbandonedMutexException] {
-            $locked = $true
-        }
-
-        if (-not $locked) {
-            throw "Failed to acquire start-file write lock within timeout: $Path"
-        }
-
-        $maxAttempts = 8
-        $sourceLines = @()
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            try {
-                $sourceLines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-                break
-            }
-            catch {
-                if ($attempt -eq $maxAttempts) {
-                    throw
-                }
-
-                $delayMs = switch ($attempt) {
-                    1 { 50 }
-                    2 { 100 }
-                    3 { 200 }
-                    4 { 400 }
-                    default { 800 }
-                }
-                Start-Sleep -Milliseconds $delayMs
-            }
-        }
-
-        $seenKeys = @{}
-        $lineNo = 0
-        foreach ($line in $sourceLines) {
-            $lineNo++
-            if ($line -match '^([^=]+)=(.*)$') {
-                $key = $Matches[1].Trim()
-                if ($seenKeys.ContainsKey($key)) {
-                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
-                }
-
-                $seenKeys[$key] = $lineNo
-            }
-        }
-
-        $lines = New-Object 'System.Collections.Generic.List[string]'
-        foreach ($line in $sourceLines) {
-            [void]$lines.Add([string]$line)
-        }
-
-        foreach ($key in $Values.Keys) {
-            $prefix = "$key="
-            $found = $false
-            for ($index = 0; $index -lt $lines.Count; $index++) {
-                if ($lines[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                    $lines[$index] = $prefix + [string]$Values[$key]
-                    $found = $true
-                    break
-                }
-            }
-
-            if (-not $found) {
-                [void]$lines.Add($prefix + [string]$Values[$key])
-            }
-        }
-
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            try {
-                $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-                $normalizedLines = @($lines | ForEach-Object { [string]$_ })
-                $text = [string]::Join("`n", $normalizedLines)
-                if ($normalizedLines.Count -gt 0) {
-                    $text += "`n"
-                }
-                [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
-                Move-Item -LiteralPath $tempPath -Destination $Path -Force
-                $tempPath = ''
-                break
-            }
-            catch {
-                if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-                    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-                    $tempPath = ''
-                }
-
-                if ($attempt -eq $maxAttempts) {
-                    throw
-                }
-
-                $delayMs = switch ($attempt) {
-                    1 { 50 }
-                    2 { 100 }
-                    3 { 200 }
-                    4 { 400 }
-                    default { 800 }
-                }
-                Start-Sleep -Milliseconds $delayMs
-            }
-        }
-    }
-    finally {
-        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($locked) {
-            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
-        }
-        $mutex.Dispose()
-    }
-}
-
 function Add-DelimitedNote {
     param(
         [AllowEmptyString()][string]$Existing,
@@ -241,31 +122,6 @@ function Add-DelimitedNote {
     }
 
     return ($Existing.TrimEnd() + '; ' + $Append.Trim())
-}
-
-function Get-LatestAnchorValueFromNoteText {
-    param(
-        [AllowEmptyString()][string]$Notes,
-        [string]$Key
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
-        return ''
-    }
-
-    $parts = @($Notes -split ';')
-    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
-        $segment = [string]$parts[$index]
-        if ([string]::IsNullOrWhiteSpace($segment)) {
-            continue
-        }
-
-        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
-            return $Matches[1].Trim()
-        }
-    }
-
-    return ''
 }
 
 function Resolve-RunDirAnchorFromNotes {
@@ -487,61 +343,6 @@ function Write-GuardState {
     }
 }
 
-function Get-AgentTicketQueuePath {
-    param([System.Collections.IDictionary]$Settings)
-
-    $rawPath = ''
-    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
-        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
-    }
-
-    if ([string]::IsNullOrWhiteSpace($rawPath)) {
-        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
-    }
-
-    return (Resolve-RepoPathAllowMissing -Path $rawPath)
-}
-
-function Write-JsonLineWithRetry {
-    param(
-        [string]$Path,
-        [string]$Line
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
-        return $false
-    }
-
-    $parent = Split-Path -Parent $Path
-    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-
-    $maxAttempts = 6
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        try {
-            Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
-            return $true
-        }
-        catch {
-            if ($attempt -eq $maxAttempts) {
-                return $false
-            }
-
-            $delayMs = switch ($attempt) {
-                1 { 30 }
-                2 { 60 }
-                3 { 120 }
-                4 { 200 }
-                default { 300 }
-            }
-            Start-Sleep -Milliseconds $delayMs
-        }
-    }
-
-    return $false
-}
-
 function Add-AgentTicket {
     param(
         [bool]$Enabled,
@@ -737,7 +538,7 @@ function Request-MonitorChainShutdown {
         $updates['MONITOR_CHAIN_SHUTDOWN_DETAIL'] = $detailCompact
     }
 
-    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values $updates
+    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values $updates
     Write-GuardLog ("monitor_chain_shutdown_request applied reason={0} source={1} detail={2}" -f $reasonCompact, $sourceCompact, $detailCompact)
     return (Read-KeyValueFileWithRetry -Path $script:StartFilePath)
 }
@@ -745,46 +546,18 @@ function Request-MonitorChainShutdown {
 function Get-StatusValue {
     param([AllowEmptyString()][string]$Value)
 
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return 'NOT_RUN'
-    }
-
-    return $Value.Trim().ToUpperInvariant()
+    return (Get-NormalizedStatusToken -Value $Value -Default 'NOT_RUN')
 }
 
 function Convert-ToNullablePositiveInt {
     param([AllowEmptyString()][string]$Value)
 
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $null
-    }
-
-    $parsed = 0
-    if (-not [int]::TryParse($Value.Trim(), [ref]$parsed)) {
-        return $null
-    }
-
+    $parsed = Get-ParsedPositiveInt -Value $Value
     if ($parsed -le 0) {
         return $null
     }
 
     return [int]$parsed
-}
-
-function Test-ProcessAlive {
-    param([int]$ProcessId)
-
-    if ($ProcessId -le 0) {
-        return $false
-    }
-
-    try {
-        Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
-        return $true
-    }
-    catch {
-        return $false
-    }
 }
 
 function Get-AStageProcessCandidateList {
@@ -3270,7 +3043,7 @@ function Invoke-ACompileAutoFixRecovery {
             [string]$result.Reason,
             [string]$context.StrictLogPath)
         $newNotes = Add-DelimitedNote -Existing $existingNotes -Append $note
-        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
+        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
     }
     catch {
         Write-GuardLog ("auto_fix_note_update_failed detail={0}" -f (Convert-ToSingleLineText -Text $_.Exception.Message))
@@ -3883,7 +3656,7 @@ try {
                         $aSuccessSnapshotDir = $snapshotResult.SnapshotDir
                         $snapshotFinalRel = Convert-ToRepoRelativePath -Path (Join-Path $resolvedSnapshotRunDir 'final_status.json')
                         $snapshotSummaryRel = Convert-ToRepoRelativePath -Path (Join-Path $resolvedSnapshotRunDir 'summary.csv')
-                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             A_SUCCESS_SNAPSHOT_FINAL_STATUS = $snapshotFinalRel
                             A_SUCCESS_SNAPSHOT_SUMMARY = $snapshotSummaryRel
                             A_SUCCESS_SNAPSHOT_SOURCE_STATE = $snapshotResult.SourceState
@@ -3976,7 +3749,7 @@ try {
                 $updatedNotes = Add-DelimitedNote -Existing $notes -Append $conflictNote
 
                 try {
-                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                         B_FINAL_STATUS = 'FAIL'
                         B_LAUNCH_PID = '0'
                         SESSION_FINAL_STATUS = 'FAIL'
@@ -4042,7 +3815,7 @@ try {
                 if (-not $deadBProcessAlive) {
                     $initDeadNote = "guard_init_dead_process stage=B status={0} pid={1}" -f $bStatus, $deadBLaunchPid
                     $updatedNotes = Add-DelimitedNote -Existing $notes -Append $initDeadNote
-                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                         B_FINAL_STATUS = 'FAIL'
                         B_LAUNCH_PID = '0'
                         SESSION_FINAL_NOTES = $updatedNotes
@@ -4082,7 +3855,7 @@ try {
 
                 if ([bool]$aProcessSnapshot.AnchorUpdateRequired) {
                     $newALaunchPid = [int]$aProcessSnapshot.ResolvedProcessId
-                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                         A_LAUNCH_PID = [string]$newALaunchPid
                     }
                     Write-GuardLog ("a_anchor_refresh old_pid={0} new_pid={1} source={2} candidate_count={3}" -f $aLaunchPid, $newALaunchPid, $aProcessSnapshot.ResolvedSource, $aProcessSnapshot.CandidateCount)
@@ -4215,7 +3988,7 @@ try {
                                         # Write FAIL status to start file
                                         $stallFailNote = "guard_d1_stall_auto_restart file_count={0} csv_rows={1} stall_min={2:N1}" -f $d1ProgressResult.FileCount, $d1ProgressResult.RowCount, $d1StallMinutes
                                         $updatedANotes = Add-DelimitedNote -Existing $notes -Append $stallFailNote
-                                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                                             A_FINAL_STATUS = 'FAIL'
                                             A_LAUNCH_PID = '0'
                                             A_FAIL_CATEGORY = 'd1-stall'
@@ -4303,7 +4076,7 @@ try {
                         if ($aActuallyPassed) {
                             $passNote = ("guard_detected a_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2} pass_from_artifact" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                             $newANotes = Add-DelimitedNote -Existing $notes -Append $passNote
-                            Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                            Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                                 A_FINAL_STATUS = 'PASS'
                                 SESSION_FINAL_STATUS = 'RUNNING'
                                 A_LAUNCH_PID = '0'
@@ -4323,7 +4096,7 @@ try {
                         $aFailureNote = ("guard_detected a_process_missing expected_pid={0} elapsed_sec={1} grace_sec={2}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec)
                         $newANotes = Add-DelimitedNote -Existing $notes -Append $aFailureNote
 
-                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             A_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_STATUS = $sessionStatusAfterAMissing
                             A_LAUNCH_PID = '0'
@@ -4426,7 +4199,7 @@ try {
                         if ($bShellPass) {
                             Write-GuardLog ("b_shell_pass_detected expected_pid={0} a_status={1}" -f $bLaunchPid, $aStatus)
                             if ($aStatus -eq 'PASS') {
-                                Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                                Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                                     SESSION_FINAL_STATUS = 'PASS'
                                     SESSION_CLOSED = 'true'
                                     SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -4455,7 +4228,7 @@ try {
 
                 if ([bool]$bProcessSnapshot.AnchorUpdateRequired) {
                     $newBLaunchPid = [int]$bProcessSnapshot.ResolvedProcessId
-                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                         B_LAUNCH_PID = [string]$newBLaunchPid
                     }
                     Write-GuardLog ("b_anchor_refresh old_pid={0} new_pid={1} source={2} candidate_count={3}" -f $bLaunchPid, $newBLaunchPid, $bProcessSnapshot.ResolvedSource, $bProcessSnapshot.CandidateCount)
@@ -4601,7 +4374,7 @@ try {
                         }
 
                         $newNotes = Add-DelimitedNote -Existing $notes -Append $failureNote
-                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             B_FINAL_STATUS = 'FAIL'
                             SESSION_FINAL_STATUS = $sessionStatusToWrite
                             B_LAUNCH_PID = '0'
@@ -4937,7 +4710,7 @@ try {
                     Write-GuardLog ("incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
 
                     $newNotes = Add-DelimitedNote -Existing $notes -Append ("guard_incident status={0} a={1} b={2} evidence={3}" -f $sessionStatus, $aStatus, $bStatus, $incidentRel)
-                    Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                         SESSION_FINAL_NOTES = $newNotes
                     }
 
@@ -4999,7 +4772,7 @@ try {
                         $fpKeyPrefix = if ($fpStage -eq 'A') { 'A' } else { 'B' }
                         $fpPrevFp = if ($settings.Contains("${fpKeyPrefix}_FAILURE_FINGERPRINT")) { [string]$settings["${fpKeyPrefix}_FAILURE_FINGERPRINT"] } else { '' }
                         $fpPrevRound = if ($settings.Contains("${fpKeyPrefix}_FAILURE_MAIN_ROUND")) { [string]$settings["${fpKeyPrefix}_FAILURE_MAIN_ROUND"] } else { '' }
-                        Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{
+                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_FINGERPRINT" = $fpPrevFp
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_MAIN_ROUND" = $fpPrevRound
                             "${fpKeyPrefix}_FAILURE_FINGERPRINT" = $fpHashed
@@ -5575,7 +5348,7 @@ try {
                             }
                             $restartNote = "guard_recovery action=restart-b attempt={0} at={1}" -f $attempt, $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
                             $newNotes = Add-DelimitedNote -Existing ([string](Read-KeyValueFileWithRetry -Path $script:StartFilePath).SESSION_FINAL_NOTES) -Append $restartNote
-                            Invoke-KeyValueFileValueUpdate -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
+                            Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
                             Write-GuardLog ("recovery_triggered stage=B attempt={0}" -f $attempt)
                             Start-Sleep -Seconds 5
                             continue

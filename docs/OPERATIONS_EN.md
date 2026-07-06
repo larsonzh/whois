@@ -24,6 +24,8 @@ Validated example (2026-04-16):
   - `LOCAL_GUARD_MANUAL_WAIT_POLL_SECONDS`: poll interval during manual wait (recommended `15`~`30`).
   - `LOCAL_GUARD_MANUAL_WAIT_TIMEOUT_MINUTES`: manual-wait timeout in minutes (recommended `90`).
 - Responsibility boundary: guard only handles detection, orchestration, restart, and evidence capture; generic code fixing is performed by the in-session agent, not by built-in script self-healing.
+- Shared start-file write core (maintenance guardrail): `tools/test/unattended_startfile_identity.ps1` owns the single implementation entry `Invoke-KeyValueFileValueUpdateCore` for key=value updates. `open_unattended_ab_stage_window.ps1`, `open_unattended_ab_resume_window.ps1`, and `unattended_ab_session_guard.ps1` must express differences only via parameters (for example Copy/Move, retry counts, RequireExistingFile) and must not reintroduce duplicated local write implementations.
+- Change rule for write behavior: update the shared core first, then run full-path regression checks; do not add back same-name local wrappers/functions in stage/resume/guard scripts.
 - PowerShell 5.1 compatibility guardrail (2026-06-12): do not use inline `$(if(...){...} else {...})` as a formatting/argument subexpression in unattended scripts. Always precompute branch values into variables first, then format/pass them. The known failure signature is early dispatch termination with `dispatch_main_failed` and an `if`-not-recognized runtime error.
 
 ## Chat Dispatch Hardening (No Official Send API)

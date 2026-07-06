@@ -106,6 +106,11 @@ Equivalent Git Bash (usable on CI hosts or WSL):
     - Pass criteria: `authMismatchFiles=0` and `errorFiles=0`.
   4. `Test: Step47 PreRelease Check (reserved, list file)` (with preclass gate enabled)
     - Pass criteria: all `readiness`/`ab`/`rollback`/`preclass-p1-gate` steps are pass.
+  5. Shared start-file write-core architecture guard
+    - Check command (PowerShell):
+      - `Select-String -Path .\tools\test\open_unattended_ab_stage_window.ps1,.\tools\test\open_unattended_ab_resume_window.ps1,.\tools\test\unattended_ab_session_guard.ps1 -Pattern '^function\s+Invoke-KeyValueFileValueUpdate\b'`
+      - `Select-String -Path .\tools\test\unattended_startfile_identity.ps1 -Pattern '^function\s+Invoke-KeyValueFileValueUpdateCore\b'`
+    - Pass criteria: no local `Invoke-KeyValueFileValueUpdate` function in stage/resume/guard scripts, and exactly one shared core `Invoke-KeyValueFileValueUpdateCore` in `tools/test/unattended_startfile_identity.ps1`.
 - Failure policy: stop release immediately on any gate failure; do not tag first and fix later.
 - Evidence retention (minimum):
   - Main artifact root: `out/artifacts/<timestamp>`.

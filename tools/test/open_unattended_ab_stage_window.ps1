@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 $script:UnhandledExitTag = 'OPEN-AB-STAGE'
+$PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Copy'
 
 trap {
     $exitCode = Get-UnattendedExitCodeFromRecord -Tag $script:UnhandledExitTag -Record $_ -DefaultExitCode 1
@@ -207,19 +208,6 @@ function Test-BNormalModeSourceAlignedWithSnapshot {
         Extra = @($extra)
         ContentMismatches = @($contentMismatches)
     }
-}
-
-function Get-NormalizedStatusToken {
-    param(
-        [AllowEmptyString()][string]$Value,
-        [AllowEmptyString()][string]$Default = ''
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Default
-    }
-
-    return $Value.Trim().ToUpperInvariant()
 }
 
 function Read-StageFinalStatusEvidence {
@@ -422,7 +410,7 @@ function Assert-BStartEligibility {
         $effectiveAStatus = 'PASS'
         if ($aFinalStatus -ne 'PASS') {
             if (-not [string]::IsNullOrWhiteSpace($StartFilePath)) {
-                Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{ A_FINAL_STATUS = 'PASS'; A_LAUNCH_PID = '0' }
+                Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{ A_FINAL_STATUS = 'PASS'; A_LAUNCH_PID = '0' }
                 $updatedSettings = Read-KeyValueFile -Path $StartFilePath
             }
 
@@ -575,136 +563,6 @@ function Write-MonitorTimelineEvent {
     }
 }
 
-function Invoke-KeyValueFileValueUpdate {
-    param(
-        [string]$Path,
-        [hashtable]$Values
-    )
-
-    $mutex = New-Object System.Threading.Mutex($false, (Get-StartFileMutexName -StartFilePath $Path))
-    $locked = $false
-    $tempPath = ''
-    try {
-        try {
-            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
-        }
-        catch [System.Threading.AbandonedMutexException] {
-            $locked = $true
-        }
-
-        if (-not $locked) {
-            throw "Failed to acquire start-file write lock within timeout: $Path"
-        }
-
-        $lines = @()
-        if (Test-Path -LiteralPath $Path) {
-            $lines = @(Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop)
-        }
-
-        $seenKeys = @{}
-        $lineNo = 0
-        foreach ($line in $lines) {
-            $lineNo++
-            if ($line -match '^([^=]+)=(.*)$') {
-                $key = $Matches[1].Trim()
-                if ($seenKeys.ContainsKey($key)) {
-                    throw ("Duplicate key '{0}' detected in {1} at line {2} and line {3}." -f $key, $Path, [int]$seenKeys[$key], $lineNo)
-                }
-
-                $seenKeys[$key] = $lineNo
-            }
-        }
-
-        $buffer = New-Object 'System.Collections.Generic.List[string]'
-        foreach ($line in $lines) {
-            [void]$buffer.Add([string]$line)
-        }
-
-        foreach ($key in $Values.Keys) {
-            $prefix = "$key="
-            $found = $false
-            for ($index = 0; $index -lt $buffer.Count; $index++) {
-                if ($buffer[$index].StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                    $buffer[$index] = $prefix + [string]$Values[$key]
-                    $found = $true
-                    break
-                }
-            }
-
-            if (-not $found) {
-                [void]$buffer.Add($prefix + [string]$Values[$key])
-            }
-        }
-
-        $tempPath = "$Path.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
-        $normalizedLines = @($buffer | ForEach-Object { [string]$_ })
-        $text = [string]::Join("`n", $normalizedLines)
-        if ($normalizedLines.Count -gt 0) {
-            $text += "`n"
-        }
-        [System.IO.File]::WriteAllText($tempPath, $text, [System.Text.UTF8Encoding]::new($true))
-        Copy-Item -LiteralPath $tempPath -Destination $Path -Force
-        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-        $tempPath = ''
-    }
-    finally {
-        if (-not [string]::IsNullOrWhiteSpace($tempPath) -and (Test-Path -LiteralPath $tempPath)) {
-            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($locked) {
-            try { $mutex.ReleaseMutex() } catch { Write-Verbose ("Suppressed exception: {0}" -f $_.Exception.Message) }
-        }
-        $mutex.Dispose()
-    }
-}
-
-function Get-LatestAnchorValueFromNoteText {
-    param(
-        [AllowEmptyString()][string]$Notes,
-        [string]$Key
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
-        return ''
-    }
-
-    $parts = @($Notes -split ';')
-    for ($index = $parts.Count - 1; $index -ge 0; $index--) {
-        $segment = [string]$parts[$index]
-        if ([string]::IsNullOrWhiteSpace($segment)) {
-            continue
-        }
-
-        if ($segment -match ('^\s*' + [regex]::Escape($Key) + '=(.+)$')) {
-            return $Matches[1].Trim()
-        }
-    }
-
-    return ''
-}
-
-function Convert-ToAnchorPath {
-    param([AllowEmptyString()][string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ''
-    }
-
-    $normalized = $Path.Trim().Replace('/', '\\')
-    if (-not [System.IO.Path]::IsPathRooted($normalized)) {
-        return $normalized
-    }
-
-    $fullPath = [System.IO.Path]::GetFullPath($normalized)
-    $repoRootFull = [System.IO.Path]::GetFullPath($repoRoot)
-    if ($fullPath.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $fullPath.Substring($repoRootFull.Length).TrimStart('\\')
-    }
-
-    return $fullPath
-}
-
 function Invoke-SessionAnchorUpdateInStartFile {
     param(
         [string]$Path,
@@ -743,33 +601,8 @@ function Invoke-SessionAnchorUpdateInStartFile {
     }
 
     $newNotes = ($segments -join '; ')
-    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    Invoke-KeyValueFileValueUpdateCore -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
     return $newNotes
-}
-
-function Test-ProcessAlive {
-    param([int]$ProcessId)
-
-    if ($ProcessId -le 0) {
-        return $false
-    }
-
-    return ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue))
-}
-
-function Get-ParsedPositiveInt {
-    param([AllowEmptyString()][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return 0
-    }
-
-    $parsed = 0
-    if ([int]::TryParse($Value.Trim(), [ref]$parsed) -and $parsed -gt 0) {
-        return $parsed
-    }
-
-    return 0
 }
 
 function Test-StageLaunchAllowed {
@@ -860,61 +693,6 @@ function Resolve-CurrentStageRunDir {
     return ''
 }
 
-function Get-AgentTicketQueuePath {
-    param([System.Collections.IDictionary]$Settings)
-
-    $rawPath = ''
-    if ($null -ne $Settings -and $Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) {
-        $rawPath = [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH
-    }
-
-    if ([string]::IsNullOrWhiteSpace($rawPath)) {
-        $rawPath = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
-    }
-
-    return (Resolve-RepoPathAllowMissing -Path $rawPath -RepoRoot $repoRoot)
-}
-
-function Write-JsonLineWithRetry {
-    param(
-        [string]$Path,
-        [string]$Line
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Line)) {
-        return $false
-    }
-
-    $parent = Split-Path -Parent $Path
-    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-
-    $maxAttempts = 6
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        try {
-            Add-Content -LiteralPath $Path -Value $Line -Encoding utf8 -ErrorAction Stop
-            return $true
-        }
-        catch {
-            if ($attempt -eq $maxAttempts) {
-                return $false
-            }
-
-            $delayMs = switch ($attempt) {
-                1 { 30 }
-                2 { 60 }
-                3 { 120 }
-                4 { 200 }
-                default { 300 }
-            }
-            Start-Sleep -Milliseconds $delayMs
-        }
-    }
-
-    return $false
-}
-
 function Add-StageTaskDefinitionFixTicket {
     param(
         [string]$StartFilePath,
@@ -926,7 +704,7 @@ function Add-StageTaskDefinitionFixTicket {
         [int]$PrecheckExitCode
     )
 
-    $queuePath = Get-AgentTicketQueuePath -Settings $Settings
+    $queuePath = Get-AgentTicketQueuePath -Settings $Settings -RepoRoot $repoRoot
     if ([string]::IsNullOrWhiteSpace($queuePath)) {
         Write-Output '[OPEN-AB-STAGE] task_static_precheck ticket_emit=skip reason=queue-path-empty'
         return
@@ -993,7 +771,7 @@ function Add-StageTaskDefinitionBlockedTicket {
         [string]$BlockEvent
     )
 
-    $queuePath = Get-AgentTicketQueuePath -Settings $Settings
+    $queuePath = Get-AgentTicketQueuePath -Settings $Settings -RepoRoot $repoRoot
     if ([string]::IsNullOrWhiteSpace($queuePath)) {
         Write-Output '[OPEN-AB-STAGE] task_static_precheck block_ticket_emit=skip reason=queue-path-empty'
         return
@@ -1069,66 +847,6 @@ function Add-StageTaskDefinitionBlockedTicket {
     Write-Output ('[OPEN-AB-STAGE] task_static_precheck block_ticket_emit=failed queue={0} fail_count={1} limit={2}' -f (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
 }
 
-function Invoke-DispatchDeliveryToggle {
-    param(
-        [string]$Path,
-        [System.Collections.IDictionary]$Settings,
-        [string]$ScriptTag
-    )
-
-    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard'
-    $policyPlan = Get-ChatDispatchPolicyPlan -Settings $Settings -DefaultTriggerCommand $defaultTriggerCommand
-    $updates = if ($null -ne $policyPlan) { [hashtable]$policyPlan.Updates } else { @{} }
-    $changes = if ($null -ne $policyPlan) { @($policyPlan.Changes) } else { @() }
-
-    if ($updates.Count -gt 0) {
-        Invoke-KeyValueFileValueUpdate -Path $Path -Values $updates
-        Write-Host ("[{0}] dispatch_policy_autofix applied={1}" -f $ScriptTag, ($changes -join ','))
-        return (Read-KeyValueFile -Path $Path)
-    }
-
-    $resolvedPolicy = if ($null -ne $policyPlan) { $policyPlan.ResolvedPolicy } else { $null }
-    $policySummary = ''
-    if ($null -ne $resolvedPolicy) {
-        $policySummary = ('work_mode={0} primary={1} fallback={2} final_stop_gate={3}' -f [string]$resolvedPolicy.work_mode, [string]$resolvedPolicy.delivery_primary, [string]$resolvedPolicy.delivery_fallback, [string]$resolvedPolicy.final_stop_gate)
-    }
-    Write-Host ("[{0}] dispatch_policy_guard status=PASS {1}" -f $ScriptTag, (Convert-ToSingleLineText -Text $policySummary))
-    return $Settings
-}
-
-function Clear-MonitorChainShutdownRequest {
-    param(
-        [string]$Path,
-        [System.Collections.IDictionary]$Settings,
-        [string]$ScriptTag
-    )
-
-    $requested = $false
-    if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REQUESTED')) {
-        $requested = Convert-ToBooleanSetting -Value ([string]$Settings.MONITOR_CHAIN_SHUTDOWN_REQUESTED) -Default $false
-    }
-
-    $reason = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_REASON')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_REASON } else { '' }
-    $source = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_SOURCE')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_SOURCE } else { '' }
-    $requestedAt = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_AT')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_AT } else { '' }
-    $detail = if ($null -ne $Settings -and $Settings.Contains('MONITOR_CHAIN_SHUTDOWN_DETAIL')) { [string]$Settings.MONITOR_CHAIN_SHUTDOWN_DETAIL } else { '' }
-
-    if (-not $requested -and [string]::IsNullOrWhiteSpace($reason) -and [string]::IsNullOrWhiteSpace($source) -and [string]::IsNullOrWhiteSpace($requestedAt) -and [string]::IsNullOrWhiteSpace($detail)) {
-        Write-Host ("[{0}] monitor_chain_shutdown_reset status=PASS" -f $ScriptTag)
-        return $Settings
-    }
-
-    Invoke-KeyValueFileValueUpdate -Path $Path -Values @{
-        MONITOR_CHAIN_SHUTDOWN_REQUESTED = 'false'
-        MONITOR_CHAIN_SHUTDOWN_REASON = ''
-        MONITOR_CHAIN_SHUTDOWN_SOURCE = ''
-        MONITOR_CHAIN_SHUTDOWN_AT = ''
-        MONITOR_CHAIN_SHUTDOWN_DETAIL = ''
-    }
-    Write-Host ("[{0}] monitor_chain_shutdown_reset applied=true" -f $ScriptTag)
-    return (Read-KeyValueFile -Path $Path)
-}
-
 function Assert-PrecheckGateReady {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -1174,7 +892,7 @@ function Assert-PrecheckGateReady {
 
     if ($reasons.Count -gt 0) {
         $reasonText = ($reasons -join '; ')
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reasonText
             PRECHECK_FAILURE_REASON = $reasonText
@@ -1280,7 +998,7 @@ function Invoke-LaunchReadyGate {
 
     if ($exitCode -ne 0 -or $resultValue -ne 'PASS') {
         $reason = "LAUNCH_READY_GATE_FAIL exit=$exitCode result=$resultValue"
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reason
             PRECHECK_FAILURE_REASON = $reason
@@ -1451,7 +1169,7 @@ function Assert-NetworkPrecheckReady {
     $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     if ($exitCode -ne 0) {
         $reason = "NETWORK_PRECHECK_FAIL exit=$exitCode targets=$targets local=$checkLocal remote=$checkRemote check_ipv4=$checkIPv4 check_ipv6=$checkIPv6 require_ipv4=$requireIPv4 require_ipv6=$requireIPv6"
-        Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reason
             PRECHECK_FAILURE_REASON = $reason
@@ -1462,7 +1180,7 @@ function Assert-NetworkPrecheckReady {
         throw ("[{0}] network precheck blocked: {1}" -f $ScriptTag, $reason)
     }
 
-    Invoke-KeyValueFileValueUpdate -Path $StartFilePath -Values @{
+    Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
         NETWORK_PRECHECK_LAST_RESULT = 'PASS'
         NETWORK_PRECHECK_LAST_AT = $nowText
         NETWORK_PRECHECK_LAST_REASON = ''
@@ -1968,7 +1686,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $startFilePath = Resolve-RepoPath -Path $StartFile
 $settings = Read-KeyValueFile -Path $startFilePath
 $monitorTimelinePath = Get-MonitorTimelinePath -StartFilePath $startFilePath -RepoRoot $repoRoot
-Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values @{ MONITOR_CHAIN_TIMELINE = (Convert-ToAnchorPath -Path $monitorTimelinePath) }
+Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{ MONITOR_CHAIN_TIMELINE = (Convert-ToAnchorPath -Path $monitorTimelinePath) }
 Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'stage_window_invoke' -Fields @{
     stage = $Stage
     start_file = (Convert-ToAnchorPath -Path $startFilePath)
@@ -2198,7 +1916,7 @@ if ($taskStaticPrecheckEnabled) {
             TASK_STATIC_PRECHECK_LAST_FAIL_STAGE = $Stage
             TASK_STATIC_PRECHECK_LAST_FAIL_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
         }
-        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $precheckFailUpdates
+        Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $precheckFailUpdates
 
         $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
         if (-not $overLimit) {
@@ -2213,7 +1931,7 @@ if ($taskStaticPrecheckEnabled) {
     }
 
     if ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
-        Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values @{
+        Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
             TASK_STATIC_PRECHECK_FAIL_COUNT = '0'
             TASK_STATIC_PRECHECK_LAST_PASS_STAGE = $Stage
             TASK_STATIC_PRECHECK_LAST_PASS_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
@@ -2448,7 +2166,7 @@ if (-not $stageAliveAfterProbe) {
         $failUpdates['SESSION_FINAL_NOTES'] = $failureNotes
     }
 
-    Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $failUpdates
+    Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $failUpdates
     Write-Output ("[OPEN-AB-STAGE] stage_launch_fail {0}" -f $failureDetail)
     Write-Output "[OPEN-AB-STAGE] monitor_anchor_preserved reason=launch_probe_failed"
     exit 1
@@ -2475,7 +2193,7 @@ else {
         $statusUpdates['B_RUNTIME_LOG'] = Convert-ToAnchorPath -Path $stageRuntimeLogPath
     }
 }
-Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $statusUpdates
+Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
 
@@ -2867,4 +2585,3 @@ if ($anchorUpdates.Count -gt 0) {
 }
 
 exit 0
-
