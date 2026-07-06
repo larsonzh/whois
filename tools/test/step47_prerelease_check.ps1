@@ -13,6 +13,8 @@
     [string]$PreclassGroupThresholdSpec = "",
     [switch]$SkipStatusTicketMiniRegression,
     [string]$StatusTicketMiniRegressionScript = "",
+    [switch]$SkipWriteCoreGuard,
+    [string]$WriteCoreGuardScript = "",
     [switch]$SkipRouteGuardSmokeSuite,
     [string]$RouteGuardSmokeSuiteScript = "",
     [string]$OutDirRoot = ""
@@ -57,6 +59,9 @@ if (-not $StatusTicketMiniRegressionScript -or $StatusTicketMiniRegressionScript
 if (-not $RouteGuardSmokeSuiteScript -or $RouteGuardSmokeSuiteScript.Trim().Length -eq 0) {
     $RouteGuardSmokeSuiteScript = Join-Path $PSScriptRoot "route_guard_smoke_suite.ps1"
 }
+if (-not $WriteCoreGuardScript -or $WriteCoreGuardScript.Trim().Length -eq 0) {
+    $WriteCoreGuardScript = Join-Path $PSScriptRoot "check_unattended_write_core_guard.ps1"
+}
 
 if ($SkipStatusTicketMiniRegression) {
     Write-Output "[STEP47-CHECK] status_ticket_mini_regression=disabled"
@@ -80,6 +85,18 @@ else {
     }
 
     Write-Output ("[STEP47-CHECK] route_guard_smoke_suite=enabled script={0}" -f $RouteGuardSmokeSuiteScript)
+}
+
+if ($SkipWriteCoreGuard) {
+    Write-Output "[STEP47-CHECK] write_core_guard=disabled"
+}
+else {
+    if (-not (Test-Path $WriteCoreGuardScript)) {
+        Write-Error "Write core guard script not found: $WriteCoreGuardScript"
+        exit 2
+    }
+
+    Write-Output ("[STEP47-CHECK] write_core_guard=enabled script={0}" -f $WriteCoreGuardScript)
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -244,6 +261,13 @@ if ($RunPreclassP1Gate) {
         & $preclassP1Script @preclassArgs
     } | Select-Object -Last 1)
     $results += $preclassResult
+}
+
+if (-not $SkipWriteCoreGuard) {
+    $writeCoreGuardResult = (Invoke-Step -Name "write-core-guard" -OutRegex '' -Action {
+        & $WriteCoreGuardScript
+    } | Select-Object -Last 1)
+    $results += $writeCoreGuardResult
 }
 
 if (-not $SkipStatusTicketMiniRegression) {
