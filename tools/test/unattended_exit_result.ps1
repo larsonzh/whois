@@ -382,6 +382,18 @@ function Invoke-MonitorChainHealthCheck {
         elseif ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and $isGuardContext) {
             $requestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $StartFilePath
             if ([bool]$requestState.Requested) {
+                $isStageBootstrapRequest = (
+                    ([string]$requestState.Source -eq 'open_unattended_ab_stage_window.ps1') -and
+                    ([string]$requestState.Reason -like '*monitor_chain_bootstrap*')
+                )
+
+                if ($ForceTriggerRestartOnRequest -and $isStageBootstrapRequest) {
+                    $requestDetail = ('request_source={0} request_reason={1}' -f [string]$requestState.Source, [string]$requestState.Reason)
+                    $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-bootstrap-request-cleared' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                    Write-Output ("[{0}] timestamp={1} role={2} action=request-cleared-no-restart reason=bootstrap-request-while-alive" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                    continue
+                }
+
                 if ($ForceTriggerRestartOnRequest) {
                     foreach ($liveProc in @($found)) {
                         $livePid = [int]$liveProc.ProcessId

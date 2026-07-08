@@ -254,7 +254,7 @@ function Assert-StageWindowInvocation {
         throw ("Fastmode {0} task mismatch: start-file {1}={2}, invocation={3}. Use tools/test/open_unattended_ab_stage_window.ps1." -f $Stage, $taskKey, $expectedTaskDefinition, $TaskDefinitionRelative)
     }
 
-    Write-Output ("[FASTMODE-{0}] stage_window_guard start_file={1} task={2}" -f $Stage, $startFilePath, $TaskDefinitionRelative)
+    Write-Output ("[FASTMODE-{0}] [{1}] stage_window_guard start_file={2} task={3}" -f $Stage, (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $startFilePath, $TaskDefinitionRelative)
 }
 
 function Invoke-StartFieldSyncStrictGate {

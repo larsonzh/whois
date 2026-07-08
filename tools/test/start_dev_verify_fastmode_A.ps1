@@ -65,12 +65,12 @@ try {
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'A' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
-        Write-Output ("[FASTMODE-A] [{0}] restart_precheck existing_count={1} existing_pids={2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $existingRunPids.Count, ($existingRunPids -join ','))
+        Write-Output ("[FASTMODE-A] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
         $stoppedRunPids = @(Invoke-RunningFastmodeProcessStop -ProcessIds $existingRunPids)
         Write-Output ("[FASTMODE-A] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
     }
     else {
-        Write-Output ("[FASTMODE-A] [{0}] restart_precheck existing_count=0" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+        Write-Output "[FASTMODE-A] restart_precheck existing_count=0"
     }
 
     $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
