@@ -3066,7 +3066,32 @@ try {
             )
         )
     ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
-    $host.UI.RawUI.WindowTitle = "whois-mon-session-guard-$startFileHash"
+
+    $targetWindowPrefix = 'whois-mon-session-guard-'
+    $targetWindowTitle = "whois-mon-session-guard-$startFileHash"
+    $currentWindowTitle = ''
+    try {
+        $currentWindowTitle = [string]$host.UI.RawUI.WindowTitle
+    }
+    catch {
+        $currentWindowTitle = ''
+    }
+
+    $normalizedWindowTitle = if ([string]::IsNullOrWhiteSpace($currentWindowTitle)) {
+        ''
+    }
+    else {
+        $currentWindowTitle.Trim().ToLowerInvariant()
+    }
+
+    $isWhoisTitle = $normalizedWindowTitle.StartsWith('whois-')
+    $isOwnWindow = $normalizedWindowTitle.StartsWith($targetWindowPrefix)
+    if ($isWhoisTitle -and -not $isOwnWindow) {
+        Write-Output ("[AB-SESSION-GUARD] window_title_update=skip reason=foreign-whois-window-protected current_title={0}" -f $currentWindowTitle)
+    }
+    else {
+        $host.UI.RawUI.WindowTitle = $targetWindowTitle
+    }
 }
 catch { $null = $_ }
 

@@ -378,7 +378,32 @@ try {
                 )
             )
         ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
-        $host.UI.RawUI.WindowTitle = "whois-main-stage-b-$startFileHash"
+
+        $targetWindowPrefix = 'whois-main-stage-b-'
+        $targetWindowTitle = "whois-main-stage-b-$startFileHash"
+        $currentWindowTitle = ''
+        try {
+            $currentWindowTitle = [string]$host.UI.RawUI.WindowTitle
+        }
+        catch {
+            $currentWindowTitle = ''
+        }
+
+        $normalizedWindowTitle = if ([string]::IsNullOrWhiteSpace($currentWindowTitle)) {
+            ''
+        }
+        else {
+            $currentWindowTitle.Trim().ToLowerInvariant()
+        }
+
+        $isWhoisTitle = $normalizedWindowTitle.StartsWith('whois-')
+        $isOwnWindow = $normalizedWindowTitle.StartsWith($targetWindowPrefix)
+        if ($isWhoisTitle -and -not $isOwnWindow) {
+            Write-Output ("[FASTMODE-B] window_title_update=skip reason=foreign-whois-window-protected current_title={0}" -f $currentWindowTitle)
+        }
+        else {
+            $host.UI.RawUI.WindowTitle = $targetWindowTitle
+        }
     }
     catch { $null = $_ }
 
@@ -389,12 +414,12 @@ try {
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {
-        Write-Output ("[FASTMODE-B] restart_precheck existing_count={0} existing_pids={1}" -f $existingRunPids.Count, ($existingRunPids -join ','))
+        Write-Output ("[FASTMODE-B] [{0}] restart_precheck existing_count={1} existing_pids={2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $existingRunPids.Count, ($existingRunPids -join ','))
         $stoppedRunPids = @(Invoke-RunningFastmodeProcessStop -ProcessIds $existingRunPids)
         Write-Output ("[FASTMODE-B] restart_precheck stopped_count={0} stopped_pids={1}" -f $stoppedRunPids.Count, ($stoppedRunPids -join ','))
     }
     else {
-        Write-Output '[FASTMODE-B] restart_precheck existing_count=0'
+        Write-Output ("[FASTMODE-B] [{0}] restart_precheck existing_count=0" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
     }
 
     $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot

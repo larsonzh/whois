@@ -2114,7 +2114,30 @@ try {
             )
         )
     ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
-    $host.UI.RawUI.WindowTitle = "whois-mon-takeover-trigger-$startFileHash"
+
+    $currentWindowTitle = ''
+    try {
+        $currentWindowTitle = [string]$host.UI.RawUI.WindowTitle
+    }
+    catch {
+        $currentWindowTitle = ''
+    }
+
+    $normalizedWindowTitle = if ([string]::IsNullOrWhiteSpace($currentWindowTitle)) {
+        ''
+    }
+    else {
+        $currentWindowTitle.Trim().ToLowerInvariant()
+    }
+
+    $isWhoisTitle = $normalizedWindowTitle.StartsWith('whois-')
+    $isOwnWindow = $normalizedWindowTitle.StartsWith('whois-mon-takeover-trigger-')
+    if ($isWhoisTitle -and -not $isOwnWindow) {
+        Write-Output ("[AB-TAKEOVER-TRIGGER] window_title_update=skip reason=foreign-whois-window-protected current_title={0}" -f $currentWindowTitle)
+    }
+    else {
+        $host.UI.RawUI.WindowTitle = "whois-mon-takeover-trigger-$startFileHash"
+    }
 }
 catch { $null = $_ }
 
