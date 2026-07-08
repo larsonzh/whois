@@ -1763,7 +1763,7 @@ function Get-RoundFailureCategoryFromLogText {
 
     $scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
     $networkTransientRegex = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
-    $codeFaultRegex = '(?im)(\[CODE-STEP\]\s+fatal_error=|code-step\s+fatal\s+error|src[\\/].*\.(c|h):\d+:\d+:\s*error:|error\s+C\d{4}\b|undefined\s+reference\s+to|compilation\s+terminated|was\s+not\s+declared\s+in\s+this\s+scope|conflicting\s+types\s+for|redefinition\s+of|no\s+member\s+named|fatal\s+error:\s+.*)'
+    $codeFaultRegex = '(?im)(\[CODE-STEP\]\s+fatal_error=\s*[^\r\n]+|code-step\s+fatal\s+error[^\r\n]*|src[\\/].*\.(c|h):\d+:\d+:\s*error:[^\r\n]*|error\s+C\d{4}\b[^\r\n]*|undefined\s+reference\s+to[^\r\n]*|compilation\s+terminated[^\r\n]*|was\s+not\s+declared\s+in\s+this\s+scope[^\r\n]*|conflicting\s+types\s+for[^\r\n]*|redefinition\s+of[^\r\n]*|no\s+member\s+named[^\r\n]*|fatal\s+error:\s+[^\r\n]*)'
 
     $scriptEvidence = ''
     $networkEvidence = ''

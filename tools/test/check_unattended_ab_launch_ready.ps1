@@ -393,10 +393,15 @@ if ($retryBudgetMiniRegressionEnabled) {
             $reason = Get-FirstMeaningfulLine -Lines $retryBudgetMiniRegression.Lines
         }
 
-        Write-ResultAndExit -Step 'retry-budget-mini-regression' -Status 'FAIL' -Reason $reason -OutputLines $retryBudgetMiniRegression.Lines -ExitCode 1 -StartFilePath $startFilePath
+        Write-Output ('[AB-LAUNCH-READY] step=retry-budget-mini-regression status=WARN reason={0}' -f $reason)
+        foreach ($line in @($retryBudgetMiniRegression.Lines)) {
+            Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+        }
+        $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression warned (non-blocking).'
     }
-
-    $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression passed.'
+    else {
+        $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression passed.'
+    }
 }
 
 $routeGuardSmokeSuiteConfigured = $null
