@@ -171,6 +171,7 @@ function Test-RoleProcessTrulyAlive {
         }
 
         $statePath = ''
+        $pollSecDetected = 30
         if ($Role -eq 'trigger') {
             # Trigger: extract start-file hash from any matching process command line
             $sfMatch = [regex]::Match($cmdLine, '-StartFile\s+"([^"]+)"')
@@ -193,6 +194,14 @@ function Test-RoleProcessTrulyAlive {
                     if (Test-Path -LiteralPath $candidateStatePath) {
                         $statePath = $candidateStatePath
                         break
+                    }
+                }
+
+                $pollMatch = [regex]::Match($cmdLine, '-PollSec\s+(\d+)')
+                if ($pollMatch.Success) {
+                    $parsedPoll = 0
+                    if ([int]::TryParse($pollMatch.Groups[1].Value, [ref]$parsedPoll) -and $parsedPoll -gt 0) {
+                        $pollSecDetected = $parsedPoll
                     }
                 }
             }
@@ -226,10 +235,10 @@ function Test-RoleProcessTrulyAlive {
                 $lowerState = $rawState.ToLowerInvariant()
 
                 # JSON state file terminal markers (guard/trigger)
-                if ($lowerState -match '"status":\s+"stopped"' -or
-                    $lowerState -match '"status":\s+"shutdown"' -or
-                    $lowerState -match '"status":\s+"fail"' -or
-                    $lowerState -match '"event":\s+"shutdown"') {
+                if ($lowerState -match '"status":\s*"stopped"' -or
+                    $lowerState -match '"status":\s*"shutdown"' -or
+                    $lowerState -match '"status":\s*"fail"' -or
+                    $lowerState -match '"event":\s*"shutdown"') {
                     continue  # This instance terminated, check next process
                 }
 
@@ -244,10 +253,10 @@ function Test-RoleProcessTrulyAlive {
         # terminal markers.
         $staleThreshold = switch ($Role) {
             'guard'      { 300 }
-            # For trigger, stale state alone is not reliable enough to classify
-            # zombie: state writes can be delayed/skipped under lock contention.
-            # Keep classification conservative to avoid killing a live trigger.
-            'trigger'    { 0 }
+            # For trigger, align with launcher rule: 3x poll interval + 10s margin.
+            # This keeps healthy idle loops reusable while classifying empty shells
+            # as zombies for cleanup/restart.
+            'trigger'    { (3 * $pollSecDetected) + 10 }
             default      { 0 }
         }
         if ($staleThreshold -gt 0) {
@@ -274,7 +283,8 @@ function Invoke-MonitorChainHealthCheck {
         [Parameter(Mandatory = $true)]
         [string]$StartFilePath,
         [string]$LogPrefix = 'health_check',
-        [bool]$GuardArbitratedTrigger = $true
+        [bool]$GuardArbitratedTrigger = $true,
+        [bool]$ForceTriggerRestartOnRequest = $false
     )
 
     $roleMap = @(
@@ -322,16 +332,16 @@ function Invoke-MonitorChainHealthCheck {
             # Check known state files for terminal markers.
             $trulyAlive = Test-RoleProcessTrulyAlive -Role $rn -Processes $found -RepoRoot $RepoRoot
             if (-not $trulyAlive) {
-                Write-Output ("[{0}] role={1} action=zombie-detected count={2}" -f $LogPrefix, $rn, @($found).Count)
+                Write-Output ("[{0}] timestamp={1} role={2} action=zombie-detected count={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, @($found).Count)
                 # Kill zombie processes before clearing, preventing empty-shell accumulation
                 foreach ($zombieProc in @($found)) {
                     $zpid = [int]$zombieProc.ProcessId
                     try {
                         Stop-Process -Id $zpid -Force -ErrorAction SilentlyContinue
-                        Write-Output ("[{0}] role={1} action=zombie-killed pid={2}" -f $LogPrefix, $rn, $zpid)
+                        Write-Output ("[{0}] timestamp={1} role={2} action=zombie-killed pid={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $zpid)
                     }
                     catch {
-                        Write-Output ("[{0}] role={1} action=zombie-kill-failed pid={2}" -f $LogPrefix, $rn, $zpid)
+                        Write-Output ("[{0}] timestamp={1} role={2} action=zombie-kill-failed pid={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $zpid)
                     }
                 }
                 $found = @()  # Force restart below
@@ -344,10 +354,10 @@ function Invoke-MonitorChainHealthCheck {
                 $requestReason = ('role=trigger missing_process start_file={0}' -f $StartFilePath)
                 $requested = Request-TriggerRestartInStartFile -StartFilePath $StartFilePath -Reason $requestReason -Source $requestSource
                 if ($requested) {
-                    Write-Output ("[{0}] role={1} action=requested-via-guard source={2}" -f $LogPrefix, $rn, $requestSource)
+                    Write-Output ("[{0}] timestamp={1} role={2} action=requested-via-guard source={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $requestSource)
                 }
                 else {
-                    Write-Output ("[{0}] role={1} action=request-failed source={2}" -f $LogPrefix, $rn, $requestSource)
+                    Write-Output ("[{0}] timestamp={1} role={2} action=request-failed source={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $requestSource)
                 }
                 continue
             }
@@ -356,13 +366,13 @@ function Invoke-MonitorChainHealthCheck {
             if (Test-Path -LiteralPath $launcherPath) {
                 try {
                     Start-Process -WindowStyle Hidden -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
-                    Write-Output ("[{0}] role={1} action=restart" -f $LogPrefix, $rn)
+                    Write-Output ("[{0}] timestamp={1} role={2} action=restart" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
                     if ($rn -eq 'trigger' -and $isGuardContext) {
                         $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger' -ActionBy 'guard' -Detail ('source={0}' -f $LogPrefix) -ClearRequest $true
                     }
                 }
                 catch {
-                    Write-Output ("[{0}] role={1} action=restart_failed detail={2}" -f $LogPrefix, $rn, $_.Exception.Message)
+                    Write-Output ("[{0}] timestamp={1} role={2} action=restart_failed detail={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $_.Exception.Message)
                     if ($rn -eq 'trigger' -and $isGuardContext) {
                         $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-failed' -ActionBy 'guard' -Detail (Convert-ToSingleLineTextForMonitorChain -Text $_.Exception.Message) -ClearRequest $false
                     }
@@ -372,9 +382,37 @@ function Invoke-MonitorChainHealthCheck {
         elseif ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and $isGuardContext) {
             $requestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $StartFilePath
             if ([bool]$requestState.Requested) {
-                $requestDetail = ('request_source={0} request_reason={1}' -f [string]$requestState.Source, [string]$requestState.Reason)
-                $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-no-restart' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
-                Write-Output ("[{0}] role={1} action=request-cleared-no-restart" -f $LogPrefix, $rn)
+                if ($ForceTriggerRestartOnRequest) {
+                    foreach ($liveProc in @($found)) {
+                        $livePid = [int]$liveProc.ProcessId
+                        try {
+                            Stop-Process -Id $livePid -Force -ErrorAction SilentlyContinue
+                            Write-Output ("[{0}] timestamp={1} role={2} action=force-restart-kill pid={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $livePid)
+                        }
+                        catch {
+                            Write-Output ("[{0}] timestamp={1} role={2} action=force-restart-kill-failed pid={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $livePid)
+                        }
+                    }
+
+                    $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
+                    if (Test-Path -LiteralPath $launcherPath) {
+                        try {
+                            Start-Process -WindowStyle Hidden -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
+                            Write-Output ("[{0}] timestamp={1} role={2} action=force-restart" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                            $requestDetail = ('request_source={0} request_reason={1}' -f [string]$requestState.Source, [string]$requestState.Reason)
+                            $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-forced-by-request' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                        }
+                        catch {
+                            Write-Output ("[{0}] timestamp={1} role={2} action=force-restart-failed detail={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $_.Exception.Message)
+                            $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-forced-failed' -ActionBy 'guard' -Detail (Convert-ToSingleLineTextForMonitorChain -Text $_.Exception.Message) -ClearRequest $false
+                        }
+                    }
+                }
+                else {
+                    $requestDetail = ('request_source={0} request_reason={1}' -f [string]$requestState.Source, [string]$requestState.Reason)
+                    $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-no-restart' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                    Write-Output ("[{0}] timestamp={1} role={2} action=request-cleared-no-restart" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                }
             }
         }
     }

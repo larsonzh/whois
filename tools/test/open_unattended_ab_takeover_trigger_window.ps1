@@ -258,10 +258,10 @@ function Test-ExistingMonitorProcessAlive {
                     $rawTerminal = Get-Content -LiteralPath $path -Raw -Encoding utf8 -ErrorAction SilentlyContinue
                     if (-not [string]::IsNullOrWhiteSpace($rawTerminal)) {
                         $lowerTerminal = $rawTerminal.ToLowerInvariant()
-                        $terminalPatterns = @('"status": "stopped"', '"status": "shutdown"', '"event": "shutdown"')
+                        $terminalPatterns = @('"status"\s*:\s*"stopped"', '"status"\s*:\s*"shutdown"', '"event"\s*:\s*"shutdown"')
                         $hasTerminal = $false
                         foreach ($tp in $terminalPatterns) {
-                            if ($lowerTerminal.Contains($tp)) {
+                            if ($lowerTerminal -match $tp) {
                                 $hasTerminal = $true
                                 break
                             }
@@ -359,60 +359,19 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
-        # Check whether the existing process is a live monitor or an empty shell
-        # by inspecting trigger state file for terminal markers and staleness.
-        $isTrulyAlive = $true
-        $staleStateFile = $false
-        if (Test-Path -LiteralPath $triggerStatePath) {
+        # Keep startup behavior aligned with monitor health checks:
+        # reuse only truly alive trigger, otherwise clean and restart.
+        $triggerProcesses = @($existingPids | ForEach-Object {
+            $tpid = [int]$_
             try {
-                $rawState = Get-Content -LiteralPath $triggerStatePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
-                if (-not [string]::IsNullOrWhiteSpace($rawState)) {
-                    $lowerState = $rawState.ToLowerInvariant()
-                    if ($lowerState -match '"status":\s+"stopped"' -or
-                            $lowerState -match '"status":\s+"shutdown"' -or
-                            $lowerState -match '"event":\s+"shutdown"') {
-                        $isTrulyAlive = $false
-                    }
-                }
-
-                # Staleness guard: if state file was last written more than
-                # (3 * poll_sec + 10) seconds ago, the script inside the
-                # -NoExit shell has likely terminated. A live PowerShell
-                # process with an idle state file is just an empty zombie
-                # window — treat it as dead.
-                # Multiplier 3x gives margin for slow poll cycles under
-                # heavy load (process + sleep + margin).
-                if ($isTrulyAlive) {
-                    $pollSecForStale = 30
-                    if ($PollSec -gt 0) { $pollSecForStale = $PollSec }
-                    $staleThresholdSec = 3 * $pollSecForStale + 10
-                    $stateAge = (Get-Date) - (Get-Item -LiteralPath $triggerStatePath).LastWriteTime
-                    if ($stateAge.TotalSeconds -gt $staleThresholdSec) {
-                        $staleStateFile = $true
-                        $isTrulyAlive = $false
-                    }
-                }
-            } catch { $null = $_ }
-            # If state file has explicit shutdown markers the process is dead.
-            # Otherwise, verify process aliveness directly. A live process
-            # may have an idle state file during quiet periods (no recent
-            # failures or status changes) — don't mistake it for a zombie.
-            if ($isTrulyAlive) {
-                $anyProcessAlive = $false
-                foreach ($procPid in $existingPids) {
-                    $proc = Get-Process -Id $procPid -ErrorAction SilentlyContinue
-                    if ($null -ne $proc -and -not $proc.HasExited) { $anyProcessAlive = $true; break }
-                }
-                if (-not $anyProcessAlive) {
-                    # No process alive — treat as empty shell regardless of state file age
-                    $isTrulyAlive = $false
-                }
+                Get-CimInstance Win32_Process -Filter "ProcessId=$tpid" -ErrorAction SilentlyContinue
             }
-        }
-        else {
-            # No state file at all — process cannot be truly alive without one
-            $isTrulyAlive = $false
-        }
+            catch {
+                $null
+            }
+        } | Where-Object { $null -ne $_ })
+
+        $isTrulyAlive = Test-RoleProcessTrulyAlive -Role 'trigger' -Processes $triggerProcesses -RepoRoot $repoRoot
         if ($isTrulyAlive) {
             $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
             Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
@@ -420,8 +379,7 @@ try {
             $processId = [int]$existingPids[0]
         }
         else {
-            $staleSuffix = if ($staleStateFile) { ' stale-state-file' } else { '' }
-            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean{2}" -f $existingPids.Count, ($existingPids -join ','), $staleSuffix)
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean" -f $existingPids.Count, ($existingPids -join ','))
             Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
             Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
         }

@@ -613,6 +613,19 @@ VS Code 可选任务入口：
 说明：
 - smoke 会故意使用不受支持的 trigger 模板，`*_trigger_failed_after_guard=true` 属于预期行为，用于证明“guard 放行后才进入执行计划”。
 
+自动触发与默认策略（2026-07 更新）：
+- `open_unattended_ab_stage_window.ps1` 在调用 launch-ready gate 时会进入 `check_unattended_ab_launch_ready.ps1`。
+- 当该流程属于守护管理启动（`-GuardManagedLaunch`）且不在 CI 环境时，`route_guard_smoke_suite.ps1` 默认跳过，避免 guard 重启期间反复写入 smoke 产物。
+- 以下场景默认执行 `route_guard_smoke_suite.ps1`：
+  - 非守护链路直接调用 launch-ready gate；
+  - CI 环境（如 `CI=true`、`GITHUB_ACTIONS=true`、`TF_BUILD=true`）。
+- 可在 start-file 设置 `ROUTE_GUARD_SMOKE_SUITE_ENABLED=true|false` 显式覆盖，优先级高于默认策略。
+
+兼容性说明：
+- `tools/test/trigger_route_guard_gate_smoke.ps1` 保持 one-shot 语义不变。
+- `tools/test/route_guard_smoke_suite.ps1` 保持现有行为不变。
+- VS Code 任务 `Test: Trigger Route Guard Gate Smoke` 保持原入口不变。
+
 若不满足：
 - 入口脚本会硬闸阻断
 
@@ -869,6 +882,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 规则：
 - 除 A/B 正常完成外，监控链结束前都应保留 10-15 分钟宽限期，用于事件票自愈、主进程重启和复用取证。
 - 复用验证时，只停止主进程 A，不主动停止 session guard、takeover trigger。
+- 主进程异常退出后的时序约束（A/B 同步适用）：
+  1) guard 先进入温窗期（主进程缺失观察窗口），避免瞬时抖动误判。
+  2) 温窗期结束后若仍确认主进程失败/故障退出，则进入宽限期（grace）。
+  3) 宽限期结束后若仍未恢复，guard 执行收敛停机。
+- 恢复优先级：
+  1) 温窗期内发现主进程恢复运行，立即退出温窗期并恢复常态监控。
+  2) 宽限期内发现主进程恢复运行，立即退出宽限期并恢复常态监控。
+  3) “恢复运行”判定必须包含主进程真实存活（不是仅看 RUNNING 状态或残留 PID）。
+- trigger 可选温窗（默认关闭）：
+  1) 默认仍由 guard 负责主进程温窗判定，trigger 只跟随宽限/收敛流程。
+  2) 如需在 trigger 侧增加 terminal 温窗，可设置：
+     - `AI_CHAT_TRIGGER_TERMINAL_WARM_WINDOW_ENABLED=true`
+     - `AI_CHAT_TRIGGER_TERMINAL_WARM_WINDOW_MINUTES=<1..60>`（默认 3）
+  3) 开启后 trigger 行为：先进入 terminal warm window，再进入 monitor-chain grace；若在任一窗口检测到阶段恢复运行，则自动清窗并恢复常态轮询。
 
 操作步骤：
 1. 用 stage window 启动 A，并显式带 `-StartMonitors`，直到监控链 4 个进程全部拉起。
@@ -1313,4 +1340,37 @@ session memory 中的记录应在以下任一条件满足时清除：
   └─ main_round 或 failure_fingerprint 不一致
       └─ → 正常处理，更新 session memory 中的故障信息
 ```
+
+#### 10.6.6 相同指纹门禁三段化与重试预算（2026-07-08）
+
+为避免“历史首次失败 + AI 接手一次失败”即触发硬阻断，且继续保持防无限循环能力，D 轮次 code-step 的相同指纹门禁采用三段化状态机与条件重试预算。
+
+- 适用范围：仅 `code-step` 相同指纹分支；`compile/verify` 分支保持原有严格门禁。
+- 状态机：`pending_review -> override_window -> hard_block`。
+  - `pending_review`：检测到相同指纹，进入待评审态。
+  - `override_window`：满足重试条件后放行一次重启窗口。
+  - `hard_block`：预算耗尽或证据不足，转人工处置，禁止自动重启。
+- 默认预算：`CODESTEP_IDENTICAL_FP_MAX_RETRIES=3`（可用 stage 级键覆盖：`A_CODESTEP_IDENTICAL_FP_MAX_RETRIES` / `B_CODESTEP_IDENTICAL_FP_MAX_RETRIES`）。
+- 第 2/3 次重试必须有“有效修复证据”，否则直接进入 `hard_block`：
+  - 任务定义文件哈希变化；或
+  - 轮次级任务定义印记（round operations imprint）变化；或
+  - 轮次源码摘要变化。
+
+实现约束：
+
+- 相同指纹比较仍以 `main_round + phase + task_start_at + failure_fingerprint` 为主键。
+- 指纹滚动时必须同时写回当前/上一次证据字段：
+  - `*_FAILURE_TASKDEF_HASH` 与 `*_PREVIOUS_FAILURE_TASKDEF_HASH`
+  - `*_FAILURE_SOURCE_HASH` 与 `*_PREVIOUS_FAILURE_SOURCE_HASH`
+  - `*_FAILURE_TASKDEF_ROUND_IMPRINT_HASH` 与 `*_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH`
+- 门禁状态字段建议统一：
+  - `*_CODESTEP_IDENTICAL_FP_RETRY_COUNT`
+  - `*_CODESTEP_IDENTICAL_FP_STATE`
+  - `*_CODESTEP_IDENTICAL_FP_STATE_AT`
+
+人工修复后的解锁规则：
+
+- `hard_block` 并非永久封禁。
+- 人工修复完成后，若检测到“有效修复证据”且静态检查通过，可自动从 `hard_block` 回到 `pending_review`，重置同指纹预算后允许重启。
+- 若无有效修复证据，保持 `hard_block`，不得重启。
 

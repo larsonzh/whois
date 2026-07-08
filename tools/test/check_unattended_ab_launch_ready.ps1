@@ -2,6 +2,7 @@
     [Parameter(Mandatory = $true)][string]$StartFile,
     [ValidateSet('A', 'B')][string]$Stage = 'A',
     [string]$Operator = 'Copilot',
+    [switch]$GuardManagedLaunch,
     [switch]$RequireCleanWorkspace,
     [switch]$DryRun,
     [switch]$DetailedOutput,
@@ -35,6 +36,23 @@ function Convert-ToBooleanSetting {
     }
 
     return $Value.Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+}
+
+function Test-IsCiEnvironment {
+    $ciFlags = @(
+        [string]$env:CI,
+        [string]$env:GITHUB_ACTIONS,
+        [string]$env:TF_BUILD,
+        [string]$env:BUILD_BUILDID
+    )
+
+    foreach ($flag in $ciFlags) {
+        if (Convert-ToBooleanSetting -Value $flag -Default $false) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-ResultObject {
@@ -381,19 +399,38 @@ if ($retryBudgetMiniRegressionEnabled) {
     $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression passed.'
 }
 
-$routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()
-if ($routeGuardSmokeSuite.ExitCode -ne 0) {
-    $aggregateLines = @(Get-RouteGuardSuiteAggregateLines -Lines $routeGuardSmokeSuite.Lines)
-    $reason = Get-LastMatchingLine -Lines $aggregateLines -Pattern 'trigger_exit=|dispatch_exit=|classification_exit=|classification_summary|result=fail'
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-LastMatchingLine -Lines $routeGuardSmokeSuite.Lines -Pattern 'result=fail|classification_summary|trigger_exit=|dispatch_exit='
-    }
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $routeGuardSmokeSuite.Lines
-    }
+$routeGuardSmokeSuiteConfigured = $null
+if ($startSettings.Contains('ROUTE_GUARD_SMOKE_SUITE_ENABLED')) {
+    $routeGuardSmokeSuiteConfigured = Convert-ToBooleanSetting -Value ([string]$startSettings.ROUTE_GUARD_SMOKE_SUITE_ENABLED) -Default $true
+}
 
-    $outputLines = @($aggregateLines + $routeGuardSmokeSuite.Lines)
-    Write-ResultAndExit -Step 'route-guard-smoke-suite' -Status 'FAIL' -Reason $reason -OutputLines $outputLines -ExitCode 1 -StartFilePath $startFilePath
+$ciMode = Test-IsCiEnvironment
+$routeGuardSmokeSuiteEnabled = $true
+if ($null -ne $routeGuardSmokeSuiteConfigured) {
+    $routeGuardSmokeSuiteEnabled = [bool]$routeGuardSmokeSuiteConfigured
+}
+elseif ($GuardManagedLaunch.IsPresent -and -not $ciMode) {
+    $routeGuardSmokeSuiteEnabled = $false
+}
+
+if ($routeGuardSmokeSuiteEnabled) {
+    $routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()
+    if ($routeGuardSmokeSuite.ExitCode -ne 0) {
+        $aggregateLines = @(Get-RouteGuardSuiteAggregateLines -Lines $routeGuardSmokeSuite.Lines)
+        $reason = Get-LastMatchingLine -Lines $aggregateLines -Pattern 'trigger_exit=|dispatch_exit=|classification_exit=|classification_summary|result=fail'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-LastMatchingLine -Lines $routeGuardSmokeSuite.Lines -Pattern 'result=fail|classification_summary|trigger_exit=|dispatch_exit='
+        }
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $routeGuardSmokeSuite.Lines
+        }
+
+        $outputLines = @($aggregateLines + $routeGuardSmokeSuite.Lines)
+        Write-ResultAndExit -Step 'route-guard-smoke-suite' -Status 'FAIL' -Reason $reason -OutputLines $outputLines -ExitCode 1 -StartFilePath $startFilePath
+    }
+}
+else {
+    Write-Output ('[AB-LAUNCH-READY] detail=route-guard-smoke-suite skipped guard_managed={0} ci_mode={1} configured={2}' -f [string]$GuardManagedLaunch.IsPresent, [string]$ciMode, [string]($null -ne $routeGuardSmokeSuiteConfigured))
 }
 
 $ps51FormatGuard = Invoke-PowerShellScriptStep -ScriptPath $ps51FormatGuardScript -Arguments @('-Scope', 'tracked')

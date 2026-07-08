@@ -52,6 +52,8 @@
 - Step47 矩阵契约是不可逾越的红线，不得因代码变更改变其预期结果。
 - **预算耗尽与待办修复的优先级（2026-07-05）**：当收到 `budget-exhausted-stop` 通告时，若此前同一会话中已有一张 `incident-captured`（或类似）票据允许了 `code-fix-workflow` / `script-fix-workflow` 但尚未执行对应的修复动作，则**先完成已有修复后再处理预算通告**。budget-exhausted 仅限制 guard 自动重启次数，不影响 task-definition 修复的手动执行。修复完成并静态检查通过后，再按 rerun-scope-decision 的结论重启对应阶段（A 或 B），不要等待额外的人工确认——budget-exhausted 的 `blocked_actions` 不影响 Agent 在修复后通过 launcher 手动重启。
 - **防无限循环保护（2026-07-05）**：Agent 在每次重启对应阶段前，应将当前故障的 `main_round` + `failure_fingerprint` 写入 session memory（`/memories/session/last_failure.md`）。重启后若收到新的 `incident-captured` 票据，其 `main_round` 与 `failure_fingerprint` 均与 session memory 中记录的上一次一致，则判定为**同一故障点连续失败**。此时 Agent 应停止自动重启，向用户报告修复未生效，等待人工介入。session memory 中的记录应在以下任一条件满足时清除：(a) 新的故障指纹与上次不同（修复已改变故障表现），(b) 该阶段全部 8 轮完成且未再触发同一故障。
+- **相同指纹门禁三段化（2026-07-08）**：D 轮次 `code-step` 的相同指纹门禁采用 `pending_review -> override_window -> hard_block` 状态机。默认预算 `CODESTEP_IDENTICAL_FP_MAX_RETRIES=3`（可按 stage 覆盖）。第 2/3 次重试必须有有效修复证据（任务定义哈希变化 / 轮次任务定义印记变化 / 轮次源码摘要变化），否则直接进入 `hard_block`。
+- **人工修复后解锁规则（2026-07-08）**：`hard_block` 不是永久封禁。人工修复后仅在“有效修复证据 + 静态检查通过”时允许从 `hard_block` 自动回到 `pending_review` 并重置同指纹预算；证据不足时保持阻断，禁止重启。
 
 ## 协作与文档
 - 交流用中文；代码/注释/提交信息用英文。

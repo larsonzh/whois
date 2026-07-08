@@ -3198,6 +3198,10 @@ $monitorChainGraceShutdownStage = ''
 $monitorChainGraceShutdownReason = ''
 $monitorChainGraceShutdownSource = ''
 $healthCheckIterationCounter = 0
+$script:StartupSuppressLastSignature = ''
+$script:StartupSuppressLastRemainingBucket = ''
+$script:StartupSuppressLastReportAt = [datetime]::MinValue
+$script:StartupSuppressHiddenCount = 0
 
 function Test-D1ProgressSince {
     param(
@@ -4444,7 +4448,46 @@ function Write-StartupSuppressLog {
         [object]$RemainingValue
     )
 
-    Write-GuardLog ("{0} session={1} a={2} b={3} reason={4} {5}={6}" -f $EventName, $SessionStatus, $AStatus, $BStatus, $Reason, $RemainingLabel, $RemainingValue)
+    $remainingText = Convert-ToSingleLineText -Text ([string]$RemainingValue)
+    $remainingBucket = $remainingText
+    if ($RemainingLabel -eq 'remaining_min') {
+        $remainingMin = 0.0
+        if ([double]::TryParse([string]$RemainingValue, [ref]$remainingMin)) {
+            $remainingBucket = [string]([int][Math]::Floor($remainingMin))
+        }
+    }
+    elseif ($RemainingLabel -eq 'remaining_sec') {
+        $remainingSec = 0.0
+        if ([double]::TryParse([string]$RemainingValue, [ref]$remainingSec)) {
+            $remainingBucket = [string]([int]([Math]::Floor($remainingSec / 10.0) * 10))
+        }
+    }
+
+    $signature = ('{0}|{1}|{2}|{3}|{4}|{5}' -f $EventName, $SessionStatus, $AStatus, $BStatus, $Reason, $RemainingLabel)
+    $now = Get-Date
+    $emit = $false
+
+    if ($signature -ne $script:StartupSuppressLastSignature) {
+        $emit = $true
+    }
+    elseif ($remainingBucket -ne $script:StartupSuppressLastRemainingBucket) {
+        $emit = $true
+    }
+    elseif ($script:StartupSuppressLastReportAt -eq [datetime]::MinValue -or (($now - $script:StartupSuppressLastReportAt).TotalSeconds -ge 30)) {
+        $emit = $true
+    }
+
+    if (-not $emit) {
+        $script:StartupSuppressHiddenCount = [int]$script:StartupSuppressHiddenCount + 1
+        return
+    }
+
+    $suppressedCount = [int]$script:StartupSuppressHiddenCount
+    $script:StartupSuppressLastSignature = $signature
+    $script:StartupSuppressLastRemainingBucket = $remainingBucket
+    $script:StartupSuppressLastReportAt = $now
+    $script:StartupSuppressHiddenCount = 0
+    Write-GuardLog ("{0} session={1} a={2} b={3} reason={4} {5}={6} suppressed_count={7}" -f $EventName, $SessionStatus, $AStatus, $BStatus, $Reason, $RemainingLabel, $RemainingValue, $suppressedCount)
 }
 
 function Update-BudgetExhaustedSkipSignature {
@@ -4803,13 +4846,13 @@ try {
             $triggerRestartRequest = Get-TriggerRestartRequestFromStartFile -StartFilePath $script:StartFilePath
             if ([bool]$triggerRestartRequest.Requested) {
                 Write-GuardLog ("trigger_restart_request_consume source={0} reason={1} requested_at={2}" -f [string]$triggerRestartRequest.Source, [string]$triggerRestartRequest.Reason, [string]$triggerRestartRequest.RequestedAt)
-                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ'
+                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ' -ForceTriggerRestartOnRequest $true
             }
 
             if ($null -ne $mainProcessExitGraceStartedAt) {
                 $mainExitGraceRecovered = (
-                    ($mainProcessExitGraceStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
-                    ($mainProcessExitGraceStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0)
+                    ($mainProcessExitGraceStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
+                    ($mainProcessExitGraceStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
                 )
                 if ($mainExitGraceRecovered) {
                     $reboundPid = if ($mainProcessExitGraceStage -eq 'A') { $aLaunchPid } else { $bLaunchPid }
@@ -4825,19 +4868,19 @@ try {
 
             if ($null -ne $monitorChainGraceStartedAt) {
                 $monitorChainGraceRecovered = (
-                    ($monitorChainGraceShutdownStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
-                    ($monitorChainGraceShutdownStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0) -or
+                    ($monitorChainGraceShutdownStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
+                    ($monitorChainGraceShutdownStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid)) -or
                     ($monitorChainGraceShutdownStage -eq 'SESSION' -and (
-                        ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) -or
-                        ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0)
+                        ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
+                        ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
                     ))
                 )
                 if ($monitorChainGraceRecovered) {
                     $reboundPid = 0
-                    if ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0) {
+                    if ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) {
                         $reboundPid = $aLaunchPid
                     }
-                    elseif ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0) {
+                    elseif ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid)) {
                         $reboundPid = $bLaunchPid
                     }
 
@@ -5278,6 +5321,25 @@ try {
 
                         $settings, $sessionStatusRaw, $aStatusRaw, $bStatusRaw, $sessionStatus, $aStatus, $bStatus, $aLaunchPid, $bLaunchPid, $notes, $runDirAnchor = Update-StatusAndExpandTuple -StartFilePath $script:StartFilePath
                         $running = Test-IsAnyStageRunning -AStatus $aStatus -BStatus $bStatus
+
+                        # Direct grace-entry fix: when A main process is offline and there is
+                        # no active follow-up stage, start main-process-exit grace immediately.
+                        # This aligns A with B main-process-exit grace semantics.
+                        $noActiveFollowupStage = ($bStatus -ne 'RUNNING')
+                        if ($noActiveFollowupStage -and $null -eq $mainProcessExitGraceStartedAt) {
+                            $aMainExitShutdownDetail = ("main_process_exit stage=A expected_pid={0} elapsed_sec={1} grace_sec={2} session={3} a={4} b={5} run_dir={6}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                            if ($mainProcessExitMonitorGraceMinutes -gt 0) {
+                                $mainProcessExitGraceStartedAt = Get-Date
+                                $mainProcessExitGraceLastNoticeAt = $null
+                                $mainProcessExitGraceShutdownDetail = $aMainExitShutdownDetail
+                                $mainProcessExitGraceStage = 'A'
+                                Write-GuardLog ("main_process_exit_grace_start stage=A grace_min={0} expected_pid={1} session={2} a={3} b={4} run_dir={5}" -f $mainProcessExitMonitorGraceMinutes, $aLaunchPid, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                            }
+                            else {
+                                $settings = Request-MainProcessExitNoAutofixShutdown -Settings $settings -Detail $aMainExitShutdownDetail
+                                $mainProcessExitNoAutoFixStopRequested = $true
+                            }
+                        }
 
                         $aMainExitDetail = Get-MainProcessExitDetailBase -Stage 'A' -ExpectedPid $aLaunchPid -ElapsedSec $missingASec -GraceSec $aRunningNoProcessGraceSec
                         $aMainExitDedupSuffix = Get-AMainProcessExitDedupSuffix -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -ALaunchPid $aLaunchPid
@@ -5800,6 +5862,13 @@ try {
                 $incidentRecommendedAction = Convert-ToBoundedSingleLineText -Text ($incidentRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
+                $suppressIncidentForTaskDefMismatch = (
+                    [bool]$taskDefinitionRepairTicketEnabled -and
+                    $aStatus -eq 'PASS' -and
+                    $bStatus -in @('FAIL', 'BLOCKED') -and
+                    ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch')
+                )
+
                 if ($statusSignature -ne $lastIncidentSignature) {
                     $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
                     $incidentRel = Convert-ToRepoRelativePath -Path $incidentDir
@@ -5820,7 +5889,7 @@ try {
                             (Convert-ToBoundedSingleLineText -Text ([string]$failurePolicy.DevFailureEvidence) -MaxChars 180),
                             [string]$failurePolicy.DevFailureSourceLog)
                     }
-                    else {
+                    elseif (-not $suppressIncidentForTaskDefMismatch) {
                         # Fallback: if failure ticket meta is unknown, try reading
                         # A_FAIL_CATEGORY / A_FAIL_REASON from start file (written
                         # by guard from exit artifact).
@@ -5875,6 +5944,7 @@ try {
                         $fpKeyPrefix = if ($fpStage -eq 'A') { 'A' } else { 'B' }
                         $fpTaskDefHash = ''
                         $fpRoundSourceHash = ''
+                        $fpTaskDefRoundImprintHash = ''
                         $fpFailureOriginRound = $fpMainRound
                         $fpTaskFirstStartAt = ''
 
@@ -5886,6 +5956,28 @@ try {
                                     $fpTaskDefBytes = [System.IO.File]::ReadAllBytes($fpTaskDefPath)
                                     $fpTaskDefHashBytes = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpTaskDefBytes)
                                     $fpTaskDefHash = ([System.BitConverter]::ToString($fpTaskDefHashBytes)).Replace('-', '').ToLowerInvariant()
+
+                                    if (-not [string]::IsNullOrWhiteSpace($fpMainRound)) {
+                                        $fpTaskDefRawText = [System.Text.Encoding]::UTF8.GetString($fpTaskDefBytes)
+                                        $fpTaskDefJson = $fpTaskDefRawText | ConvertFrom-Json -ErrorAction Stop
+                                        $fpRoundOpsNode = $null
+                                        if ($null -ne $fpTaskDefJson -and $null -ne $fpTaskDefJson.PSObject.Properties['rounds']) {
+                                            $roundsNode = $fpTaskDefJson.rounds
+                                            if ($null -ne $roundsNode -and $null -ne $roundsNode.PSObject.Properties[$fpMainRound]) {
+                                                $roundNode = $roundsNode.PSObject.Properties[$fpMainRound].Value
+                                                if ($null -ne $roundNode -and $null -ne $roundNode.PSObject.Properties['operations']) {
+                                                    $fpRoundOpsNode = $roundNode.operations
+                                                }
+                                            }
+                                        }
+
+                                        if ($null -ne $fpRoundOpsNode) {
+                                            $fpRoundOpsJson = ($fpRoundOpsNode | ConvertTo-Json -Depth 32 -Compress)
+                                            $fpRoundOpsBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$fpRoundOpsJson)
+                                            $fpRoundOpsHashBytes = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpRoundOpsBytes)
+                                            $fpTaskDefRoundImprintHash = ([System.BitConverter]::ToString($fpRoundOpsHashBytes)).Replace('-', '').ToLowerInvariant()
+                                        }
+                                    }
                                 }
                             }
                             catch { $null = $_ }
@@ -5918,10 +6010,11 @@ try {
 
                         if ([string]::IsNullOrWhiteSpace($fpTaskDefHash)) { $fpTaskDefHash = '-' }
                         if ([string]::IsNullOrWhiteSpace($fpRoundSourceHash)) { $fpRoundSourceHash = '-' }
+                        if ([string]::IsNullOrWhiteSpace($fpTaskDefRoundImprintHash)) { $fpTaskDefRoundImprintHash = '-' }
                         if ([string]::IsNullOrWhiteSpace($fpFailureOriginRound)) { $fpFailureOriginRound = '-' }
                         if ([string]::IsNullOrWhiteSpace($fpTaskFirstStartAt)) { $fpTaskFirstStartAt = '-' }
 
-                        $fpInput = "{0}|phase={1}|origin={2}|task_start={3}|{4}|{5}|taskdef={6}|source={7}" -f $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, [string]$failureTicketMeta.FailureCategory, [string]$failureTicketMeta.FailureEvidence, $fpTaskDefHash, $fpRoundSourceHash
+                        $fpInput = "{0}|phase={1}|origin={2}|task_start={3}|{4}|{5}|taskdef={6}|source={7}|round_imprint={8}" -f $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, [string]$failureTicketMeta.FailureCategory, [string]$failureTicketMeta.FailureEvidence, $fpTaskDefHash, $fpRoundSourceHash, $fpTaskDefRoundImprintHash
                         $fpBytes = [System.Text.Encoding]::UTF8.GetBytes($fpInput)
                         $fpHash = [System.Security.Cryptography.SHA1]::Create().ComputeHash($fpBytes)
                         $fpHashed = "fp_{0}" -f ([System.BitConverter]::ToString($fpHash)).Replace('-','').ToLowerInvariant()
@@ -5930,12 +6023,18 @@ try {
                         $fpPrevPhase = if ($settings.Contains("${fpKeyPrefix}_FAILURE_PHASE")) { [string]$settings["${fpKeyPrefix}_FAILURE_PHASE"] } else { '' }
                         $fpPrevOriginRound = if ($settings.Contains("${fpKeyPrefix}_FAILURE_ORIGIN_ROUND")) { [string]$settings["${fpKeyPrefix}_FAILURE_ORIGIN_ROUND"] } else { '' }
                         $fpPrevTaskStartAt = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASK_START_AT")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASK_START_AT"] } else { '' }
+                        $fpPrevTaskDefHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASKDEF_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASKDEF_HASH"] } else { '' }
+                        $fpPrevSourceHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_SOURCE_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_SOURCE_HASH"] } else { '' }
+                        $fpPrevRoundImprintHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH"] } else { '' }
                         Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_FINGERPRINT" = $fpPrevFp
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_MAIN_ROUND" = $fpPrevRound
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_PHASE" = $fpPrevPhase
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_ORIGIN_ROUND" = $fpPrevOriginRound
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_TASK_START_AT" = $fpPrevTaskStartAt
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_TASKDEF_HASH" = $fpPrevTaskDefHash
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_SOURCE_HASH" = $fpPrevSourceHash
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH" = $fpPrevRoundImprintHash
                             "${fpKeyPrefix}_FAILURE_FINGERPRINT" = $fpHashed
                             "${fpKeyPrefix}_FAILURE_MAIN_ROUND" = $fpMainRound
                             "${fpKeyPrefix}_FAILURE_PHASE" = $fpPhase
@@ -5944,8 +6043,9 @@ try {
                             "${fpKeyPrefix}_TASK_FIRST_START_AT" = $fpTaskFirstStartAt
                             "${fpKeyPrefix}_FAILURE_TASKDEF_HASH" = $fpTaskDefHash
                             "${fpKeyPrefix}_FAILURE_SOURCE_HASH" = $fpRoundSourceHash
+                            "${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH" = $fpTaskDefRoundImprintHash
                         }
-                        Write-GuardLog ("failure_fingerprint_rolled stage={0} round={1} phase={2} origin_round={3} task_start_at={4} taskdef_hash={5} source_hash={6}" -f $fpStage, $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, $fpTaskDefHash, $fpRoundSourceHash)
+                        Write-GuardLog ("failure_fingerprint_rolled stage={0} round={1} phase={2} origin_round={3} task_start_at={4} taskdef_hash={5} source_hash={6} round_imprint_hash={7}" -f $fpStage, $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, $fpTaskDefHash, $fpRoundSourceHash, $fpTaskDefRoundImprintHash)
                     }
                 }
 
@@ -5973,6 +6073,9 @@ try {
                             }
                         }
                     }
+                    else {
+                        Write-GuardLog ("agent_ticket_suppressed event=incident-captured reason=task_definition_mismatch_wait_fix stage=B round={0} category={1}" -f [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
+                    }
                 }
 
                 $monitorChainGraceStopRequested = $false
@@ -5984,14 +6087,17 @@ try {
                     $freshSettings = Read-KeyValueFileWithRetry -Path $startFilePath
                     $freshAStatus = if ($freshSettings.Contains('A_FINAL_STATUS')) { [string]$freshSettings.A_FINAL_STATUS } else { '' }
                     $freshALaunchPid = if ($freshSettings.Contains('A_LAUNCH_PID')) { [int]$freshSettings.A_LAUNCH_PID } else { 0 }
-                    if ($freshAStatus -eq 'RUNNING' -and $freshALaunchPid -gt 0) {
-                        $freshAAlive = Test-ProcessAlive -ProcessId $freshALaunchPid
-                        if ($freshAAlive) {
-                            $monitorChainGraceStartedAt = $null
-                            Write-GuardLog ("monitor_chain_grace_cancelled stage=A reason=session-revived pid={0}" -f $freshALaunchPid)
-                            Start-Sleep -Seconds $PollSec
-                            continue
-                        }
+                    $freshBStatus = if ($freshSettings.Contains('B_FINAL_STATUS')) { [string]$freshSettings.B_FINAL_STATUS } else { '' }
+                    $freshBLaunchPid = if ($freshSettings.Contains('B_LAUNCH_PID')) { [int]$freshSettings.B_LAUNCH_PID } else { 0 }
+                    $freshAAlive = ($freshAStatus -eq 'RUNNING' -and $freshALaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $freshALaunchPid))
+                    $freshBAlive = ($freshBStatus -eq 'RUNNING' -and $freshBLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $freshBLaunchPid))
+                    if ($freshAAlive -or $freshBAlive) {
+                        $revivedStage = if ($freshAAlive) { 'A' } else { 'B' }
+                        $revivedPid = if ($freshAAlive) { $freshALaunchPid } else { $freshBLaunchPid }
+                        $monitorChainGraceStartedAt = $null
+                        Write-GuardLog ("monitor_chain_grace_cancelled stage={0} reason=session-revived pid={1}" -f $revivedStage, $revivedPid)
+                        Start-Sleep -Seconds $PollSec
+                        continue
                     }
 
                     $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
@@ -6262,6 +6368,24 @@ try {
                 }
 
                 if ($autoRecoverB -and $canRecoverB) {
+                    $taskDefMismatchGateActive = (
+                        [bool]$taskDefinitionRepairTicketEnabled -and
+                        $aStatus -eq 'PASS' -and
+                        $bStatus -in @('FAIL', 'BLOCKED') -and
+                        ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch')
+                    )
+                    if ($taskDefMismatchGateActive) {
+                        Write-GuardLog ("recovery_pause reason=task_definition_mismatch_wait_fix stage=B round={0} attempts={1}/{2}" -f [string]$failureTicketMeta.MainRound, [int]$bRecoveryAttempts, [int]$MaxBRecoveryAttempts)
+                        Write-PausedSessionState -EventName 'task-definition-fix-required' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -ExtraValues @{
+                            wait_reason = 'task-definition-mismatch-wait-fix'
+                            main_round = [string]$failureTicketMeta.MainRound
+                            b_recovery_attempts = [int]$bRecoveryAttempts
+                            max_b_recovery_attempts = [int]$MaxBRecoveryAttempts
+                        }
+                        Start-Sleep -Seconds $PollSec
+                        continue
+                    }
+
                     if (-not $restartApproved) {
                         $recoveryWaitTicketContext = Get-RecoveryAwaitConfirmationTicketContext -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                         $approvalWaitSignature = [string]$recoveryWaitTicketContext.DedupSuffix
@@ -6542,8 +6666,21 @@ try {
                 }
 
                 $sessionIdleNotRun = ($sessionStatus -eq 'NOT_RUN' -and $aStatus -eq 'NOT_RUN' -and $bStatus -eq 'NOT_RUN')
+                $aMainAlive = ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid))
+                $bMainAlive = ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
+                $mainProcessAlive = ([bool]$aMainAlive -or [bool]$bMainAlive)
+                $graceStopActive = ($null -ne $mainProcessExitGraceStartedAt -or $null -ne $monitorChainGraceStartedAt)
+
                 if ($sessionIdleNotRun -and -not $triggerRequestPending) {
                     Write-GuardLog 'trigger_health_check_skipped reason=session_idle_not_run'
+                }
+                elseif (-not $mainProcessAlive -and -not $triggerRequestPending) {
+                    if ($graceStopActive) {
+                        Write-GuardLog 'trigger_health_check_skipped reason=main_process_not_running_or_grace_stop'
+                    }
+                    else {
+                        Write-GuardLog 'trigger_health_check_skipped reason=main_process_not_running'
+                    }
                 }
                 else {
                     Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'

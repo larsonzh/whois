@@ -3731,8 +3731,57 @@ $briefDetail = ''
 if ($briefSettings.Contains('detail')) {
     $briefDetail = Convert-ToSingleLineText -Text ([string]$briefSettings.detail)
 }
+$briefDetailLower = $briefDetail.ToLowerInvariant()
 $retryBudgetOneTimeOnly = ($briefDetail.ToLowerInvariant().Contains('one_time_retry_only=true'))
 $retryBudgetExhausted = ($briefDetail.ToLowerInvariant().Contains('retry_budget_exhausted=true'))
+$fingerprintDuplicateDetected = ($briefDetailLower.Contains('fingerprint_duplicate=true'))
+$retryRequiresEvidence = ($briefDetailLower.Contains('retry_requires_evidence=true'))
+
+$retryCountValue = ''
+$retryLimitValue = ''
+if (-not [string]::IsNullOrWhiteSpace($briefDetail)) {
+    $retryCountMatch = [regex]::Match($briefDetail, '(?i)\bretry_count\s*=\s*([0-9]+)')
+    if ($retryCountMatch.Success) {
+        $retryCountValue = Convert-ToSingleLineText -Text $retryCountMatch.Groups[1].Value
+    }
+    $retryLimitMatch = [regex]::Match($briefDetail, '(?i)\bretry_limit\s*=\s*([0-9]+)')
+    if ($retryLimitMatch.Success) {
+        $retryLimitValue = Convert-ToSingleLineText -Text $retryLimitMatch.Groups[1].Value
+    }
+}
+
+$fingerprintHintEn = ''
+$fingerprintHintZh = ''
+if ($fingerprintDuplicateDetected) {
+    $budgetHintEn = ''
+    $budgetHintZh = ''
+    if (-not [string]::IsNullOrWhiteSpace($retryCountValue) -and -not [string]::IsNullOrWhiteSpace($retryLimitValue)) {
+        $budgetHintEn = (' Current retry budget: {0}/{1}.' -f $retryCountValue, $retryLimitValue)
+        $budgetHintZh = (' 当前重试预算：{0}/{1}。' -f $retryCountValue, $retryLimitValue)
+    }
+
+    $evidenceHintEn = if ($retryRequiresEvidence) {
+        ' Next retry requires evidence-changing edits (taskdef hash/round imprint/source summary change).'
+    }
+    else {
+        ''
+    }
+    $evidenceHintZh = if ($retryRequiresEvidence) {
+        ' 下一次重试必须给出“证据变化型”修改（taskdef 哈希/轮次印记/源码摘要变化）。'
+    }
+    else {
+        ''
+    }
+
+    if ($retryBudgetExhausted) {
+        $fingerprintHintEn = ('Fingerprint duplicate reached retry hard-block. Do NOT repeat prior patch shape; switch repair strategy (rewrite round op anchors/order or append-mode patch), pass static check, then relaunch manually only when gate allows.{0}{1}' -f $budgetHintEn, $evidenceHintEn)
+        $fingerprintHintZh = ('检测到相同指纹且已进入重试硬阻断。禁止重复上一轮补丁形态；必须切换修复策略（重写轮次 op 锚点/顺序或采用追加补丁），静态检查通过后再按门禁允许进行人工重启。{0}{1}' -f $budgetHintZh, $evidenceHintZh)
+    }
+    else {
+        $fingerprintHintEn = ('Fingerprint duplicate detected (same failure point). AI must improve repair method instead of repeating similar edits; prefer anchor/order redesign or append-mode patch with verifiable evidence change.{0}{1}' -f $budgetHintEn, $evidenceHintEn)
+        $fingerprintHintZh = ('检测到相同指纹（同一故障点重复）。AI 必须改进修复方法，不能重复相似改动；优先采用锚点/顺序重设计或追加式补丁，并确保产生可验证证据变化。{0}{1}' -f $budgetHintZh, $evidenceHintZh)
+    }
+}
 $sessionClosedByFlagRaw = $false
 if ($startSettings.Contains('SESSION_CLOSED')) {
     $sessionClosedByFlagRaw = Convert-ToBooleanSetting -Value ([string]$startSettings.SESSION_CLOSED) -Default $false
@@ -4148,6 +4197,66 @@ elseif ($eventNormalized -eq 'chat-session-final-status') {
 }
 elseif ($eventNormalized -eq 'task-definition-fix-required') {
     $firstMessage = $taskDefinitionFixMessage -f $TicketId, $TicketEvent, $dispatchReadContextText
+
+    $taskDefLocationParts = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [string]::IsNullOrWhiteSpace($resumePreferredStage)) {
+        [void]$taskDefLocationParts.Add(('stage={0}' -f $resumePreferredStage))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($briefMainRound)) {
+        [void]$taskDefLocationParts.Add(('round={0}' -f $briefMainRound.ToUpperInvariant()))
+    }
+    if ($briefSettings.Contains('task_definition') -and -not [string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text ([string]$briefSettings.task_definition)))) {
+        [void]$taskDefLocationParts.Add(('task_definition={0}' -f (Convert-ToSingleLineText -Text ([string]$briefSettings.task_definition))))
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($briefDetail)) {
+        $stageInDetail = [regex]::Match($briefDetail, '(?i)\bstage\s*=\s*([AB])\b')
+        if ($stageInDetail.Success -and -not ($taskDefLocationParts -contains ('stage={0}' -f $stageInDetail.Groups[1].Value.ToUpperInvariant()))) {
+            [void]$taskDefLocationParts.Add(('stage={0}' -f $stageInDetail.Groups[1].Value.ToUpperInvariant()))
+        }
+
+        $roundInDetail = [regex]::Match($briefDetail, '(?i)\bround\s*=\s*([DV][0-9]+)\b')
+        if ($roundInDetail.Success -and -not ($taskDefLocationParts -contains ('round={0}' -f $roundInDetail.Groups[1].Value.ToUpperInvariant()))) {
+            [void]$taskDefLocationParts.Add(('round={0}' -f $roundInDetail.Groups[1].Value.ToUpperInvariant()))
+        }
+
+        $scopeInDetail = [regex]::Match($briefDetail, '(?i)\bscope\s*=\s*([^\s]+)')
+        if ($scopeInDetail.Success) {
+            [void]$taskDefLocationParts.Add(('scope={0}' -f (Convert-ToSingleLineText -Text $scopeInDetail.Groups[1].Value)))
+        }
+
+        $taskDefInDetail = [regex]::Match($briefDetail, '(?i)\btask_definition\s*=\s*([^\s]+)')
+        if ($taskDefInDetail.Success) {
+            $taskDefToken = (Convert-ToSingleLineText -Text $taskDefInDetail.Groups[1].Value)
+            $taskDefAlreadyIncluded = $false
+            foreach ($part in @($taskDefLocationParts.ToArray())) {
+                if ($part -eq ('task_definition={0}' -f $taskDefToken)) {
+                    $taskDefAlreadyIncluded = $true
+                    break
+                }
+            }
+            if (-not $taskDefAlreadyIncluded) {
+                [void]$taskDefLocationParts.Add(('task_definition={0}' -f $taskDefToken))
+            }
+        }
+    }
+
+    if ($taskDefLocationParts.Count -gt 0) {
+        $locationLine = if ($useChineseDispatchMessage) {
+            '已知故障位置：{0}' -f (($taskDefLocationParts.ToArray()) -join ' ')
+        }
+        else {
+            'Known failure location: {0}' -f (($taskDefLocationParts.ToArray()) -join ' ')
+        }
+        $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $locationLine)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($fingerprintHintEn) -or -not [string]::IsNullOrWhiteSpace($fingerprintHintZh)) {
+        $fingerprintHint = if ($useChineseDispatchMessage) { $fingerprintHintZh } else { $fingerprintHintEn }
+        if (-not [string]::IsNullOrWhiteSpace($fingerprintHint)) {
+            $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $fingerprintHint)
+        }
+    }
 }
 else {
     switch ($routeGuardExpected) {
@@ -4169,6 +4278,11 @@ else {
         $ruleSuffix = if ($useChineseDispatchMessage) { $selfHealRuleSuffixZh } else { $selfHealRuleSuffixEn }
         if (-not [string]::IsNullOrWhiteSpace($ruleSuffix)) {
             $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $ruleSuffix)
+        }
+
+        $fingerprintHint = if ($useChineseDispatchMessage) { $fingerprintHintZh } else { $fingerprintHintEn }
+        if (-not [string]::IsNullOrWhiteSpace($fingerprintHint)) {
+            $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $fingerprintHint)
         }
     }
 

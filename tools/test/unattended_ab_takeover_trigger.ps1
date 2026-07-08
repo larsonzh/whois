@@ -1786,7 +1786,7 @@ function New-TakeoverBrief {
     $queueRel = Convert-ToRepoRelativePath -Path $QueueFilePath
 
     $sessionCloseGate = Get-SessionCloseGateState -Settings $Settings
-    $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status' -or $eventNameNormalized -eq 'task-definition-fix-required'
+    $suppressResumeInBrief = [bool]$sessionCloseGate.closed -or $eventNameNormalized -eq 'running-status-report' -or $eventNameNormalized -eq 'chat-session-final-status'
     $startFileRel = (Convert-ToRepoRelativePath -Path $StartFilePath)
     $ticketSessionStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'session_final_status')
     if ([string]::IsNullOrWhiteSpace($ticketSessionStatus)) {
@@ -2126,6 +2126,8 @@ if (-not (Test-Path -LiteralPath $queueRoot)) {
 $script:TriggerLogPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $startFileLegacyToken))
 $script:TriggerLogWriteFailureKey = ''
 $script:TriggerLogWriteFailureLastAt = [datetime]::MinValue
+$script:TriggerWarmStartedAt = $null
+$script:TriggerWarmLastNoticeAt = $null
 $script:TriggerGraceStartedAt = $null
 $statePath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileToken)) -LegacyPath (Join-Path $queueRoot ("takeover_trigger_state_{0}.json" -f $startFileLegacyToken))
 $takeoverRoot = Join-Path $queueRoot 'takeover_requests'
@@ -2242,15 +2244,17 @@ while ($true) {
             break
         }
 
-        # Fallback: guard crash safety net. Exit if both stages terminal and no shutdown request after grace period.
+        $triggerTerminalWarmWindowEnabled = $false
+        if ($settings.Contains('AI_CHAT_TRIGGER_TERMINAL_WARM_WINDOW_ENABLED')) {
+            $triggerTerminalWarmWindowEnabled = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_TERMINAL_WARM_WINDOW_ENABLED) -Default $false
+        }
+        $triggerTerminalWarmWindowMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_TRIGGER_TERMINAL_WARM_WINDOW_MINUTES' -Default 3 -Min 1 -Max 60
+
+        # Fallback: guard crash safety net. Exit if both stages terminal and no shutdown request after warm-window + grace.
 
         $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
             ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
         if ($bothTerminal) {
-            if (-not $script:TriggerGraceStartedAt) {
-                $script:TriggerGraceStartedAt = Get-Date
-            }
-            $graceElapsed = ((Get-Date) - $script:TriggerGraceStartedAt).TotalMinutes
             $monitorChainGraceMinutes = 20
             if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
                 $parsedGrace = 0
@@ -2260,12 +2264,53 @@ while ($true) {
                     }
                 }
             }
-            if ($graceElapsed -ge $monitorChainGraceMinutes) {
-                Write-TriggerLog ('stop reason=grace-expired-no-shutdown-request elapsed_min={0:N1}' -f $graceElapsed)
-                break
+
+            $warmGateSatisfied = $true
+            if ($triggerTerminalWarmWindowEnabled) {
+                if ($null -eq $script:TriggerWarmStartedAt) {
+                    $script:TriggerWarmStartedAt = Get-Date
+                    $script:TriggerWarmLastNoticeAt = $null
+                    Write-TriggerLog ('terminal_warm_window_start warm_min={0} a={1} b={2}' -f $triggerTerminalWarmWindowMinutes, $aFinalStatus, $bFinalStatus)
+                }
+
+                $warmElapsed = ((Get-Date) - $script:TriggerWarmStartedAt).TotalMinutes
+                if ($warmElapsed -lt $triggerTerminalWarmWindowMinutes) {
+                    $warmGateSatisfied = $false
+                    if ($null -eq $script:TriggerWarmLastNoticeAt -or (((Get-Date) - $script:TriggerWarmLastNoticeAt).TotalMinutes -ge 5)) {
+                        $warmRemaining = [Math]::Max(0.0, ($triggerTerminalWarmWindowMinutes - $warmElapsed))
+                        Write-TriggerLog ('terminal_warm_window_wait elapsed_min={0:N1} remaining_min={1:N1} a={2} b={3}' -f $warmElapsed, $warmRemaining, $aFinalStatus, $bFinalStatus)
+                        $script:TriggerWarmLastNoticeAt = Get-Date
+                    }
+                    $script:TriggerGraceStartedAt = $null
+                }
+                else {
+                    if ($null -eq $script:TriggerGraceStartedAt) {
+                        Write-TriggerLog ('terminal_warm_window_complete action=enter-grace elapsed_min={0:N1} grace_min={1}' -f $warmElapsed, $monitorChainGraceMinutes)
+                    }
+                }
+            }
+            else {
+                $script:TriggerWarmStartedAt = $null
+                $script:TriggerWarmLastNoticeAt = $null
+            }
+
+            if ($warmGateSatisfied) {
+                if ($null -eq $script:TriggerGraceStartedAt) {
+                    $script:TriggerGraceStartedAt = Get-Date
+                }
+                $graceElapsed = ((Get-Date) - $script:TriggerGraceStartedAt).TotalMinutes
+                if ($graceElapsed -ge $monitorChainGraceMinutes) {
+                    Write-TriggerLog ('stop reason=grace-expired-no-shutdown-request elapsed_min={0:N1}' -f $graceElapsed)
+                    break
+                }
             }
         }
         else {
+            if ($null -ne $script:TriggerWarmStartedAt -or $null -ne $script:TriggerGraceStartedAt) {
+                Write-TriggerLog ('terminal_windows_cleared reason=stage-recovered a={0} b={1}' -f $aFinalStatus, $bFinalStatus)
+            }
+            $script:TriggerWarmStartedAt = $null
+            $script:TriggerWarmLastNoticeAt = $null
             $script:TriggerGraceStartedAt = $null
         }
 
@@ -2819,6 +2864,10 @@ while ($true) {
             chat_heartbeat_reason = [string]$chatHeartbeatState.reason
             trigger_event_driven_queue = [bool]$eventDrivenQueue
             final_stop_gate = [string]$finalStopGateMode
+            trigger_terminal_warm_window_enabled = [bool]$triggerTerminalWarmWindowEnabled
+            trigger_terminal_warm_window_minutes = [int]$triggerTerminalWarmWindowMinutes
+            trigger_terminal_warm_elapsed_seconds = if ($null -ne $script:TriggerWarmStartedAt) { [int][Math]::Max(0, [Math]::Round(((Get-Date) - $script:TriggerWarmStartedAt).TotalSeconds)) } else { -1 }
+            trigger_grace_elapsed_seconds = if ($null -ne $script:TriggerGraceStartedAt) { [int][Math]::Max(0, [Math]::Round(((Get-Date) - $script:TriggerGraceStartedAt).TotalSeconds)) } else { -1 }
         }
         $stateWriteOk = Write-JsonFileSafely -Path $statePath -Value $state
         if (-not $stateWriteOk) {
