@@ -5935,7 +5935,19 @@ try {
                             ([string]$failureTicketMeta.FailureCategory -in @('', 'unknown'))) {
                             $failureTicketMeta.FailureCategory = $startFileFailCategory
                             $failureTicketMeta.FailureEvidence = $startFileFailReason
-                            if ($startFileFailCategory -match 'runner-fail|task-definition|code-step') {
+                            if ($startFileFailCategory -match 'task-definition') {
+                                $failureTicketMeta.FailureKind = 'task-definition-mismatch'
+                                $failureTicketMeta.SelfHealable = $true
+                            }
+                            elseif ($startFileFailCategory -match 'code-step') {
+                                $failureTicketMeta.FailureKind = 'code-edit-failure'
+                                $failureTicketMeta.SelfHealable = $true
+                            }
+                            elseif ($startFileFailCategory -match 'runner-fail') {
+                                $failureTicketMeta.FailureKind = 'main-process-exit'
+                                $failureTicketMeta.SelfHealable = $true
+                            }
+                            elseif ($startFileFailCategory -match 'compile') {
                                 $failureTicketMeta.FailureKind = 'compile-failure'
                                 $failureTicketMeta.SelfHealable = $true
                             }
@@ -5949,7 +5961,7 @@ try {
                         if (-not [string]::IsNullOrWhiteSpace($startFileCompilePattern)) {
                             $selfHealHint = "compile error pattern: $startFileCompilePattern"
                         }
-                        elseif ($startFileFailCategory -match 'compile|code-step|runner-fail') {
+                        elseif ($startFileFailCategory -match 'compile') {
                             # Fallback reminder for compile-related failures without specific pattern
                             $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
                         }
