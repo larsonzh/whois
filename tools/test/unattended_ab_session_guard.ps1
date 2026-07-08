@@ -2090,7 +2090,7 @@ function Get-FailureTicketMeta {
     $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
     $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
 
-    $taskDefinitionMismatchRegex = '(?im)(task[- ]definition|regex[- ]patch|expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|replacement\s+likely\s+double-escaped|double-escaped|failonwarnings|check_task_definition_static|static\s+precheck)'
+    $taskDefinitionMismatchRegex = '(?im)(task[- ]definition|regex[- ]patch|expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|replacement\s+likely\s+double-escaped|double-escaped|failonwarnings|check_task_definition_static|static\s+precheck|auto-inject\s+failed|forward\s+declarations?\s+needed)'
     $compileErrorRegex = '(?im)(error:|compilation\s+terminated|failed\s+to\s+build|build\s+failed|undefined\s+reference|fatal\s+error)'
     $compileWarningRegex = '(?im)(warning:|\bwarning\b)'
 
