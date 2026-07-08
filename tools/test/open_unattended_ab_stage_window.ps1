@@ -2575,6 +2575,15 @@ else {
 
 $guardLauncherPath = Resolve-RepoPath -Path $guardLauncherRelative
 
+$triggerLauncherRelative = if ($settings.Contains('MONITOR_ENTRY_SCRIPT_TRIGGER') -and -not [string]::IsNullOrWhiteSpace([string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER)) {
+    [string]$settings.MONITOR_ENTRY_SCRIPT_TRIGGER
+}
+else {
+    'tools/test/open_unattended_ab_takeover_trigger_window.ps1'
+}
+
+$triggerLauncherPath = Resolve-RepoPath -Path $triggerLauncherRelative
+
 $autoStartTakeoverTrigger = if ($settings.Contains('AUTO_START_TAKEOVER_TRIGGER')) {
     Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_TAKEOVER_TRIGGER) -Default $false
 }
@@ -2703,6 +2712,223 @@ function Test-ShouldRestartMonitorRole {
     return (-not [bool]$States[$Role].RunningForStartFile)
 }
 
+function Get-BooleanSettingOrDefault {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [bool]$Default
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return $Default
+    }
+
+    return (Convert-ToBooleanSetting -Value ([string]$Settings[$Key]) -Default $Default)
+}
+
+function Get-IntSettingOrDefault {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key,
+        [int]$Default,
+        [int]$Min = 1,
+        [int]$Max = 3600
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return $Default
+    }
+
+    $parsed = 0
+    if (-not [int]::TryParse(([string]$Settings[$Key]), [ref]$parsed)) {
+        return $Default
+    }
+    if ($parsed -lt $Min -or $parsed -gt $Max) {
+        return $Default
+    }
+
+    return [int]$parsed
+}
+
+function Get-MonitorRoleReadiness {
+    param(
+        [ValidateSet('guard', 'trigger')][string]$Role,
+        [string]$StartFilePath,
+        [string]$RepoRoot,
+        [string]$ScriptLeaf
+    )
+
+    $state = Get-MonitorBindingState -ScriptLeaf $ScriptLeaf -StartFilePath $StartFilePath -RepoRoot $RepoRoot
+    $isReady = $false
+    $isZombie = $false
+    $evidence = 'not-running-for-start-file'
+
+    if ([bool]$state.RunningForStartFile -and @($state.MatchPids).Count -gt 0) {
+        $procObjects = @($state.MatchPids | ForEach-Object {
+            $matchPid = [int]$_
+            try { Get-CimInstance Win32_Process -Filter "ProcessId=$matchPid" -ErrorAction SilentlyContinue } catch { $null }
+        } | Where-Object { $null -ne $_ })
+
+        $trulyAlive = Test-RoleProcessTrulyAlive -Role $Role -Processes $procObjects -RepoRoot $RepoRoot
+        if ($trulyAlive) {
+            $isReady = $true
+            $evidence = ('running match_count={0} pids={1}' -f [int]$state.MatchCount, (@($state.MatchPids) -join ','))
+        }
+        else {
+            $isZombie = $true
+            $evidence = ('zombie-shell match_count={0} pids={1}' -f [int]$state.MatchCount, (@($state.MatchPids) -join ','))
+        }
+    }
+
+    return [pscustomobject]@{
+        Role = $Role
+        State = $state
+        Ready = [bool]$isReady
+        Zombie = [bool]$isZombie
+        Evidence = $evidence
+    }
+}
+
+function Invoke-MonitorFirstBootstrapBlockingGate {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [string]$StartFilePath,
+        [string]$RepoRoot,
+        [string]$TimelinePath,
+        [bool]$AutoStartTakeoverTrigger,
+        [string]$GuardLauncherPath,
+        [string]$TriggerLauncherPath,
+        [pscustomobject]$GuardStateAtGateBegin,
+        [pscustomobject]$TriggerStateAtGateBegin
+    )
+
+    $gateSettings = Read-KeyValueFile -Path $StartFilePath
+    $gateEnabled = Get-BooleanSettingOrDefault -Settings $gateSettings -Key 'MONITOR_FIRST_BOOTSTRAP_BLOCKING_ENABLED' -Default $true
+    if (-not $gateEnabled) {
+        Write-Output ('[OPEN-AB-STAGE] monitor_bootstrap_gate skip reason=disabled stage={0}' -f $Stage)
+        Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_skipped' -Fields @{ stage = $Stage; reason = 'disabled' }
+        return
+    }
+
+    $timeoutSec = Get-IntSettingOrDefault -Settings $gateSettings -Key 'MONITOR_FIRST_BOOTSTRAP_TIMEOUT_SEC' -Default 120 -Min 10 -Max 1800
+    $pollSec = Get-IntSettingOrDefault -Settings $gateSettings -Key 'MONITOR_FIRST_BOOTSTRAP_POLL_SEC' -Default 3 -Min 1 -Max 30
+    $maxRepairAttemptsPerRole = Get-IntSettingOrDefault -Settings $gateSettings -Key 'MONITOR_FIRST_BOOTSTRAP_MAX_REPAIR_PER_ROLE' -Default 1 -Min 0 -Max 5
+    $failClose = Get-BooleanSettingOrDefault -Settings $gateSettings -Key 'MONITOR_FIRST_BOOTSTRAP_FAIL_CLOSE' -Default $false
+
+    $guardStartedAsReuse = ($null -ne $GuardStateAtGateBegin -and [bool]$GuardStateAtGateBegin.RunningForStartFile)
+    $triggerStartedAsReuse = ($null -ne $TriggerStateAtGateBegin -and [bool]$TriggerStateAtGateBegin.RunningForStartFile)
+
+    $repairAttempts = @{ guard = 0; trigger = 0 }
+    $gateStart = Get-Date
+    $deadline = $gateStart.AddSeconds($timeoutSec)
+    $loopIndex = 0
+
+    Write-Output ('[OPEN-AB-STAGE] monitor_bootstrap_gate begin stage={0} timeout_sec={1} poll_sec={2} trigger_required={3} fail_close={4}' -f $Stage, $timeoutSec, $pollSec, [string]$AutoStartTakeoverTrigger, [string]$failClose)
+    Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_begin' -Fields @{ stage = $Stage; timeout_sec = $timeoutSec; poll_sec = $pollSec; trigger_required = [bool]$AutoStartTakeoverTrigger; fail_close = [bool]$failClose }
+
+    while ((Get-Date) -lt $deadline) {
+        $loopIndex++
+
+        $guardReady = Get-MonitorRoleReadiness -Role 'guard' -StartFilePath $StartFilePath -RepoRoot $RepoRoot -ScriptLeaf 'unattended_ab_session_guard.ps1'
+        $triggerReady = if ($AutoStartTakeoverTrigger) {
+            Get-MonitorRoleReadiness -Role 'trigger' -StartFilePath $StartFilePath -RepoRoot $RepoRoot -ScriptLeaf 'unattended_ab_takeover_trigger.ps1'
+        }
+        else {
+            [pscustomobject]@{ Ready = $true; Zombie = $false; Evidence = 'not-required'; State = $null }
+        }
+
+        if ([bool]$guardReady.Zombie -and @($guardReady.State.MatchPids).Count -gt 0) {
+            $null = Stop-MonitorProcessGracefully -ProcessIds @($guardReady.State.MatchPids)
+        }
+        if ($AutoStartTakeoverTrigger -and [bool]$triggerReady.Zombie -and @($triggerReady.State.MatchPids).Count -gt 0) {
+            $null = Stop-MonitorProcessGracefully -ProcessIds @($triggerReady.State.MatchPids)
+        }
+
+        if ([bool]$guardReady.Ready -and [bool]$triggerReady.Ready) {
+            $guardMode = if ($guardStartedAsReuse) { 'reuse' } else { 'new' }
+            $triggerMode = if (-not $AutoStartTakeoverTrigger) { 'not-required' } elseif ($triggerStartedAsReuse) { 'reuse' } else { 'new' }
+
+            $recoverUpdates = @{
+                MONITOR_CHAIN_DEGRADED = 'false'
+                MONITOR_CHAIN_DEGRADED_REASON = ''
+                MONITOR_CHAIN_DEGRADED_STAGE = ''
+                MONITOR_CHAIN_DEGRADED_ROLES = ''
+            }
+            if ($gateSettings.Contains('MONITOR_CHAIN_DEGRADED') -and (Convert-ToBooleanSetting -Value ([string]$gateSettings.MONITOR_CHAIN_DEGRADED) -Default $false)) {
+                $recoverUpdates['MONITOR_CHAIN_DEGRADED_RECOVERED_AT'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            }
+            Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values $recoverUpdates
+
+            Write-Output ('[OPEN-AB-STAGE] monitor_bootstrap_gate ready stage={0} guard_mode={1} trigger_mode={2} loops={3}' -f $Stage, $guardMode, $triggerMode, $loopIndex)
+            Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_ready' -Fields @{ stage = $Stage; guard_mode = $guardMode; trigger_mode = $triggerMode; loops = $loopIndex; guard = [string]$guardReady.Evidence; trigger = [string]$triggerReady.Evidence }
+            return
+        }
+
+        if (-not [bool]$guardReady.Ready -and [int]$repairAttempts.guard -lt $maxRepairAttemptsPerRole) {
+            $repairAttempts.guard = [int]$repairAttempts.guard + 1
+            try {
+                $guardRepairOutput = & $GuardLauncherPath -StartFile $StartFilePath -NoRestartIfRunning
+                foreach ($line in @($guardRepairOutput | ForEach-Object { [string]$_ })) {
+                    if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Output $line }
+                }
+                Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair' -Fields @{ stage = $Stage; role = 'guard'; attempt = [int]$repairAttempts.guard; action = 'launcher-invoke'; evidence = [string]$guardReady.Evidence }
+            }
+            catch {
+                Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair_failed' -Fields @{ stage = $Stage; role = 'guard'; attempt = [int]$repairAttempts.guard; detail = (Convert-ToSingleLineText -Text $_.Exception.Message) }
+            }
+        }
+
+        if ($AutoStartTakeoverTrigger -and -not [bool]$triggerReady.Ready -and [int]$repairAttempts.trigger -lt $maxRepairAttemptsPerRole) {
+            $repairAttempts.trigger = [int]$repairAttempts.trigger + 1
+            try {
+                if (Test-Path -LiteralPath $TriggerLauncherPath) {
+                    $triggerRepairOutput = & $TriggerLauncherPath -StartFile $StartFilePath -NoRestartIfRunning
+                    foreach ($line in @($triggerRepairOutput | ForEach-Object { [string]$_ })) {
+                        if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Output $line }
+                    }
+                    Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair' -Fields @{ stage = $Stage; role = 'trigger'; attempt = [int]$repairAttempts.trigger; action = 'launcher-invoke'; evidence = [string]$triggerReady.Evidence }
+                }
+            }
+            catch {
+                Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair_failed' -Fields @{ stage = $Stage; role = 'trigger'; attempt = [int]$repairAttempts.trigger; detail = (Convert-ToSingleLineText -Text $_.Exception.Message) }
+            }
+        }
+
+        $elapsedSec = [int][Math]::Floor(((Get-Date) - $gateStart).TotalSeconds)
+        Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_progress' -Fields @{ stage = $Stage; elapsed_sec = $elapsedSec; guard_ready = [bool]$guardReady.Ready; trigger_ready = [bool]$triggerReady.Ready; guard_attempts = [int]$repairAttempts.guard; trigger_attempts = [int]$repairAttempts.trigger; guard_evidence = [string]$guardReady.Evidence; trigger_evidence = [string]$triggerReady.Evidence }
+
+        Start-Sleep -Seconds $pollSec
+    }
+
+    $finalGuard = Get-MonitorRoleReadiness -Role 'guard' -StartFilePath $StartFilePath -RepoRoot $RepoRoot -ScriptLeaf 'unattended_ab_session_guard.ps1'
+    $finalTrigger = if ($AutoStartTakeoverTrigger) {
+        Get-MonitorRoleReadiness -Role 'trigger' -StartFilePath $StartFilePath -RepoRoot $RepoRoot -ScriptLeaf 'unattended_ab_takeover_trigger.ps1'
+    }
+    else {
+        [pscustomobject]@{ Ready = $true; Evidence = 'not-required' }
+    }
+
+    $missingRoles = New-Object 'System.Collections.Generic.List[string]'
+    if (-not [bool]$finalGuard.Ready) { [void]$missingRoles.Add('guard') }
+    if ($AutoStartTakeoverTrigger -and -not [bool]$finalTrigger.Ready) { [void]$missingRoles.Add('trigger') }
+
+    $degradedReason = ('monitor_bootstrap_timeout stage={0} missing={1} guard={2} trigger={3} attempts_guard={4} attempts_trigger={5}' -f $Stage, ($missingRoles -join ','), [string]$finalGuard.Evidence, [string]$finalTrigger.Evidence, [int]$repairAttempts.guard, [int]$repairAttempts.trigger)
+    Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
+        MONITOR_CHAIN_DEGRADED = 'true'
+        MONITOR_CHAIN_DEGRADED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        MONITOR_CHAIN_DEGRADED_STAGE = $Stage
+        MONITOR_CHAIN_DEGRADED_REASON = (Convert-ToBoundedSingleLineText -Text $degradedReason -MaxChars 280)
+        MONITOR_CHAIN_DEGRADED_ROLES = ($missingRoles -join ',')
+    }
+
+    Write-Output ('[OPEN-AB-STAGE] monitor_bootstrap_gate timeout stage={0} missing={1} action=degraded-continue fail_close={2}' -f $Stage, ($missingRoles -join ','), [string]$failClose)
+    Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_timeout' -Fields @{ stage = $Stage; missing = @($missingRoles); guard = [string]$finalGuard.Evidence; trigger = [string]$finalTrigger.Evidence; attempts_guard = [int]$repairAttempts.guard; attempts_trigger = [int]$repairAttempts.trigger; fail_close = [bool]$failClose }
+
+    if ($failClose) {
+        throw ('[OPEN-AB-STAGE] monitor bootstrap blocking gate failed (fail-close): {0}' -f $degradedReason)
+    }
+}
+
 $restartGuard = Test-ShouldRestartMonitorRole -Role 'guard' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
 if ($restartGuard) {
     if (-not $bForceMonitorRestart -and $monitorStates.ContainsKey('guard')) {
@@ -2805,6 +3031,16 @@ if ($autoStartTakeoverTrigger) {
 else {
     Write-Output '[OPEN-AB-STAGE] trigger_autostart_skipped enabled=false'
 }
+
+$guardStateAtGateBegin = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+$triggerStateAtGateBegin = if ($autoStartTakeoverTrigger) {
+    Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+}
+else {
+    $null
+}
+
+Invoke-MonitorFirstBootstrapBlockingGate -Stage $Stage -StartFilePath $startFilePath -RepoRoot $repoRoot -TimelinePath $monitorTimelinePath -AutoStartTakeoverTrigger $autoStartTakeoverTrigger -GuardLauncherPath $guardLauncherPath -TriggerLauncherPath $triggerLauncherPath -GuardStateAtGateBegin $guardStateAtGateBegin -TriggerStateAtGateBegin $triggerStateAtGateBegin
 
 $anchorUpdates = @{}
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
