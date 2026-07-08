@@ -21,6 +21,18 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePath = Resolve-StartFilePathFromEnv
+    try {
+        $startFileHash = [System.BitConverter]::ToString(
+            [System.Security.Cryptography.SHA1]::Create().ComputeHash(
+                [System.Text.Encoding]::UTF8.GetBytes(
+                    [System.IO.Path]::GetFullPath($startFilePath).ToLowerInvariant()
+                )
+            )
+        ).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+        $host.UI.RawUI.WindowTitle = "whois-main-stage-a-$startFileHash"
+    }
+    catch { $null = $_ }
+
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
     Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A'
     Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-A' -StartFilePath $startFilePath
