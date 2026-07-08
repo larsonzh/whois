@@ -210,8 +210,9 @@ function Export-FileTail {
 function Write-GuardLog {
     param([string]$Message)
 
-    $line = "[AB-SESSION-GUARD] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Message
-    Write-Host $line
+    $safeMessage = Convert-ToSingleLineText -Text ([string]$Message)
+    $line = "[AB-SESSION-GUARD] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $safeMessage
+    Write-Output $line
     try {
         Add-Content -LiteralPath $script:GuardLogPath -Value $line -Encoding utf8
     }
@@ -227,9 +228,10 @@ function Write-GuardRawLine {
         return
     }
 
-    Write-Host $Message
+    $safeMessage = Convert-ToSingleLineText -Text ([string]$Message)
+    Write-Output $safeMessage
     try {
-        Add-Content -LiteralPath $script:GuardLogPath -Value $Message -Encoding utf8
+        Add-Content -LiteralPath $script:GuardLogPath -Value $safeMessage -Encoding utf8
     }
     catch {
         Write-Warning ("[AB-SESSION-GUARD] log_write_failed path={0}" -f $script:GuardLogPath)
@@ -4870,7 +4872,10 @@ try {
 
             $triggerRestartRequest = Get-TriggerRestartRequestFromStartFile -StartFilePath $script:StartFilePath
             if ([bool]$triggerRestartRequest.Requested) {
-                Write-GuardLog ("trigger_restart_request_consume source={0} reason={1} requested_at={2}" -f [string]$triggerRestartRequest.Source, [string]$triggerRestartRequest.Reason, [string]$triggerRestartRequest.RequestedAt)
+                $consumeSource = Convert-ToSingleLineText -Text ([string]$triggerRestartRequest.Source)
+                $consumeReason = Convert-ToSingleLineText -Text ([string]$triggerRestartRequest.Reason)
+                $consumeRequestedAt = Convert-ToSingleLineText -Text ([string]$triggerRestartRequest.RequestedAt)
+                Write-GuardLog ("event=trigger_restart_request_consume source={0} reason={1} requested_at={2}" -f $consumeSource, $consumeReason, $consumeRequestedAt)
                 Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ' -ForceTriggerRestartOnRequest $true
             }
 
