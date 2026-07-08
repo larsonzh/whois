@@ -6683,6 +6683,7 @@ try {
                     }
                 }
                 else {
+                    Write-GuardLog ("trigger_health_check_run reason=interval poll_sec={0} request_pending={1} main_process_alive={2}" -f $PollSec, [bool]$triggerRequestPending, [bool]$mainProcessAlive)
                     Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-HC'
                 }
             }
