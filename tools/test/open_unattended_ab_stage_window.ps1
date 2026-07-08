@@ -2764,16 +2764,37 @@ if ($autoStartTakeoverTrigger) {
             ($triggerStateObj.MatchPids -join ','))
     }
 
+    # Re-probe trigger state at request time to avoid using stale state captured
+    # before guard/monitor launch side effects complete.
+    $triggerStateLatest = Get-MonitorBindingState -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+    if ($null -eq $monitorStates) {
+        $monitorStates = @{}
+    }
+    $monitorStates.trigger = $triggerStateLatest
+
     $restartTrigger = Test-ShouldRestartMonitorRole -Role 'trigger' -ForceRestart $bForceMonitorRestart -SkipRestart $skipMonitorRestart -States $monitorStates
     if ($restartTrigger) {
         $triggerRequestReason = ('stage={0} monitor_chain_bootstrap auto_start_takeover_trigger=true' -f $Stage)
-        $requestOk = Request-TriggerRestartInStartFile -StartFilePath $startFilePath -Reason $triggerRequestReason -Source 'open_unattended_ab_stage_window.ps1'
-        if ($requestOk) {
-            Write-Output ("[OPEN-AB-STAGE] trigger_restart_requested_via_guard stage={0}" -f $Stage)
-            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'trigger_restart_requested' -Fields @{ stage = $Stage; source = 'stage-window'; reason = $triggerRequestReason }
+        $pendingTriggerRequest = Get-TriggerRestartRequestFromStartFile -StartFilePath $startFilePath
+        $duplicatePendingBootstrapRequest = (
+            [bool]$pendingTriggerRequest.Requested -and
+            ([string]$pendingTriggerRequest.Source -eq 'open_unattended_ab_stage_window.ps1') -and
+            ([string]$pendingTriggerRequest.Reason -eq $triggerRequestReason)
+        )
+
+        if ($duplicatePendingBootstrapRequest) {
+            Write-Output ("[OPEN-AB-STAGE] trigger_restart_skip reason=duplicate-pending-bootstrap-request stage={0}" -f $Stage)
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'trigger_restart_skipped' -Fields @{ stage = $Stage; source = 'stage-window'; reason = 'duplicate-pending-bootstrap-request' }
         }
         else {
-            Write-Output ("[OPEN-AB-STAGE] trigger_restart_request_failed stage={0}" -f $Stage)
+            $requestOk = Request-TriggerRestartInStartFile -StartFilePath $startFilePath -Reason $triggerRequestReason -Source 'open_unattended_ab_stage_window.ps1'
+            if ($requestOk) {
+                Write-Output ("[OPEN-AB-STAGE] trigger_restart_requested_via_guard stage={0}" -f $Stage)
+                Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'trigger_restart_requested' -Fields @{ stage = $Stage; source = 'stage-window'; reason = $triggerRequestReason }
+            }
+            else {
+                Write-Output ("[OPEN-AB-STAGE] trigger_restart_request_failed stage={0}" -f $Stage)
+            }
         }
     }
     else {
