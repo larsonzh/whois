@@ -2373,7 +2373,15 @@ if ($autoStartMonitorsPlanned) {
     [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateSeed | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
     Set-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_FILE' -Value $monitorBootstrapGateFile
 
-    $gateWaitSec = Get-IntSettingOrDefault -Settings $settings -Key 'MONITOR_FIRST_BOOTSTRAP_TIMEOUT_SEC' -Default 120 -Min 10 -Max 1800
+    $gateWaitSec = 120
+    if ($settings.Contains('MONITOR_FIRST_BOOTSTRAP_TIMEOUT_SEC')) {
+        $parsedGateWaitSec = 0
+        if ([int]::TryParse(([string]$settings.MONITOR_FIRST_BOOTSTRAP_TIMEOUT_SEC), [ref]$parsedGateWaitSec)) {
+            if ($parsedGateWaitSec -ge 10 -and $parsedGateWaitSec -le 1800) {
+                $gateWaitSec = $parsedGateWaitSec
+            }
+        }
+    }
     Set-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_MAX_WAIT_SEC' -Value ([string]([Math]::Max(60, $gateWaitSec + 30)))
 }
 else {
