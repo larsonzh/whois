@@ -1130,6 +1130,57 @@ function Add-RoundTaskStaticGateTicket {
     }
 }
 
+function Wait-MonitorBootstrapGateIfNeeded {
+    param(
+        [AllowEmptyString()][string]$GateFilePath,
+        [int]$DefaultMaxWaitSec = 240
+    )
+
+    if ([string]::IsNullOrWhiteSpace($GateFilePath)) {
+        return
+    }
+
+    $resolvedGatePath = if ([System.IO.Path]::IsPathRooted($GateFilePath)) {
+        [System.IO.Path]::GetFullPath($GateFilePath)
+    }
+    else {
+        [System.IO.Path]::GetFullPath((Join-Path $repoRoot $GateFilePath))
+    }
+
+    $maxWaitSec = Resolve-IntSettingFromEnv -EnvName 'AUTO_MONITOR_BOOTSTRAP_GATE_MAX_WAIT_SEC' -Default $DefaultMaxWaitSec -Min 30 -Max 3600
+    Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait begin file={0} timeout_sec={1}" -f $resolvedGatePath, $maxWaitSec)
+
+    $deadline = (Get-Date).AddSeconds($maxWaitSec)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Test-Path -LiteralPath $resolvedGatePath)) {
+            Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait skip reason=missing file={0}" -f $resolvedGatePath)
+            return
+        }
+
+        $raw = ''
+        try {
+            $raw = [string](Get-Content -LiteralPath $resolvedGatePath -Raw -Encoding utf8 -ErrorAction Stop)
+        }
+        catch {
+            Start-Sleep -Milliseconds 500
+            continue
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($raw)) {
+            $lower = $raw.ToLowerInvariant()
+            if ($lower -match '"status"\s*:\s*"ready"' -or $lower -match '"status"\s*:\s*"degraded"') {
+                $statusToken = if ($lower -match '"status"\s*:\s*"degraded"') { 'degraded' } else { 'ready' }
+                Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait release status={0} file={1}" -f $statusToken, $resolvedGatePath)
+                return
+            }
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    throw ("[DEV-VERIFY-MULTI] monitor bootstrap gate timed out before round loop: file={0} timeout_sec={1}" -f $resolvedGatePath, $maxWaitSec)
+}
+
 function Invoke-RoundTaskStaticGate {
     param(
         [string]$RepoRoot,
@@ -1520,6 +1571,9 @@ elseif ($null -ne $terminalWatchdogProcess) {
 else {
     Write-Output "[DEV-VERIFY-MULTI] terminal_watchdog=failed"
 }
+
+$monitorBootstrapGateFile = Get-EnvRawValue -Name 'AUTO_MONITOR_BOOTSTRAP_GATE_FILE'
+Wait-MonitorBootstrapGateIfNeeded -GateFilePath $monitorBootstrapGateFile -DefaultMaxWaitSec 240
 
 $rows = @()
 $devRoundDecisions = @{}

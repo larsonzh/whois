@@ -2330,6 +2330,57 @@ else {
 
 Set-Item -Path 'Env:AUTO_START_FILE_PATH' -Value $startFilePath
 
+$autoStartMonitorsPlanned = $false
+if ($Stage -eq 'A') {
+    $autoStartMonitorsPlanned = if ($StartMonitors.IsPresent) {
+        $true
+    }
+    elseif ($settings.Contains('AUTO_START_MONITORS')) {
+        Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $false
+    }
+    else {
+        $false
+    }
+}
+elseif ($EnableBMonitorRestart.IsPresent) {
+    $autoStartMonitorsPlanned = $true
+}
+elseif ($Stage -eq 'B') {
+    $autoStartMonitorsPlanned = if ($settings.Contains('AUTO_START_MONITORS')) {
+        Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $true
+    }
+    else {
+        $true
+    }
+}
+
+$monitorBootstrapGateFile = ''
+if ($autoStartMonitorsPlanned) {
+    $gateDir = Join-Path $repoRoot 'out\artifacts\ab_monitor_gate'
+    if (-not (Test-Path -LiteralPath $gateDir)) {
+        New-Item -ItemType Directory -Path $gateDir -Force | Out-Null
+    }
+
+    $gateStamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    $monitorBootstrapGateFile = Join-Path $gateDir ("monitor_bootstrap_gate_{0}_{1}.json" -f $Stage.ToLowerInvariant(), $gateStamp)
+    $gateSeed = [pscustomobject]@{
+        schema = 'AB_MONITOR_BOOTSTRAP_GATE_V1'
+        status = 'pending'
+        stage = $Stage
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        reason = 'waiting-monitor-bootstrap-gate'
+    }
+    [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateSeed | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+    Set-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_FILE' -Value $monitorBootstrapGateFile
+
+    $gateWaitSec = Get-IntSettingOrDefault -Settings $settings -Key 'MONITOR_FIRST_BOOTSTRAP_TIMEOUT_SEC' -Default 120 -Min 10 -Max 1800
+    Set-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_MAX_WAIT_SEC' -Value ([string]([Math]::Max(60, $gateWaitSec + 30)))
+}
+else {
+    Remove-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_FILE' -ErrorAction SilentlyContinue
+    Remove-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_MAX_WAIT_SEC' -ErrorAction SilentlyContinue
+}
+
 $keepWindowOnExit = if ($settings.Contains('KEEP_WINDOW_ON_EXIT')) {
     Convert-ToBooleanSetting -Value ([string]$settings.KEEP_WINDOW_ON_EXIT) -Default $true
 }
@@ -2451,29 +2502,7 @@ Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $statusUpdates
 $settings = Read-KeyValueFile -Path $startFilePath
 Write-Output ("[OPEN-AB-STAGE] stage_status_update stage={0} session_status=RUNNING" -f $Stage)
 
-$autoStartMonitors = $false
-if ($Stage -eq 'A') {
-    $autoStartMonitors = if ($StartMonitors.IsPresent) {
-        $true
-    }
-    elseif ($settings.Contains('AUTO_START_MONITORS')) {
-        Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $false
-    }
-    else {
-        $false
-    }
-}
-elseif ($EnableBMonitorRestart.IsPresent) {
-    $autoStartMonitors = $true
-}
-elseif ($Stage -eq 'B') {
-    $autoStartMonitors = if ($settings.Contains('AUTO_START_MONITORS')) {
-        Convert-ToBooleanSetting -Value ([string]$settings.AUTO_START_MONITORS) -Default $true
-    }
-    else {
-        $true
-    }
-}
+$autoStartMonitors = $autoStartMonitorsPlanned
 
 if (-not $autoStartMonitors) {
     exit 0
@@ -3040,7 +3069,34 @@ else {
     $null
 }
 
-Invoke-MonitorFirstBootstrapBlockingGate -Stage $Stage -StartFilePath $startFilePath -RepoRoot $repoRoot -TimelinePath $monitorTimelinePath -AutoStartTakeoverTrigger $autoStartTakeoverTrigger -GuardLauncherPath $guardLauncherPath -TriggerLauncherPath $triggerLauncherPath -GuardStateAtGateBegin $guardStateAtGateBegin -TriggerStateAtGateBegin $triggerStateAtGateBegin
+$monitorGateStatus = 'ready'
+$monitorGateReason = 'monitor-bootstrap-ready'
+try {
+    Invoke-MonitorFirstBootstrapBlockingGate -Stage $Stage -StartFilePath $startFilePath -RepoRoot $repoRoot -TimelinePath $monitorTimelinePath -AutoStartTakeoverTrigger $autoStartTakeoverTrigger -GuardLauncherPath $guardLauncherPath -TriggerLauncherPath $triggerLauncherPath -GuardStateAtGateBegin $guardStateAtGateBegin -TriggerStateAtGateBegin $triggerStateAtGateBegin
+}
+finally {
+    if (-not [string]::IsNullOrWhiteSpace($monitorBootstrapGateFile)) {
+        if ($settings.Contains('MONITOR_CHAIN_DEGRADED') -and (Convert-ToBooleanSetting -Value ([string]$settings.MONITOR_CHAIN_DEGRADED) -Default $false)) {
+            $monitorGateStatus = 'degraded'
+            $monitorGateReason = if ($settings.Contains('MONITOR_CHAIN_DEGRADED_REASON')) {
+                Convert-ToSingleLineText -Text ([string]$settings.MONITOR_CHAIN_DEGRADED_REASON)
+            }
+            else {
+                'monitor-bootstrap-degraded'
+            }
+        }
+
+        $gateRelease = [pscustomobject]@{
+            schema = 'AB_MONITOR_BOOTSTRAP_GATE_V1'
+            status = $monitorGateStatus
+            stage = $Stage
+            released_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            reason = $monitorGateReason
+        }
+        [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateRelease | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+        Write-Output ("[OPEN-AB-STAGE] monitor_bootstrap_gate release stage={0} status={1} file={2}" -f $Stage, $monitorGateStatus, (Convert-ToAnchorPath -Path $monitorBootstrapGateFile))
+    }
+}
 
 $anchorUpdates = @{}
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {

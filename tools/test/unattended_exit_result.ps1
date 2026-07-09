@@ -156,6 +156,16 @@ function Test-RoleProcessTrulyAlive {
         $cmdLine = [string]$proc.CommandLine
         if ([string]::IsNullOrWhiteSpace($cmdLine)) { continue }
 
+        $procStartTime = $null
+        try {
+            if ($null -ne $proc.PSObject.Properties['CreationDate'] -and -not [string]::IsNullOrWhiteSpace([string]$proc.CreationDate)) {
+                $procStartTime = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$proc.CreationDate)
+            }
+        }
+        catch {
+            $procStartTime = $null
+        }
+
         # Derive state file path from role and start-file
         $roleStateRoot = switch ($Role) {
             'guard'      { Join-Path $RepoRoot 'out\artifacts\ab_session_guard' }
@@ -228,6 +238,22 @@ function Test-RoleProcessTrulyAlive {
             }
         }
 
+        $stateLastWriteTime = $null
+        try {
+            if (Test-Path -LiteralPath $statePath) {
+                $stateLastWriteTime = (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime
+            }
+        }
+        catch {
+            $stateLastWriteTime = $null
+        }
+
+        $statePredatesProcessStart = $false
+        if ($null -ne $procStartTime -and $null -ne $stateLastWriteTime) {
+            # Small tolerance to avoid clock jitter false positives.
+            $statePredatesProcessStart = (($procStartTime - $stateLastWriteTime).TotalSeconds -gt 2)
+        }
+
         # Read state file and check for terminal markers
         try {
             $rawState = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
@@ -239,6 +265,21 @@ function Test-RoleProcessTrulyAlive {
                     $lowerState -match '"status":\s*"shutdown"' -or
                     $lowerState -match '"status":\s*"fail"' -or
                     $lowerState -match '"event":\s*"shutdown"') {
+                    if ($statePredatesProcessStart) {
+                        # The state file still contains the previous instance terminal marker.
+                        # Give the newly spawned process a short warm-up grace window to refresh state.
+                        $warmupWindowSec = switch ($Role) {
+                            'trigger' { [Math]::Max(45, $pollSecDetected + 15) }
+                            'guard' { 45 }
+                            default { 30 }
+                        }
+                        if ($null -ne $procStartTime) {
+                            $procAgeSec = (Get-Date - $procStartTime).TotalSeconds
+                            if ($procAgeSec -le $warmupWindowSec) {
+                                return $true
+                            }
+                        }
+                    }
                     continue  # This instance terminated, check next process
                 }
 
@@ -262,6 +303,19 @@ function Test-RoleProcessTrulyAlive {
         if ($staleThreshold -gt 0) {
             $now = Get-Date
             $fileAge = ($now - (Get-Item -LiteralPath $statePath -ErrorAction SilentlyContinue).LastWriteTime).TotalSeconds
+
+            if ($statePredatesProcessStart -and $null -ne $procStartTime) {
+                $warmupWindowSec = switch ($Role) {
+                    'trigger' { [Math]::Max(45, $pollSecDetected + 15) }
+                    'guard' { 45 }
+                    default { 30 }
+                }
+                $procAgeSec = ($now - $procStartTime).TotalSeconds
+                if ($procAgeSec -le $warmupWindowSec) {
+                    return $true
+                }
+            }
+
             if ($fileAge -gt $staleThreshold) {
                 continue  # State file stale -> script terminated, treat as zombie
             }
