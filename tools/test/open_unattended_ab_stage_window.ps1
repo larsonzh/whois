@@ -3104,6 +3104,26 @@ finally {
         [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateRelease | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
         Write-Output ("[OPEN-AB-STAGE] monitor_bootstrap_gate release stage={0} status={1} file={2}" -f $Stage, $monitorGateStatus, (Convert-ToAnchorPath -Path $monitorBootstrapGateFile))
     }
+
+    if ($autoStartTakeoverTrigger -and $monitorGateStatus -eq 'ready') {
+        $bootstrapRequestReason = ('stage={0} monitor_chain_bootstrap auto_start_takeover_trigger=true' -f $Stage)
+        $pendingBootstrapRequest = Get-TriggerRestartRequestFromStartFile -StartFilePath $startFilePath
+        $shouldClearBootstrapRequest = (
+            [bool]$pendingBootstrapRequest.Requested -and
+            ([string]$pendingBootstrapRequest.Source -eq 'open_unattended_ab_stage_window.ps1') -and
+            ([string]$pendingBootstrapRequest.Reason -eq $bootstrapRequestReason)
+        )
+
+        if ($shouldClearBootstrapRequest) {
+            $cleared = Write-TriggerLastActionInStartFile -StartFilePath $startFilePath -Action 'bootstrap-trigger-request-cleared' -ActionBy 'stage-window' -Detail ('stage={0} gate_status=ready' -f $Stage) -ClearRequest $true
+            if ($cleared) {
+                Write-Output ("[OPEN-AB-STAGE] trigger_restart_request_cleared stage={0} reason=bootstrap-ready" -f $Stage)
+            }
+            else {
+                Write-Output ("[OPEN-AB-STAGE] trigger_restart_request_clear_failed stage={0} reason=bootstrap-ready" -f $Stage)
+            }
+        }
+    }
 }
 
 $anchorUpdates = @{}

@@ -280,6 +280,7 @@ function Test-ExistingMonitorProcessAlive {
     return $false
 }
 
+
 function Clear-OrphanedMonitorConsole {
     param(
         [string]$Role,

@@ -377,7 +377,15 @@ function Invoke-MonitorChainHealthCheck {
             if (-not $sfMatch.Success) { return $false }
 
             $procStartFile = $sfMatch.Groups[1].Value
-            $procStartFileNormalized = try { [System.IO.Path]::GetFullPath($procStartFile).ToLowerInvariant() } catch { return $false }
+            $procStartFileNormalized = try {
+                $candidateStartFile = if ([System.IO.Path]::IsPathRooted($procStartFile)) {
+                    [System.IO.Path]::GetFullPath($procStartFile)
+                }
+                else {
+                    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $procStartFile))
+                }
+                $candidateStartFile.ToLowerInvariant()
+            } catch { return $false }
             return ($procStartFileNormalized -eq $startFileIdentity)
         })
 
@@ -403,7 +411,61 @@ function Invoke-MonitorChainHealthCheck {
         }
 
         if (@($found).Count -eq 0) {
-            if ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and -not $isGuardContext) {
+            $preferDirectTriggerRestart = (
+                $rn -eq 'trigger' -and
+                -not $isGuardContext -and
+                [string]$LogPrefix -eq 'DEV-VERIFY-MULTI'
+            )
+
+            if ($rn -eq 'trigger' -and $isGuardContext) {
+                # Guard-side relaxed reuse probe: strict start-file binding can miss in transient
+                # command-line normalization windows; if any trigger instance is alive, reuse it.
+                $guardRelaxedCandidates = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+                    $probeCmdLine = [string]$_.CommandLine
+                    if ([string]::IsNullOrWhiteSpace($probeCmdLine)) { return $false }
+                    $probeCmdLine.ToLowerInvariant().Contains('unattended_ab_takeover_trigger.ps1')
+                })
+
+                $guardRelaxedAlive = Test-RoleProcessTrulyAlive -Role $rn -Processes $guardRelaxedCandidates -RepoRoot $RepoRoot
+                if ($guardRelaxedAlive) {
+                    $requestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $StartFilePath
+                    if ([bool]$requestState.Requested) {
+                        $requestDetail = ('request_source={0} request_reason={1} fallback=guard-relaxed-reuse' -f [string]$requestState.Source, [string]$requestState.Reason)
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-request-cleared' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                    }
+                    Write-Output ("[{0}] timestamp={1} role={2} action=request-cleared-no-restart reason=guard-relaxed-reuse" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                    continue
+                }
+            }
+
+            if ($rn -eq 'trigger' -and $isGuardContext -and $ForceTriggerRestartOnRequest) {
+                $requestState = Get-TriggerRestartRequestFromStartFile -StartFilePath $StartFilePath
+                $isStageBootstrapRequest = (
+                    [bool]$requestState.Requested -and
+                    ([string]$requestState.Source -eq 'open_unattended_ab_stage_window.ps1') -and
+                    ([string]$requestState.Reason -like '*monitor_chain_bootstrap*')
+                )
+
+                if ($isStageBootstrapRequest) {
+                    # Fallback reuse probe: if strict start-file matching misses but any trigger instance
+                    # is still alive, treat this bootstrap request as stale and clear it without restart.
+                    $relaxedCandidates = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+                        $probeCmdLine = [string]$_.CommandLine
+                        if ([string]::IsNullOrWhiteSpace($probeCmdLine)) { return $false }
+                        $probeCmdLine.ToLowerInvariant().Contains('unattended_ab_takeover_trigger.ps1')
+                    })
+
+                    $relaxedAlive = Test-RoleProcessTrulyAlive -Role $rn -Processes $relaxedCandidates -RepoRoot $RepoRoot
+                    if ($relaxedAlive) {
+                        $requestDetail = ('request_source={0} request_reason={1} fallback=relaxed-probe' -f [string]$requestState.Source, [string]$requestState.Reason)
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'trigger-alive-bootstrap-request-cleared' -ActionBy 'guard' -Detail $requestDetail -ClearRequest $true
+                        Write-Output ("[{0}] timestamp={1} role={2} action=request-cleared-no-restart reason=bootstrap-request-while-alive-relaxed" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                        continue
+                    }
+                }
+            }
+
+            if ($GuardArbitratedTrigger -and $rn -eq 'trigger' -and -not $isGuardContext -and -not $preferDirectTriggerRestart) {
                 $requestSource = $LogPrefix
                 $requestReason = ('role=trigger missing_process start_file={0}' -f $StartFilePath)
                 $requested = Request-TriggerRestartInStartFile -StartFilePath $StartFilePath -Reason $requestReason -Source $requestSource
@@ -416,17 +478,27 @@ function Invoke-MonitorChainHealthCheck {
                 continue
             }
 
+            if ($preferDirectTriggerRestart) {
+                Write-Output ("[{0}] timestamp={1} role={2} action=restart-direct source=DEV-VERIFY-MULTI" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+            }
+
             $launcherPath = Join-Path $RepoRoot ([string]$entry.p)
             if (Test-Path -LiteralPath $launcherPath) {
                 try {
                     Start-Process -WindowStyle Hidden -FilePath 'powershell' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$launcherPath`" -StartFile `"$StartFilePath`" -NoRestartIfRunning"
                     Write-Output ("[{0}] timestamp={1} role={2} action=restart" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn)
+                    if ($preferDirectTriggerRestart) {
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-direct' -ActionBy 'dev-verify-multi' -Detail ('source={0}' -f $LogPrefix) -ClearRequest $true
+                    }
                     if ($rn -eq 'trigger' -and $isGuardContext) {
                         $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger' -ActionBy 'guard' -Detail ('source={0}' -f $LogPrefix) -ClearRequest $true
                     }
                 }
                 catch {
                     Write-Output ("[{0}] timestamp={1} role={2} action=restart_failed detail={3}" -f $LogPrefix, (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $rn, $_.Exception.Message)
+                    if ($preferDirectTriggerRestart) {
+                        $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-direct-failed' -ActionBy 'dev-verify-multi' -Detail (Convert-ToSingleLineTextForMonitorChain -Text $_.Exception.Message) -ClearRequest $false
+                    }
                     if ($rn -eq 'trigger' -and $isGuardContext) {
                         $null = Write-TriggerLastActionInStartFile -StartFilePath $StartFilePath -Action 'restart-trigger-failed' -ActionBy 'guard' -Detail (Convert-ToSingleLineTextForMonitorChain -Text $_.Exception.Message) -ClearRequest $false
                     }

@@ -4876,7 +4876,24 @@ try {
                 $consumeReason = Convert-ToSingleLineText -Text ([string]$triggerRestartRequest.Reason)
                 $consumeRequestedAt = Convert-ToSingleLineText -Text ([string]$triggerRestartRequest.RequestedAt)
                 Write-GuardLog ("event=trigger_restart_request_consume source={0} reason={1} requested_at={2}" -f $consumeSource, $consumeReason, $consumeRequestedAt)
-                Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ' -ForceTriggerRestartOnRequest $true
+
+                $isBootstrapConsume = (
+                    ([string]$consumeSource -eq 'open_unattended_ab_stage_window.ps1') -and
+                    ([string]$consumeReason -like '*monitor_chain_bootstrap*')
+                )
+
+                if ($isBootstrapConsume) {
+                    $consumeDetail = ('request_source={0} request_reason={1} requested_at={2} policy=bootstrap-no-force' -f $consumeSource, $consumeReason, $consumeRequestedAt)
+                    $null = Write-TriggerLastActionInStartFile -StartFilePath $script:StartFilePath -Action 'bootstrap-trigger-request-cleared' -ActionBy 'guard' -Detail $consumeDetail -ClearRequest $true
+                    Write-GuardLog ("event=trigger_restart_request_skip reason=bootstrap-no-force")
+
+                    # Bootstrap request is one-shot; after clearing, run a normal health check.
+                    # This preserves reuse when trigger is already alive and only starts a new one when missing.
+                    Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ' -ForceTriggerRestartOnRequest $false
+                }
+                else {
+                    Invoke-MonitorChainHealthCheck -Roles @('trigger') -RepoRoot $script:RepoRoot -StartFilePath $script:StartFilePath -LogPrefix 'GUARD-REQ' -ForceTriggerRestartOnRequest $true
+                }
             }
 
             if ($null -ne $mainProcessExitGraceStartedAt) {
