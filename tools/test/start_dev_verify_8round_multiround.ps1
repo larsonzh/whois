@@ -1130,6 +1130,95 @@ function Add-RoundTaskStaticGateTicket {
     }
 }
 
+function Get-NormalizedPathIdentity {
+    param(
+        [AllowEmptyString()][string]$Path,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+            [System.IO.Path]::GetFullPath($Path)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+        }
+
+        return $resolved.ToLowerInvariant()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-StartFilePathFromCommandLine {
+    param(
+        [AllowEmptyString()][string]$CommandLine,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return ''
+    }
+
+    $match = [regex]::Match($CommandLine, '(?i)(?:^|\s)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $rawPath = if ($match.Groups[2].Success) {
+        $match.Groups[2].Value
+    }
+    elseif ($match.Groups[3].Success) {
+        $match.Groups[3].Value
+    }
+    else {
+        $match.Groups[4].Value
+    }
+
+    return Get-NormalizedPathIdentity -Path $rawPath -RepoRoot $RepoRoot
+}
+
+function Test-MonitorRoleRunningForStartFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptLeaf,
+        [Parameter(Mandatory = $true)][string]$StartFilePath,
+        [Parameter(Mandatory = $true)][string]$RepoRoot
+    )
+
+    $startFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    if ([string]::IsNullOrWhiteSpace($startFileIdentity)) {
+        return $false
+    }
+
+    $candidateProcesses = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $candidateProcesses) {
+        $cmdLine = [string]$proc.CommandLine
+        if ([string]::IsNullOrWhiteSpace($cmdLine)) {
+            continue
+        }
+
+        if (-not $cmdLine.ToLowerInvariant().Contains($ScriptLeaf.ToLowerInvariant())) {
+            continue
+        }
+
+        $procStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $cmdLine -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($procStartFileIdentity)) {
+            continue
+        }
+
+        if ($procStartFileIdentity -eq $startFileIdentity) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Wait-MonitorBootstrapGateIfNeeded {
     param(
         [AllowEmptyString()][string]$GateFilePath,
@@ -1176,6 +1265,31 @@ function Wait-MonitorBootstrapGateIfNeeded {
         }
 
         Start-Sleep -Seconds 1
+    }
+
+    $fallbackEnabled = Resolve-BoolSettingFromEnv -EnvName 'AUTO_MONITOR_BOOTSTRAP_GATE_LIVE_FALLBACK_ENABLED' -Default $true
+    $startFilePath = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+    $triggerRequired = Resolve-BoolSettingFromEnv -EnvName 'AUTO_START_TAKEOVER_TRIGGER' -Default (Resolve-BoolSettingFromEnv -EnvName 'EXTERNAL_TRIGGER_EXECUTE' -Default $true)
+
+    if ($fallbackEnabled -and -not [string]::IsNullOrWhiteSpace($startFilePath)) {
+        $guardOnline = Test-MonitorRoleRunningForStartFile -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+        $triggerOnline = Test-MonitorRoleRunningForStartFile -ScriptLeaf 'unattended_ab_takeover_trigger.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+
+        if ($guardOnline -and (-not $triggerRequired -or $triggerOnline)) {
+            $fallbackReason = 'live-monitor-fallback-after-gate-timeout guard=true trigger={0} trigger_required={1}' -f ([string]$triggerOnline), ([string]$triggerRequired)
+            $gateRelease = [pscustomobject]@{
+                schema = 'AB_MONITOR_BOOTSTRAP_GATE_V1'
+                status = 'degraded'
+                released_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                reason = $fallbackReason
+            }
+            [System.IO.File]::WriteAllText($resolvedGatePath, ($gateRelease | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+
+            Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait release status=degraded reason=live-monitor-fallback file={0}" -f $resolvedGatePath)
+            return
+        }
+
+        Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait fallback_blocked guard_online={0} trigger_online={1} trigger_required={2} file={3}" -f ([string]$guardOnline), ([string]$triggerOnline), ([string]$triggerRequired), $resolvedGatePath)
     }
 
     throw ("[DEV-VERIFY-MULTI] monitor bootstrap gate timed out before round loop: file={0} timeout_sec={1}" -f $resolvedGatePath, $maxWaitSec)

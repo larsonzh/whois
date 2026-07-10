@@ -2787,6 +2787,33 @@ function Get-IntSettingOrDefault {
     return [int]$parsed
 }
 
+function Invoke-MonitorLauncherScript {
+    param(
+        [Parameter(Mandatory = $true)][string]$LauncherPath,
+        [Parameter(Mandatory = $true)][string]$StartFilePath,
+        [switch]$NoRestartIfRunning
+    )
+
+    $launcherArgs = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $LauncherPath,
+        '-StartFile', $StartFilePath
+    )
+
+    if ($NoRestartIfRunning.IsPresent) {
+        $launcherArgs += '-NoRestartIfRunning'
+    }
+
+    $outputLines = @(& $powershellPath @launcherArgs 2>&1 | ForEach-Object { [string]$_ })
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = @($outputLines)
+    }
+}
+
 function Get-MonitorRoleReadiness {
     param(
         [ValidateSet('guard', 'trigger')][string]$Role,
@@ -2904,9 +2931,12 @@ function Invoke-MonitorFirstBootstrapBlockingGate {
         if (-not [bool]$guardReady.Ready -and [int]$repairAttempts.guard -lt $maxRepairAttemptsPerRole) {
             $repairAttempts.guard = [int]$repairAttempts.guard + 1
             try {
-                $guardRepairOutput = & $GuardLauncherPath -StartFile $StartFilePath -NoRestartIfRunning
-                foreach ($line in @($guardRepairOutput | ForEach-Object { [string]$_ })) {
+                $guardRepairResult = Invoke-MonitorLauncherScript -LauncherPath $GuardLauncherPath -StartFilePath $StartFilePath -NoRestartIfRunning
+                foreach ($line in @($guardRepairResult.Lines)) {
                     if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Output $line }
+                }
+                if ([int]$guardRepairResult.ExitCode -ne 0) {
+                    Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair_failed' -Fields @{ stage = $Stage; role = 'guard'; attempt = [int]$repairAttempts.guard; detail = ('launcher-exit-{0}' -f [int]$guardRepairResult.ExitCode) }
                 }
                 Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair' -Fields @{ stage = $Stage; role = 'guard'; attempt = [int]$repairAttempts.guard; action = 'launcher-invoke'; evidence = [string]$guardReady.Evidence }
             }
@@ -2919,9 +2949,12 @@ function Invoke-MonitorFirstBootstrapBlockingGate {
             $repairAttempts.trigger = [int]$repairAttempts.trigger + 1
             try {
                 if (Test-Path -LiteralPath $TriggerLauncherPath) {
-                    $triggerRepairOutput = & $TriggerLauncherPath -StartFile $StartFilePath -NoRestartIfRunning
-                    foreach ($line in @($triggerRepairOutput | ForEach-Object { [string]$_ })) {
+                    $triggerRepairResult = Invoke-MonitorLauncherScript -LauncherPath $TriggerLauncherPath -StartFilePath $StartFilePath -NoRestartIfRunning
+                    foreach ($line in @($triggerRepairResult.Lines)) {
                         if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Output $line }
+                    }
+                    if ([int]$triggerRepairResult.ExitCode -ne 0) {
+                        Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair_failed' -Fields @{ stage = $Stage; role = 'trigger'; attempt = [int]$repairAttempts.trigger; detail = ('launcher-exit-{0}' -f [int]$triggerRepairResult.ExitCode) }
                     }
                     Write-MonitorTimelineEvent -TimelinePath $TimelinePath -EventName 'monitor_first_bootstrap_blocking_repair' -Fields @{ stage = $Stage; role = 'trigger'; attempt = [int]$repairAttempts.trigger; action = 'launcher-invoke'; evidence = [string]$triggerReady.Evidence }
                 }
@@ -2978,7 +3011,8 @@ if ($restartGuard) {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_restart_single' -Fields @{ stage = $Stage; role = 'guard'; reason = (Get-RestartReasonFromState -State $guardStateObj); match_count = [int]$guardStateObj.MatchCount; mismatch_count = [int]$guardStateObj.MismatchCount; unbound_count = [int]$guardStateObj.UnboundCount }
     }
 
-    $guardOutput = & $guardLauncherPath -StartFile $StartFile -NoRestartIfRunning
+    $guardLaunchResult = Invoke-MonitorLauncherScript -LauncherPath $guardLauncherPath -StartFilePath $StartFile -NoRestartIfRunning
+    $guardOutput = @($guardLaunchResult.Lines)
     $guardLog = ''
     foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
         Write-Output $line
@@ -2998,9 +3032,8 @@ else {
         Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_reuse' -Fields @{ stage = $Stage; role = 'guard'; match_count = [int]$guardStateObj.MatchCount; mismatch_count = [int]$guardStateObj.MismatchCount; unbound_count = [int]$guardStateObj.UnboundCount; pids = @($guardStateObj.MatchPids) }
     }
 
-    $guardLaunchArgs = @{ StartFile = $StartFile }
-    $guardLaunchArgs.NoRestartIfRunning = $true
-    $guardOutput = & $guardLauncherPath @guardLaunchArgs
+    $guardLaunchResult = Invoke-MonitorLauncherScript -LauncherPath $guardLauncherPath -StartFilePath $StartFile -NoRestartIfRunning
+    $guardOutput = @($guardLaunchResult.Lines)
     $guardLog = ''
     foreach ($line in @($guardOutput | ForEach-Object { [string]$_ })) {
         Write-Output $line

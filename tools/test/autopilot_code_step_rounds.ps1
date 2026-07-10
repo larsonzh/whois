@@ -617,7 +617,7 @@ function Invoke-AutoInjectForwardDecl {
         [string]$UpdatedText
     )
 
-    $result = [pscustomobject]@{ Injected = $false; Needed = $false; Text = $UpdatedText; Ops = @(); Count = 0 }
+    $result = [pscustomobject]@{ Injected = $false; Needed = $false; Text = $UpdatedText; Ops = @(); Count = 0; Diagnostics = '' }
 
     if ([string]::IsNullOrWhiteSpace($TargetFile)) { return $result }
     if (-not (Test-Path -LiteralPath $TargetFile)) { return $result }
@@ -681,6 +681,7 @@ function Invoke-AutoInjectForwardDecl {
 
     if ($roundCallNames.Count -eq 0) { return $result }
     $result.Needed = $true
+    $result.Diagnostics = ("required_functions={0}" -f ((@($roundCallNames.Keys | Sort-Object) -join ',')))
 
     # 4. For each function needing forward declaration, inject it
     $injectedOps = @()
@@ -719,10 +720,24 @@ function Invoke-AutoInjectForwardDecl {
                 Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl call_line=$($info.FirstCallLine) match_count=$matchCount" -InformationAction Continue
             }
             else {
+                $diagMessage = "function={0} first_call_line={1} anchor={2}" -f $funcName, $info.FirstCallLine, $escapedLine
+                if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) {
+                    $result.Diagnostics = $diagMessage
+                }
+                else {
+                    $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
+                }
                 Write-Warning "[CODE-STEP-AUTOINJECT] no_match for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
             }
         }
         catch {
+            $diagMessage = "function={0} error={1}" -f $funcName, $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) {
+                $result.Diagnostics = $diagMessage
+            }
+            else {
+                $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
+            }
             Write-Warning "[CODE-STEP-AUTOINJECT] error for $funcName : $($_.Exception.Message)"
         }
     }
@@ -867,7 +882,11 @@ try {
                 Write-Output "[CODE-STEP-AUTOINJECT] round=$roundTag injected=$($autoInjectResult.Count) functions=$($autoInjectResult.Ops.ForEach({ '''' + $_.pattern.Substring(0, [math]::Min(40, $_.pattern.Length)) + '''' }) -join ',')"
             }
             elseif ($autoInjectResult.Needed) {
-                throw "[CODE-STEP] auto-inject failed for round=${roundTag}: forward declarations needed but could not be applied; aborting to avoid certain compile failure"
+                $diag = [string]$autoInjectResult.Diagnostics
+                if ([string]::IsNullOrWhiteSpace($diag)) {
+                    $diag = 'no-diagnostics'
+                }
+                throw "[CODE-STEP] auto-inject failed for round=${roundTag}: forward declarations needed but could not be applied; target=$TargetFile diagnostics=$diag; aborting to avoid certain compile failure"
             }
 
             Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated

@@ -2227,14 +2227,19 @@ function Get-TaskDefinitionRepairTicketContext {
         $failReason = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
     }
 
-    $reasonNormalized = $failReason.ToLowerInvariant()
-    if ($reasonNormalized -notmatch '\[code-step\].*expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0') {
+    $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
+    $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
+    $compositeReason = Convert-ToSingleLineText -Text ('{0} {1} {2}' -f $failReason, $failureEvidence, $failureSource)
+    $reasonNormalized = $compositeReason.ToLowerInvariant()
+    $taskDefMismatchPattern = '(?im)(\[code-step\].*expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|regex[- ]patch|task[- ]definition|replacement\s+likely\s+double-escaped|double-escaped|auto-inject\s+failed|forward\s+declarations?\s+needed)'
+    if ($reasonNormalized -notmatch $taskDefMismatchPattern) {
         return [pscustomobject]$result
     }
 
-    $detail = ('round={0} category=task-definition-mismatch fail_reason={1} task_definition={2} source={3} run_dir={4}' -f
+    $detail = ('round={0} category=task-definition-mismatch fail_reason={1} evidence={2} task_definition={3} source={4} run_dir={5}' -f
         $failedRoundTag,
         $failReason,
+        (Convert-ToBoundedSingleLineText -Text $failureEvidence -MaxChars 120),
         $taskDefinitionPath,
         $sourceScript,
         (Convert-ToSingleLineText -Text $RunDirAnchor))
@@ -3229,6 +3234,9 @@ $script:StartupSuppressLastSignature = ''
 $script:StartupSuppressLastRemainingBucket = ''
 $script:StartupSuppressLastReportAt = [datetime]::MinValue
 $script:StartupSuppressHiddenCount = 0
+$script:TriggerHealthSkipLastReason = ''
+$script:TriggerHealthSkipLastReportAt = [datetime]::MinValue
+$script:TriggerHealthSkipHiddenCount = 0
 
 function Test-D1ProgressSince {
     param(
@@ -3531,13 +3539,46 @@ function Test-IsRoundFailureCategory {
     return ((Get-RoundFailureCategorySet) -contains $Category)
 }
 
+function Test-ObjectHasProperty {
+    param(
+        [object]$InputObject,
+        [Parameter(Mandatory = $true)][string]$PropertyName
+    )
+
+    if ($null -eq $InputObject) {
+        return $false
+    }
+
+    return ($null -ne $InputObject.PSObject -and $null -ne $InputObject.PSObject.Properties[$PropertyName])
+}
+
+function Get-TicketResultQueuedFlag {
+    param([object]$TicketResult)
+
+    if (-not (Test-ObjectHasProperty -InputObject $TicketResult -PropertyName 'Queued')) {
+        return $false
+    }
+
+    return [bool]$TicketResult.Queued
+}
+
+function Get-TicketResultReason {
+    param([object]$TicketResult)
+
+    if (-not (Test-ObjectHasProperty -InputObject $TicketResult -PropertyName 'Reason')) {
+        return ''
+    }
+
+    return [string]$TicketResult.Reason
+}
+
 function Test-ShouldUpdateTicketSignature {
     param([pscustomobject]$TicketResult)
 
     if ($null -eq $TicketResult) {
         return $false
     }
-    return ([bool]$TicketResult.Queued -or [string]$TicketResult.Reason -eq 'duplicate-signature')
+    return ((Get-TicketResultQueuedFlag -TicketResult $TicketResult) -or (Get-TicketResultReason -TicketResult $TicketResult) -eq 'duplicate-signature')
 }
 
 function Test-HasUsableRunDirAnchor {
@@ -4517,6 +4558,33 @@ function Write-StartupSuppressLog {
     Write-GuardLog ("{0} session={1} a={2} b={3} reason={4} {5}={6} suppressed_count={7}" -f $EventName, $SessionStatus, $AStatus, $BStatus, $Reason, $RemainingLabel, $RemainingValue, $suppressedCount)
 }
 
+function Write-TriggerHealthSkipLog {
+    param(
+        [Parameter(Mandatory = $true)][string]$Reason
+    )
+
+    $now = Get-Date
+    $emit = $false
+
+    if ($Reason -ne $script:TriggerHealthSkipLastReason) {
+        $emit = $true
+    }
+    elseif ($script:TriggerHealthSkipLastReportAt -eq [datetime]::MinValue -or (($now - $script:TriggerHealthSkipLastReportAt).TotalSeconds -ge 60)) {
+        $emit = $true
+    }
+
+    if (-not $emit) {
+        $script:TriggerHealthSkipHiddenCount = [int]$script:TriggerHealthSkipHiddenCount + 1
+        return
+    }
+
+    $suppressedCount = [int]$script:TriggerHealthSkipHiddenCount
+    $script:TriggerHealthSkipLastReason = $Reason
+    $script:TriggerHealthSkipLastReportAt = $now
+    $script:TriggerHealthSkipHiddenCount = 0
+    Write-GuardLog ("trigger_health_check_skipped reason={0} suppressed_count={1}" -f $Reason, $suppressedCount)
+}
+
 function Update-BudgetExhaustedSkipSignature {
     param(
         [AllowEmptyString()][string]$CurrentSignature,
@@ -5059,7 +5127,7 @@ try {
 
                     $aPassConclusionAction = 'Provide an explicit A PASS completion conclusion with a concise A-stage run summary (key checkpoints and final evidence), then report that B-stage has started.'
                     $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
-                    if ([bool]$aPassConclusionTicketResult.Queued -or [string]$aPassConclusionTicketResult.Reason -in @('duplicate-signature', 'queue-disabled')) {
+                    if ((Get-TicketResultQueuedFlag -TicketResult $aPassConclusionTicketResult) -or (Get-TicketResultReason -TicketResult $aPassConclusionTicketResult) -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
                     }
                 }
@@ -6120,20 +6188,24 @@ try {
                         if ($taskDefFixSignature -ne $lastTaskDefinitionFixSignature) {
                             $taskDefTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'task-definition-fix-required' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail ([string]$taskDefRepairContext.Detail) -DedupSuffix $taskDefFixSignature -RecommendedAction ([string]$taskDefRepairContext.RecommendedAction) -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'task-definition-mismatch' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv $false
 
-                            if ([bool]$taskDefTicketResult.Queued) {
+                            if (Get-TicketResultQueuedFlag -TicketResult $taskDefTicketResult) {
                                 Write-GuardLog ('agent_ticket_queued task_definition_fix_required id={0} dedup={1}' -f [string]$taskDefTicketResult.TicketId, $taskDefFixSignature)
                                 $lastTaskDefinitionFixSignature = $taskDefFixSignature
                             }
-                            elseif ([string]$taskDefTicketResult.Reason -eq 'duplicate-signature') {
+                            elseif ((Get-TicketResultReason -TicketResult $taskDefTicketResult) -eq 'duplicate-signature') {
                                 $lastTaskDefinitionFixSignature = $taskDefFixSignature
                             }
                             else {
-                                Write-GuardLog ('agent_ticket_task_definition_fix_skipped reason={0} dedup={1}' -f [string]$taskDefTicketResult.Reason, $taskDefFixSignature)
+                                Write-GuardLog ('agent_ticket_task_definition_fix_skipped reason={0} dedup={1}' -f (Get-TicketResultReason -TicketResult $taskDefTicketResult), $taskDefFixSignature)
                             }
                         }
                     }
                     else {
                         Write-GuardLog ("agent_ticket_suppressed event=incident-captured reason=task_definition_mismatch_wait_fix stage=B round={0} category={1}" -f [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
+                        $suppressExplainDedup = ("{0}|suppressed-taskdef-mismatch|round={1}|category={2}" -f $statusSignature, [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
+                        $suppressExplainDetail = ("incident-captured suppressed due to task_definition_mismatch_wait_fix; stage=B round={0} category={1}; pending task-definition repair context" -f [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
+                        $suppressExplainAction = 'This is an explanatory status ticket. Report why incident-captured was suppressed, keep read-only monitoring, and proceed with task-definition repair workflow when corresponding fix ticket/context is available.'
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-suppressed-taskdef-mismatch' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $suppressExplainDetail -DedupSuffix $suppressExplainDedup -RecommendedAction $suppressExplainAction -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'task-definition-mismatch' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv $false
                     }
                 }
 
@@ -6698,8 +6770,8 @@ try {
                         $lastStatusTicketAt = $now
                         $statusPreferredStage = if ($aStatus -eq 'PASS' -and $bStatus -ne 'PASS') { 'B' } else { 'A' }
                         $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction -PreferredStage $statusPreferredStage -MainRound '' -FailureKind 'running-status' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $false -NonRecoverableEnv $false
-                        if (-not [bool]$statusTicketResult.Queued -and [string]$statusTicketResult.Reason -notin @('duplicate-signature', 'queue-disabled')) {
-                            Write-GuardLog ("status_ticket_deferred_next_slot reason={0} interval_min={1}" -f [string]$statusTicketResult.Reason, $statusTicketIntervalMinutes)
+                        if (-not (Get-TicketResultQueuedFlag -TicketResult $statusTicketResult) -and (Get-TicketResultReason -TicketResult $statusTicketResult) -notin @('duplicate-signature', 'queue-disabled')) {
+                            Write-GuardLog ("status_ticket_deferred_next_slot reason={0} interval_min={1}" -f (Get-TicketResultReason -TicketResult $statusTicketResult), $statusTicketIntervalMinutes)
                         }
                     }
                 }
@@ -6731,14 +6803,14 @@ try {
                 $graceStopActive = ($null -ne $mainProcessExitGraceStartedAt -or $null -ne $monitorChainGraceStartedAt)
 
                 if ($sessionIdleNotRun -and -not $triggerRequestPending) {
-                    Write-GuardLog 'trigger_health_check_skipped reason=session_idle_not_run'
+                    Write-TriggerHealthSkipLog -Reason 'session_idle_not_run'
                 }
                 elseif (-not $mainProcessAlive -and -not $triggerRequestPending) {
                     if ($graceStopActive) {
-                        Write-GuardLog 'trigger_health_check_skipped reason=main_process_not_running_or_grace_stop'
+                        Write-TriggerHealthSkipLog -Reason 'main_process_not_running_or_grace_stop'
                     }
                     else {
-                        Write-GuardLog 'trigger_health_check_skipped reason=main_process_not_running'
+                        Write-TriggerHealthSkipLog -Reason 'main_process_not_running'
                     }
                 }
                 else {

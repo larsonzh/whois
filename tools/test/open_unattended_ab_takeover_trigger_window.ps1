@@ -360,6 +360,15 @@ try {
     $processId = 0
 
     if ($existingPids.Count -gt 0) {
+        if ($NoRestartIfRunning) {
+            # In no-restart mode, prioritize process continuity over health probes.
+            # A stale state/log timestamp should not force a kill+restart loop.
+            Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=no-restart-running" -f $existingPids.Count, ($existingPids -join ','))
+            $reuseExisting = $true
+            $processId = [int]$existingPids[0]
+        }
+
+        if (-not $reuseExisting) {
         # Keep startup behavior aligned with monitor health checks:
         # reuse only truly alive trigger, otherwise clean and restart.
         $triggerProcesses = @($existingPids | ForEach-Object {
@@ -374,7 +383,7 @@ try {
 
         $isTrulyAlive = Test-RoleProcessTrulyAlive -Role 'trigger' -Processes $triggerProcesses -RepoRoot $repoRoot
         if ($isTrulyAlive) {
-            $modeTag = if ($NoRestartIfRunning) { 'no-restart-running' } else { 'reuse-existing' }
+            $modeTag = 'reuse-existing'
             Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode={2}" -f $existingPids.Count, ($existingPids -join ','), $modeTag)
             $reuseExisting = $true
             $processId = [int]$existingPids[0]
@@ -383,6 +392,7 @@ try {
             Write-Output ("[OPEN-AB-TAKEOVER-TRIGGER] restart_precheck existing_count={0} existing_pids={1} mode=empty-shell-clean" -f $existingPids.Count, ($existingPids -join ','))
             Invoke-RunningTriggerProcessStop -ProcessIds $existingPids
             Clear-OrphanedMonitorConsole -Role 'takeover-trigger' -StartFilePath $startFilePath -RepoRoot $repoRoot
+        }
         }
     }
     else {
