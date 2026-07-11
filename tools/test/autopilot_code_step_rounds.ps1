@@ -270,13 +270,25 @@ function Invoke-RegexReplaceSingle {
         [string]$Text,
         [string]$Pattern,
         [string]$Replacement,
-        [string]$StepName
+        [string]$StepName,
+        [string[]]$IdempotentMarkers = @()
     )
 
     $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
     $matchCount = $rx.Matches($Text).Count
     if ($matchCount -ne 1) {
         if ($matchCount -eq 0) {
+            $operationAlreadyApplied = ($IdempotentMarkers.Count -gt 0)
+            foreach ($marker in $IdempotentMarkers) {
+                if ([string]::IsNullOrWhiteSpace($marker) -or -not $Text.Contains($marker.Trim())) {
+                    $operationAlreadyApplied = $false
+                    break
+                }
+            }
+            if ($operationAlreadyApplied) {
+                Write-Information "[CODE-STEP] step=$StepName action=skip-idempotent-operation" -InformationAction Continue
+                return $Text
+            }
             $replacementLiteralHits = Get-LiteralOccurrenceCount -Text $Text -Literal $Replacement
             if ($replacementLiteralHits -gt 0) {
                 throw "[CODE-STEP] step=$StepName expected exactly one match, actual=0 replacement_literal_hits=$replacementLiteralHits classification=ambiguous-already-present review-required"
@@ -598,7 +610,17 @@ function Invoke-TaskDefinitionRound {
                     }
                 }
                 $stepName = "$RoundTag-regex-patch-$opIndex"
-                $updatedText = Invoke-RegexReplaceSingle -Text $updatedText -Pattern $pattern -Replacement $replacement -StepName $stepName
+                $operationIdempotentMarkers = @()
+                if ($op.PSObject.Properties.Name -contains 'idempotentContains') {
+                    $rawOperationMarkers = $op.idempotentContains
+                    if ($rawOperationMarkers -is [string]) {
+                        $operationIdempotentMarkers = @($rawOperationMarkers)
+                    }
+                    else {
+                        $operationIdempotentMarkers = @($rawOperationMarkers)
+                    }
+                }
+                $updatedText = Invoke-RegexReplaceSingle -Text $updatedText -Pattern $pattern -Replacement $replacement -StepName $stepName -IdempotentMarkers $operationIdempotentMarkers
             }
 
             return $updatedText

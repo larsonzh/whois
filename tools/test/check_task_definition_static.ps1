@@ -139,6 +139,30 @@ function Get-StringArray {
     return @($items | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Test-OperationIdempotentMarkerPresent {
+    param(
+        [object]$Operation,
+        [string]$Text
+    )
+
+    if ($null -eq $Operation -or -not ($Operation.PSObject.Properties.Name -contains 'idempotentContains')) {
+        return $false
+    }
+
+    $markers = @(Get-StringArray -Value $Operation.idempotentContains)
+    if ($markers.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($marker in $markers) {
+        if (-not $Text.Contains($marker.Trim())) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Test-LikelyDoubleEscapedReplacement {
     param([AllowEmptyString()][string]$Replacement)
 
@@ -380,6 +404,11 @@ foreach ($roundEntry in $roundEntries) {
             continue
         }
 
+        if (Test-OperationIdempotentMarkerPresent -Operation $operation -Text $workingText) {
+            Add-InfoIssue ("round={0} op={1} pattern_unmatched=0 operation_idempotent=true" -f $roundTag, $operationOrdinal)
+            continue
+        }
+
         $roundHasAnyMarkerInWorking = $false
         foreach ($marker in $markers) {
             $markerTrimmed = $marker.Trim()
@@ -394,7 +423,7 @@ foreach ($roundEntry in $roundEntries) {
         }
 
         if ($roundHasAnyMarkerInWorking) {
-            Add-WarnIssue ("round={0} op={1} pattern_unmatched=0 but idempotent marker exists in effective text (likely already-applied)" -f $roundTag, $operationOrdinal)
+            Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 but only round-level idempotent marker exists; add operation.idempotentContains or restore a unique pattern" -f $roundTag, $operationOrdinal)
             continue
         }
 

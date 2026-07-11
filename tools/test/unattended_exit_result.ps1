@@ -556,6 +556,89 @@ function Invoke-MonitorChainHealthCheck {
     }
 }
 
+function Test-MonitorChainRolesAlive {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Roles,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$StartFilePath
+    )
+
+    $startFileIdentity = try {
+        $resolved = if ([System.IO.Path]::IsPathRooted($StartFilePath)) {
+            [System.IO.Path]::GetFullPath($StartFilePath)
+        }
+        else {
+            [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $StartFilePath))
+        }
+        $resolved.ToLowerInvariant()
+    }
+    catch {
+        ''
+    }
+
+    $scriptLeaves = @{ guard = 'unattended_ab_session_guard.ps1'; trigger = 'unattended_ab_takeover_trigger.ps1' }
+    $missingRoles = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($role in @($Roles | ForEach-Object { $_.Trim().ToLowerInvariant() } | Select-Object -Unique)) {
+        if (-not $scriptLeaves.ContainsKey($role)) { continue }
+
+        $matchingProcesses = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            if ([string]::IsNullOrWhiteSpace($commandLine) -or -not $commandLine.ToLowerInvariant().Contains($scriptLeaves[$role])) {
+                return $false
+            }
+
+            $startFileMatch = [regex]::Match($commandLine, '(?i)-StartFile\s+("([^"]+)"|''([^'']+)''|([^\s]+))')
+            if (-not $startFileMatch.Success) { return $false }
+            $candidate = if ($startFileMatch.Groups[2].Success) { $startFileMatch.Groups[2].Value } elseif ($startFileMatch.Groups[3].Success) { $startFileMatch.Groups[3].Value } else { $startFileMatch.Groups[4].Value }
+            try {
+                $candidateIdentity = if ([System.IO.Path]::IsPathRooted($candidate)) { [System.IO.Path]::GetFullPath($candidate) } else { [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $candidate)) }
+                return ($candidateIdentity.ToLowerInvariant() -eq $startFileIdentity)
+            }
+            catch {
+                return $false
+            }
+        })
+
+        if (-not (Test-RoleProcessTrulyAlive -Role $role -Processes $matchingProcesses -RepoRoot $RepoRoot)) {
+            [void]$missingRoles.Add($role)
+        }
+    }
+
+    return [pscustomobject]@{
+        Healthy = ($missingRoles.Count -eq 0)
+        MissingRoles = @($missingRoles)
+    }
+}
+
+function Wait-MonitorChainHealthy {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Roles,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$StartFilePath,
+        [string]$LogPrefix = 'monitor_wait',
+        [ValidateRange(5, 300)][int]$TimeoutSec = 60,
+        [ValidateRange(1, 30)][int]$PollSec = 3
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    do {
+        $state = Test-MonitorChainRolesAlive -Roles $Roles -RepoRoot $RepoRoot -StartFilePath $StartFilePath
+        if ([bool]$state.Healthy) {
+            Write-Output ('[{0}] monitor_chain_ready roles={1}' -f $LogPrefix, (@($Roles) -join ','))
+            return $true
+        }
+
+        Write-Output ('[{0}] monitor_chain_recovery missing={1}' -f $LogPrefix, (@($state.MissingRoles) -join ','))
+        Invoke-MonitorChainHealthCheck -Roles @($state.MissingRoles) -RepoRoot $RepoRoot -StartFilePath $StartFilePath -LogPrefix $LogPrefix -GuardArbitratedTrigger:$false
+        Start-Sleep -Seconds $PollSec
+    }
+    while ((Get-Date) -lt $deadline)
+
+    $finalState = Test-MonitorChainRolesAlive -Roles $Roles -RepoRoot $RepoRoot -StartFilePath $StartFilePath
+    Write-Output ('[{0}] monitor_chain_timeout missing={1} timeout_sec={2}' -f $LogPrefix, (@($finalState.MissingRoles) -join ','), $TimeoutSec)
+    return [bool]$finalState.Healthy
+}
+
 function Invoke-KillOldRoleInstances {
     param(
         [string]$Role,

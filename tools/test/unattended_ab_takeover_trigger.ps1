@@ -978,6 +978,54 @@ function Read-JsonFileSafely {
     }
 }
 
+function Get-PendingRecoveryTicketState {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$StartFilePath,
+        [string]$StartFileToken,
+        [string]$LegacyStartFileToken
+    )
+
+    $queueValue = if ($Settings.Contains('LOCAL_GUARD_AGENT_QUEUE_PATH')) { [string]$Settings.LOCAL_GUARD_AGENT_QUEUE_PATH } else { 'out\artifacts\ab_agent_queue\agent_tickets.jsonl' }
+    $queuePath = Resolve-RepoPathAllowMissing -Path $queueValue
+    $queueTickets = @()
+    if (Test-Path -LiteralPath $queuePath) {
+        $queueTickets = @(Get-Content -LiteralPath $queuePath -Encoding utf8 -Tail 2000 -ErrorAction SilentlyContinue | ForEach-Object {
+            try { ($_ | ConvertFrom-Json -ErrorAction Stop) } catch { $null }
+        } | Where-Object { $null -ne $_ })
+    }
+
+    $ledgerPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $script:RepoRoot ("out\artifacts\ab_agent_queue\ai_ticket_ledger_{0}.json" -f $StartFileToken)) -LegacyPath (Join-Path $script:RepoRoot ("out\artifacts\ab_agent_queue\ai_ticket_ledger_{0}.json" -f $LegacyStartFileToken))
+    $ledgerRaw = Read-JsonFileSafely -Path $ledgerPath
+    $ledgerById = @{}
+    if ($null -ne $ledgerRaw -and $ledgerRaw.PSObject.Properties.Name -contains 'records') {
+        foreach ($record in @($ledgerRaw.records)) {
+            $recordId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $record -Name 'ticket_id')
+            if (-not [string]::IsNullOrWhiteSpace($recordId)) { $ledgerById[$recordId] = $record }
+        }
+    }
+
+    $recoveryEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'main-process-exit-review')
+    $startFileRel = Convert-ToRepoRelativePath -Path $StartFilePath
+    $pendingIds = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($ticket in $queueTickets) {
+        $eventName = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')).ToLowerInvariant()
+        $ticketStartFile = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'start_file')
+        $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
+        if ($eventName -notin $recoveryEvents -or $ticketStartFile -ne $startFileRel -or [string]::IsNullOrWhiteSpace($ticketId)) { continue }
+        if (-not $ledgerById.ContainsKey($ticketId)) { [void]$pendingIds.Add($ticketId); continue }
+
+        $ledgerEntry = $ledgerById[$ticketId]
+        $ledgerStatus = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'status')).ToLowerInvariant()
+        $handledAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'handled_at')
+        if ($ledgerStatus -notin @('done', 'failed', 'stale_by_restart', 'stale_status_superseded') -or [string]::IsNullOrWhiteSpace($handledAt)) {
+            [void]$pendingIds.Add($ticketId)
+        }
+    }
+
+    return [pscustomobject]@{ Pending = ($pendingIds.Count -gt 0); TicketIds = @($pendingIds); QueuePath = $queuePath; LedgerPath = $ledgerPath }
+}
+
 function Get-FinalStopGateMode {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -2323,6 +2371,12 @@ while ($true) {
                 }
                 $graceElapsed = ((Get-Date) - $script:TriggerGraceStartedAt).TotalMinutes
                 if ($graceElapsed -ge $monitorChainGraceMinutes) {
+                    $pendingRecovery = Get-PendingRecoveryTicketState -Settings $settings -StartFilePath $startFilePath -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken
+                    if ([bool]$pendingRecovery.Pending) {
+                        Write-TriggerLog ('auto_stop_deferred reason=pending-recovery-ticket ticket_ids={0}' -f ($pendingRecovery.TicketIds -join ','))
+                        $script:TriggerGraceStartedAt = $null
+                        continue
+                    }
                     Write-TriggerLog ('stop reason=grace-expired-no-shutdown-request elapsed_min={0:N1}' -f $graceElapsed)
                     break
                 }

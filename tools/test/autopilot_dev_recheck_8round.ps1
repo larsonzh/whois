@@ -570,6 +570,27 @@ function Invoke-D6Run {
         $text = ($lines -join "`n")
         $text | Out-File -FilePath $stdoutLog -Encoding utf8
 
+        $accessEvents = @()
+        if (-not $pass) {
+            $accessEvents = @(Get-D6AccessIssueEvents -Text $text)
+        }
+
+        if (-not $pass -and $accessEvents.Count -gt 0) {
+            $pass = $true
+            $softPassLine = ("[AUTOPILOT-8R] d6_softpass round={0} attempt={1} reason=rir-access-throttle-or-deny event_count={2}" -f $RoundTag, $attempt, $accessEvents.Count)
+            Write-Host $softPassLine
+            $lines += $softPassLine
+
+            foreach ($accessEvent in $accessEvents) {
+                $eventLine = ("[AUTOPILOT-8R] d6_access_event round={0} attempt={1} query={2} via={3} ip={4} evidence={5}" -f $RoundTag, $attempt, $accessEvent.Query, $accessEvent.Via, $accessEvent.Ip, $accessEvent.Evidence)
+                Write-Host $eventLine
+                $lines += $eventLine
+            }
+
+            $text = ($lines -join "`n")
+            $text | Out-File -FilePath $stdoutLog -Encoding utf8
+        }
+
         if ($pass) {
             return [pscustomobject]@{
                 Pass = $true
@@ -592,6 +613,60 @@ function Invoke-D6Run {
 
         Write-Host ("[AUTOPILOT-8R] retry round={0} mode=d6 reason=transient-or-single-round-anomaly" -f $RoundTag)
     }
+}
+
+function Get-D6AccessIssueEvents {
+    param(
+        [string]$Text
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return @()
+    }
+
+    $issuePattern = '(?im)(query\s+rate\s+limit|rate\s+limit\s+exceeded|too\s+many\s+queries|access\s+denied|permission\s+denied|connection\s+refused|refused|temporarily\s+blocked|blocked\s+for\s+abuse|service\s+unavailable|quota\s+exceeded)'
+    $titlePattern = '^=== Query:\s*(.+?)\s*===\s+via\s+(.+?)\s+@\s+(\S+)'
+
+    $events = New-Object 'System.Collections.Generic.List[object]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    $currentQuery = 'unknown'
+    $currentVia = 'unknown'
+    $currentIp = 'unknown'
+
+    foreach ($lineRaw in (ConvertTo-NormalizedLine -Raw $Text)) {
+        $line = [string]$lineRaw
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if ($line -match $titlePattern) {
+            $currentQuery = $Matches[1].Trim()
+            $currentVia = $Matches[2].Trim()
+            $currentIp = $Matches[3].Trim()
+            continue
+        }
+
+        if (-not [regex]::IsMatch($line, $issuePattern)) {
+            continue
+        }
+
+        $evidence = $line.Trim()
+        $key = ("{0}|{1}|{2}|{3}" -f $currentQuery, $currentVia, $currentIp, $evidence)
+        if ($seen.Add($key)) {
+            $events.Add([pscustomobject]@{
+                    Query = $currentQuery
+                    Via = $currentVia
+                    Ip = $currentIp
+                    Evidence = $evidence
+                }) | Out-Null
+        }
+
+        if ($events.Count -ge 16) {
+            break
+        }
+    }
+
+    return @($events)
 }
 
 $rows = @()

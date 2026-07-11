@@ -2178,11 +2178,14 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             $autopilotParams["CflagsExtra"] = $CflagsExtra
         }
 
+        Write-Output ("[DEV-VERIFY-MULTI] autopilot_preflight={0} source_delta_after_code_step={1} global_no_source_change={2} round_decision={3}" -f $roundTag, $sourceDeltaAfterCodeStep, $globalNoSourceChange, $roundDecision)
         Write-Output ("[DEV-VERIFY-MULTI] autopilot_start={0}" -f $roundTag)
         $emitTerminal = ($QuietTerminalOutput -ne "true")
         $invokeResult = Invoke-StreamingCapture -Action { & $autopilotScript @autopilotParams } -EmitToConsole:$emitTerminal
         $exitCode = $invokeResult.ExitCode
         $autopilotExecuted = $true
+
+        Write-Output ("[DEV-VERIFY-MULTI] autopilot_invoke_returned={0} exit={1} raw_length={2}" -f $roundTag, $exitCode, $invokeResult.Raw.Length)
 
         $runLines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
         $lines += $runLines

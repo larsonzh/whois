@@ -370,6 +370,8 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'B' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePath = Resolve-StartFilePathFromEnv
+    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
     try {
         $startFileHash = [System.BitConverter]::ToString(
             [System.Security.Cryptography.SHA1]::Create().ComputeHash(
@@ -421,9 +423,6 @@ try {
     else {
         Write-Output "[FASTMODE-B] restart_precheck existing_count=0"
     }
-
-    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
-    Write-Output ("[FASTMODE-B] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
 
     $runMutexContext = Enter-RunMutex -Role 'B' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-B] run_mutex={0}" -f [string]$runMutexContext.Name)
@@ -583,10 +582,10 @@ if ($exitCode -ne 0) {
     Write-Output ("B_FAIL_CATEGORY={0}" -f $failureCategory)
     Write-Output ("B_FAIL_REASON={0}" -f $failureReason)
 
-    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B'
+    $null = Wait-MonitorChainHealthy -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B-EXIT'
 }
 else {
-    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B-PASS'
+    $null = Wait-MonitorChainHealthy -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-B-PASS-EXIT'
 }
 
 $exitResult = if ($exitCode -eq 0) { 'pass' } else { 'fail' }

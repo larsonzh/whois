@@ -257,6 +257,76 @@ AI：
 - 如需触发 `tools/test/open_unattended_ab_stage_window.ps1 ... -StartMonitors`，可以从集成终端发起，但被拉起的主进程和监控链必须落在外部 PowerShell 窗口运行
 - 不作为标准无人值守长跑承载环境
 
+### 3.4 主进程与监控链生命周期契约
+
+本节定义 A/B 主进程与监控链进程（`guard` / `trigger`）的启动、复用、健康检查和退出行为。目标是避免重复实例、空壳 PowerShell、监控断链，且保证主进程退出事件在监控链仍在线时送达 AI 代理。
+
+#### 3.4.1 A/B 主进程单实例与清理边界
+
+- A/B 的唯一人工/AI 启动入口仍是 `tools/test/open_unattended_ab_stage_window.ps1 -Stage A|B -StartMonitors`；`start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 仅由该入口拉起。
+- A 与 B 共享仓库级主运行互斥锁。同一时刻只能有一个真实 A/B 主运行链持有该锁；已持锁的主进程存在时，后续 A 或 B 启动必须快速失败，不能通过杀掉对方或同阶段活进程来“让路”。
+- stage window 不得按命令行文本无条件结束同阶段 entry 脚本。主进程空壳/僵尸的清理由已获取主互斥锁的 fastmode 执行：仅清理不再持有执行锁、但仍残留的同阶段进程。
+- 启动 A 只处理 A 的残留主进程；启动 B 只处理 B 的残留主进程。主进程启动或重启过程中不得主动杀掉仍在运行的 `guard` / `trigger`。
+
+#### 3.4.2 D1 前的阻塞式监控链引导
+
+- stage window 拉起主进程后，应逐次检查并拉起所需监控链：`guard` 必需；当 `AUTO_START_TAKEOVER_TRIGGER=true` 时，`trigger` 也必需。
+- 监控 bootstrap gate 在 D1/round loop 之前生效。主进程必须等待 gate 发布 `ready` 或 `degraded` 状态后，才可进入 D1。
+- 在配置的 bootstrap 时限内，入口应持续尝试修复缺失或空壳 monitor；若最终仍无法达到完整在线，必须把 `MONITOR_CHAIN_DEGRADED=true`、缺失角色及原因写回 start-file，再以 `degraded` 状态放行主进程。不得无限等待，也不得伪造“监控已就绪”。
+
+#### 3.4.3 guard/trigger 的单实例、真实性判定与复用
+
+- `open_unattended_ab_session_guard_window.ps1` 与 `open_unattended_ab_takeover_trigger_window.ps1` 均以 start-file 路径为作用域使用启动互斥锁；不同 start-file 的实例不能互相误判为同一实例。
+- 启动器发现同一 start-file 的旧实例时，必须先做真实性判定：进程存在还不够，还要结合状态文件、终态标记、状态文件更新时间和新进程暖机窗口判断其是否仍在执行脚本。
+- 真实在线的旧实例应复用，而不是停掉再拉起；启动器应刷新可用锚点，使其在下一轮轮询绑定当前主进程。
+- 已终止脚本但仍保留 `-NoExit` shell 的空壳、状态终止或已过期实例，必须先清理，再正常启动新的角色实例。`-NoRestartIfRunning` 只避免对真实实例造成 stop/start 抖动，不能绕过空壳判断。
+
+#### 3.4.4 运行期锚定与主进程切换
+
+- `guard` 每个轮询周期都从 start-file 读取 `A_LAUNCH_PID` / `B_LAUNCH_PID` 及阶段状态，并验证 PID 的真实存活。
+- 当 A 重启、A PASS 后切换到 B、B 重启或 PID 发生变化时，guard 必须更新锚点并继续绑定新的主进程；旧 PID 消失本身不能立即被视为最终失败。
+- trigger 通过同一 start-file 作用域运行，并持续读取会话状态和票据队列；A->B 交接、主进程 PID 更新或运行目录锚点更新不得导致它被误判为过期实例。
+- B 由 guard 派生启动时，stage window 可将同一 start-file 的 guard 父进程视为连续性证据，避免仅因子窗口命令行探测短暂缺失而重复拉起 guard。
+
+#### 3.4.5 监控链健康检查与自动恢复
+
+- guard 在运行期约每五分钟对 trigger 做真实性健康检查。trigger 缺失、终态或空壳时，guard 应通过既有 trigger launcher 自动恢复；真实在线的 trigger 必须复用。
+- 主进程的 multiround 在代码步骤后和每个轮次转换之间检查 `guard` / `trigger`。发现缺失或空壳时应请求或执行既有 launcher 恢复，再继续下一轮；不得把“PowerShell PID 存在”当作唯一健康依据。
+- 触发器恢复必须保留 start-file 作用域、既有 route guard 和票据闭环语义；健康检查不得为了恢复 trigger 而清空队列、删除未处理票据或覆盖其他会话锚点。
+
+#### 3.4.6 主进程退出前的监控保障
+
+- A/B fastmode 在写 `latest_a_exit.json` / `latest_b_exit.json` 等阶段退出证据前，必须阻塞式确认 `guard` / `trigger` 真实在线。
+- 若发现角色缺失或空壳，退出路径应调用既有健康恢复 launcher，并在有限时限内轮询等待其真实在线；超时必须记录 `monitor_chain_timeout` 类诊断，但不得静默跳过检查。
+- 该检查的目的不是延长主任务，而是确保 guard/trigger 能观察并投递主进程的 PASS、FAIL、exit artifact、incident 或最终状态事件。
+
+#### 3.4.7 主进程故障退出后的宽限期
+
+- guard 发现 A/B 主进程 PID 消失时，先在配置宽限期内等待，收集 exit artifact、运行日志和状态文件证据；不得以一次轮询的 PID 缺失立即将会话判死。
+- 宽限期内若 start-file 出现新的有效 A/B PID，guard/trigger 必须自动重锚定、清除旧宽限状态并恢复正常监控。
+- A 或 B 因 `task-definition-mismatch` 结束时，应统一生成可自动接管的 code-fix 事件：自动修复对应阶段的任务定义、通过静态体检后按标准 Stage A/B 入口恢复。guard 不得在修复落地前盲目重启失败阶段，也不得为任一阶段另设人工等待或专属常驻流程；只有自动修复配额或相同故障指纹配额耗尽时，才转人工处置。
+- 若宽限期届满仍没有新的有效主进程，guard 应写入结束/故障证据、按既定票据策略发出需要的事件，并请求监控链有序关闭；trigger 必须先完成关键票据与最终状态的投递门禁。
+- 对未关闭的恢复票据，trigger 不得因会话表面终态而提前停止；应延后自动停止，直到票据闭环或按策略完成宽限期处置。
+
+#### 3.4.8 观测与排障要求
+
+- 启动期关注：`monitor_chain_probe_*`、`monitor_bootstrap_gate_*`、`monitor_parent_reuse`、`monitor_restart_single`。
+- 运行期关注：`trigger_health_check_run`、`monitor_health_check_error`、`restart` / `zombie-detected` / `zombie-killed`、`a_anchor_refresh` / `b_anchor_refresh`。
+- 退出期关注：`monitor_chain_ready`、`monitor_chain_recovery`、`monitor_chain_timeout`、`main_process_exit_grace`、`monitor_chain_grace_*`、`auto_stop_deferred`。
+- 出现监控链问题时，先区分“真实进程在线但锚点待刷新”“进程空壳”“实例缺失”“主进程故障宽限中”四种状态；不得仅根据一个旧 PID、旧日志或旧 exit artifact 直接重启 A/B。
+
+#### 3.4.9 配置键与状态字段兼容契约
+
+- guard 读取配置时采用“新键优先、旧键后备”：
+  - 最大恢复次数：`LOCAL_GUARD_MAX_RECOVERY_ATTEMPTS` 优先，`LOCAL_GUARD_MAX_B_RECOVERY_ATTEMPTS` 后备。
+  - 自动恢复开关：`LOCAL_GUARD_AUTO_RECOVER` 优先，`LOCAL_GUARD_AUTO_RECOVER_B` 后备。
+- `guard_state.json` 与运行期状态写回采用通用键 + 兼容键双写，保持脚本升级平滑：
+  - 最大恢复次数：`max_recovery_attempts` + `max_b_recovery_attempts`
+  - 自动恢复：`auto_recover` + `auto_recover_b`
+  - 当前恢复计数：`recovery_attempts` + `b_recovery_attempts`
+  - 最近恢复时间：`recovery_last_at` + `last_recovery_at`
+- 兼容键在迁移窗口内不得移除；任何消费方（监控、接管、报表）应优先读取通用键，旧键仅作为后备。
+
 ## 4. 全流程总览
 
 ### 4.1 阶段 0：确定本轮目标

@@ -157,6 +157,28 @@ function Resolve-AnchorPath {
     }
 }
 
+function Get-SettingValueWithAlias {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$PrimaryKey,
+        [string]$FallbackKey
+    )
+
+    if ($null -eq $Settings) {
+        return ''
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PrimaryKey) -and $Settings.Contains($PrimaryKey)) {
+        return (Convert-ToSingleLineText -Text ([string]$Settings[$PrimaryKey]))
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($FallbackKey) -and $Settings.Contains($FallbackKey)) {
+        return (Convert-ToSingleLineText -Text ([string]$Settings[$FallbackKey]))
+    }
+
+    return ''
+}
+
 function Copy-FileIfPresent {
     param(
         [AllowEmptyString()][string]$Source,
@@ -1567,15 +1589,37 @@ function Invoke-SafeRemoteLockCleanup {
 function Invoke-BStageRestart {
     param([int]$Attempt)
 
+    return (Invoke-StageRestartCore -Stage 'B' -Attempt $Attempt)
+}
+
+function Invoke-StageRestartCore {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [int]$Attempt,
+        [AllowEmptyString()][string]$RoundTag = ''
+    )
+
+    $stagePolicy = Get-StagePolicy -Stage $Stage
     $stageLauncher = Join-Path $script:RepoRoot 'tools\test\open_unattended_ab_stage_window.ps1'
     $powershellPath = Join-Path $PSHOME 'powershell.exe'
     if (-not (Test-Path -LiteralPath $powershellPath)) {
         $powershellPath = 'powershell.exe'
     }
 
-    Write-GuardLog ("restart_begin stage=B attempt={0} launcher={1}" -f $Attempt, (Convert-ToRepoRelativePath -Path $stageLauncher))
-    $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $stageLauncher -Stage B -StartFile $script:StartFilePath -EnableBMonitorRestart 2>&1 | ForEach-Object { [string]$_ })
-    $exitCode = $LASTEXITCODE
+    if ([bool]$stagePolicy.RestartIncludeRoundInLog) {
+        Write-GuardLog ("restart_begin stage={0} round={1} attempt={2} launcher={3}" -f [string]$stagePolicy.Stage, $RoundTag, $Attempt, (Convert-ToRepoRelativePath -Path $stageLauncher))
+    }
+    else {
+        Write-GuardLog ("restart_begin stage={0} attempt={1} launcher={2}" -f [string]$stagePolicy.Stage, $Attempt, (Convert-ToRepoRelativePath -Path $stageLauncher))
+    }
+
+    $launcherArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $stageLauncher, '-Stage', [string]$stagePolicy.Stage, '-StartFile', $script:StartFilePath)
+    if (-not [string]::IsNullOrWhiteSpace([string]$stagePolicy.RestartLauncherSwitch)) {
+        $launcherArgs += [string]$stagePolicy.RestartLauncherSwitch
+    }
+
+    $output = @(& $powershellPath @launcherArgs 2>&1 | ForEach-Object { [string]$_ })
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
 
     $outputLines = @(
         @($output) |
@@ -1583,9 +1627,21 @@ function Invoke-BStageRestart {
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     )
     if ($outputLines.Count -gt 0) {
-        Write-GuardLog ("restart_output_summary attempt={0} lines={1}" -f $Attempt, $outputLines.Count)
+        if ([bool]$stagePolicy.RestartIncludeRoundInLog) {
+            Write-GuardLog ("restart_output_summary stage={0} round={1} attempt={2} lines={3}" -f [string]$stagePolicy.Stage, $RoundTag, $Attempt, $outputLines.Count)
+        }
+        else {
+            Write-GuardLog ("restart_output_summary attempt={0} lines={1}" -f $Attempt, $outputLines.Count)
+        }
+
         $outputBlockLines = New-Object 'System.Collections.Generic.List[string]'
-        [void]$outputBlockLines.Add(("attempt={0}" -f $Attempt))
+        if ([bool]$stagePolicy.RestartIncludeRoundInLog) {
+            [void]$outputBlockLines.Add(("stage={0} round={1} attempt={2}" -f [string]$stagePolicy.Stage, $RoundTag, $Attempt))
+        }
+        else {
+            [void]$outputBlockLines.Add(("attempt={0}" -f $Attempt))
+        }
+
         foreach ($line in $outputLines) {
             [void]$outputBlockLines.Add(("line={0}" -f $line))
         }
@@ -1596,6 +1652,90 @@ function Invoke-BStageRestart {
         ExitCode = [int]$exitCode
         Succeeded = ([int]$exitCode -eq 0)
     }
+}
+
+function Invoke-StageRestartByPolicy {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [int]$Attempt,
+        [AllowEmptyString()][string]$RoundTag = ''
+    )
+
+    return (Invoke-StageRestartCore -Stage $Stage -Attempt $Attempt -RoundTag $RoundTag)
+}
+
+function Get-StagePolicy {
+    param([ValidateSet('A', 'B')][string]$Stage)
+
+    $stageLower = $Stage.ToLowerInvariant()
+    $taskDefinitionKey = if ($Stage -eq 'B') { 'B_TASK_DEFINITION' } else { 'A_TASK_DEFINITION' }
+    $restartEventSuffix = if ($Stage -eq 'B') { 'b' } else { 'a' }
+    $restartLauncherSwitch = if ($Stage -eq 'B') { '-EnableBMonitorRestart' } else { '-StartMonitors' }
+    $restartIncludeRoundInLog = ($Stage -eq 'A')
+    $preferredStage = $Stage
+    $guardRecoveryAction = ('restart-{0}' -f $restartEventSuffix)
+    $verifyRestartEventName = ('verify-restart-{0}' -f $restartEventSuffix)
+    $devTransientRestartEventName = ('dev-transient-restart-{0}' -f $restartEventSuffix)
+    $autoFixRestartEventName = ('auto-fix-restart-{0}' -f $restartEventSuffix)
+
+    return [pscustomobject]@{
+        Stage = $Stage
+        StageLower = $stageLower
+        TaskDefinitionKey = $taskDefinitionKey
+        RestartEventSuffix = $restartEventSuffix
+        RestartLauncherSwitch = $restartLauncherSwitch
+        RestartIncludeRoundInLog = $restartIncludeRoundInLog
+        PreferredStage = $preferredStage
+        GuardRecoveryAction = $guardRecoveryAction
+        VerifyRestartEventName = $verifyRestartEventName
+        DevTransientRestartEventName = $devTransientRestartEventName
+        AutoFixRestartEventName = $autoFixRestartEventName
+    }
+}
+
+function Format-StageRestartNote {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [int]$Attempt,
+        [string]$AtText
+    )
+
+    $stagePolicy = Get-StagePolicy -Stage $Stage
+    return ("guard_recovery action={0} attempt={1} at={2}" -f [string]$stagePolicy.GuardRecoveryAction, $Attempt, $AtText)
+}
+
+function Write-RecoveryWaitingConfirmationLog {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [int]$Attempts,
+        [int]$MaxAttempts,
+        [AllowEmptyString()][string]$SessionStatus,
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus
+    )
+
+    Write-GuardLog ("recovery_waiting_confirmation stage={0} attempts={1}/{2} status={3} a={4} b={5}" -f $Stage, $Attempts, $MaxAttempts, $SessionStatus, $AStatus, $BStatus)
+}
+
+function Resolve-RecoveryStageByStatus {
+    param(
+        [AllowEmptyString()][string]$AStatus,
+        [AllowEmptyString()][string]$BStatus,
+        [bool]$AllowBRecovery = $false,
+        [bool]$AutoRecoverB = $false,
+        [bool]$CanRecoverB = $false,
+        [bool]$GuardRestartAllowedForFailure = $false
+    )
+
+    if ($AStatus -eq 'FAIL') {
+        return 'A'
+    }
+
+    if ($AllowBRecovery -and $BStatus -eq 'FAIL' -and $AutoRecoverB -and $CanRecoverB -and $GuardRestartAllowedForFailure) {
+        return 'B'
+    }
+
+    return ''
 }
 
 function Read-JsonFileSafely {
@@ -2191,68 +2331,9 @@ function Get-FailureTicketMeta {
     return [pscustomobject]$result
 }
 
-function Get-TaskDefinitionRepairTicketContext {
+function Get-StageCompileFailureContext {
     param(
-        [object]$FailurePolicy,
-        [object]$BExitReasonEvidence,
-        [AllowEmptyString()][string]$RunDirAnchor
-    )
-
-    $result = [ordered]@{
-        ShouldQueue = $false
-        Detail = ''
-        RecommendedAction = ''
-        DedupSuffix = ''
-    }
-
-    if ($null -eq $FailurePolicy -or -not [bool]$FailurePolicy.IsDevRound) {
-        return [pscustomobject]$result
-    }
-
-    $failedRoundTag = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailedRoundTag)
-    if ([string]::IsNullOrWhiteSpace($failedRoundTag) -or $failedRoundTag -notmatch '^D[0-9]+$') {
-        return [pscustomobject]$result
-    }
-
-    $failReason = ''
-    $taskDefinitionPath = ''
-    $sourceScript = ''
-    if ($null -ne $BExitReasonEvidence -and [bool]$BExitReasonEvidence.Available -and [bool]$BExitReasonEvidence.StartFileMatch) {
-        $failReason = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.FailReason)
-        $taskDefinitionPath = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.TaskDefinitionPath)
-        $sourceScript = Convert-ToSingleLineText -Text ([string]$BExitReasonEvidence.SourceScript)
-    }
-
-    if ([string]::IsNullOrWhiteSpace($failReason)) {
-        $failReason = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
-    }
-
-    $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
-    $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
-    $compositeReason = Convert-ToSingleLineText -Text ('{0} {1} {2}' -f $failReason, $failureEvidence, $failureSource)
-    $reasonNormalized = $compositeReason.ToLowerInvariant()
-    $taskDefMismatchPattern = '(?im)(\[code-step\].*expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|regex[- ]patch|task[- ]definition|replacement\s+likely\s+double-escaped|double-escaped|auto-inject\s+failed|forward\s+declarations?\s+needed)'
-    if ($reasonNormalized -notmatch $taskDefMismatchPattern) {
-        return [pscustomobject]$result
-    }
-
-    $detail = ('round={0} category=task-definition-mismatch fail_reason={1} evidence={2} task_definition={3} source={4} run_dir={5}' -f
-        $failedRoundTag,
-        $failReason,
-        (Convert-ToBoundedSingleLineText -Text $failureEvidence -MaxChars 120),
-        $taskDefinitionPath,
-        $sourceScript,
-        (Convert-ToSingleLineText -Text $RunDirAnchor))
-
-    $result.ShouldQueue = $true
-    $result.Detail = Convert-ToBoundedSingleLineText -Text $detail -MaxChars 320
-    $result.RecommendedAction = 'Report root cause and remediation path first. Inspect latest_b_exit and B runtime evidence, update the failing regex-patch in the matching task-definition round under testdata to match current source shape, and when the failure is in V1-V4 prefer appending the incremental patch after the existing D4 definition instead of rewriting already-validated D1-D4 rounds. Run task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
-    $result.DedupSuffix = ('task-definition-fix|{0}|{1}|{2}' -f $failedRoundTag, $taskDefinitionPath, (Convert-ToSingleLineText -Text $RunDirAnchor))
-    return [pscustomobject]$result
-}
-
-function Get-ACompileFailureContext {
-    param(
+        [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Settings,
         [AllowEmptyString()][string]$RunDirAnchor
     )
@@ -2269,9 +2350,12 @@ function Get-ACompileFailureContext {
         StrictLogPath = ''
         StrictLogText = ''
         Signatures = @()
+        TargetSourceFiles = @()
         TaskDefinitionPath = ''
         TaskDefinitionHint = ''
     }
+
+    $stagePolicy = Get-StagePolicy -Stage $Stage
 
     $runDir = Resolve-AnchorPath -Path $RunDirAnchor
     if ([string]::IsNullOrWhiteSpace($runDir) -or -not (Test-Path -LiteralPath $runDir)) {
@@ -2449,9 +2533,23 @@ function Get-ACompileFailureContext {
     }
 
     $result.StrictLogText = $strictLogText
-    if ($strictLogText -notmatch '(?im)src/core/preclass\.c:.*\berror:') {
-        $result.Reason = 'not-preclass-compile-error'
-        $result.Detail = ('round={0} strict_log={1} detail=strict-log-exists-but-preclass-signature-mismatch' -f [string]$failedRoundTag, [string]$result.StrictLogPath)
+    $targetSourceFiles = @('src/core/preclass.c')
+    $matchedTargetSources = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($targetSource in $targetSourceFiles) {
+        $sourcePattern = ''
+        switch ($targetSource) {
+            'src/core/preclass.c' { $sourcePattern = '(?im)src/core/preclass\.c:.*\berror:' }
+            default { $sourcePattern = '' }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($sourcePattern) -and $strictLogText -match $sourcePattern) {
+            [void]$matchedTargetSources.Add([string]$targetSource)
+        }
+    }
+
+    if ($matchedTargetSources.Count -lt 1) {
+        $result.Reason = 'not-target-source-compile-error'
+        $result.Detail = ('round={0} strict_log={1} detail=strict-log-exists-but-target-source-signature-mismatch' -f [string]$failedRoundTag, [string]$result.StrictLogPath)
         return [pscustomobject]$result
     }
 
@@ -2472,8 +2570,9 @@ function Get-ACompileFailureContext {
     }
 
     $taskDefinitionRaw = ''
-    if ($null -ne $Settings -and $Settings.Contains('A_TASK_DEFINITION')) {
-        $taskDefinitionRaw = Convert-ToSingleLineText -Text ([string]$Settings.A_TASK_DEFINITION)
+    $taskDefinitionKey = [string]$stagePolicy.TaskDefinitionKey
+    if ($null -ne $Settings -and $Settings.Contains($taskDefinitionKey)) {
+        $taskDefinitionRaw = Convert-ToSingleLineText -Text ([string]$Settings[$taskDefinitionKey])
     }
     if ([string]::IsNullOrWhiteSpace($taskDefinitionRaw)) {
         $taskDefinitionRaw = $taskDefinitionHint
@@ -2487,6 +2586,7 @@ function Get-ACompileFailureContext {
 
     $result.TaskDefinitionPath = $taskDefinitionPath
     $result.Signatures = @($signatures)
+    $result.TargetSourceFiles = @($matchedTargetSources)
     $result.Eligible = $true
     return [pscustomobject]$result
 }
@@ -2547,7 +2647,8 @@ function Invoke-TaskDefinitionStaticCheck {
 function Invoke-ApplyKnownPreclassTaskFixSet {
     param(
         [string]$TaskDefinitionPath,
-        [string]$RoundTag
+        [string]$RoundTag,
+        [string[]]$TargetSourceFiles
     )
 
     $result = [ordered]@{
@@ -2558,6 +2659,17 @@ function Invoke-ApplyKnownPreclassTaskFixSet {
         UpdatedOperations = 0
         CheckExitCode = 0
         CheckOutput = @()
+    }
+
+    $effectiveTargets = @($TargetSourceFiles | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($effectiveTargets.Count -lt 1) {
+        $effectiveTargets = @('src/core/preclass.c')
+    }
+
+    $unsupportedTargets = @($effectiveTargets | Where-Object { $_ -ne 'src/core/preclass.c' })
+    if ($unsupportedTargets.Count -gt 0) {
+        $result.Reason = ('unsupported-target-sources:{0}' -f (@($unsupportedTargets) -join ','))
+        return [pscustomobject]$result
     }
 
     if ([string]::IsNullOrWhiteSpace($TaskDefinitionPath) -or -not (Test-Path -LiteralPath $TaskDefinitionPath)) {
@@ -2707,40 +2819,12 @@ function Invoke-AStageRestart {
         [string]$RoundTag
     )
 
-    $stageLauncher = Join-Path $script:RepoRoot 'tools\test\open_unattended_ab_stage_window.ps1'
-    $powershellPath = Join-Path $PSHOME 'powershell.exe'
-    if (-not (Test-Path -LiteralPath $powershellPath)) {
-        $powershellPath = 'powershell.exe'
-    }
-
-    Write-GuardLog ("restart_begin stage=A round={0} attempt={1} launcher={2}" -f $RoundTag, $Attempt, (Convert-ToRepoRelativePath -Path $stageLauncher))
-    $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $stageLauncher -Stage A -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-
-    $outputLines = @(
-        @($output) |
-            ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } |
-            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    )
-
-    if ($outputLines.Count -gt 0) {
-        Write-GuardLog ("restart_output_summary stage=A round={0} attempt={1} lines={2}" -f $RoundTag, $Attempt, $outputLines.Count)
-        $outputBlockLines = New-Object 'System.Collections.Generic.List[string]'
-        [void]$outputBlockLines.Add(("stage=A round={0} attempt={1}" -f $RoundTag, $Attempt))
-        foreach ($line in $outputLines) {
-            [void]$outputBlockLines.Add(("line={0}" -f $line))
-        }
-        Write-GuardPastedBlock -Tag 'restart_output_block' -Lines @($outputBlockLines)
-    }
-
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Succeeded = ($exitCode -eq 0)
-    }
+    return (Invoke-StageRestartCore -Stage 'A' -Attempt $Attempt -RoundTag $RoundTag)
 }
 
-function Invoke-AVerifyRoundRecovery {
+function Invoke-StageVerifyRoundRecovery {
     param(
+        [ValidateSet('A', 'B')][string]$Stage,
         [object]$FailurePolicy,
         [bool]$RestartAllowed = $true,
         [ValidateRange(1, 10)][int]$MaxAttemptsPerRound = 2,
@@ -2781,7 +2865,7 @@ function Invoke-AVerifyRoundRecovery {
         return [pscustomobject]$result
     }
 
-    $ledgerKey = ('{0}|{1}' -f $roundTag, $category)
+    $ledgerKey = ('{0}|{1}|{2}' -f $Stage, $roundTag, $category)
     if (-not $script:VerifyRecoveryAttemptCounts.ContainsKey($ledgerKey)) {
         $script:VerifyRecoveryAttemptCounts[$ledgerKey] = 0
     }
@@ -2816,7 +2900,7 @@ function Invoke-AVerifyRoundRecovery {
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag $roundTag
+    $restartResult = Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
@@ -2829,8 +2913,9 @@ function Invoke-AVerifyRoundRecovery {
     return [pscustomobject]$result
 }
 
-function Invoke-ADevRoundTransientRecovery {
+function Invoke-StageDevRoundTransientRecovery {
     param(
+        [ValidateSet('A', 'B')][string]$Stage,
         [object]$FailurePolicy,
         [bool]$RestartAllowed = $true,
         [ValidateRange(1, 10)][int]$MaxAttemptsPerRound = 2,
@@ -2873,7 +2958,7 @@ function Invoke-ADevRoundTransientRecovery {
         return [pscustomobject]$result
     }
 
-    $ledgerKey = ('{0}|{1}' -f $roundTag, $category)
+    $ledgerKey = ('{0}|{1}|{2}' -f $Stage, $roundTag, $category)
     if (-not $script:DevRecoveryAttemptCounts.ContainsKey($ledgerKey)) {
         $script:DevRecoveryAttemptCounts[$ledgerKey] = 0
     }
@@ -2908,7 +2993,7 @@ function Invoke-ADevRoundTransientRecovery {
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag $roundTag
+    $restartResult = Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
@@ -2921,8 +3006,9 @@ function Invoke-ADevRoundTransientRecovery {
     return [pscustomobject]$result
 }
 
-function Invoke-ACompileAutoFixRecovery {
+function Invoke-StageCompileAutoFixRecovery {
     param(
+        [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Settings,
         [AllowEmptyString()][string]$RunDirAnchor,
         [ValidateRange(1, 8)][int]$MaxAttemptsPerRound = 3,
@@ -2941,7 +3027,9 @@ function Invoke-ACompileAutoFixRecovery {
         StrictLogPath = ''
     }
 
-    $context = Get-ACompileFailureContext -Settings $Settings -RunDirAnchor $RunDirAnchor
+    $stageToken = $Stage.ToUpperInvariant()
+
+    $context = Get-StageCompileFailureContext -Stage $stageToken -Settings $Settings -RunDirAnchor $RunDirAnchor
     if (-not [bool]$context.Eligible) {
         $result.Reason = [string]$context.Reason
         $result.Detail = Convert-ToSingleLineText -Text ([string]$context.Detail)
@@ -2983,29 +3071,33 @@ function Invoke-ACompileAutoFixRecovery {
     $result.Attempt = $attempt
 
     $signatureSummary = (@($context.Signatures) -join ',')
-    Write-GuardLog ("auto_fix_begin stage=A round={0} attempt={1}/{2} signatures={3} strict_log={4}" -f
+    $targetSourcesSummary = (@($context.TargetSourceFiles) -join ',')
+    Write-GuardLog ("auto_fix_begin stage={0} round={1} attempt={2}/{3} signatures={4} strict_log={5} sources={6}" -f
+        $stageToken,
         [string]$context.RoundTag,
         $attempt,
         $MaxAttemptsPerRound,
         $signatureSummary,
-        [string]$context.StrictLogPath)
+        [string]$context.StrictLogPath,
+        $targetSourcesSummary)
 
-    $applyResult = Invoke-ApplyKnownPreclassTaskFixSet -TaskDefinitionPath ([string]$context.TaskDefinitionPath) -RoundTag ([string]$context.RoundTag)
+    $applyResult = Invoke-ApplyKnownPreclassTaskFixSet -TaskDefinitionPath ([string]$context.TaskDefinitionPath) -RoundTag ([string]$context.RoundTag) -TargetSourceFiles @($context.TargetSourceFiles)
     if (-not [bool]$applyResult.Success) {
         $result.Reason = 'task-definition-fix-failed'
         $result.Detail = [string]$applyResult.Reason
         $checkPreview = Convert-ToBoundedSingleLineText -Text ((@($applyResult.CheckOutput) -join ' | ')) -MaxChars 240
         if (-not [string]::IsNullOrWhiteSpace($checkPreview)) {
-            Write-GuardLog ("auto_fix_fail stage=A round={0} attempt={1}/{2} reason={3} check={4}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason, $checkPreview)
+            Write-GuardLog ("auto_fix_fail stage={0} round={1} attempt={2}/{3} reason={4} check={5}" -f $stageToken, [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason, $checkPreview)
         }
         else {
-            Write-GuardLog ("auto_fix_fail stage=A round={0} attempt={1}/{2} reason={3}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason)
+            Write-GuardLog ("auto_fix_fail stage={0} round={1} attempt={2}/{3} reason={4}" -f $stageToken, [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [string]$applyResult.Reason)
         }
         return [pscustomobject]$result
     }
 
     if ([bool]$applyResult.Changed) {
-        Write-GuardLog ("auto_fix_taskdef_updated stage=A round={0} attempt={1}/{2} task={3} updated_ops={4} backup={5}" -f
+        Write-GuardLog ("auto_fix_taskdef_updated stage={0} round={1} attempt={2}/{3} task={4} updated_ops={5} backup={6}" -f
+            $stageToken,
             [string]$context.RoundTag,
             $attempt,
             $MaxAttemptsPerRound,
@@ -3014,7 +3106,8 @@ function Invoke-ACompileAutoFixRecovery {
             [string]$applyResult.BackupPath)
     }
     else {
-        Write-GuardLog ("auto_fix_taskdef_nochange stage=A round={0} attempt={1}/{2} task={3}" -f
+        Write-GuardLog ("auto_fix_taskdef_nochange stage={0} round={1} attempt={2}/{3} task={4}" -f
+            $stageToken,
             [string]$context.RoundTag,
             $attempt,
             $MaxAttemptsPerRound,
@@ -3024,33 +3117,35 @@ function Invoke-ACompileAutoFixRecovery {
     if (-not $RestartAllowed) {
         $result.Reason = 'restart-await-confirmation'
         $result.Detail = 'restart_requires_user_confirmation'
-        Write-GuardLog ("auto_fix_restart_blocked stage=A round={0} attempt={1}/{2} reason=await_user_confirmation" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
+        Write-GuardLog ("auto_fix_restart_blocked stage={0} round={1} attempt={2}/{3} reason=await_user_confirmation" -f $stageToken, [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-AStageRestart -Attempt $attempt -RoundTag ([string]$context.RoundTag)
+    $restartResult = Invoke-StageRestartByPolicy -Stage $stageToken -Attempt $attempt -RoundTag ([string]$context.RoundTag)
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
-        Write-GuardLog ("auto_fix_restart_triggered stage=A round={0} attempt={1}/{2}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
+        Write-GuardLog ("auto_fix_restart_triggered stage={0} round={1} attempt={2}/{3}" -f $stageToken, [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound)
     }
     else {
         $result.Reason = 'restart-failed'
         $result.Detail = ('exit_code={0}' -f [int]$restartResult.ExitCode)
-        Write-GuardLog ("auto_fix_restart_failed stage=A round={0} attempt={1}/{2} exit_code={3}" -f [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [int]$restartResult.ExitCode)
+        Write-GuardLog ("auto_fix_restart_failed stage={0} round={1} attempt={2}/{3} exit_code={4}" -f $stageToken, [string]$context.RoundTag, $attempt, $MaxAttemptsPerRound, [int]$restartResult.ExitCode)
     }
 
     try {
         $statusRefresh = Read-SessionStatusRefresh -StartFilePath $script:StartFilePath
         $statusView = Get-StatusSnapshotView -StatusSnapshot $statusRefresh.StatusSnapshot
         $existingNotes = $statusView.Notes
-        $note = ('guard_autofix stage=A round={0} attempt={1}/{2} restarted={3} reason={4} strict_log={5}' -f
+        $note = ('guard_autofix stage={0} round={1} attempt={2}/{3} restarted={4} reason={5} strict_log={6} sources={7}' -f
+            $stageToken,
             [string]$context.RoundTag,
             $attempt,
             $MaxAttemptsPerRound,
             [bool]$result.Restarted,
             [string]$result.Reason,
-            [string]$context.StrictLogPath)
+            [string]$context.StrictLogPath,
+            $targetSourcesSummary)
         $newNotes = Add-DelimitedNote -Existing $existingNotes -Append $note
         Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
     }
@@ -3117,9 +3212,11 @@ $script:GuardState = [ordered]@{
     guard_log = (Convert-ToRepoRelativePath -Path $script:GuardLogPath)
     guard_state = (Convert-ToRepoRelativePath -Path $script:GuardStatePath)
     poll_sec = [int]$PollSec
+    max_recovery_attempts = [int]$MaxBRecoveryAttempts
     max_b_recovery_attempts = [int]$MaxBRecoveryAttempts
     recovery_cooldown_minutes = [int]$RecoveryCooldownMinutes
     stop_on_budget_exhausted = [bool]$StopOnBudgetExhausted
+    auto_recover = $true
     auto_recover_b = $true
     restart_requires_confirmation = $false
     restart_approved = $true
@@ -3132,6 +3229,8 @@ $script:GuardState = [ordered]@{
     last_status_ticket_at = ''
     last_ticket_id = ''
     last_ticket_event = ''
+    recovery_attempts = 0
+    recovery_last_at = ''
     b_recovery_attempts = 0
     last_recovery_at = ''
     d1_auto_restart_enabled = $true
@@ -3152,7 +3251,8 @@ $script:AgentTicketLastId = ''
 $script:AgentTicketLastEvent = ''
 
 Write-GuardState -Values @{}
-Write-GuardLog ("startup start_file={0} poll_sec={1} max_b_recovery_attempts={2} recovery_cooldown_minutes={3} stop_on_budget_exhausted={4} guard_log={5} guard_state={6}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
+$MaxRecoveryAttempts = [int]$MaxBRecoveryAttempts
+Write-GuardLog ("startup start_file={0} poll_sec={1} max_recovery_attempts={2} max_b_recovery_attempts={3} recovery_cooldown_minutes={4} stop_on_budget_exhausted={5} guard_log={6} guard_state={7}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxRecoveryAttempts, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
 $guardParentPid = 0
 try {
     $guardSelfProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
@@ -3166,6 +3266,7 @@ catch {
 Write-GuardLog ("startup_pid pid={0} parent_pid={1}" -f $PID, $guardParentPid)
 
 $bRecoveryAttempts = 0
+$RecoveryAttempts = [int]$bRecoveryAttempts
 $lastRecoveryAt = [datetime]::MinValue
 $lastIncidentSignature = ''
 $graceClearedAt = $null
@@ -3209,8 +3310,6 @@ $restartApproved = $true
 $suppressKnownInfraTickets = $true
 $exitOnKnownInfraTransient = $true
 $lastRestartApprovalWaitSignature = ''
-$taskDefinitionRepairTicketEnabled = $true
-$lastTaskDefinitionFixSignature = ''
 $statusTicketEnabled = $false
 $statusTicketIntervalMinutes = 30
 $lastStatusTicketAt = [datetime]::MinValue
@@ -3975,10 +4074,33 @@ function Get-RecoveryFlagsExtraValues {
         [bool]$CanRecoverB
     )
 
-    return @{
+    return (New-RecoveryFlagsExtraValues -AutoRecoverB $AutoRecoverB -CanRecoverB $CanRecoverB)
+}
+
+function New-RecoveryFlagsExtraValues {
+    param(
+        [bool]$AutoRecoverB,
+        [bool]$CanRecoverB,
+        [AllowEmptyString()][string]$Stage = '',
+        [int]$RecoveryAttempts = -1
+    )
+
+    $extraValues = @{
+        auto_recover = [bool]$AutoRecoverB
         auto_recover_b = [bool]$AutoRecoverB
         can_recover_b = [bool]$CanRecoverB
     }
+
+    if (-not [string]::IsNullOrWhiteSpace($Stage) -and $RecoveryAttempts -ge 0) {
+        $extraValues.recovery_stage = $Stage
+        $extraValues.recovery_attempts = [int]$RecoveryAttempts
+
+        if ($Stage -eq 'B') {
+            $extraValues.b_recovery_attempts = [int]$RecoveryAttempts
+        }
+    }
+
+    return $extraValues
 }
 
 function Get-RecoveryFlagsWithManualNoticeExtraValues {
@@ -3988,11 +4110,18 @@ function Get-RecoveryFlagsWithManualNoticeExtraValues {
         [int]$ManualNoticeRepeat
     )
 
-    return @{
-        auto_recover_b = [bool]$AutoRecoverB
-        can_recover_b = [bool]$CanRecoverB
-        manual_notice_repeat = [int]$ManualNoticeRepeat
-    }
+    $extraValues = New-RecoveryFlagsExtraValues -AutoRecoverB $AutoRecoverB -CanRecoverB $CanRecoverB
+    $extraValues.manual_notice_repeat = [int]$ManualNoticeRepeat
+    return $extraValues
+}
+
+function Get-RecoveryCapabilityDetail {
+    param(
+        [bool]$AutoRecoverB,
+        [bool]$CanRecoverB
+    )
+
+    return ("auto_recover_b={0} can_recover_b={1}" -f [bool]$AutoRecoverB, [bool]$CanRecoverB)
 }
 
 function Get-SessionRecoveryStatusDetail {
@@ -4004,7 +4133,8 @@ function Get-SessionRecoveryStatusDetail {
         [bool]$CanRecoverB
     )
 
-    return ("status={0} a={1} b={2} auto_recover_b={3} can_recover_b={4}" -f $SessionStatus, $AStatus, $BStatus, [bool]$AutoRecoverB, [bool]$CanRecoverB)
+    $recoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $AutoRecoverB -CanRecoverB $CanRecoverB
+    return ("status={0} a={1} b={2} {3}" -f $SessionStatus, $AStatus, $BStatus, $recoveryCapabilityDetail)
 }
 
 function Get-BudgetExhaustedDetail {
@@ -4084,31 +4214,48 @@ function Write-FinalNoFollowupRecoveryCompletionLog {
 
 function Write-BudgetExhaustedDeferActiveState {
     param(
+        [ValidateSet('A', 'B')][string]$Stage = 'B',
         [int]$RecoveryAttempts,
         [AllowEmptyString()][string]$LivenessDetail
     )
 
-    Write-GuardState -Values @{
+    $stateValues = @{
         status = 'running'
         event = 'budget-exhausted-defer-active'
         stop_reason = ''
-        b_recovery_attempts = [int]$RecoveryAttempts
+        recovery_stage = $Stage
+        recovery_attempts = [int]$RecoveryAttempts
         b_liveness_detail = $LivenessDetail
     }
+
+    if ($Stage -eq 'B') {
+        $stateValues.b_recovery_attempts = [int]$RecoveryAttempts
+    }
+
+    Write-GuardState -Values $stateValues
 }
 
 function Write-RestartTriggeredRunningState {
     param(
+        [ValidateSet('A', 'B')][string]$Stage = 'B',
         [int]$RecoveryAttempts,
         [AllowEmptyString()][string]$LastRecoveryAtText
     )
 
-    Write-GuardState -Values @{
+    $stateValues = @{
         status = 'running'
         last_action = 'restart-triggered'
-        b_recovery_attempts = [int]$RecoveryAttempts
-        last_recovery_at = $LastRecoveryAtText
+        recovery_stage = $Stage
+        recovery_attempts = [int]$RecoveryAttempts
+        recovery_last_at = $LastRecoveryAtText
     }
+
+    if ($Stage -eq 'B') {
+        $stateValues.b_recovery_attempts = [int]$RecoveryAttempts
+        $stateValues.last_recovery_at = $LastRecoveryAtText
+    }
+
+    Write-GuardState -Values $stateValues
 }
 
 function Write-WaitingMainExitGraceState {
@@ -4138,14 +4285,11 @@ function Get-RecoveryApprovalPauseExtraValues {
         [bool]$CanRecoverB,
         [bool]$RestartRequiresConfirmation,
         [bool]$RestartApproved,
+        [ValidateSet('A', 'B')][string]$Stage = 'B',
         [int]$RecoveryAttempts
     )
 
-    $extraValues = @{
-        auto_recover_b = [bool]$AutoRecoverB
-        can_recover_b = [bool]$CanRecoverB
-        b_recovery_attempts = [int]$RecoveryAttempts
-    }
+    $extraValues = New-RecoveryFlagsExtraValues -AutoRecoverB $AutoRecoverB -CanRecoverB $CanRecoverB -Stage $Stage -RecoveryAttempts $RecoveryAttempts
 
     $restartFlags = Get-RestartApprovalFlagsExtraValues -RestartRequiresConfirmation $RestartRequiresConfirmation -RestartApproved $RestartApproved
     foreach ($key in $restartFlags.Keys) {
@@ -4157,15 +4301,23 @@ function Get-RecoveryApprovalPauseExtraValues {
 
 function Write-BudgetExhaustedStoppedState {
     param(
+        [ValidateSet('A', 'B')][string]$Stage = 'B',
         [int]$RecoveryAttempts
     )
 
-    Write-GuardState -Values @{
+    $stateValues = @{
         status = 'stopped'
         event = 'budget-exhausted'
         stop_reason = 'budget-exhausted'
-        b_recovery_attempts = [int]$RecoveryAttempts
+        recovery_stage = $Stage
+        recovery_attempts = [int]$RecoveryAttempts
     }
+
+    if ($Stage -eq 'B') {
+        $stateValues.b_recovery_attempts = [int]$RecoveryAttempts
+    }
+
+    Write-GuardState -Values $stateValues
 }
 
 function Write-MonitorChainGraceStartLog {
@@ -4199,6 +4351,24 @@ function Write-MonitorChainGraceExpiredLog {
     Write-GuardLog ("monitor_chain_grace_expired stage={0} elapsed_min={1:N1} reason={2}" -f $Stage, $ElapsedMinutes, $Reason)
 }
 
+function Write-StageRecoveryResultLog {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [ValidateSet('triggered', 'failed')][string]$Result,
+        [int]$Attempt,
+        [int]$ExitCode = 0
+    )
+
+    $stagePolicy = Get-StagePolicy -Stage $Stage
+
+    if ($Result -eq 'triggered') {
+        Write-GuardLog ("recovery_triggered stage={0} attempt={1}" -f [string]$stagePolicy.Stage, $Attempt)
+        return
+    }
+
+    Write-GuardLog ("recovery_failed stage={0} attempt={1} exit_code={2}" -f [string]$stagePolicy.Stage, $Attempt, $ExitCode)
+}
+
 function Write-BStageRecoveryResultLog {
     param(
         [ValidateSet('triggered', 'failed')][string]$Result,
@@ -4206,12 +4376,7 @@ function Write-BStageRecoveryResultLog {
         [int]$ExitCode = 0
     )
 
-    if ($Result -eq 'triggered') {
-        Write-GuardLog ("recovery_triggered stage=B attempt={0}" -f $Attempt)
-        return
-    }
-
-    Write-GuardLog ("recovery_failed stage=B attempt={0} exit_code={1}" -f $Attempt, $ExitCode)
+    Write-StageRecoveryResultLog -Stage 'B' -Result $Result -Attempt $Attempt -ExitCode $ExitCode
 }
 
 function Write-BudgetExhaustedSkipLog {
@@ -4693,7 +4858,8 @@ function Invoke-InitDeadProcessCheck {
         $result.MainProcessExitGraceLastNoticeAt = $null
         $result.MainProcessExitGraceShutdownDetail = $shutdownDetail
         $result.MainProcessExitGraceStage = 'B'
-        Write-GuardLog ("init_dead_process_grace_start stage=B grace_min={0} pid={1} session={2} a={3} b={4} auto_recover_b={5} can_recover_b={6} run_dir={7}" -f $MainProcessExitMonitorGraceMinutes, $deadBLaunchPid, $SessionStatus, $AStatus, $BStatus, [bool]$AutoRecoverB, [bool]$canRecoverBAfterMissing, $RunDirAnchor)
+        $recoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $AutoRecoverB -CanRecoverB $canRecoverBAfterMissing
+        Write-GuardLog ("init_dead_process_grace_start stage=B grace_min={0} pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $MainProcessExitMonitorGraceMinutes, $deadBLaunchPid, $SessionStatus, $AStatus, $BStatus, $recoveryCapabilityDetail, $RunDirAnchor)
     }
     else {
         $result.Settings = Request-MonitorChainShutdown -Settings $Settings -Reason 'init-dead-process' -Source 'session-guard' -Detail $shutdownDetail
@@ -4714,19 +4880,19 @@ try {
 
             $settings, $sessionStatusRaw, $aStatusRaw, $bStatusRaw, $sessionStatus, $aStatus, $bStatus, $aLaunchPid, $bLaunchPid, $notes, $runDirAnchor = Update-StatusAndExpandTuple -StartFilePath $script:StartFilePath
 
-            $autoRecoverB = $true
-            if ($settings.Contains('LOCAL_GUARD_AUTO_RECOVER_B')) {
-                $autoRecoverB = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_AUTO_RECOVER_B) -Default $true
-            }
+            $autoRecoverB = Convert-ToBooleanSetting -Value (Get-SettingValueWithAlias -Settings $settings -PrimaryKey 'LOCAL_GUARD_AUTO_RECOVER' -FallbackKey 'LOCAL_GUARD_AUTO_RECOVER_B') -Default $true
 
-            if ($settings.Contains('LOCAL_GUARD_MAX_B_RECOVERY_ATTEMPTS')) {
+            $maxRecoveryAttemptsRaw = Get-SettingValueWithAlias -Settings $settings -PrimaryKey 'LOCAL_GUARD_MAX_RECOVERY_ATTEMPTS' -FallbackKey 'LOCAL_GUARD_MAX_B_RECOVERY_ATTEMPTS'
+
+            if (-not [string]::IsNullOrWhiteSpace($maxRecoveryAttemptsRaw)) {
                 $parsedAttempts = 0
-                if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MAX_B_RECOVERY_ATTEMPTS), [ref]$parsedAttempts)) {
+                if ([int]::TryParse($maxRecoveryAttemptsRaw, [ref]$parsedAttempts)) {
                     if ($parsedAttempts -ge 0 -and $parsedAttempts -le 10) {
                         $MaxBRecoveryAttempts = $parsedAttempts
                     }
                 }
             }
+            $MaxRecoveryAttempts = [int]$MaxBRecoveryAttempts
 
             if ($settings.Contains('LOCAL_GUARD_RECOVERY_COOLDOWN_MINUTES')) {
                 $parsedCooldown = 0
@@ -4820,11 +4986,6 @@ try {
                 $agentQueueEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_AGENT_QUEUE_ENABLED) -Default $true
             }
             $agentQueuePath = Get-AgentTicketQueuePath -Settings $settings
-
-            $taskDefinitionRepairTicketEnabled = $true
-            if ($settings.Contains('LOCAL_GUARD_TASKDEF_REPAIR_TICKET_ENABLED')) {
-                $taskDefinitionRepairTicketEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_TASKDEF_REPAIR_TICKET_ENABLED) -Default $true
-            }
 
             $statusTicketEnabled = $false
             if ($settings.Contains('LOCAL_GUARD_STATUS_TICKET_ENABLED')) {
@@ -5086,16 +5247,25 @@ try {
                 $bStatus = $statusView.BStatus
             }
 
-            $aPassConclusionEligible = ($sessionStatus -eq 'RUNNING' -and $aStatus -eq 'PASS' -and $bStatus -eq 'RUNNING')
-            if ($aPassConclusionEligible) {
-                $bLaunchPidForConclusion = 0
-                if ($settings.Contains('B_LAUNCH_PID')) {
-                    $parsedBLaunchPidForConclusion = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
-                    if ($null -ne $parsedBLaunchPidForConclusion) {
-                        $bLaunchPidForConclusion = [int]$parsedBLaunchPidForConclusion
-                    }
+            $bLaunchPidForConclusion = 0
+            if ($settings.Contains('B_LAUNCH_PID')) {
+                $parsedBLaunchPidForConclusion = Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID)
+                if ($null -ne $parsedBLaunchPidForConclusion) {
+                    $bLaunchPidForConclusion = [int]$parsedBLaunchPidForConclusion
                 }
+            }
 
+            $bTerminalExitForConclusion = Get-BStageExitReasonEvidence -ExpectedProcessId $bLaunchPidForConclusion
+            $bTerminalExitMatchedForConclusion = (
+                $null -ne $bTerminalExitForConclusion -and
+                [bool]$bTerminalExitForConclusion.Available -and
+                [bool]$bTerminalExitForConclusion.StartFileMatch -and
+                [bool]$bTerminalExitForConclusion.ProcessIdMatch -and
+                ([string]$bTerminalExitForConclusion.Result -in @('pass', 'fail'))
+            )
+
+            $aPassConclusionEligible = ($sessionStatus -eq 'RUNNING' -and $aStatus -eq 'PASS' -and $bStatus -eq 'RUNNING' -and -not $bTerminalExitMatchedForConclusion)
+            if ($aPassConclusionEligible) {
                 $aSnapshotFinalHint = ''
                 if ($settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
                     $aSnapshotFinalHint = Convert-ToSingleLineText -Text ([string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
@@ -5174,9 +5344,6 @@ try {
             }
 
             $running = Test-IsAnyStageRunning -AStatus $aStatus -BStatus $bStatus
-            if ($running) {
-                $lastTaskDefinitionFixSignature = ''
-            }
 
             if ($running -and $manualPauseActive) {
                 Write-GuardLog ("manual_wait_resume session={0} a={1} b={2} run_dir={3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
@@ -5339,7 +5506,7 @@ try {
 
                                         # Restart A stage
                                         Write-GuardLog ("d1_stall_restart_begin")
-                                        $stallRestartResult = Invoke-AStageRestart -Attempt 1 -RoundTag 'D1'
+                                        $stallRestartResult = Invoke-StageRestartByPolicy -Stage 'A' -Attempt 1 -RoundTag 'D1'
                                         if ([bool]$stallRestartResult.Succeeded) {
                                             Write-GuardLog ("d1_stall_restart_succeeded")
                                         }
@@ -5788,13 +5955,14 @@ try {
                         }
 
                         if (-not ([bool]$autoRecoverB -and [bool]$canRecoverBAfterMissing)) {
-                            $shutdownDetail = ("main_process_exit expected_pid={0} auto_recover_b={1} can_recover_b={2} run_dir={3}" -f $bLaunchPid, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
+                            $recoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverBAfterMissing
+                            $shutdownDetail = ("main_process_exit expected_pid={0} {1} run_dir={2}" -f $bLaunchPid, $recoveryCapabilityDetail, $runDirAnchor)
                             if ($mainProcessExitMonitorGraceMinutes -gt 0) {
                                 $mainProcessExitGraceStartedAt = Get-Date
                                 $mainProcessExitGraceLastNoticeAt = $null
                                 $mainProcessExitGraceShutdownDetail = $shutdownDetail
                                 $mainProcessExitGraceStage = 'B'
-                                Write-GuardLog ("main_process_exit_grace_start stage=B grace_min={0} expected_pid={1} session={2} a={3} b={4} auto_recover_b={5} can_recover_b={6} run_dir={7}" -f $mainProcessExitMonitorGraceMinutes, $bLaunchPid, $sessionStatus, $aStatus, $bStatus, [bool]$autoRecoverB, [bool]$canRecoverBAfterMissing, $runDirAnchor)
+                                Write-GuardLog ("main_process_exit_grace_start stage=B grace_min={0} expected_pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $mainProcessExitMonitorGraceMinutes, $bLaunchPid, $sessionStatus, $aStatus, $bStatus, $recoveryCapabilityDetail, $runDirAnchor)
                             }
                             else {
                                 $settings = Request-MainProcessExitNoAutofixShutdown -Settings $settings -Detail $shutdownDetail
@@ -5831,6 +5999,8 @@ try {
                 $lastStatusTicketAtText = $lastStatusTicketAt.ToString('yyyy-MM-dd HH:mm:ss')
             }
 
+            $RecoveryAttempts = [int]$bRecoveryAttempts
+
             Write-GuardState -Values @{
                 status = $guardLoopStatus
                 session_final_status = $sessionStatus
@@ -5846,10 +6016,14 @@ try {
                 b_stage_process_candidates = if ($null -ne $bProcessSnapshot) { [int]$bProcessSnapshot.CandidateCount } else { 0 }
                 b_running_no_process_grace_sec = [int]$bRunningNoProcessGraceSec
                 poll_sec = [int]$PollSec
+                max_recovery_attempts = [int]$MaxRecoveryAttempts
                 max_b_recovery_attempts = [int]$MaxBRecoveryAttempts
                 recovery_cooldown_minutes = [int]$RecoveryCooldownMinutes
                 stop_on_budget_exhausted = [bool]$StopOnBudgetExhausted
+                auto_recover = [bool]$autoRecoverB
                 auto_recover_b = [bool]$autoRecoverB
+                recovery_attempts = [int]$RecoveryAttempts
+                recovery_last_at = $lastRecoveryAtText
                 b_recovery_attempts = [int]$bRecoveryAttempts
                 last_recovery_at = $lastRecoveryAtText
                 manual_wait_for_restart = [bool]$manualPauseEnabled
@@ -5862,7 +6036,6 @@ try {
                 exit_on_known_infra_transient = [bool]$exitOnKnownInfraTransient
                 agent_ticket_queue_enabled = [bool]$agentQueueEnabled
                 agent_ticket_queue_path = (Convert-ToRepoRelativePath -Path $agentQueuePath)
-                task_definition_repair_ticket_enabled = [bool]$taskDefinitionRepairTicketEnabled
                 status_ticket_enabled = [bool]$statusTicketEnabled
                 status_ticket_interval_minutes = [int]$statusTicketIntervalMinutes
                 last_status_ticket_at = $lastStatusTicketAtText
@@ -5962,7 +6135,11 @@ try {
                             $manualWaitRecommendedAction = ('Dev-round non-code transient ({0}) evidence={1}. Allow guarded restart retries within quota/cooldown.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
                         }
                         default {
-                            if ($failureHasCodeFault) {
+                            if ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch') {
+                                $incidentRecommendedAction = ('Dev-round task-definition mismatch ({0}). Run the automatic code-fix workflow: update the matching task-definition round, pass static precheck, then restart the same stage through the standard stage window. Continue automatically while the fingerprint and recovery budgets permit; escalate only when those budgets are exhausted.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round task-definition mismatch ({0}). Automatic code-fix owns the repair, static precheck and same-stage restart. Escalate to manual handling only after the fingerprint or recovery budget is exhausted.' -f [string]$failurePolicy.FailedRoundTag)
+                            }
+                            elseif ($failureHasCodeFault) {
                                 $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) rather than rewriting D1-D4 validated content.' -f [string]$failurePolicy.FailedRoundTag)
                                 $manualWaitRecommendedAction = ('Dev-round code fault ({0}) evidence={1}. Apply code fixes and restart guarded flow after review; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4).' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.DevFailureEvidence)
                             }
@@ -5977,11 +6154,8 @@ try {
                 $incidentRecommendedAction = Convert-ToBoundedSingleLineText -Text ($incidentRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
-                $suppressIncidentForTaskDefMismatch = (
-                    [bool]$taskDefinitionRepairTicketEnabled -and
-                    $aStatus -eq 'PASS' -and
-                    $bStatus -in @('FAIL', 'BLOCKED') -and
-                    ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch')
+                $guardRestartAllowedForFailure = (
+                    [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch'
                 )
 
                 if ($statusSignature -ne $lastIncidentSignature) {
@@ -6004,7 +6178,7 @@ try {
                             (Convert-ToBoundedSingleLineText -Text ([string]$failurePolicy.DevFailureEvidence) -MaxChars 180),
                             [string]$failurePolicy.DevFailureSourceLog)
                     }
-                    elseif (-not $suppressIncidentForTaskDefMismatch) {
+                    else {
                         # Fallback: if failure ticket meta is unknown, try reading
                         # A_FAIL_CATEGORY / A_FAIL_REASON from start file (written
                         # by guard from exit artifact).
@@ -6176,39 +6350,6 @@ try {
                     }
                 }
 
-                if ([bool]$taskDefinitionRepairTicketEnabled -and $aStatus -eq 'PASS' -and $bStatus -in @('FAIL', 'BLOCKED')) {
-                    $bExitReasonEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $bLaunchPid
-                    $taskDefRepairContext = Get-TaskDefinitionRepairTicketContext -FailurePolicy $failurePolicy -BExitReasonEvidence $bExitReasonEvidence -RunDirAnchor $runDirAnchor
-                    if ([bool]$taskDefRepairContext.ShouldQueue) {
-                        $taskDefFixSignature = Convert-ToSingleLineText -Text ([string]$taskDefRepairContext.DedupSuffix)
-                        if ([string]::IsNullOrWhiteSpace($taskDefFixSignature)) {
-                            $taskDefFixSignature = $statusSignature
-                        }
-
-                        if ($taskDefFixSignature -ne $lastTaskDefinitionFixSignature) {
-                            $taskDefTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'task-definition-fix-required' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail ([string]$taskDefRepairContext.Detail) -DedupSuffix $taskDefFixSignature -RecommendedAction ([string]$taskDefRepairContext.RecommendedAction) -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'task-definition-mismatch' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv $false
-
-                            if (Get-TicketResultQueuedFlag -TicketResult $taskDefTicketResult) {
-                                Write-GuardLog ('agent_ticket_queued task_definition_fix_required id={0} dedup={1}' -f [string]$taskDefTicketResult.TicketId, $taskDefFixSignature)
-                                $lastTaskDefinitionFixSignature = $taskDefFixSignature
-                            }
-                            elseif ((Get-TicketResultReason -TicketResult $taskDefTicketResult) -eq 'duplicate-signature') {
-                                $lastTaskDefinitionFixSignature = $taskDefFixSignature
-                            }
-                            else {
-                                Write-GuardLog ('agent_ticket_task_definition_fix_skipped reason={0} dedup={1}' -f (Get-TicketResultReason -TicketResult $taskDefTicketResult), $taskDefFixSignature)
-                            }
-                        }
-                    }
-                    else {
-                        Write-GuardLog ("agent_ticket_suppressed event=incident-captured reason=task_definition_mismatch_wait_fix stage=B round={0} category={1}" -f [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
-                        $suppressExplainDedup = ("{0}|suppressed-taskdef-mismatch|round={1}|category={2}" -f $statusSignature, [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
-                        $suppressExplainDetail = ("incident-captured suppressed due to task_definition_mismatch_wait_fix; stage=B round={0} category={1}; pending task-definition repair context" -f [string]$failureTicketMeta.MainRound, [string]$failureTicketMeta.FailureCategory)
-                        $suppressExplainAction = 'This is an explanatory status ticket. Report why incident-captured was suppressed, keep read-only monitoring, and proceed with task-definition repair workflow when corresponding fix ticket/context is available.'
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-suppressed-taskdef-mismatch' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $suppressExplainDetail -DedupSuffix $suppressExplainDedup -RecommendedAction $suppressExplainAction -PreferredStage 'B' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind 'task-definition-mismatch' -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $true -NonRecoverableEnv $false
-                    }
-                }
-
                 $monitorChainGraceStopRequested = $false
                 if ($null -ne $monitorChainGraceStartedAt) {
                     # Check if the main process has been revived during grace period
@@ -6343,7 +6484,9 @@ try {
                 $skipAutoFixForDevTransient = $false
 
                 if ($aStatus -eq 'FAIL' -and [bool]$failurePolicy.IsVerifyRound) {
-                    $verifyRecoveryResult = Invoke-AVerifyRoundRecovery -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
+                    $verifyRecoveryStage = Resolve-RecoveryStageByStatus -AStatus $aStatus -BStatus $bStatus
+                    $verifyStagePolicy = Get-StagePolicy -Stage $verifyRecoveryStage
+                    $verifyRecoveryResult = Invoke-StageVerifyRoundRecovery -Stage $verifyRecoveryStage -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
                     $verifyRecoveryLogFields = Get-RecoveryResultLogCompactFields -Detail ([string]$verifyRecoveryResult.Detail) -Evidence ([string]$verifyRecoveryResult.Evidence)
                     Write-GuardLog ("verify_recovery_result round={0} category={1} attempted={2} restarted={3} reason={4} detail={5} evidence={6} source={7}" -f
                         [string]$verifyRecoveryResult.RoundTag,
@@ -6363,7 +6506,9 @@ try {
                     if ([bool]$verifyRecoveryResult.Restarted) {
                         Reset-RestartRecoveryMonitorState -ManualPauseActive ([ref]$manualPauseActive) -ManualPauseSignature ([ref]$manualPauseSignature) -ManualPauseNoticeCount ([ref]$manualPauseNoticeCount) -LastIncidentSignature ([ref]$lastIncidentSignature) -LastBudgetExhaustedSignature ([ref]$lastBudgetExhaustedSignature)
 
-                        Write-RestartRunningState -EventName 'verify-restart-a' -ExtraValues @{
+                        $verifyRestartEventName = [string]$verifyStagePolicy.VerifyRestartEventName
+                        Write-RestartRunningState -EventName $verifyRestartEventName -ExtraValues @{
+                            verify_restart_stage = [string]$verifyRecoveryStage
                             verify_restart_round = [string]$verifyRecoveryResult.RoundTag
                             verify_restart_category = [string]$verifyRecoveryResult.Category
                             verify_restart_attempt = [int]$verifyRecoveryResult.Attempt
@@ -6383,8 +6528,10 @@ try {
                     $devCategory = Get-NormalizedFailureCategory -Primary ([string]$failurePolicy.DevFailureCategory) -Fallback ([string]$failurePolicy.FailureCategory)
 
                     if ($devCategory -eq 'noncode-transient') {
+                        $devRecoveryStage = Resolve-RecoveryStageByStatus -AStatus $aStatus -BStatus $bStatus
+                        $devStagePolicy = Get-StagePolicy -Stage $devRecoveryStage
                         $skipAutoFixForDevTransient = $true
-                        $devTransientRecoveryResult = Invoke-ADevRoundTransientRecovery -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
+                        $devTransientRecoveryResult = Invoke-StageDevRoundTransientRecovery -Stage $devRecoveryStage -FailurePolicy $failurePolicy -RestartAllowed $restartApproved -MaxAttemptsPerRound $MaxBRecoveryAttempts -CooldownMinutes $RecoveryCooldownMinutes
                         $devTransientRecoveryLogFields = Get-RecoveryResultLogCompactFields -Detail ([string]$devTransientRecoveryResult.Detail) -Evidence ([string]$devTransientRecoveryResult.Evidence)
                         Write-GuardLog ("dev_transient_recovery_result round={0} category={1} attempted={2} restarted={3} reason={4} detail={5} evidence={6} source={7}" -f
                             [string]$devTransientRecoveryResult.RoundTag,
@@ -6408,7 +6555,9 @@ try {
                         if ([bool]$devTransientRecoveryResult.Restarted) {
                             Reset-RestartRecoveryMonitorState -ManualPauseActive ([ref]$manualPauseActive) -ManualPauseSignature ([ref]$manualPauseSignature) -ManualPauseNoticeCount ([ref]$manualPauseNoticeCount) -LastIncidentSignature ([ref]$lastIncidentSignature) -LastBudgetExhaustedSignature ([ref]$lastBudgetExhaustedSignature)
 
-                            Write-RestartRunningState -EventName 'dev-transient-restart-a' -ExtraValues @{
+                            $devRestartEventName = [string]$devStagePolicy.DevTransientRestartEventName
+                            Write-RestartRunningState -EventName $devRestartEventName -ExtraValues @{
+                                dev_restart_stage = [string]$devRecoveryStage
                                 dev_restart_round = [string]$devTransientRecoveryResult.RoundTag
                                 dev_restart_category = [string]$devTransientRecoveryResult.Category
                                 dev_restart_attempt = [int]$devTransientRecoveryResult.Attempt
@@ -6419,14 +6568,17 @@ try {
                     }
                 }
 
-                if ($autoFixCompileEnabled -and $aStatus -eq 'FAIL' -and -not [bool]$failurePolicy.IsVerifyRound -and -not $skipAutoFixForDevTransient) {
-                    $autoFixResult = Invoke-ACompileAutoFixRecovery -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes -RestartAllowed $restartApproved
+                $autoFixStage = Resolve-RecoveryStageByStatus -AStatus $aStatus -BStatus $bStatus -AllowBRecovery $true -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB -GuardRestartAllowedForFailure $guardRestartAllowedForFailure
+
+                if ($autoFixCompileEnabled -and -not [string]::IsNullOrWhiteSpace($autoFixStage) -and -not [bool]$failurePolicy.IsVerifyRound -and -not $skipAutoFixForDevTransient) {
+                    $autoFixResult = Invoke-StageCompileAutoFixRecovery -Stage $autoFixStage -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes -RestartAllowed $restartApproved
                     $autoFixLogFields = Get-AutoFixResultLogCompactFields -Detail ([string]$autoFixResult.Detail)
                     $autoFixStatusSignature = "{0}|{1}|{2}|{3}" -f [string]$autoFixResult.Reason, [string]$autoFixResult.RoundTag, $runDirAnchor, [int]$autoFixResult.Attempt
 
                     if ([bool]$autoFixResult.Attempted) {
                         $lastAutoFixStatusSignature = ''
-                        Write-GuardLog ("auto_fix_result stage=A round={0} attempt={1}/{2} restarted={3} reason={4} detail={5} task={6} strict_log={7} category={8} script_fault={9} code_fault={10}" -f
+                        Write-GuardLog ("auto_fix_result stage={0} round={1} attempt={2}/{3} restarted={4} reason={5} detail={6} task={7} strict_log={8} category={9} script_fault={10} code_fault={11}" -f
+                            $autoFixStage,
                             [string]$autoFixResult.RoundTag,
                             [int]$autoFixResult.Attempt,
                             [int]$autoFixMaxPerDRound,
@@ -6441,7 +6593,8 @@ try {
                     }
                     elseif ($autoFixStatusSignature -ne $lastAutoFixStatusSignature) {
                         $lastAutoFixStatusSignature = $autoFixStatusSignature
-                        Write-GuardLog ("auto_fix_skip stage=A reason={0} round={1} detail={2}" -f
+                        Write-GuardLog ("auto_fix_skip stage={0} reason={1} round={2} detail={3}" -f
+                            $autoFixStage,
                             [string]$autoFixResult.Reason,
                             [string]$autoFixResult.RoundTag,
                             [string]$autoFixLogFields.DetailCompact180)
@@ -6457,7 +6610,10 @@ try {
                     if ([bool]$autoFixResult.Restarted) {
                         Reset-RestartRecoveryMonitorState -ManualPauseActive ([ref]$manualPauseActive) -ManualPauseSignature ([ref]$manualPauseSignature) -ManualPauseNoticeCount ([ref]$manualPauseNoticeCount) -LastIncidentSignature ([ref]$lastIncidentSignature) -LastBudgetExhaustedSignature ([ref]$lastBudgetExhaustedSignature)
 
-                        Write-RestartRunningState -EventName 'auto-fix-restart-a' -ExtraValues @{
+                        $autoFixStagePolicy = Get-StagePolicy -Stage $autoFixStage
+                        $autoFixRestartEventName = [string]$autoFixStagePolicy.AutoFixRestartEventName
+                        Write-RestartRunningState -EventName $autoFixRestartEventName -ExtraValues @{
+                            auto_fix_stage = [string]$autoFixStage
                             auto_fix_round = [string]$autoFixResult.RoundTag
                             auto_fix_attempt = [int]$autoFixResult.Attempt
                             auto_fix_max_per_d_round = [int]$autoFixMaxPerDRound
@@ -6498,35 +6654,18 @@ try {
                     }
                 }
 
-                if ($autoRecoverB -and $canRecoverB) {
-                    $taskDefMismatchGateActive = (
-                        [bool]$taskDefinitionRepairTicketEnabled -and
-                        $aStatus -eq 'PASS' -and
-                        $bStatus -in @('FAIL', 'BLOCKED') -and
-                        ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch')
-                    )
-                    if ($taskDefMismatchGateActive) {
-                        Write-GuardLog ("recovery_pause reason=task_definition_mismatch_wait_fix stage=B round={0} attempts={1}/{2}" -f [string]$failureTicketMeta.MainRound, [int]$bRecoveryAttempts, [int]$MaxBRecoveryAttempts)
-                        Write-PausedSessionState -EventName 'task-definition-fix-required' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -ExtraValues @{
-                            wait_reason = 'task-definition-mismatch-wait-fix'
-                            main_round = [string]$failureTicketMeta.MainRound
-                            b_recovery_attempts = [int]$bRecoveryAttempts
-                            max_b_recovery_attempts = [int]$MaxBRecoveryAttempts
-                        }
-                        Start-Sleep -Seconds $PollSec
-                        continue
-                    }
-
+                if ($autoRecoverB -and $canRecoverB -and $guardRestartAllowedForFailure) {
+                    $bRecoveryStagePolicy = Get-StagePolicy -Stage 'B'
                     if (-not $restartApproved) {
                         $recoveryWaitTicketContext = Get-RecoveryAwaitConfirmationTicketContext -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                         $approvalWaitSignature = [string]$recoveryWaitTicketContext.DedupSuffix
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
-                            Write-GuardLog ("recovery_waiting_confirmation stage=B attempts={0}/{1} status={2} a={3} b={4}" -f $bRecoveryAttempts, $MaxBRecoveryAttempts, $sessionStatus, $aStatus, $bStatus)
-                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage 'B' -SelfHealable $true
+                            Write-RecoveryWaitingConfirmationLog -Stage 'B' -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage ([string]$bRecoveryStagePolicy.PreferredStage) -SelfHealable $true
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 
-                        Write-PausedSessionState -EventName 'await-restart-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -ExtraValues (Get-RecoveryApprovalPauseExtraValues -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB -RestartRequiresConfirmation $restartRequiresConfirmation -RestartApproved $restartApproved -RecoveryAttempts $bRecoveryAttempts)
+                        Write-PausedSessionState -EventName 'await-restart-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -ExtraValues (Get-RecoveryApprovalPauseExtraValues -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB -RestartRequiresConfirmation $restartRequiresConfirmation -RestartApproved $restartApproved -Stage 'B' -RecoveryAttempts $bRecoveryAttempts)
                         Start-Sleep -Seconds $PollSec
                         continue
                     }
@@ -6544,14 +6683,14 @@ try {
                                     $lastBudgetExhaustedSignature = $deferSignature
                                 }
 
-                                Write-BudgetExhaustedDeferActiveState -RecoveryAttempts $bRecoveryAttempts -LivenessDetail ([string]$livenessEvidence.Detail)
+                                Write-BudgetExhaustedDeferActiveState -Stage 'B' -RecoveryAttempts $bRecoveryAttempts -LivenessDetail ([string]$livenessEvidence.Detail)
                                 Start-Sleep -Seconds $PollSec
                                 continue
                             }
 
                             $lastBudgetExhaustedSignature = Update-BudgetExhaustedSkipSignature -CurrentSignature $lastBudgetExhaustedSignature -CandidateSignature $budgetSignature -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts
 
-                            Write-BudgetExhaustedStoppedState -RecoveryAttempts $bRecoveryAttempts
+                            Write-BudgetExhaustedStoppedState -Stage 'B' -RecoveryAttempts $bRecoveryAttempts
                             if ($mainProcessExitMonitorGraceMinutes -gt 0) {
                                 if ($null -eq $monitorChainGraceStartedAt) {
                                     $monitorChainGraceStartedAt = Get-Date
@@ -6587,24 +6726,24 @@ try {
                     else {
                         $lastBudgetExhaustedSignature = ''
                         $attempt = $bRecoveryAttempts + 1
-                        $restartResult = Invoke-BStageRestart -Attempt $attempt
+                        $restartResult = Invoke-StageRestartByPolicy -Stage 'B' -Attempt $attempt
                         if ($restartResult.Succeeded) {
                             $bRecoveryAttempts = $attempt
                             $lastRecoveryAt = Get-Date
                             $lastIncidentSignature = ''
                             $lastBudgetExhaustedSignature = ''
-                            Write-RestartTriggeredRunningState -RecoveryAttempts $bRecoveryAttempts -LastRecoveryAtText $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
-                            $restartNote = "guard_recovery action=restart-b attempt={0} at={1}" -f $attempt, $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
+                            Write-RestartTriggeredRunningState -Stage 'B' -RecoveryAttempts $bRecoveryAttempts -LastRecoveryAtText $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
+                            $restartNote = Format-StageRestartNote -Stage 'B' -Attempt $attempt -AtText $lastRecoveryAt.ToString('yyyy-MM-dd HH:mm:ss')
                             $statusRefresh = Read-SessionStatusRefresh -StartFilePath $script:StartFilePath
                             $statusView = Get-StatusSnapshotView -StatusSnapshot $statusRefresh.StatusSnapshot
                             $newNotes = Add-DelimitedNote -Existing $statusView.Notes -Append $restartNote
                             Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{ SESSION_FINAL_NOTES = $newNotes }
-                            Write-BStageRecoveryResultLog -Result 'triggered' -Attempt $attempt
+                            Write-StageRecoveryResultLog -Stage 'B' -Result 'triggered' -Attempt $attempt
                             Invoke-RestartSettlePause
                             continue
                         }
 
-                        Write-BStageRecoveryResultLog -Result 'failed' -Attempt $attempt -ExitCode $restartResult.ExitCode
+                        Write-StageRecoveryResultLog -Stage 'B' -Result 'failed' -Attempt $attempt -ExitCode $restartResult.ExitCode
                     }
                 }
                 else {

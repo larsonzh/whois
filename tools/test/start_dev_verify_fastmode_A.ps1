@@ -21,6 +21,8 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePath = Resolve-StartFilePathFromEnv
+    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-A] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
     try {
         $startFileHash = [System.BitConverter]::ToString(
             [System.Security.Cryptography.SHA1]::Create().ComputeHash(
@@ -72,9 +74,6 @@ try {
     else {
         Write-Output "[FASTMODE-A] restart_precheck existing_count=0"
     }
-
-    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
-    Write-Output ("[FASTMODE-A] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
 
     $runMutexContext = Enter-RunMutex -Role 'A' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)
@@ -217,10 +216,10 @@ if ($exitCode -ne 0) {
     Write-Output ("A_FAIL_CATEGORY={0}" -f $failureCategory)
     Write-Output ("A_FAIL_REASON={0}" -f $failureReason)
 
-    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A'
+    $null = Wait-MonitorChainHealthy -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A-EXIT'
 }
 else {
-    Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A-PASS'
+    $null = Wait-MonitorChainHealthy -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $startFilePath -LogPrefix 'FASTMODE-A-PASS-EXIT'
 
     # A stage PASS: write A_FINAL_STATUS and A_SUCCESS_SNAPSHOT to start file
     # so guard can detect PASS and auto-launch B

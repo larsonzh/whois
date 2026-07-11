@@ -1412,6 +1412,45 @@ function Get-MonitorBindingState {
     }
 }
 
+function Get-ParentMonitorBindingEvidence {
+    param(
+        [string]$ScriptLeaf,
+        [string]$StartFilePath,
+        [string]$RepoRoot
+    )
+
+    $result = [ordered]@{
+        Matches = $false
+        ProcessId = 0
+    }
+
+    try {
+        $currentProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
+        $parentProcessId = [int]$currentProcess.ParentProcessId
+        if ($parentProcessId -le 0) {
+            return [pscustomobject]$result
+        }
+
+        $parentProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $parentProcessId) -ErrorAction Stop
+        $commandLine = [string]$parentProcess.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLine) -or -not $commandLine.ToLowerInvariant().Contains($ScriptLeaf.ToLowerInvariant())) {
+            return [pscustomobject]$result
+        }
+
+        $expectedStartFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+        $parentStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
+        if (-not [string]::IsNullOrWhiteSpace($expectedStartFileIdentity) -and $parentStartFileIdentity -eq $expectedStartFileIdentity) {
+            $result.Matches = $true
+            $result.ProcessId = $parentProcessId
+        }
+    }
+    catch {
+        # Parent-process evidence is an optional continuity hint; normal monitor discovery remains authoritative.
+    }
+
+    return [pscustomobject]$result
+}
+
 function Test-MonitorReuseActivity {
     param(
         [System.Collections.IDictionary]$Settings,
@@ -1769,21 +1808,11 @@ if (-not (Test-StageLaunchAllowed -Stage $Stage -Settings $settings -ScriptTag '
 
 $settings = Clear-MonitorChainShutdownRequest -Path $startFilePath -Settings $settings -ScriptTag 'OPEN-AB-STAGE'
 
-# ── Orphan cleanup: terminate any lingering stage process windows ──
+# ── Stage process cleanup is owned by the fastmode main-mutex gate. ──
+# Do not terminate command-line matches here: a live same-stage process must
+# retain ownership until its main mutex is released.
 $entryScriptKey = if ($Stage -eq 'A') { 'ENTRY_SCRIPT_A' } else { 'ENTRY_SCRIPT_B' }
-$orphanEntryScript = Resolve-RepoPath -Path ([string]$settings[$entryScriptKey]) -ErrorAction SilentlyContinue
-if (-not [string]::IsNullOrWhiteSpace($orphanEntryScript)) {
-    try {
-        $orphanProcs = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$orphanEntryScript*" })
-        foreach ($orphanProc in $orphanProcs) {
-            Write-Output ("[OPEN-AB-STAGE] orphan_cleanup stage={0} pid={1} cmdline_match=entry_script" -f $Stage, $orphanProc.ProcessId)
-            $null = Stop-Process -Id ([int]$orphanProc.ProcessId) -Force -ErrorAction SilentlyContinue
-        }
-    }
-    catch {
-        Write-Output ("[OPEN-AB-STAGE] orphan_cleanup_skipped reason=wmi_error stage={0}" -f $Stage)
-    }
-}
+Write-Output ('[OPEN-AB-STAGE] stage_process_cleanup stage={0} action=defer-to-main-mutex' -f $Stage)
 
 $taskKey = if ($Stage -eq 'A') { 'A_TASK_DEFINITION' } else { 'B_TASK_DEFINITION' }
 
@@ -2675,6 +2704,17 @@ if (-not $bForceMonitorRestart) {
     $requiredMonitorRoles = @('guard')
     if ($autoStartTakeoverTrigger) {
         $requiredMonitorRoles += 'trigger'
+    }
+
+    if ($Stage -eq 'B' -and -not [bool]$monitorStates.guard.RunningForStartFile) {
+        $parentGuardEvidence = Get-ParentMonitorBindingEvidence -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFilePath $startFilePath -RepoRoot $repoRoot
+        if ([bool]$parentGuardEvidence.Matches) {
+            $monitorStates.guard | Add-Member -MemberType NoteProperty -Name 'RunningForStartFile' -Value $true -Force
+            $monitorStates.guard | Add-Member -MemberType NoteProperty -Name 'MatchCount' -Value 1 -Force
+            $monitorStates.guard | Add-Member -MemberType NoteProperty -Name 'MatchPids' -Value @([int]$parentGuardEvidence.ProcessId) -Force
+            Write-Output ('[OPEN-AB-STAGE] monitor_parent_reuse role=guard stage=B pid={0}' -f [int]$parentGuardEvidence.ProcessId)
+            Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'monitor_parent_reuse' -Fields @{ stage = $Stage; role = 'guard'; pid = [int]$parentGuardEvidence.ProcessId }
+        }
     }
 
     $missingMonitorRoles = @()
