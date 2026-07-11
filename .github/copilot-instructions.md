@@ -47,7 +47,7 @@
   - 每次编辑后，保持 operations 内 op 顺序稳定；不要因为格式化或重排导致语义漂移。
   - 修改 pattern/replacement 时必须保证“唯一命中 + 可落地替换”；若无法唯一命中，优先追加新 op，不要强改前置 op。
   - 提交前必跑静态检查；若静态检查失败，继续在当前故障 op 及其后续修复，禁止回头改前置 op。
-- 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；静态检查通过后才可重启。
+- 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；若静态检查失败，必须根据诊断继续在允许修改边界内修复任务定义并重新检查，只有检查通过后才可重启。若无法合规通过检查，报告阻塞并停止重启，禁止绕过门禁。
 - 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。发现后应在该轮次末尾追加删除孤儿体的 op，或修改原 op 的 pattern 使其一并消耗原函数体。
 - D 轮次代码设计必须基于 whois 项目的整体方案，包括但不限于：
   - 项目架构文档与 RFC（`docs/` 目录下），当前代码改动涉及的具体方案见 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md)。
