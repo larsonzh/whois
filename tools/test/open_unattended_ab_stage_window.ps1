@@ -1962,6 +1962,16 @@ $taskStaticPrecheckEnabled = ($Stage -eq 'A')
 if ($taskStaticPrecheckEnabled) {
     $precheckScopeRoundTag = 'D1'
     $precheckScopeOperationIndex = 1
+    $resumeFailedRound = if ($settings.Contains('RESUME_FAILED_ROUND')) {
+        (Convert-ToSingleLineText -Text ([string]$settings.RESUME_FAILED_ROUND)).ToUpperInvariant()
+    }
+    else {
+        ''
+    }
+    if ($resumeFailedRound -match '^D[1-4]$') {
+        $precheckScopeRoundTag = $resumeFailedRound
+        $precheckScopeOperationIndex = 0
+    }
 
     $precheckArgs = @(
         '-NoProfile',
@@ -1970,11 +1980,13 @@ if ($taskStaticPrecheckEnabled) {
         '-TaskDefinitionFile', $taskDefinitionRelative,
         '-Policy', $taskStaticPrecheckPolicy,
         '-RoundTag', $precheckScopeRoundTag,
-        '-OperationIndex', [string]$precheckScopeOperationIndex,
         '-StartFilePath', $startFilePath,
         '-Stage', $Stage,
         '-EnableFingerprintCheck'
     )
+    if ($precheckScopeOperationIndex -gt 0) {
+        $precheckArgs += @('-OperationIndex', [string]$precheckScopeOperationIndex)
+    }
     if ($taskStaticPrecheckFailOnWarnings) {
         $precheckArgs += '-FailOnWarnings'
     }

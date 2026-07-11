@@ -1901,10 +1901,13 @@ function Get-RoundFailureCategoryFromLogText {
         }
     }
 
+    $taskDefinitionFaultRegex = '(?im)(\[DEV-VERIFY-MULTI\]\s+round_task_static_gate_fail=|\[TASK-STATIC-CHECK\]\s+severity=(?:error|warn)\s+detail=)'
     $scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
     $networkTransientRegex = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
     $codeFaultRegex = '(?im)(\[CODE-STEP\]\s+fatal_error=\s*[^\r\n]+|code-step\s+fatal\s+error[^\r\n]*|src[\\/].*\.(c|h):\d+:\d+:\s*error:[^\r\n]*|error\s+C\d{4}\b[^\r\n]*|undefined\s+reference\s+to[^\r\n]*|compilation\s+terminated[^\r\n]*|was\s+not\s+declared\s+in\s+this\s+scope[^\r\n]*|conflicting\s+types\s+for[^\r\n]*|redefinition\s+of[^\r\n]*|no\s+member\s+named[^\r\n]*|fatal\s+error:\s+[^\r\n]*)'
 
+    $taskDefinitionEvidence = ''
+    $taskDefinitionSourceLog = ''
     $scriptEvidence = ''
     $networkEvidence = ''
     $codeEvidence = ''
@@ -1924,6 +1927,12 @@ function Get-RoundFailureCategoryFromLogText {
         }
         catch {
             continue
+        }
+
+        $taskDefinitionMarker = [regex]::Match($text, $taskDefinitionFaultRegex)
+        if ($taskDefinitionMarker.Success -and [string]::IsNullOrWhiteSpace($taskDefinitionEvidence)) {
+            $taskDefinitionEvidence = Convert-ToBoundedSingleLineText -Text ([string]$taskDefinitionMarker.Value) -MaxChars 120
+            $taskDefinitionSourceLog = Convert-ToRepoRelativePath -Path $path
         }
 
         $scriptMarker = [regex]::Match($text, $scriptFaultRegex)
@@ -1952,6 +1961,13 @@ function Get-RoundFailureCategoryFromLogText {
                 $codeSourceLog = Convert-ToRepoRelativePath -Path $path
             }
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($taskDefinitionEvidence)) {
+        $result.Category = 'task-definition-mismatch'
+        $result.Evidence = ('matched={0}' -f $taskDefinitionEvidence)
+        $result.SourceLog = $taskDefinitionSourceLog
+        return [pscustomobject]$result
     }
 
     if ([bool]$result.HasCodeFault -and [bool]$result.HasScriptFault) {
@@ -2619,7 +2635,10 @@ function Resolve-RegexPatchOperation {
 }
 
 function Invoke-TaskDefinitionStaticCheck {
-    param([string]$TaskDefinitionPath)
+    param(
+        [string]$TaskDefinitionPath,
+        [AllowEmptyString()][string]$RoundTag = ''
+    )
 
     $checkScript = Join-Path $script:RepoRoot 'tools\test\check_task_definition_static.ps1'
     if (-not (Test-Path -LiteralPath $checkScript)) {
@@ -2635,7 +2654,11 @@ function Invoke-TaskDefinitionStaticCheck {
         $powershellPath = 'powershell.exe'
     }
 
-    $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $checkScript -TaskDefinitionFile $TaskDefinitionPath -Policy enforce 2>&1 | ForEach-Object { [string]$_ })
+    $checkArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $checkScript, '-TaskDefinitionFile', $TaskDefinitionPath, '-Policy', 'enforce', '-StartFilePath', $script:StartFilePath, '-Stage', 'A', '-EnableFingerprintCheck')
+    if (-not [string]::IsNullOrWhiteSpace($RoundTag)) {
+        $checkArgs += @('-RoundTag', $RoundTag)
+    }
+    $output = @(& $powershellPath @checkArgs 2>&1 | ForEach-Object { [string]$_ })
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     return [pscustomobject]@{
         Passed = ($exitCode -eq 0)
@@ -2797,7 +2820,7 @@ static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
         return [pscustomobject]$result
     }
 
-    $checkResult = Invoke-TaskDefinitionStaticCheck -TaskDefinitionPath $TaskDefinitionPath
+    $checkResult = Invoke-TaskDefinitionStaticCheck -TaskDefinitionPath $TaskDefinitionPath -RoundTag $RoundTag
     $result.CheckExitCode = [int]$checkResult.ExitCode
     $result.CheckOutput = @($checkResult.OutputLines)
     if (-not [bool]$checkResult.Passed) {
@@ -3608,7 +3631,7 @@ function Get-AMainProcessExitDedupSuffix {
         [Parameter(Mandatory = $true)][string]$SessionStatus,
         [Parameter(Mandatory = $true)][string]$AStatus,
         [Parameter(Mandatory = $true)][string]$BStatus,
-        [Parameter(Mandatory = $true)][string]$RunDirAnchor,
+        [AllowEmptyString()][string]$RunDirAnchor,
         [Parameter(Mandatory = $true)][int]$ALaunchPid
     )
 
@@ -3620,7 +3643,7 @@ function Get-BMainProcessExitDedupSuffix {
         [Parameter(Mandatory = $true)][string]$SessionStatus,
         [Parameter(Mandatory = $true)][string]$AStatus,
         [Parameter(Mandatory = $true)][string]$BStatus,
-        [Parameter(Mandatory = $true)][string]$RunDirAnchor,
+        [AllowEmptyString()][string]$RunDirAnchor,
         [Parameter(Mandatory = $true)][int]$BLaunchPid,
         [Parameter(Mandatory = $true)][bool]$AutoRecoverB,
         [Parameter(Mandatory = $true)][string]$MainExitEvidenceToken

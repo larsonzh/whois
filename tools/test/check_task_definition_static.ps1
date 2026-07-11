@@ -258,6 +258,189 @@ function Resolve-PrimaryTargetFile {
     return $selectedFile
 }
 
+function Add-ResumeRoundBoundaryIssues {
+    param(
+        [string]$TaskDefinitionPath,
+        [string]$RepositoryRoot,
+        [System.Collections.IDictionary]$Settings,
+        [ValidateSet('A', 'B')][string]$Stage
+    )
+
+    if ($null -eq $Settings -or -not $Settings.ContainsKey('RESUME_FAILED_ROUND')) {
+        return
+    }
+
+    $resumeRound = ([string]$Settings['RESUME_FAILED_ROUND']).Trim().ToUpperInvariant()
+    if ($resumeRound -notmatch '^[DV][1-4]$') {
+        return
+    }
+
+    $repoRootFull = [System.IO.Path]::GetFullPath($RepositoryRoot).TrimEnd([char]92, [char]47)
+    $taskPathFull = [System.IO.Path]::GetFullPath($TaskDefinitionPath)
+    if (-not $taskPathFull.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Add-ErrorIssue ("resume-boundary-check task-outside-repo resume_round={0} task={1}" -f $resumeRound, $TaskDefinitionPath)
+        return
+    }
+    $relativeTaskPath = $taskPathFull.Substring($repoRootFull.Length).TrimStart([char]92, [char]47).Replace('\', '/')
+    $baselineSpec = ('HEAD:{0}' -f $relativeTaskPath)
+    $priorErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $baselineLines = @(& git -C $RepositoryRoot show $baselineSpec 2>$null | ForEach-Object { [string]$_ })
+    }
+    finally {
+        $ErrorActionPreference = $priorErrorActionPreference
+    }
+    if ($LASTEXITCODE -ne 0 -or $baselineLines.Count -eq 0) {
+        Add-ErrorIssue ("resume-boundary-check baseline unavailable resume_round={0} task={1}" -f $resumeRound, $relativeTaskPath)
+        return
+    }
+
+    $baselineTaskDefinition = $null
+    $currentTaskDefinition = $null
+    try {
+        $baselineTaskDefinition = ($baselineLines -join "`n") | ConvertFrom-Json -ErrorAction Stop
+        $currentTaskDefinition = (Get-Content -LiteralPath $TaskDefinitionPath -Raw) | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        Add-ErrorIssue ("resume-boundary-check json-parse-failed resume_round={0} task={1}" -f $resumeRound, $relativeTaskPath)
+        return
+    }
+
+    $roundNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in @($baselineTaskDefinition.rounds.PSObject.Properties)) {
+        [void]$roundNames.Add([string]$entry.Name)
+    }
+    foreach ($entry in @($currentTaskDefinition.rounds.PSObject.Properties)) {
+        [void]$roundNames.Add([string]$entry.Name)
+    }
+
+    $changedRounds = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($roundName in $roundNames) {
+        $baselineRound = if ($baselineTaskDefinition.rounds.PSObject.Properties.Name -contains $roundName) { $baselineTaskDefinition.rounds.$roundName } else { $null }
+        $currentRound = if ($currentTaskDefinition.rounds.PSObject.Properties.Name -contains $roundName) { $currentTaskDefinition.rounds.$roundName } else { $null }
+        $baselineText = if ($null -eq $baselineRound) { '' } else { $baselineRound | ConvertTo-Json -Compress -Depth 64 }
+        $currentText = if ($null -eq $currentRound) { '' } else { $currentRound | ConvertTo-Json -Compress -Depth 64 }
+        if ($baselineText -ne $currentText) {
+            [void]$changedRounds.Add([string]$roundName)
+        }
+    }
+
+    $allowedRounds = @()
+    if ($resumeRound -match '^D([1-4])$') {
+        $firstAllowedRound = [int]$Matches[1]
+        $allowedRounds = @(for ($roundNumber = $firstAllowedRound; $roundNumber -le 4; $roundNumber++) { "D$roundNumber" })
+    }
+    else {
+        $allowedRounds = @('D4')
+    }
+
+    $outOfScopeRounds = @($changedRounds | Where-Object { $_ -notin $allowedRounds })
+    if ($outOfScopeRounds.Count -gt 0) {
+        Add-ErrorIssue ("resume-boundary-check out-of-scope-round-change resume_round={0} allowed_rounds={1} changed_rounds={2}" -f $resumeRound, ($allowedRounds -join ','), ($outOfScopeRounds -join ','))
+    }
+    else {
+        $changedRoundDetail = if ($changedRounds.Count -gt 0) { $changedRounds -join ',' } else { 'none' }
+        Add-InfoIssue ("resume-boundary-check status=pass resume_round={0} allowed_rounds={1} changed_rounds={2}" -f $resumeRound, ($allowedRounds -join ','), $changedRoundDetail)
+    }
+
+    if ($resumeRound -match '^V[1-4]$' -and ($changedRounds -contains 'D4')) {
+        $baselineD4 = $baselineTaskDefinition.rounds.D4
+        $currentD4 = $currentTaskDefinition.rounds.D4
+        $d4PropertyNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        if ($null -ne $baselineD4) {
+            foreach ($property in @($baselineD4.PSObject.Properties)) {
+                if ($property.Name -ne 'operations') {
+                    [void]$d4PropertyNames.Add([string]$property.Name)
+                }
+            }
+        }
+        if ($null -ne $currentD4) {
+            foreach ($property in @($currentD4.PSObject.Properties)) {
+                if ($property.Name -ne 'operations') {
+                    [void]$d4PropertyNames.Add([string]$property.Name)
+                }
+            }
+        }
+        foreach ($propertyName in $d4PropertyNames) {
+            $baselineProperty = if ($null -ne $baselineD4 -and ($baselineD4.PSObject.Properties.Name -contains $propertyName)) { $baselineD4.$propertyName | ConvertTo-Json -Compress -Depth 64 } else { '' }
+            $currentProperty = if ($null -ne $currentD4 -and ($currentD4.PSObject.Properties.Name -contains $propertyName)) { $currentD4.$propertyName | ConvertTo-Json -Compress -Depth 64 } else { '' }
+            if ($baselineProperty -ne $currentProperty) {
+                Add-ErrorIssue ("resume-boundary-check v-round-d4-non-operation-content-modified resume_round={0} property={1}" -f $resumeRound, $propertyName)
+            }
+        }
+        $baselineOperations = if ($null -ne $baselineD4 -and ($baselineD4.PSObject.Properties.Name -contains 'operations')) { @($baselineD4.operations) } else { @() }
+        $currentOperations = if ($null -ne $currentD4 -and ($currentD4.PSObject.Properties.Name -contains 'operations')) { @($currentD4.operations) } else { @() }
+        if ($currentOperations.Count -lt $baselineOperations.Count) {
+            Add-ErrorIssue ("resume-boundary-check v-round-d4-existing-op-removed resume_round={0}" -f $resumeRound)
+        }
+        else {
+            for ($operationIndex = 0; $operationIndex -lt $baselineOperations.Count; $operationIndex++) {
+                $baselineOperationText = $baselineOperations[$operationIndex] | ConvertTo-Json -Compress -Depth 64
+                $currentOperationText = $currentOperations[$operationIndex] | ConvertTo-Json -Compress -Depth 64
+                if ($baselineOperationText -ne $currentOperationText) {
+                    Add-ErrorIssue ("resume-boundary-check v-round-d4-existing-op-modified resume_round={0} op={1}" -f $resumeRound, ($operationIndex + 1))
+                }
+            }
+        }
+    }
+
+    if ($resumeRound -match '^D[1-4]$' -and ($changedRounds -contains $resumeRound)) {
+        $failurePrefix = if ($Stage -eq 'B') { 'B' } else { 'A' }
+        $currentFailureRound = if ($Settings.ContainsKey("${failurePrefix}_FAILURE_MAIN_ROUND")) { ([string]$Settings["${failurePrefix}_FAILURE_MAIN_ROUND"]).Trim().ToUpperInvariant() } else { '' }
+        $currentFailurePhase = if ($Settings.ContainsKey("${failurePrefix}_FAILURE_PHASE")) { ([string]$Settings["${failurePrefix}_FAILURE_PHASE"]).Trim().ToLowerInvariant() } else { '' }
+        $previousFailureRound = if ($Settings.ContainsKey("${failurePrefix}_PREVIOUS_FAILURE_MAIN_ROUND")) { ([string]$Settings["${failurePrefix}_PREVIOUS_FAILURE_MAIN_ROUND"]).Trim().ToUpperInvariant() } else { '' }
+        $previousFailurePhase = if ($Settings.ContainsKey("${failurePrefix}_PREVIOUS_FAILURE_PHASE")) { ([string]$Settings["${failurePrefix}_PREVIOUS_FAILURE_PHASE"]).Trim().ToLowerInvariant() } else { '' }
+
+        $matchedFailurePhase = ''
+        if ($currentFailureRound -eq $resumeRound -and $currentFailurePhase -in @('compile', 'verify')) {
+            $matchedFailurePhase = $currentFailurePhase
+        }
+        elseif ($previousFailureRound -eq $resumeRound -and $previousFailurePhase -in @('compile', 'verify')) {
+            $matchedFailurePhase = $previousFailurePhase
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($matchedFailurePhase)) {
+            $baselineFailedRound = $baselineTaskDefinition.rounds.$resumeRound
+            $currentFailedRound = $currentTaskDefinition.rounds.$resumeRound
+            $failedRoundPropertyNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($roundDefinition in @($baselineFailedRound, $currentFailedRound)) {
+                if ($null -eq $roundDefinition) {
+                    continue
+                }
+                foreach ($property in @($roundDefinition.PSObject.Properties)) {
+                    if ($property.Name -ne 'operations') {
+                        [void]$failedRoundPropertyNames.Add([string]$property.Name)
+                    }
+                }
+            }
+            foreach ($propertyName in $failedRoundPropertyNames) {
+                $baselineProperty = if ($null -ne $baselineFailedRound -and ($baselineFailedRound.PSObject.Properties.Name -contains $propertyName)) { $baselineFailedRound.$propertyName | ConvertTo-Json -Compress -Depth 64 } else { '' }
+                $currentProperty = if ($null -ne $currentFailedRound -and ($currentFailedRound.PSObject.Properties.Name -contains $propertyName)) { $currentFailedRound.$propertyName | ConvertTo-Json -Compress -Depth 64 } else { '' }
+                if ($baselineProperty -ne $currentProperty) {
+                    Add-ErrorIssue ("resume-boundary-check d-round-existing-content-modified resume_round={0} phase={1} property={2}" -f $resumeRound, $matchedFailurePhase, $propertyName)
+                }
+            }
+
+            $baselineOperations = if ($null -ne $baselineFailedRound -and ($baselineFailedRound.PSObject.Properties.Name -contains 'operations')) { @($baselineFailedRound.operations) } else { @() }
+            $currentOperations = if ($null -ne $currentFailedRound -and ($currentFailedRound.PSObject.Properties.Name -contains 'operations')) { @($currentFailedRound.operations) } else { @() }
+            if ($currentOperations.Count -lt $baselineOperations.Count) {
+                Add-ErrorIssue ("resume-boundary-check d-round-existing-op-removed resume_round={0} phase={1}" -f $resumeRound, $matchedFailurePhase)
+            }
+            else {
+                for ($operationIndex = 0; $operationIndex -lt $baselineOperations.Count; $operationIndex++) {
+                    $baselineOperationText = $baselineOperations[$operationIndex] | ConvertTo-Json -Compress -Depth 64
+                    $currentOperationText = $currentOperations[$operationIndex] | ConvertTo-Json -Compress -Depth 64
+                    if ($baselineOperationText -ne $currentOperationText) {
+                        Add-ErrorIssue ("resume-boundary-check d-round-existing-op-modified resume_round={0} phase={1} op={2}" -f $resumeRound, $matchedFailurePhase, ($operationIndex + 1))
+                    }
+                }
+            }
+            Add-InfoIssue ("resume-boundary-check d-round-append-only phase={0} resume_round={1}" -f $matchedFailurePhase, $resumeRound)
+        }
+    }
+}
+
 $taskDefinition = $null
 try {
     $taskDefinition = (Get-Content -LiteralPath $resolvedTaskDefinition -Raw) | ConvertFrom-Json
@@ -457,6 +640,7 @@ if ($EnableFingerprintCheck.IsPresent) {
         }
         else {
             $settings = Read-KeyValuePairs -Path $resolvedStartFilePath
+            Add-ResumeRoundBoundaryIssues -TaskDefinitionPath $resolvedTaskDefinition -RepositoryRoot $RepoRoot -Settings $settings -Stage $Stage
             $prefix = if ($Stage -eq 'B') { 'B' } else { 'A' }
 
             $curRound = if ($settings.ContainsKey("${prefix}_FAILURE_MAIN_ROUND")) { [string]$settings["${prefix}_FAILURE_MAIN_ROUND"] } else { '' }
