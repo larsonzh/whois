@@ -158,8 +158,22 @@ function Test-RoleProcessTrulyAlive {
 
         $procStartTime = $null
         try {
-            if ($null -ne $proc.PSObject.Properties['CreationDate'] -and -not [string]::IsNullOrWhiteSpace([string]$proc.CreationDate)) {
-                $procStartTime = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$proc.CreationDate)
+            if ($null -ne $proc.PSObject.Properties['CreationDate'] -and $null -ne $proc.CreationDate) {
+                if ($proc.CreationDate -is [datetime]) {
+                    $procStartTime = [datetime]$proc.CreationDate
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace([string]$proc.CreationDate)) {
+                    $creationDateText = [string]$proc.CreationDate
+                    try {
+                        $procStartTime = [System.Management.ManagementDateTimeConverter]::ToDateTime($creationDateText)
+                    }
+                    catch {
+                        $parsedCreationDate = [datetime]::MinValue
+                        if ([datetime]::TryParse($creationDateText, [ref]$parsedCreationDate)) {
+                            $procStartTime = $parsedCreationDate
+                        }
+                    }
+                }
             }
         }
         catch {
