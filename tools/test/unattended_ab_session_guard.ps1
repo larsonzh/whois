@@ -5279,14 +5279,15 @@ try {
                     $bLaunchPidForConclusion,
                     $aSnapshotFinalHint)
 
-                # Only generate the ticket when the snapshot reference is settled
-                # (points to current run_dir, meaning launcher has finished updating the start file).
-                # Skip on the first poll where B is detected as RUNNING but the start file
-                # still has the pre-launch snapshot path.
+                # B runs in a different directory from A. The handover ticket requires
+                # settled A snapshot evidence, not equality with B's current run directory.
                 $aSnapshotSettled = $false
-                if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint) -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
-                    $snapshotDir = Split-Path $aSnapshotFinalHint -Parent
-                    $aSnapshotSettled = (($snapshotDir -replace '[/\\]', '\') -eq ($runDirAnchor -replace '[/\\]', '\'))
+                if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint)) {
+                    $aSnapshotFinalPath = Resolve-RepoPathAllowMissing -Path $aSnapshotFinalHint
+                    if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalPath) -and (Test-Path -LiteralPath $aSnapshotFinalPath)) {
+                        $aSnapshotDir = Join-Path (Split-Path -Parent $aSnapshotFinalPath) 'a_success_snapshot'
+                        $aSnapshotSettled = (Test-Path -LiteralPath $aSnapshotDir)
+                    }
                 }
 
                 if ($aPassConclusionDedup -ne $lastAPassConclusionSignature -and $aSnapshotSettled) {

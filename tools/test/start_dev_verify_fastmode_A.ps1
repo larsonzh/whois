@@ -21,8 +21,6 @@ try {
     $taskDefinitionRelative = Resolve-TaskDefinitionRelativePath -InputName $TaskDefinitionFileName
     Assert-StageWindowInvocation -Stage 'A' -TaskDefinitionRelative $taskDefinitionRelative
     $startFilePath = Resolve-StartFilePathFromEnv
-    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
-    Write-Output ("[FASTMODE-A] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
     try {
         $startFileHash = [System.BitConverter]::ToString(
             [System.Security.Cryptography.SHA1]::Create().ComputeHash(
@@ -75,6 +73,8 @@ try {
         Write-Output "[FASTMODE-A] restart_precheck existing_count=0"
     }
 
+    $mainRunMutexContext = Enter-MainRunMutex -RepoRoot $repoRoot
+    Write-Output ("[FASTMODE-A] main_run_mutex={0}" -f [string]$mainRunMutexContext.Name)
     $runMutexContext = Enter-RunMutex -Role 'A' -RepoRoot $repoRoot
     Write-Output ("[FASTMODE-A] run_mutex={0}" -f [string]$runMutexContext.Name)
     $taskDefinitionAbsolute = Join-Path $repoRoot ($taskDefinitionRelative -replace "/", [System.IO.Path]::DirectorySeparatorChar)
