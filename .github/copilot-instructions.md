@@ -37,6 +37,8 @@
 - 新增诊断/指标一律写 stderr，沿用已有标签风格；避免更改标签名称，防止黄金与脚本失效。
 
 ## D/V 轮次任务定义设计指导（自愈修复专用）
+- **D 轮执行前门禁与报票时序（硬规则）**：A/B 启动入口先做 D1-op1 静态预检；进入每个实际执行的 D 轮前，`round runtime static gate` 必须对该轮全部 `operations` 按顺序 dry-run（op2 基于 op1 replacement 后的内存文本，依次类推）。若任一 op 不是唯一命中或替换不可落地，门禁立即将该轮标记为 `TASK-STATIC-FAIL`，跳过该轮 code-step 并使主流程失败退出；运行中的 guard 再依据 `round_task_static_gate_fail` / `[TASK-STATIC-CHECK]` 证据归类为 `task-definition-mismatch`，生成 `incident-captured` 自愈修复票。因此正常情况下无需等到 code-step 再失败。仅当门禁未启用、该轮因 `pre-resume` 被跳过门禁，或存在门禁未覆盖的运行时差异时，才由 code-step 的逐 op 唯一匹配检查 fail-fast，随后由 guard 生成对应事故票。启动/重启入口静态预检失败则由 launcher 直接生成 `task-definition-fix-required` 票；两类票均必须包含 stage、round、op（可定位时）和 task-definition。
+- **静态检查语义（硬规则）**：每轮前整轮检查与 code-step 均采用顺序内存文本语义，目标源码只在该轮全部 operations 通过后统一写入，禁止留下半轮源码状态。AI 修复 code-step 故障后，只对触发故障的当前 op 执行目标检查：`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce -RoundTag <Dn> -OperationIndex <n>`；checker 会顺序模拟同轮 op1 至 op(n-1) 作为只读前提，只把 op(n) 作为目标检查。前置 op 被模拟不代表允许修改。
 - **跨轮次修改边界（硬规则）**：D1 故障可改 D1-D4；D2 故障可改 D2-D4、不得改 D1；D3 故障可改 D3-D4、不得改 D1-D2；D4 故障仅可改 D4、不得改 D1-D3。V1-V4 是验证轮次而非 JSON 轮次键：不得改 D1-D3，也不得修改或删除 D4 既有内容，只能在 D4 `operations` 末尾连续追加一个或多个 op。静态门禁必须按上述前向范围验证，不得错误地限制为仅当前 D 轮。
 - **D 轮次内操作边界（硬规则）**：code-step 阶段失败时，当前故障 op 之前的 op 为只读；仅允许从故障 op 位置起修改、删除、插入或追加 op。编译/验证阶段失败时，该轮原有 op 均为只读，只能在该轮末尾连续追加一个或多个 op。
 - **改动量评估优先**：先评估代码改动量。改动量小，在当前 D 轮次末尾追加 op 补丁（追加模式）；改动量大，则重设计当前 D 轮次所有 ops（重构模式）。追加模式优先，重构模式仅当追加模式导致 ops 数量膨胀或语义混乱时选用。
@@ -49,6 +51,7 @@
   - 提交前必跑静态检查；若静态检查失败，继续在当前故障 op 及其后续修复，禁止回头改前置 op。
 - 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；若静态检查失败，必须根据诊断继续在允许修改边界内修复任务定义并重新检查，只有检查通过后才可重启。若无法合规通过检查，报告阻塞并停止重启，禁止绕过门禁。
 - 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。发现后应在该轮次末尾追加删除孤儿体的 op，或修改原 op 的 pattern 使其一并消耗原函数体。
+- 修改 helper 前向声明时必须保留 helper 的函数定义；若首次 caller 调用之前没有 prototype，则在 caller 前添加，并删除 caller 之后或其他位置的重复 prototype。完成后同一 helper 必须恰好保留一个 prototype，且位于首次 caller 之前。“删除旧 prototype + 插入 caller 前 prototype”必须作为原子归一化操作，任一步失败都不得写入部分源码或持久化不完整 operations。
 - D 轮次代码设计必须基于 whois 项目的整体方案，包括但不限于：
   - 项目架构文档与 RFC（`docs/` 目录下），当前代码改动涉及的具体方案见 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md)。
   - 输出契约（标题行、尾行、折叠行格式等），详见 [../docs/USAGE_CN.md](../docs/USAGE_CN.md) 与 [../docs/USAGE_EN.md](../docs/USAGE_EN.md)。

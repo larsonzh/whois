@@ -5031,7 +5031,7 @@ try {
                 }
             }
 
-            $mainProcessExitMonitorGraceMinutes = 20
+            $mainProcessExitMonitorGraceMinutes = 40
             if ($settings.Contains('LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES')) {
                 $parsedMainExitGrace = 0
                 if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES), [ref]$parsedMainExitGrace)) {

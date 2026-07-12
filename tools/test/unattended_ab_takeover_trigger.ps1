@@ -2327,7 +2327,7 @@ while ($true) {
         $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
             ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
         if ($bothTerminal) {
-            $monitorChainGraceMinutes = 20
+            $monitorChainGraceMinutes = 40
             if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
                 $parsedGrace = 0
                 if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {

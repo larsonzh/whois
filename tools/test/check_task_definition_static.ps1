@@ -544,9 +544,11 @@ foreach ($roundEntry in $roundEntries) {
     $operationOrdinal = 0
     foreach ($operation in $operations) {
         $operationOrdinal++
-        if ($RequestedOperationIndex -gt 0 -and $operationOrdinal -ne $RequestedOperationIndex) {
+        if ($RequestedOperationIndex -gt 0 -and $operationOrdinal -gt $RequestedOperationIndex) {
             continue
         }
+
+        $isPrerequisiteSimulation = ($RequestedOperationIndex -gt 0 -and $operationOrdinal -lt $RequestedOperationIndex)
 
         $pattern = [string]$operation.pattern
         if ([string]::IsNullOrWhiteSpace($pattern)) {
@@ -570,12 +572,18 @@ foreach ($roundEntry in $roundEntries) {
 
         $matchCount = $regex.Matches($workingText).Count
         if ($matchCount -gt 1) {
-            Add-ErrorIssue ("round={0} op={1} pattern not unique match_count={2}" -f $roundTag, $operationOrdinal, $matchCount)
+            $issuePrefix = if ($isPrerequisiteSimulation) { 'prerequisite simulation failed ' } else { '' }
+            Add-ErrorIssue ("{0}round={1} op={2} pattern not unique match_count={3}" -f $issuePrefix, $roundTag, $operationOrdinal, $matchCount)
             continue
         }
 
         if ($matchCount -eq 1) {
-            Add-InfoIssue ("round={0} op={1} pattern_match=1" -f $roundTag, $operationOrdinal)
+            if ($isPrerequisiteSimulation) {
+                Add-InfoIssue ("round={0} op={1} prerequisite_simulated=true" -f $roundTag, $operationOrdinal)
+            }
+            else {
+                Add-InfoIssue ("round={0} op={1} pattern_match=1" -f $roundTag, $operationOrdinal)
+            }
 
             try {
                 $workingText = $regex.Replace($workingText, $replacement, 1)
@@ -588,7 +596,8 @@ foreach ($roundEntry in $roundEntries) {
         }
 
         if (Test-OperationIdempotentMarkerPresent -Operation $operation -Text $workingText) {
-            Add-InfoIssue ("round={0} op={1} pattern_unmatched=0 operation_idempotent=true" -f $roundTag, $operationOrdinal)
+            $idempotentDetail = if ($isPrerequisiteSimulation) { 'prerequisite_idempotent=true' } else { 'pattern_unmatched=0 operation_idempotent=true' }
+            Add-InfoIssue ("round={0} op={1} {2}" -f $roundTag, $operationOrdinal, $idempotentDetail)
             continue
         }
 
@@ -653,6 +662,29 @@ if ($EnableFingerprintCheck.IsPresent) {
             $prevFp = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_FINGERPRINT")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_FINGERPRINT"] } else { '' }
             $prevTaskStartAt = if ($settings.ContainsKey("${prefix}_PREVIOUS_FAILURE_TASK_START_AT")) { [string]$settings["${prefix}_PREVIOUS_FAILURE_TASK_START_AT"] } else { '' }
 
+            $storedTaskDefHash = if ($settings.ContainsKey("${prefix}_FAILURE_TASKDEF_HASH")) { [string]$settings["${prefix}_FAILURE_TASKDEF_HASH"] } else { '' }
+            $storedRoundImprintHash = if ($settings.ContainsKey("${prefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH")) { [string]$settings["${prefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH"] } else { '' }
+            $currentTaskDefHash = (Get-FileHash -LiteralPath $resolvedTaskDefinition -Algorithm SHA1).Hash.ToLowerInvariant()
+            $currentRoundImprintHash = ''
+            if (-not [string]::IsNullOrWhiteSpace($curRound) -and $null -ne $taskDefinition.rounds.PSObject.Properties[$curRound]) {
+                $currentRoundNode = $taskDefinition.rounds.PSObject.Properties[$curRound].Value
+                if ($null -ne $currentRoundNode -and $null -ne $currentRoundNode.PSObject.Properties['operations']) {
+                    $currentRoundJson = $currentRoundNode.operations | ConvertTo-Json -Depth 32 -Compress
+                    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+                    try {
+                        $roundBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$currentRoundJson)
+                        $currentRoundImprintHash = ([System.BitConverter]::ToString($sha1.ComputeHash($roundBytes))).Replace('-', '').ToLowerInvariant()
+                    }
+                    finally {
+                        $sha1.Dispose()
+                    }
+                }
+            }
+            $hasCurrentRepairEvidence = (
+                (-not [string]::IsNullOrWhiteSpace($storedTaskDefHash) -and $storedTaskDefHash -ne '-' -and $currentTaskDefHash -ne $storedTaskDefHash) -or
+                (-not [string]::IsNullOrWhiteSpace($storedRoundImprintHash) -and $storedRoundImprintHash -ne '-' -and -not [string]::IsNullOrWhiteSpace($currentRoundImprintHash) -and $currentRoundImprintHash -ne $storedRoundImprintHash)
+            )
+
             $sameTaskStartWindow = $true
             if (-not [string]::IsNullOrWhiteSpace($curTaskStartAt) -and
                 -not [string]::IsNullOrWhiteSpace($prevTaskStartAt) -and
@@ -673,7 +705,10 @@ if ($EnableFingerprintCheck.IsPresent) {
                 -not [string]::IsNullOrWhiteSpace($prevFp) -and
                 $curFp -eq $prevFp
 
-            if ($isIdentical) {
+            if ($isIdentical -and $hasCurrentRepairEvidence) {
+                Add-InfoIssue ("fingerprint-check stage={0} status=pass reason=repair-evidence-changed round={1}" -f $Stage, $curRound)
+            }
+            elseif ($isIdentical) {
                 $retryGrantedFingerprint = if ($settings.ContainsKey("${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR")) { [string]$settings["${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR"] } else { '' }
                 if ($curPhase -eq 'code-step' -and $retryGrantedFingerprint -ne $curFp) {
                     Add-WarnIssue ("fingerprint-check stage={0} identical_failure_detected phase=code-step retry_budget=available round={1} task_start_at={2}" -f $Stage, $curRound, $curTaskStartAt)

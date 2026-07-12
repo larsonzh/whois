@@ -703,7 +703,9 @@ function Add-StageTaskDefinitionFixTicket {
         [int]$MaxFails,
         [int]$PrecheckExitCode,
         [AllowEmptyString()][string]$MainRound = '',
+        [int]$FailureOperation = 0,
         [AllowEmptyString()][string]$FailurePhase = '',
+        [AllowEmptyString()][string]$FailureEvidence = '',
         [AllowEmptyString()][string]$FailureFingerprint = '',
         [AllowEmptyString()][string]$TaskStartAt = '',
         [bool]$OneTimeRetryOnly = $false,
@@ -723,14 +725,21 @@ function Add-StageTaskDefinitionFixTicket {
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'run_dir'
 
-    $detail = ('stage={0} category=task-definition-static-precheck fail_count={1} limit={2} exit={3} task_definition={4}' -f $Stage, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    $operationText = if ($FailureOperation -gt 0) { [string]$FailureOperation } else { 'unknown' }
+    $roundText = if ([string]::IsNullOrWhiteSpace($MainRound)) { 'unknown' } else { $MainRound }
+    $phaseText = if ([string]::IsNullOrWhiteSpace($FailurePhase)) { 'static-precheck' } else { $FailurePhase }
+    $detail = ('stage={0} round={1} op={2} phase={3} category=task-definition-static-precheck fail_count={4} limit={5} exit={6} task_definition={7}' -f $Stage, $roundText, $operationText, $phaseText, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    if (-not [string]::IsNullOrWhiteSpace($FailureEvidence)) {
+        $detail = ('{0} failure={1}' -f $detail, (Convert-ToSingleLineText -Text $FailureEvidence))
+    }
     if ($OneTimeRetryOnly) {
         $detail = ('{0} fingerprint_duplicate=true one_time_retry_only=true round={1} phase={2} task_start_at={3} fingerprint={4}' -f $detail, $MainRound, $FailurePhase, $TaskStartAt, $FailureFingerprint)
     }
     elseif ($RetryMax -gt 0) {
         $detail = ('{0} fingerprint_duplicate=true retry_attempt={1} retry_limit={2} round={3} phase={4} task_start_at={5} fingerprint={6}' -f $detail, $RetryAttempt, $RetryMax, $MainRound, $FailurePhase, $TaskStartAt, $FailureFingerprint)
     }
-    $recommendedAction = 'Report root cause and remediation path first. Fix the task-definition file under testdata so static precheck passes, rerun task static precheck, then execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+    $focusedCheck = if ($FailureOperation -gt 0 -and $roundText -ne 'unknown') { "-RoundTag $roundText -OperationIndex $FailureOperation" } else { "-RoundTag $roundText" }
+    $recommendedAction = "Report root cause first. Fix only the allowed task-definition range, then rerun check_task_definition_static.ps1 $focusedCheck -Policy enforce for the failing op. Resume only after it passes; return handled_at after handling."
     if ($OneTimeRetryOnly) {
         $recommendedAction = 'Fingerprint duplicate detected in code-step. AI has exactly one extra self-heal attempt for this fingerprint; update task-definition first, rerun static precheck immediately, then relaunch. If the same fingerprint repeats again, stop auto-retry and escalate to manual intervention.'
     }
@@ -761,13 +770,20 @@ function Add-StageTaskDefinitionFixTicket {
         recommended_action = (Convert-ToBoundedSingleLineText -Text $recommendedAction -MaxChars 280)
         preferred_stage = $Stage
         main_round = (Convert-ToSingleLineText -Text $MainRound)
+        failure_operation = $FailureOperation
         failure_kind = if ($OneTimeRetryOnly -or $RetryMax -gt 0) { 'task-definition-fingerprint-duplicate' } else { 'task-definition-mismatch' }
         failure_category = if ($OneTimeRetryOnly -or $RetryMax -gt 0) { 'task-definition-static-precheck-fingerprint-duplicate' } else { 'task-definition-static-precheck' }
         failure_source = 'tools/test/open_unattended_ab_stage_window.ps1'
         failure_evidence = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 260)
         self_healable = $true
         non_recoverable_env = $false
-        dedup_signature = ('task-definition-static-precheck|{0}|{1}|{2}|{3}' -f $Stage, $TaskDefinitionRelative, $FailCount, $MaxFails)
+        dedup_signature = ('task-definition-static-precheck|{0}|{1}|{2}|{3}|{4}' -f $Stage, $TaskDefinitionRelative, $roundText, $operationText, (Convert-ToSingleLineText -Text $FailureEvidence))
+    }
+
+    if ((Test-AgentTicketDedupSignaturePresent -QueuePath $queuePath -DedupSignature ([string]$ticket.dedup_signature)) -or
+        (Test-RecentTaskDefinitionFixTicketPresent -QueuePath $queuePath -Stage $Stage -Round $roundText -TaskDefinition $TaskDefinitionRelative -WindowMinutes 40)) {
+        Write-Output ('[OPEN-AB-STAGE] task_static_precheck ticket_emit=suppressed reason=duplicate-failure stage={0} round={1} op={2}' -f $Stage, $roundText, $operationText)
+        return
     }
 
     $line = $ticket | ConvertTo-Json -Compress -Depth 8
@@ -777,6 +793,118 @@ function Add-StageTaskDefinitionFixTicket {
     }
 
     Write-Output ('[OPEN-AB-STAGE] task_static_precheck ticket_emit=failed queue={0} fail_count={1} limit={2}' -f (Convert-ToAnchorPath -Path $queuePath), $FailCount, $MaxFails)
+}
+
+function Test-AgentTicketDedupSignaturePresent {
+    param(
+        [string]$QueuePath,
+        [string]$DedupSignature
+    )
+
+    if ([string]::IsNullOrWhiteSpace($QueuePath) -or [string]::IsNullOrWhiteSpace($DedupSignature) -or -not (Test-Path -LiteralPath $QueuePath)) {
+        return $false
+    }
+
+    foreach ($line in @(Get-Content -LiteralPath $QueuePath -Tail 500 -Encoding utf8 -ErrorAction SilentlyContinue)) {
+        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+        try {
+            $existingTicket = ([string]$line) | ConvertFrom-Json -ErrorAction Stop
+            if ([string]$existingTicket.dedup_signature -eq $DedupSignature) {
+                return $true
+            }
+        }
+        catch { $null = $_ }
+    }
+
+    return $false
+}
+
+function Test-RecentTaskDefinitionFixTicketPresent {
+    param(
+        [string]$QueuePath,
+        [string]$Stage,
+        [string]$Round,
+        [string]$TaskDefinition,
+        [int]$WindowMinutes = 40
+    )
+
+    if ([string]::IsNullOrWhiteSpace($QueuePath) -or -not (Test-Path -LiteralPath $QueuePath)) {
+        return $false
+    }
+
+    $cutoff = (Get-Date).AddMinutes(-1 * $WindowMinutes)
+    foreach ($line in @(Get-Content -LiteralPath $QueuePath -Tail 500 -Encoding utf8 -ErrorAction SilentlyContinue)) {
+        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+        try {
+            $ticket = ([string]$line) | ConvertFrom-Json -ErrorAction Stop
+            if ([string]$ticket.event -ne 'task-definition-fix-required') { continue }
+            $createdAt = [datetime]::MinValue
+            if (-not [datetime]::TryParse([string]$ticket.created_at, [ref]$createdAt) -or $createdAt -lt $cutoff) { continue }
+            if ([string]$ticket.preferred_stage -ne $Stage) { continue }
+            if ($Round -ne 'unknown' -and [string]$ticket.main_round -ne $Round) { continue }
+            $existingDetail = Convert-ToSingleLineText -Text ([string]$ticket.detail)
+            if (-not $existingDetail.Contains("task_definition=$TaskDefinition")) { continue }
+            return $true
+        }
+        catch { $null = $_ }
+    }
+
+    return $false
+}
+
+function Get-TaskStaticFailureLocation {
+    param(
+        [string[]]$Lines,
+        [string]$FallbackRound
+    )
+
+    $result = [ordered]@{ Round = $FallbackRound; Operation = 0; Evidence = '' }
+    foreach ($line in @($Lines)) {
+        $text = Convert-ToSingleLineText -Text ([string]$line)
+        if ($text -notmatch '^\[TASK-STATIC-CHECK\] severity=(?:error|warn) detail=(.+)$') { continue }
+        $result.Evidence = $Matches[1]
+        if ($result.Evidence -match '(?:^|\s)round=(D[1-4])(?:\s|$)') {
+            $result.Round = $Matches[1].ToUpperInvariant()
+        }
+        if ($result.Evidence -match '(?:^|\s)op=(\d+)(?:\s|$)') {
+            $result.Operation = [int]$Matches[1]
+        }
+    }
+
+    return [pscustomobject]$result
+}
+
+function Get-TaskDefinitionRepairEvidence {
+    param(
+        [string]$TaskDefinitionPath,
+        [string]$Round
+    )
+
+    $result = [ordered]@{ FileHash = ''; RoundImprintHash = '' }
+    $resolvedPath = if ([System.IO.Path]::IsPathRooted($TaskDefinitionPath)) { $TaskDefinitionPath } else { Join-Path $repoRoot $TaskDefinitionPath }
+    if (-not (Test-Path -LiteralPath $resolvedPath)) { return [pscustomobject]$result }
+
+    $result.FileHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA1).Hash.ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($Round)) { return [pscustomobject]$result }
+
+    try {
+        $taskObject = Get-Content -LiteralPath $resolvedPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $taskObject.rounds.PSObject.Properties[$Round]) { return [pscustomobject]$result }
+        $roundNode = $taskObject.rounds.PSObject.Properties[$Round].Value
+        if ($null -eq $roundNode.PSObject.Properties['operations']) { return [pscustomobject]$result }
+        $roundJson = $roundNode.operations | ConvertTo-Json -Depth 32 -Compress
+        $sha1 = [System.Security.Cryptography.SHA1]::Create()
+        try {
+            $roundBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$roundJson)
+            $result.RoundImprintHash = ([System.BitConverter]::ToString($sha1.ComputeHash($roundBytes))).Replace('-', '').ToLowerInvariant()
+        }
+        finally {
+            $sha1.Dispose()
+        }
+    }
+    catch { $null = $_ }
+
+    return [pscustomobject]$result
 }
 
 function Add-StageTaskDefinitionBlockedTicket {
@@ -789,6 +917,10 @@ function Add-StageTaskDefinitionBlockedTicket {
         [int]$MaxFails,
         [int]$PrecheckExitCode,
         [string]$BlockEvent,
+        [AllowEmptyString()][string]$MainRound = '',
+        [int]$FailureOperation = 0,
+        [AllowEmptyString()][string]$FailurePhase = 'static-precheck',
+        [AllowEmptyString()][string]$FailureEvidence = '',
         [AllowEmptyString()][string]$ExtraDetail = '',
         [AllowEmptyString()][string]$RecommendedActionOverride = '',
         [AllowEmptyString()][string]$FailureCategoryOverride = '',
@@ -841,7 +973,13 @@ function Add-StageTaskDefinitionBlockedTicket {
         $failureKind = Convert-ToSingleLineText -Text $FailureKindOverride
     }
 
-    $detail = ('stage={0} category={1} fail_count={2} limit={3} exit={4} task_definition={5}' -f $Stage, $detailCategory, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    $operationText = if ($FailureOperation -gt 0) { [string]$FailureOperation } else { 'unknown' }
+    $roundText = if ([string]::IsNullOrWhiteSpace($MainRound)) { 'unknown' } else { $MainRound }
+    $phaseText = if ([string]::IsNullOrWhiteSpace($FailurePhase)) { 'static-precheck' } else { $FailurePhase }
+    $detail = ('stage={0} round={1} op={2} phase={3} category={4} fail_count={5} limit={6} exit={7} task_definition={8}' -f $Stage, $roundText, $operationText, $phaseText, $detailCategory, $FailCount, $MaxFails, $PrecheckExitCode, $TaskDefinitionRelative)
+    if (-not [string]::IsNullOrWhiteSpace($FailureEvidence)) {
+        $detail = ('{0} failure={1}' -f $detail, (Convert-ToSingleLineText -Text $FailureEvidence))
+    }
     if (-not [string]::IsNullOrWhiteSpace($ExtraDetail)) {
         $detail = ('{0} {1}' -f $detail, (Convert-ToSingleLineText -Text $ExtraDetail))
     }
@@ -867,7 +1005,8 @@ function Add-StageTaskDefinitionBlockedTicket {
         detail = (Convert-ToBoundedSingleLineText -Text $detail -MaxChars 360)
         recommended_action = (Convert-ToBoundedSingleLineText -Text $recommendedAction -MaxChars 280)
         preferred_stage = $Stage
-        main_round = ''
+        main_round = (Convert-ToSingleLineText -Text $MainRound)
+        failure_operation = $FailureOperation
         failure_kind = $failureKind
         failure_category = $failureCategory
         failure_source = 'tools/test/open_unattended_ab_stage_window.ps1'
@@ -1991,9 +2130,13 @@ if ($taskStaticPrecheckEnabled) {
         $precheckArgs += '-FailOnWarnings'
     }
 
-    & $powershellPath @precheckArgs
+    $precheckOutput = @(& $powershellPath @precheckArgs 2>&1)
     $precheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    foreach ($precheckLine in $precheckOutput) {
+        Write-Output ([string]$precheckLine)
+    }
     if ($precheckExitCode -ne 0) {
+        $failureLocation = Get-TaskStaticFailureLocation -Lines @($precheckOutput | ForEach-Object { [string]$_ }) -FallbackRound $precheckScopeRoundTag
         $taskStaticPrecheckFailCount += 1
         $precheckFailUpdates = @{
             TASK_STATIC_PRECHECK_FAIL_COUNT = [string]$taskStaticPrecheckFailCount
@@ -2004,10 +2147,10 @@ if ($taskStaticPrecheckEnabled) {
 
         $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
         if (-not $overLimit) {
-            Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode
+            Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'static-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
         }
         if ($overLimit) {
-            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent
+            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'static-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
             throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4} scope={5}:op{6}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative, $precheckScopeRoundTag, $precheckScopeOperationIndex)
         }
 
@@ -2128,7 +2271,10 @@ if ($Stage -eq 'A') {
         $aTaskDefChanged = (-not [string]::IsNullOrWhiteSpace($aFailureTaskDefHash) -and -not [string]::IsNullOrWhiteSpace($aPreviousFailureTaskDefHash) -and $aFailureTaskDefHash -ne '-' -and $aPreviousFailureTaskDefHash -ne '-' -and $aFailureTaskDefHash -ne $aPreviousFailureTaskDefHash)
         $aSourceChanged = (-not [string]::IsNullOrWhiteSpace($aFailureSourceHash) -and -not [string]::IsNullOrWhiteSpace($aPreviousFailureSourceHash) -and $aFailureSourceHash -ne '-' -and $aPreviousFailureSourceHash -ne '-' -and $aFailureSourceHash -ne $aPreviousFailureSourceHash)
         $aImprintChanged = (-not [string]::IsNullOrWhiteSpace($aFailureRoundImprintHash) -and -not [string]::IsNullOrWhiteSpace($aPreviousFailureRoundImprintHash) -and $aFailureRoundImprintHash -ne '-' -and $aPreviousFailureRoundImprintHash -ne '-' -and $aFailureRoundImprintHash -ne $aPreviousFailureRoundImprintHash)
-        $aHasRepairEvidence = ($aTaskDefChanged -or $aSourceChanged -or $aImprintChanged)
+        $aCurrentEvidence = Get-TaskDefinitionRepairEvidence -TaskDefinitionPath $taskDefinitionRelative -Round $aFailureMainRound
+        $aCurrentTaskDefChanged = (-not [string]::IsNullOrWhiteSpace($aFailureTaskDefHash) -and $aFailureTaskDefHash -ne '-' -and -not [string]::IsNullOrWhiteSpace([string]$aCurrentEvidence.FileHash) -and [string]$aCurrentEvidence.FileHash -ne $aFailureTaskDefHash)
+        $aCurrentImprintChanged = (-not [string]::IsNullOrWhiteSpace($aFailureRoundImprintHash) -and $aFailureRoundImprintHash -ne '-' -and -not [string]::IsNullOrWhiteSpace([string]$aCurrentEvidence.RoundImprintHash) -and [string]$aCurrentEvidence.RoundImprintHash -ne $aFailureRoundImprintHash)
+        $aHasRepairEvidence = ($aTaskDefChanged -or $aSourceChanged -or $aImprintChanged -or $aCurrentTaskDefChanged -or $aCurrentImprintChanged)
         $aCurrentState = if ($settings.Contains($aRetryStateKey)) { (Convert-ToSingleLineText -Text ([string]$settings[$aRetryStateKey])).ToLowerInvariant() } else { '' }
 
         if ($aFailurePhase -eq 'code-step' -and $aCurrentState -eq 'hard_block' -and $aHasRepairEvidence) {
@@ -2298,7 +2444,10 @@ if ($Stage -eq 'B') {
         $bTaskDefChanged = (-not [string]::IsNullOrWhiteSpace($bFailureTaskDefHash) -and -not [string]::IsNullOrWhiteSpace($bPreviousFailureTaskDefHash) -and $bFailureTaskDefHash -ne '-' -and $bPreviousFailureTaskDefHash -ne '-' -and $bFailureTaskDefHash -ne $bPreviousFailureTaskDefHash)
         $bSourceChanged = (-not [string]::IsNullOrWhiteSpace($bFailureSourceHash) -and -not [string]::IsNullOrWhiteSpace($bPreviousFailureSourceHash) -and $bFailureSourceHash -ne '-' -and $bPreviousFailureSourceHash -ne '-' -and $bFailureSourceHash -ne $bPreviousFailureSourceHash)
         $bImprintChanged = (-not [string]::IsNullOrWhiteSpace($bFailureRoundImprintHash) -and -not [string]::IsNullOrWhiteSpace($bPreviousFailureRoundImprintHash) -and $bFailureRoundImprintHash -ne '-' -and $bPreviousFailureRoundImprintHash -ne '-' -and $bFailureRoundImprintHash -ne $bPreviousFailureRoundImprintHash)
-        $bHasRepairEvidence = ($bTaskDefChanged -or $bSourceChanged -or $bImprintChanged)
+        $bCurrentEvidence = Get-TaskDefinitionRepairEvidence -TaskDefinitionPath $taskDefinitionRelative -Round $bFailureMainRound
+        $bCurrentTaskDefChanged = (-not [string]::IsNullOrWhiteSpace($bFailureTaskDefHash) -and $bFailureTaskDefHash -ne '-' -and -not [string]::IsNullOrWhiteSpace([string]$bCurrentEvidence.FileHash) -and [string]$bCurrentEvidence.FileHash -ne $bFailureTaskDefHash)
+        $bCurrentImprintChanged = (-not [string]::IsNullOrWhiteSpace($bFailureRoundImprintHash) -and $bFailureRoundImprintHash -ne '-' -and -not [string]::IsNullOrWhiteSpace([string]$bCurrentEvidence.RoundImprintHash) -and [string]$bCurrentEvidence.RoundImprintHash -ne $bFailureRoundImprintHash)
+        $bHasRepairEvidence = ($bTaskDefChanged -or $bSourceChanged -or $bImprintChanged -or $bCurrentTaskDefChanged -or $bCurrentImprintChanged)
         $bCurrentState = if ($settings.Contains($bRetryStateKey)) { (Convert-ToSingleLineText -Text ([string]$settings[$bRetryStateKey])).ToLowerInvariant() } else { '' }
 
         if ($bFailurePhase -eq 'code-step' -and $bCurrentState -eq 'hard_block' -and $bHasRepairEvidence) {

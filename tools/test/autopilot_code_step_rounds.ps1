@@ -276,6 +276,7 @@ function Invoke-RegexReplaceSingle {
 
     $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
     $matchCount = $rx.Matches($Text).Count
+    Write-Information "[CODE-STEP-STATIC] step=$StepName match_count=$matchCount" -InformationAction Continue
     if ($matchCount -ne 1) {
         if ($matchCount -eq 0) {
             $operationAlreadyApplied = ($IdempotentMarkers.Count -gt 0)
@@ -645,43 +646,70 @@ function Invoke-AutoInjectForwardDecl {
     if (-not (Test-Path -LiteralPath $TargetFile)) { return $result }
     if ([string]::IsNullOrWhiteSpace($UpdatedText)) { return $result }
 
-    # 1. Build map of static function definitions: name -> line number (0-based)
+    # 1. Build maps of static function definitions and existing prototypes.
     $sourceLines = $UpdatedText -split '\r?\n'
     $defMap = @{}
+    $prototypeMap = @{}
     for ($i = 0; $i -lt $sourceLines.Count; $i++) {
         $line = $sourceLines[$i]
+        if ($line -match '^\s*static\s+(const\s+)?\w[\w\s\*]*\s+(\w+)\s*\([^;{}]*\)\s*;\s*$') {
+            $prototypeName = $matches[2]
+            if (-not [string]::IsNullOrWhiteSpace($prototypeName)) {
+                if (-not $prototypeMap.ContainsKey($prototypeName)) {
+                    $prototypeMap[$prototypeName] = @()
+                }
+                $prototypeMap[$prototypeName] += $i
+            }
+            continue
+        }
+
         if ($line -match '^\s*static\s+(const\s+)?\w[\w\s\*]*\s+(\w+)\s*\(') {
             $funcName = $matches[2]
-            if (-not [string]::IsNullOrWhiteSpace($funcName) -and -not $defMap.ContainsKey($funcName)) {
+            $bodyStarts = $line.Contains('{')
+            if (-not $bodyStarts) {
+                for ($lookAhead = $i + 1; $lookAhead -lt $sourceLines.Count; $lookAhead++) {
+                    $nextLine = $sourceLines[$lookAhead].Trim()
+                    if ([string]::IsNullOrWhiteSpace($nextLine)) { continue }
+                    $bodyStarts = ($nextLine -eq '{')
+                    break
+                }
+            }
+            if ($bodyStarts -and -not [string]::IsNullOrWhiteSpace($funcName) -and -not $defMap.ContainsKey($funcName)) {
                 $defMap[$funcName] = $i
             }
         }
     }
 
-    # 2. For each function, check if called before definition
+    # 2. For each function, check if genuinely called before definition.
     $needsFwd = @()
     foreach ($defName in $defMap.Keys) {
         $defLine = $defMap[$defName]
         if ($defLine -le 50) { continue }
 
-        $callPattern = [regex]::new([regex]::Escape($defName) + '\s*\(', 'Compiled')
-        $callMatchResults = $callPattern.Matches($UpdatedText)
         $firstCallLine = -1
-        foreach ($m in $callMatchResults) {
-            $charPos = $m.Index
-            $lineNum = 0
-            $accum = 0
-            for ($j = 0; $j -lt $sourceLines.Count; $j++) {
-                $accum += $sourceLines[$j].Length + 1
-                if ($accum -gt $charPos) { $lineNum = $j; break }
-            }
-            if ($lineNum -lt $defLine) {
-                if ($firstCallLine -eq -1 -or $lineNum -lt $firstCallLine) { $firstCallLine = $lineNum }
+        $prototypeLines = if ($prototypeMap.ContainsKey($defName)) { @($prototypeMap[$defName]) } else { @() }
+        $callPattern = [regex]::new([regex]::Escape($defName) + '\s*\(', 'Compiled')
+        for ($lineIndex = 0; $lineIndex -lt $defLine; $lineIndex++) {
+            if ($prototypeLines -contains $lineIndex) { continue }
+            if ($callPattern.IsMatch($sourceLines[$lineIndex])) {
+                $firstCallLine = $lineIndex
+                break
             }
         }
 
         if ($firstCallLine -ge 0) {
-            $needsFwd += [pscustomobject]@{ Name = $defName; DefLine = $defLine; FirstCallLine = $firstCallLine }
+            $prototypesBeforeCall = @($prototypeLines | Where-Object { $_ -lt $firstCallLine } | Sort-Object)
+            $keepPrototypeLine = if ($prototypesBeforeCall.Count -gt 0) { [int]$prototypesBeforeCall[0] } else { -1 }
+            $prototypeLinesToRemove = @($prototypeLines | Where-Object { $_ -ne $keepPrototypeLine } | Sort-Object -Descending)
+            if ($keepPrototypeLine -lt 0 -or $prototypeLinesToRemove.Count -gt 0) {
+                $needsFwd += [pscustomobject]@{
+                    Name = $defName
+                    DefLine = $defLine
+                    FirstCallLine = $firstCallLine
+                    KeepPrototypeLine = $keepPrototypeLine
+                    PrototypeLinesToRemove = $prototypeLinesToRemove
+                }
+            }
         }
     }
 
@@ -705,14 +733,57 @@ function Invoke-AutoInjectForwardDecl {
     $result.Needed = $true
     $result.Diagnostics = ("required_functions={0}" -f ((@($roundCallNames.Keys | Sort-Object) -join ',')))
 
-    # 4. For each function needing forward declaration, inject it
+    # 4. Normalize each function to one prototype before its first call.
     $injectedOps = @()
     $text = $UpdatedText
     $injectCount = 0
+    $normalizationFailed = $false
     foreach ($funcName in $roundCallNames.Keys) {
         $info = $roundCallNames[$funcName]
-        $firstLineText = $sourceLines[$info.FirstCallLine].Trim()
-        if ([string]::IsNullOrWhiteSpace($firstLineText)) { continue }
+        foreach ($prototypeLineIndex in @($info.PrototypeLinesToRemove)) {
+            $prototypeLineText = $sourceLines[[int]$prototypeLineIndex]
+            $escapedPrototype = [regex]::Escape($prototypeLineText)
+            $removePattern = "(?m)^$escapedPrototype\r?\n"
+            $removeRegex = [regex]::new($removePattern)
+            if ($removeRegex.Matches($text).Count -ne 1) {
+                $nextLineIndex = [int]$prototypeLineIndex + 1
+                if ($nextLineIndex -lt $sourceLines.Count) {
+                    $escapedNextLine = [regex]::Escape($sourceLines[$nextLineIndex])
+                    $removePattern = "(?m)^$escapedPrototype\r?\n(?=$escapedNextLine(?:\r?$|\r?\n))"
+                    $removeRegex = [regex]::new($removePattern)
+                }
+            }
+            $removeMatchCount = $removeRegex.Matches($text).Count
+            if ($removeMatchCount -ne 1) {
+                $diagMessage = "function={0} prototype_line={1} remove_match_count={2}" -f $funcName, $prototypeLineIndex, $removeMatchCount
+                $result.Diagnostics = if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) { $diagMessage } else { "{0}; {1}" -f $result.Diagnostics, $diagMessage }
+                $normalizationFailed = $true
+                continue
+            }
+
+            $text = $removeRegex.Replace($text, '', 1)
+            $injectedOps += [ordered]@{ pattern = $removePattern; replacement = '' }
+            $injectCount++
+            Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName prototype_dedup=removed line=$prototypeLineIndex" -InformationAction Continue
+        }
+
+        if ([int]$info.KeepPrototypeLine -ge 0) {
+            continue
+        }
+
+        $anchorLineIndex = -1
+        for ($searchLine = $info.FirstCallLine; $searchLine -ge 0; $searchLine--) {
+            $candidateLine = $sourceLines[$searchLine]
+            if ($candidateLine -notmatch '^\s*(?:return|if|for|while|switch)\b' -and
+                $candidateLine -match '^\s*(?:static\s+)?(?:const\s+)?\w[\w\s\*]*\s+\w+\s*\(') {
+                $anchorLineIndex = $searchLine
+                break
+            }
+        }
+        if ($anchorLineIndex -lt 0) {
+            $normalizationFailed = $true
+            continue
+        }
 
         # Determine return type from definition
         $defLineIndex = $info.DefLine
@@ -724,12 +795,11 @@ function Invoke-AutoInjectForwardDecl {
 
         $fwdDecl = "$returnType $funcName(void);"
 
-        # Find the line to match: the call line text
-        $callLineText = $sourceLines[$info.FirstCallLine]
-        # Escape for regex
-        $escapedLine = [regex]::Escape($callLineText.Trim())
-        $fwdPattern = "^\s*$escapedLine$"
-        $fwdReplacement = "$fwdDecl`r`n$($callLineText -replace '^\s+', '')"
+        # Insert the sole prototype at file scope before the first caller.
+        $anchorLineText = $sourceLines[$anchorLineIndex]
+        $escapedLine = [regex]::Escape($anchorLineText)
+        $fwdPattern = "^$escapedLine\r?$"
+        $fwdReplacement = "$fwdDecl`r`n$anchorLineText"
 
         try {
             $rx = [regex]::new($fwdPattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -739,7 +809,7 @@ function Invoke-AutoInjectForwardDecl {
                 $newOp = [ordered]@{ pattern = $fwdPattern; replacement = $fwdReplacement }
                 $injectedOps += $newOp
                 $injectCount++
-                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl call_line=$($info.FirstCallLine) match_count=$matchCount" -InformationAction Continue
+                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl anchor_line=$anchorLineIndex call_line=$($info.FirstCallLine) match_count=$matchCount" -InformationAction Continue
             }
             else {
                 $diagMessage = "function={0} first_call_line={1} anchor={2}" -f $funcName, $info.FirstCallLine, $escapedLine
@@ -749,6 +819,7 @@ function Invoke-AutoInjectForwardDecl {
                 else {
                     $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
                 }
+                $normalizationFailed = $true
                 Write-Warning "[CODE-STEP-AUTOINJECT] no_match for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
             }
         }
@@ -760,10 +831,12 @@ function Invoke-AutoInjectForwardDecl {
             else {
                 $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
             }
+            $normalizationFailed = $true
             Write-Warning "[CODE-STEP-AUTOINJECT] error for $funcName : $($_.Exception.Message)"
         }
     }
 
+    if ($normalizationFailed) { return $result }
     if ($injectCount -eq 0) { return $result }
 
     # 5. Persist new ops to task definition JSON
