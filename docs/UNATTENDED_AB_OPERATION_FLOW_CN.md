@@ -191,6 +191,70 @@ AI：
 - 脚本负责执行与落盘。
 - AI 负责整理、辅助、解释和按既有入口驱动脚本。
 
+### 2.10 Code-step 原子写入机制与自愈源码基线保证
+
+本节解释 code-step（`autopilot_code_step_rounds.ps1`）在单轮内执行多个 operations 时的原子写入设计，以及这一设计对故障自愈中静态检查所依赖的源码基线的影响。
+
+#### 2.10.1 整轮内存计算、成功后才统一写盘
+
+code-step 处理单轮（D1~D4）的 operations 时，采用以下流程：
+
+```
+读取磁盘源码 → 复制到内存 $updatedText → 顺序执行该轮所有 op
+    ├─ 任一 op 匹配失败或替换失败 → 抛错退出，内存改动丢弃
+    └─ 全部 op 成功 → 统一写入磁盘目标文件
+```
+
+关键实现在 `autopilot_code_step_rounds.ps1` 的 `Invoke-TaskDefinitionRound` 函数中：
+- `$updatedText = $Text` 初始化内存副本。
+- 每个 op 通过 `Invoke-RegexReplaceSingle` 在 `$updatedText` 上顺序应用（参考 `Invoke-TaskDefinitionRound` 内 `foreach ($op in $operations)` 循环）。
+- 循环结束后若 `$updated -ne $text` 才调用 `Invoke-FileUtf8NoBomWrite` 写回磁盘。
+
+该设计的核心语义是**一轮写入视为一个原子事务**：要么本轮全部 op 的改动完整落盘，要么磁盘源码与进入本轮前完全一致。
+
+#### 2.10.2 三种故障场景与静态检查的基线可靠性
+
+| 故障场景 | 磁盘源码是否包含本轮改动 | 静态检查读到的基线 | 自愈操作限制 |
+|---|---|---|---|
+| **code-step op 匹配/替换失败**（code-step 阶段内逐 op 检测提前失败） | 否。失败时本轮尚未写盘，`$updatedText` 被丢弃 | 正确基线 = 进入本轮前的磁盘源码 | 从故障 op 起修改/删除/插入/追加；可用 `-OperationIndex <n>` 聚焦检查 |
+| **code-step 全部通过，但随后的 compile/verify 失败** | 是。全部 op 已完整写入 | 已包含本轮全部 op 后的源码 | 该轮既有 op 全部只读，只能在该轮 `operations` 末尾连续追加新 op 补丁 |
+| **写盘瞬间异常**（磁盘写入中断、同时另一个进程修改了同一文件） | 不确定。属异常边界 | 与预期基线可能不一致 | 阻断重启。需先比较源码摘要、事故票快照与本阶段恢复基线；不一致时不得重启 |
+
+对于最常见的第一种场景（自愈修复的主要触发点），code-step 失败时磁盘源码未被污染，静态检查读取的基线是完整的、可重现的。
+
+#### 2.10.3 前置 op 的模拟机制
+
+使用 `-RoundTag <Dn> -OperationIndex <n>` 聚焦检查故障 op 时，checker 会从磁盘读取目标文件，然后在内存中依次模拟该轮前 `n-1` 个 op（`isPrerequisiteSimulation = true`），只把第 `n` 个 op 作为实际检查目标。
+
+相关逻辑在 `check_task_definition_static.ps1` 中：
+```powershell
+$isPrerequisiteSimulation = ($RequestedOperationIndex -gt 0 -and $operationOrdinal -lt $RequestedOperationIndex)
+```
+
+前置 op 模拟成功时才认为检查前提成立；若前置 op 模拟失败（如 pattern 不再唯一匹配），checker 会报告 `prerequisite simulation failed`，提示前置 op 的条件可能已因源码（轮次外）改动而失效。
+
+这一设计确保 AI 修复第 `n` 个 op 时，可以放心调整目标 pattern 和 replacement，而不必担心前置 op 在复盘中重复应用或干扰结果。
+
+#### 2.10.4 Forward declaration 自动注入的特殊性
+
+`Invoke-AutoInjectForwardDecl` 在整轮全部 op 成功写入后，再次读取磁盘源码做自动注入，并将新 injection ops 写入任务定义 JSON。其写盘时序为：
+
+```
+内存 op 全部成功 → 首次 Invoke-FileUtf8NoBomWrite（本轮 op 结果）
+→ auto-inject 处理 → 若注入成功 → 第二次 Invoke-FileUtf8NoBomWrite（含注入内容的最终结果）
+```
+
+这两次写盘都发生在该轮所有原始 operations 成功之后，因此不改变"整轮原子"语义。但在两次写盘之间如果发生进程崩溃，磁盘上可能只留下第一次写入的半成品。这一微窗口的极端中断概率很低，但自愈时如果遇到本轮源码与事故票快照中记录的预期摘要不一致，不应判定为普通 code-step 失败，而应按异常边界阻断重启。
+
+#### 2.10.5 对自愈修复操作的建议
+
+1. **先定位故障阶段**：通过事故票中 `failure_kind` 和 `round_tag` 确定故障发生在 code-step 阶段还是 compile/verify 阶段。
+2. **code-step 阶段故障**：磁盘源码是干净的轮次基线。修改任务定义后，用 `-OperationIndex <n>` 聚焦检查故障 op，不检查整轮。
+3. **compile/verify 阶段故障**：磁盘源码已包含本轮全部 op。只能在该轮 `operations` 末尾追加补丁 op，不得修改或删除既有 op。
+4. **写盘异常或源码摘要不一致**：不进入自愈修复。先回报告障证据，由人工判断恢复还是重建 A/B。
+5. **修改完成后**：无论哪种场景，修改任务定义后均需 `check_task_definition_static.ps1 -Policy enforce` 通过，才允许执行 `stage_restart` 或 `business_resume`。
+6. **重启时**：A 阶段重启恢复项目基线，B 阶段重启恢复 A 成功快照。code-step 会从磁盘基线重新读取并执行；前置轮次成功后已落盘的内容在重启后不会丢失。
+
 ## 3. 涉及的软件与脚本
 
 ### 3.1 必备软件
