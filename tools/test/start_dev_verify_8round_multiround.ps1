@@ -636,7 +636,7 @@ function Invoke-StreamingCapture {
     }
 
     return [pscustomobject]@{
-        Raw = @($captured)
+        Raw = $captured.ToArray()
         ExitCode = $exitCode
     }
 }
