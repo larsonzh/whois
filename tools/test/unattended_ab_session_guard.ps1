@@ -2289,32 +2289,37 @@ function Get-FailureTicketMeta {
             $failureCategory = 'code-or-unknown'
         }
 
-        switch ($failureCategory) {
-            'script-fault' {
-                $result.FailureKind = 'script-edit-failure'
-            }
-            'noncode-transient' {
-                $result.FailureKind = 'environment-transient'
-            }
-            default {
-                $composite = ('{0} {1}' -f $failureEvidence, $failureSource)
-                $hasTaskDefinitionMismatchMarker = [regex]::IsMatch($composite, $taskDefinitionMismatchRegex)
-                $hasCompileErrorMarker = [regex]::IsMatch($composite, $compileErrorRegex)
-                $hasCompileWarningMarker = [regex]::IsMatch($composite, $compileWarningRegex)
-                if ($hasTaskDefinitionMismatchMarker) {
-                    $result.FailureKind = 'task-definition-mismatch'
+        if ($failureCategory -match '^task-definition(?:-|$)') {
+            $result.FailureKind = 'task-definition-mismatch'
+        }
+        else {
+            switch ($failureCategory) {
+                'script-fault' {
+                    $result.FailureKind = 'script-edit-failure'
                 }
-                elseif ($hasCompileErrorMarker -or [bool]$FailurePolicy.FailureHasCodeFault) {
-                    $result.FailureKind = 'compile-failure'
+                'noncode-transient' {
+                    $result.FailureKind = 'environment-transient'
                 }
-                elseif ($hasCompileWarningMarker) {
-                    $result.FailureKind = 'compile-warning'
-                }
-                elseif ($failureCategory -eq 'code-or-unknown') {
-                    $result.FailureKind = 'code-edit-failure'
-                }
-                else {
-                    $result.FailureKind = 'unknown-failure'
+                default {
+                    $composite = ('{0} {1}' -f $failureEvidence, $failureSource)
+                    $hasTaskDefinitionMismatchMarker = [regex]::IsMatch($composite, $taskDefinitionMismatchRegex)
+                    $hasCompileErrorMarker = [regex]::IsMatch($composite, $compileErrorRegex)
+                    $hasCompileWarningMarker = [regex]::IsMatch($composite, $compileWarningRegex)
+                    if ($hasTaskDefinitionMismatchMarker) {
+                        $result.FailureKind = 'task-definition-mismatch'
+                    }
+                    elseif ($hasCompileErrorMarker -or [bool]$FailurePolicy.FailureHasCodeFault) {
+                        $result.FailureKind = 'compile-failure'
+                    }
+                    elseif ($hasCompileWarningMarker) {
+                        $result.FailureKind = 'compile-warning'
+                    }
+                    elseif ($failureCategory -eq 'code-or-unknown') {
+                        $result.FailureKind = 'code-edit-failure'
+                    }
+                    else {
+                        $result.FailureKind = 'unknown-failure'
+                    }
                 }
             }
         }

@@ -310,7 +310,7 @@ $cases = @(
         AdditionalQueueTickets = @()
     }
     [pscustomobject]@{
-        Name = 'incident-code-fix-manual'
+        Name = 'incident-task-definition-code-fix-manual'
         Brief = [ordered]@{
             ticket_id = 'T-CLASS-INC-MAN'
             event = 'incident-captured'
@@ -320,9 +320,9 @@ $cases = @(
             business_command_stage = 'b'
             self_healable = 'false'
             non_recoverable_env = 'true'
-            failure_kind = 'compile-failure'
-            failure_category = 'script-fault'
-            failure_evidence = 'src/core/net.c:42: conflicting types for wc_retry_connect'
+            failure_kind = 'unknown-failure'
+            failure_category = 'task-definition-mismatch'
+            failure_evidence = 'round=D2 op=5 pattern_unmatched=0 but only round-level idempotent marker exists'
             preferred_stage = 'B'
             recommended_action = 'code-fix'
         }

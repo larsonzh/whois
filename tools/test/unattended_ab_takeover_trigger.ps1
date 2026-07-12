@@ -1743,7 +1743,7 @@ function Get-CauseBucket {
         return 'script'
     }
 
-    if ($category -in @('code-or-unknown') -or $kind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure')) {
+    if ($category -in @('code-or-unknown') -or $category -match '^task-definition(?:-|$)' -or $kind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure')) {
         return 'code'
     }
 
@@ -1900,7 +1900,8 @@ function New-TakeoverBrief {
         ($ticketPreferredStageNormalized -in @('A', 'B') -or [string]::IsNullOrWhiteSpace($ticketPreferredStageNormalized)) -and
         (
             $ticketFailureKind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'script-edit-failure', 'code-edit-failure', 'main-process-exit') -or
-            $ticketFailureCategory -in @('script-fault', 'code-or-unknown')
+            $ticketFailureCategory -in @('script-fault', 'code-or-unknown') -or
+            $ticketFailureCategory -match '^task-definition(?:-|$)'
         )
     )
 
@@ -1917,7 +1918,7 @@ function New-TakeoverBrief {
     elseif ($ticketFailureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
         $incidentLane = 'noncode'
     }
-    elseif ($ticketFailureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+    elseif ($ticketFailureCategory -match '^task-definition(?:-|$)' -or $ticketFailureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
         $incidentLane = 'code-fix'
     }
     elseif ($ticketFailureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {

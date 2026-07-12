@@ -306,7 +306,8 @@ $fallbackAutoResumeEligible = (
     ($preferredStage -in @('A', 'B') -or [string]::IsNullOrWhiteSpace($preferredStage)) -and
     (
         $failureKind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'script-edit-failure', 'code-edit-failure', 'main-process-exit') -or
-        $failureCategory -in @('script-fault', 'code-or-unknown')
+        $failureCategory -in @('script-fault', 'code-or-unknown') -or
+        $failureCategory -match '^task-definition(?:-|$)'
     )
 )
 $canAutoResume = (($selfHealable -or $fallbackAutoResumeEligible) -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
@@ -325,7 +326,7 @@ elseif ($failureCategory -eq 'code-or-unknown') {
 elseif ($failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
     $incidentLane = 'noncode'
 }
-elseif ($failureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+elseif ($failureCategory -match '^task-definition(?:-|$)' -or $failureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
     $incidentLane = 'code-fix'
 }
 elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
