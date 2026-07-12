@@ -3338,6 +3338,7 @@ $statusTicketIntervalMinutes = 30
 $lastStatusTicketAt = [datetime]::MinValue
 $lastMainProcessExitReviewSignature = ''
 $lastAPassConclusionSignature = ''
+$aExitEvidenceForIncident = $null
 $aMainExitReviewRecommendedAction = 'Review A-stage main-process exit evidence and root cause, then run script-level self-heal for recoverable faults before deciding the next restart step.'
 $mainExitReviewRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
 $aSuccessSnapshotDir = ''
@@ -5586,6 +5587,7 @@ try {
                         # If A actually passed (exit_code=0, result=pass), write PASS instead
                         # so guard can proceed to B auto-launch.
                         $aExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $aLaunchPid
+                        $aExitEvidenceForIncident = $aExitEvidence
                         $aActuallyPassed = (
                             $null -ne $aExitEvidence -and
                             [bool]$aExitEvidence.Available -and
@@ -6182,7 +6184,22 @@ try {
                     [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch'
                 )
 
-                if ($statusSignature -ne $lastIncidentSignature) {
+                $suppressDuplicateAExitIncident = $false
+                if ($aStatus -eq 'FAIL' -and $bStatus -ne 'RUNNING' -and $null -ne $aExitEvidenceForIncident) {
+                    $suppressDuplicateAExitIncident = (
+                        [bool]$aExitEvidenceForIncident.Available -and
+                        [bool]$aExitEvidenceForIncident.StartFileMatch -and
+                        [bool]$aExitEvidenceForIncident.ProcessIdMatch -and
+                        [string]$aExitEvidenceForIncident.Result -eq 'fail' -and
+                        [string]$aExitEvidenceForIncident.FailCategory -eq 'runtime-fail'
+                    )
+                }
+
+                if ($suppressDuplicateAExitIncident) {
+                    $lastIncidentSignature = $statusSignature
+                    Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-runtime-fail-covered-by-main-process-exit-review artifact={0}' -f [string]$aExitEvidenceForIncident.ArtifactPath)
+                }
+                elseif ($statusSignature -ne $lastIncidentSignature) {
                     $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
                     $incidentRel = Convert-ToRepoRelativePath -Path $incidentDir
                     $lastIncidentSignature = $statusSignature

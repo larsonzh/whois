@@ -1372,7 +1372,7 @@ function Invoke-RoundTaskStaticGate {
     @($lines) | Out-File -FilePath $logFile -Encoding utf8
 
     if (-not $result.Pass) {
-        Write-Output ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=deferred stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile)
+        Write-Information ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=deferred stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile) -InformationAction Continue
     }
 
     return [pscustomobject]$result
