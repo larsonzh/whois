@@ -265,7 +265,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 建议内容模板（复制后替换尖括号）：
 ```text
 AB_UNATTENDED_START_V1
-BINDING_SENTENCE=进入 event-only 事件驱动监控，后续动作由事件票指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）；显式切换到其他模式时才恢复定时状态票链路。
+BINDING_SENTENCE=保持会话在线并静默等待 guard/trigger/dispatch 投送事件票或状态票；收到后按工单指令执行无需用户确认的预授权操作并回执；等待期间不得自建或运行定时巡检脚本、循环、后台 job、watcher、常驻内存命令或周期性 heartbeat/poll。
 PRECHECK_REQUIRED=true
 LAUNCH_READY_GATE_ENABLED=true
 RETRY_BUDGET_MINI_REGRESSION_ENABLED=true
