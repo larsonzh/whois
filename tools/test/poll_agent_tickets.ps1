@@ -1425,7 +1425,28 @@ function Write-JsonFileSafely {
 
     $json = ($Value | ConvertTo-Json -Depth 10)
     $normalizedJson = [string]$json -replace "`r`n", "`n"
-    [System.IO.File]::WriteAllText($Path, $normalizedJson, [System.Text.UTF8Encoding]::new($false))
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    $commitToken = ([guid]::NewGuid().ToString('N'))
+    $tempPath = Join-Path $parent ('.{0}.{1}.{2}.tmp' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    $backupPath = Join-Path $parent ('.{0}.{1}.{2}.bak' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $normalizedJson, [System.Text.UTF8Encoding]::new($false))
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+    }
+    finally {
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
 }
 
 function Write-TicketHandled {

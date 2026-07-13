@@ -7,6 +7,7 @@
     "unknownNoOpConsecutiveLimit": 2,
     "disableUnknownNoOpBudgetGate": false,
     "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
     "notes": "Use absorbed/idempotent no-op with evidence; unknown no-op should be rare"
   },
   "executionHints": {
@@ -39,10 +40,20 @@
           "idempotent-replay"
         ]
       },
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D1_SEMANTIC_CONTRACT",
+          "pattern": "TODO_D1_POST_APPLY_REGEX",
+          "expectedCount": 1
+        }
+      ],
       "operations": [
         {
           "pattern": "TODO_D1_REGEX_PATTERN",
-          "replacement": "TODO_D1_REPLACEMENT"
+          "replacement": "TODO_D1_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D1_OP1_UNIQUE_REPLACEMENT_MARKER"
+          ]
         }
       ]
     },
@@ -58,10 +69,20 @@
           "idempotent-replay"
         ]
       },
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D2_SEMANTIC_CONTRACT",
+          "pattern": "TODO_D2_POST_APPLY_REGEX",
+          "expectedCount": 1
+        }
+      ],
       "operations": [
         {
           "pattern": "TODO_D2_REGEX_PATTERN",
-          "replacement": "TODO_D2_REPLACEMENT"
+          "replacement": "TODO_D2_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D2_OP1_UNIQUE_REPLACEMENT_MARKER"
+          ]
         }
       ]
     },
@@ -77,10 +98,20 @@
           "idempotent-replay"
         ]
       },
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D3_SEMANTIC_CONTRACT",
+          "pattern": "TODO_D3_POST_APPLY_REGEX",
+          "expectedCount": 1
+        }
+      ],
       "operations": [
         {
           "pattern": "TODO_D3_REGEX_PATTERN",
-          "replacement": "TODO_D3_REPLACEMENT"
+          "replacement": "TODO_D3_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D3_OP1_UNIQUE_REPLACEMENT_MARKER"
+          ]
         }
       ]
     },
@@ -96,10 +127,20 @@
           "idempotent-replay"
         ]
       },
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D4_SEMANTIC_CONTRACT",
+          "pattern": "TODO_D4_POST_APPLY_REGEX",
+          "expectedCount": 1
+        }
+      ],
       "operations": [
         {
           "pattern": "TODO_D4_REGEX_PATTERN",
-          "replacement": "TODO_D4_REPLACEMENT"
+          "replacement": "TODO_D4_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D4_OP1_UNIQUE_REPLACEMENT_MARKER"
+          ]
         }
       ]
     }

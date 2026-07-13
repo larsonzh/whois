@@ -45,7 +45,7 @@
 10. 对 healthy 的 running-status-report，根因固定写“无活动故障/常规定时状态票”，修复路径固定写“continue_watch only”；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B。
 11. 按定时状态票节奏主动发送 heartbeat，并主动轮询 poll_agent_tickets.ps1；按同一节奏汇报当前阶段、A/B 状态、心跳摘要、strict mode、adjustments、待处理工单、恢复动作。
 12. 若 strict 违规先修 LOCAL_GUARD_POLL_*；若消息链路异常先修 heartbeat/poll/dispatch；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
-13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。若改动了任务定义，必须先让 `tools/test/check_task_definition_static.ps1` 体检通过，才允许任何重启或 resume；并且只能重启当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
+13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先用 `tools/test/check_task_definition_static.ps1 -RoundTag <Dn> -OperationIndex <n>` 对故障 op 做快速定位检查；该检查只模拟前置 op 且不执行完整整轮 replay 与 `postApplyAssertions`，不能作为最终门禁。随后必须运行 `tools/test/task_definition_safety_regression.ps1`，并让所有受影响 D 轮分别通过不带 `-OperationIndex` 的整轮严格检查，才允许任何重启或 resume；并且只能重启当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。
@@ -88,7 +88,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 对 healthy 的 running-status-report，根因固定写“无活动故障/常规定时状态票”，修复路径固定写“continue_watch only”；不得仅凭旧 exit 证据建议重启 B。不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户明确授权。
 
-若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；若改动了任务定义，必须先静态体检通过再恢复；并且只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。改任务定义后，`-OperationIndex` 目标 op 检查只用于快速定位，所有受影响 D 轮还必须通过不带 `-OperationIndex` 的整轮严格检查，后者才是恢复前最终门禁；并且只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 
 ## 3. 极简压缩版
@@ -114,5 +114,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 若 strict 违规先修 LOCAL_GUARD_POLL_*；若消息链路异常先修 heartbeat/poll/dispatch；low-disturb 的 running-status-report 正常时只回“运行正常”+ handled_at，且 healthy 的 running-status-report 不得据旧 exit 证据建议重启 B；event-only 不期待定时状态票；若文档冲突、字段异常、入口行为异常、是否应重启或修复不明确，先汇报，不要猜。
 
-自愈只改当前阶段任务定义，不直改源码；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+自愈只改当前阶段任务定义，不直改源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；改后可用 `-OperationIndex` 快查故障 op，但恢复前必须再让所有受影响 D 轮通过不带 `-OperationIndex` 的整轮严格检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。

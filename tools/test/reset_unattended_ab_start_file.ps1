@@ -181,7 +181,7 @@ function Resolve-StartFileMode {
     )
 
     if ($null -eq $StartFileMap -or -not $StartFileMap.Contains('AI_CHAT_POLICY_WORK_MODE')) {
-        return 'normal'
+        return 'event-only'
     }
 
     $mode = ([string]$StartFileMap['AI_CHAT_POLICY_WORK_MODE']).Trim().ToLowerInvariant()
@@ -193,7 +193,7 @@ function Resolve-StartFileMode {
         'low_disturb' { return 'low-disturb' }
         'event-only' { return 'event-only' }
         'event_only' { return 'event-only' }
-        default { return 'normal' }
+        default { return 'event-only' }
     }
 }
 

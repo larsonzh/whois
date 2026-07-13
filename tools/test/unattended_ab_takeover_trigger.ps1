@@ -1956,13 +1956,13 @@ function New-TakeoverBrief {
         'incident-auto-resume-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: modify task-definition round for {0}/{1} under testdata; do not edit business source directly' -f $stageText, $roundText
+            'code-fix: edit only the allowed task-definition operations for {0}/{1} under testdata; run target-op then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
             break
         }
         'incident-manual-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: modify task-definition round for {0}/{1} under testdata; do not edit business source directly' -f $stageText, $roundText
+            'code-fix: edit only the allowed task-definition operations for {0}/{1} under testdata; run target-op then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
             break
         }
         'incident-auto-resume-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
@@ -2100,6 +2100,10 @@ function New-TakeoverBrief {
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),
+        ('task_definition_check_order={0}' -f 'first check failed op with -RoundTag/-OperationIndex; then check every affected D round without -OperationIndex; both must pass before restart'),
+        ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
+        ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
+        ('same_stage_restart_policy={0}' -f 'after valid repair evidence and full checks, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),
         ('guard_state={0}' -f $guardState),
         ('guard_log={0}' -f $guardLog),
         ('trigger_state={0}' -f $triggerState),

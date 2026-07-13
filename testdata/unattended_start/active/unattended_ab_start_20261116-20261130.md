@@ -1,5 +1,5 @@
 ﻿AB_UNATTENDED_START_V1
-BINDING_SENTENCE=进入事件驱动与定时状态票监控，后续动作由定时状态票/事件票指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）。
+BINDING_SENTENCE=进入 event-only 事件驱动监控，后续动作由事件票指令触发，并仅执行既有仓库命令（禁止自建额外脚本或循环）；显式切换到其他模式时才恢复定时状态票链路。
 PRECHECK_REQUIRED=true
 LAUNCH_READY_GATE_ENABLED=true
 RETRY_BUDGET_MINI_REGRESSION_ENABLED=true
@@ -92,8 +92,8 @@ AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_THRESHOLD=5
 AI_CHAT_DISPATCH_STATUS_REPORT_PY_CIRCUIT_BREAKER_COOLDOWN_SEC=900
 AI_CHAT_DISPATCH_MESSAGE_LOCALE=zh-cn
 AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE=true
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+主动心跳；先报根因与修复路径；若本票健康，则根因写“无活动故障/常规定时状态票”，修复路径写“continue_watch only”；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即 business_resume（business_command->continue_watch_command）；处置后进入只读监控（票据驱动）；不要仅凭旧 exit 证据建议重启 B；不得手工创建 chat_heartbeat/handled 回执文件或非 tmp 新脚本；运行期禁止 git commit/git push（除非用户同轮明确授权）；若 brief/票据返回 ticket_closure_check_command、event_dedup_health_check_command、final_status_closeout_command（final-status 场景可含 final_status_closeout_apply_ack_command），在 route_guard_command 通过后按 next_command_order 执行并简报结果；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
-AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；健康状态票固定为"无活动故障/常规定时状态票 + continue_watch only"；可自愈则立即 business_resume（business_command->continue_watch_command）；随后回到事件驱动+心跳只读监控（票据驱动）直到stop monitoring；强制回执：本票完成后立即回传 handled_at（YYYY-MM-DD HH:mm:ss），仅在stop monitoring或A/B终态时回传 session_closed_at，且最终收尾必须显式上报会话结束日期时间；若返回 ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command（含 final_status_closeout_apply_ack_command）则按 next_command_order 继续执行；不要仅凭旧 exit 证据建议重启 B；运行期禁止 git commit/git push（除非用户同轮明确授权）；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、guard、B exit digest）。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK] 保持事件驱动+主动心跳；先报根因与修复路径；若本票健康，则根因写“无活动故障/常规定时状态票”，修复路径写“continue_watch only”；任务定义修复必须先做故障 op 目标检查，再做全部受影响 D 轮整轮检查；吸收/幂等态保持 regex-patch，禁止改成 noop；两层检查通过后仅重启票据对应阶段；可自愈且未触发预算/冷却耗尽且非不可恢复环境时，立即按 next_command_order 执行；处置后进入只读监控；不要仅凭旧 exit 证据建议重启 B；不得手工创建 chat_heartbeat/handled 回执文件或非 tmp 新脚本；运行期禁止 git commit/git push（除非用户同轮明确授权）；仅在A/B终态或我明确下达stop monitoring时停止；最终收尾显式上报会话结束日期时间。
+AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_SHORT=[SHORT-CARD] 先报根因+修复路径；健康状态票固定为"无活动故障/常规定时状态票 + continue_watch only"；任务定义修复按目标 op -> 受影响整轮检查，吸收/幂等态不得改 noop，检查通过后仅同阶段重启；随后按 next_command_order 执行并回到事件驱动+心跳只读监控；本票完成后立即回传 handled_at，仅在stop monitoring或A/B终态时回传 session_closed_at；不要仅凭旧 exit 证据建议重启 B；运行期禁止 git commit/git push（除非用户同轮明确授权）；回传chat_heartbeat关键字段（SESSION/A/B、run_dir、main_round、guard、B exit digest）。
 AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true
 AI_CHAT_DISPATCH_AHK_EXE=C:\Users\妙妙呜\AppData\Local\Programs\AutoHotkey\v2\AutoHotkey64.exe
 AI_CHAT_DISPATCH_OPEN_EDITOR=false

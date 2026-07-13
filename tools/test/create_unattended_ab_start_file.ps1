@@ -2,7 +2,7 @@
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
     [AllowEmptyString()][string]$OutputFile = '',
     [ValidateSet('active', 'smoke')][string]$OutputCategory = 'active',
-    [ValidateSet('normal', 'anti-missent', 'low-disturb', 'event-only', 'all-modes')][string]$Mode = 'normal',
+    [ValidateSet('normal', 'anti-missent', 'low-disturb', 'event-only', 'all-modes')][string]$Mode = 'event-only',
     [AllowEmptyString()][string]$ATaskDefinition = '',
     [AllowEmptyString()][string]$BTaskDefinition = '',
     [AllowEmptyString()][string]$Window = '',
@@ -18,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'chat_dispatch_policy_compiler.ps1')
 $script:UnhandledExitTag = 'CREATE-UNATTENDED-AB-START-FILE'
 
 trap {
@@ -202,19 +203,8 @@ function Get-ModeTemplatePath {
         [string]$SelectedMode
     )
 
-    switch ($SelectedMode) {
-        'normal' {
-            return Resolve-RepoPath -Path $DefaultTemplateFile -MustExist $true
-        }
-        'anti-missent' {
-            return Resolve-RepoPath -Path $DefaultTemplateFile -MustExist $true
-        }
-        'low-disturb' {
-            return Resolve-RepoPath -Path 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_low_disturb_smoke.md' -MustExist $true
-        }
-        'event-only' {
-            return Resolve-RepoPath -Path 'testdata\unattended_start\smoke\unattended_ab_start_event_only_smoke.md' -MustExist $true
-        }
+    if ($SelectedMode -in @('normal', 'anti-missent', 'low-disturb', 'event-only')) {
+        return Resolve-RepoPath -Path $DefaultTemplateFile -MustExist $true
     }
 
     throw "Unsupported mode: $SelectedMode"
@@ -226,9 +216,15 @@ function Set-ModeDefaults {
         [string]$SelectedMode
     )
 
-    if ($SelectedMode -eq 'anti-missent') {
-        $Values['AI_CHAT_POLICY_WORK_MODE'] = 'anti-missent'
-        $Values['AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY'] = 'true'
+    $Values['AI_CHAT_POLICY_WORK_MODE'] = $SelectedMode
+    $defaultTriggerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/dispatch_takeover_to_chat.ps1 -TicketId "%TICKET_ID%" -TicketEvent "%EVENT%" -StartFile "%START_FILE%" -QueuePath "%QUEUE_PATH%" -BriefPath "%BRIEF_PATH%" -NoOpenEditor -SkipClipboard'
+    $policyPlan = Get-ChatDispatchPolicyPlan -Settings $Values -DefaultTriggerCommand $defaultTriggerCommand
+    if ($null -eq $policyPlan -or $null -eq $policyPlan.Updates) {
+        throw "Failed to compile mode defaults: $SelectedMode"
+    }
+
+    foreach ($key in $policyPlan.Updates.Keys) {
+        $Values[[string]$key] = [string]$policyPlan.Updates[$key]
     }
 }
 

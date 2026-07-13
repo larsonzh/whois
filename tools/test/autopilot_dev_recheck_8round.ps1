@@ -211,7 +211,7 @@ function Invoke-StreamingCapture {
     }
 
     return [pscustomobject]@{
-        Raw = @($captured)
+        Raw = $captured.ToArray()
         ExitCode = $exitCode
     }
 }
@@ -633,7 +633,7 @@ function Get-D6AccessIssueEvents {
     $currentVia = 'unknown'
     $currentIp = 'unknown'
 
-    foreach ($lineRaw in (ConvertTo-NormalizedLine -Raw $Text)) {
+    foreach ($lineRaw in ($Text -split '\r?\n')) {
         $line = [string]$lineRaw
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
@@ -666,7 +666,7 @@ function Get-D6AccessIssueEvents {
         }
     }
 
-    return @($events)
+    return $events.ToArray()
 }
 
 $rows = @()

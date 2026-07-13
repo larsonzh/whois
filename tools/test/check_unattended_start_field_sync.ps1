@@ -195,6 +195,12 @@ else {
     }
 }
 
+$checkScope = if ([string]::IsNullOrWhiteSpace($effectiveStartFile)) { 'directories' } else { 'single-file' }
+$checkedStartFiles = New-Object 'System.Collections.Generic.List[string]'
+foreach ($file in @($startFiles.ToArray())) {
+    [void]$checkedStartFiles.Add((Convert-ToRepoRelativePath -Path $file))
+}
+
 $templateText = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::UTF8)
 $resetScriptText = [System.IO.File]::ReadAllText($resetScript, [System.Text.Encoding]::UTF8)
 $routineScriptText = [System.IO.File]::ReadAllText($routineScript, [System.Text.Encoding]::UTF8)
@@ -372,6 +378,8 @@ $summary = [ordered]@{
     routine_script = $routineScript
     start_file = $effectiveStartFile
     start_file_dirs = $StartFileDirs
+    check_scope = $checkScope
+    checked_start_files = @($checkedStartFiles.ToArray())
     start_file_count = $startFiles.Count
     fields = @($fieldResults.ToArray())
     required_non_empty_fields = @($effectiveNonEmptyFieldNames)
@@ -398,7 +406,10 @@ if ($AsJson.IsPresent) {
     $summary | ConvertTo-Json -Depth 8
 }
 else {
-    Write-Output ('[START-FIELD-SYNC] fields={0} start_files={1}' -f (($effectiveFieldNames -join ',')), $startFiles.Count)
+    Write-Output ('[START-FIELD-SYNC] fields={0} start_files={1} check_scope={2}' -f (($effectiveFieldNames -join ',')), $startFiles.Count, $checkScope)
+    foreach ($checkedStartFile in @($checkedStartFiles.ToArray())) {
+        Write-Output ('[START-FIELD-SYNC] checked_start_file={0}' -f $checkedStartFile)
+    }
     foreach ($fieldResult in @($fieldResults.ToArray())) {
         Write-Output ('[START-FIELD-SYNC] field={0} template_has_field={1} template_reset_has_field={2} reset_script_has_field={3} routine_has_token_arg={4} missing_field_files={5} missing_reset_files={6}' -f [string]$fieldResult.field_name, [bool]$fieldResult.template_has_field, [bool]$fieldResult.template_reset_has_field, [bool]$fieldResult.reset_script_has_field, [bool]$fieldResult.routine_has_token_arg, @($fieldResult.missing_field_files).Count, @($fieldResult.missing_reset_files).Count)
         foreach ($item in @($fieldResult.missing_field_files)) {

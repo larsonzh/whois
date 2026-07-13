@@ -352,7 +352,10 @@ else {
     [void]$staticCheckMessages.Add('B stage launch-ready static check skipped by stage policy (runtime fail-fast enabled).')
 }
 
-$fieldSync = Invoke-PowerShellScriptStep -ScriptPath $fieldSyncScript -Arguments @()
+$fieldSync = Invoke-PowerShellScriptStep -ScriptPath $fieldSyncScript -Arguments @(
+    '-StartFile', $startFilePath,
+    '-EnforceRunningStatusMessageTemplateMatch'
+)
 if ($fieldSync.ExitCode -ne 0) {
     $reason = Get-LastMatchingLine -Lines $fieldSync.Lines -Pattern 'missing_|result=fail|entry_script_a|template_'
     if ([string]::IsNullOrWhiteSpace($reason)) {

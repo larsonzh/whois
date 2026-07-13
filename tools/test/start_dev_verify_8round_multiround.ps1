@@ -1219,6 +1219,36 @@ function Test-MonitorRoleRunningForStartFile {
     return $false
 }
 
+function Write-Utf8NoBomTextFileAtomically {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    $commitToken = ([guid]::NewGuid().ToString('N'))
+    $tempPath = Join-Path $parent ('.{0}.{1}.{2}.tmp' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    $backupPath = Join-Path $parent ('.{0}.{1}.{2}.bak' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $Text, [System.Text.UTF8Encoding]::new($false))
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+    }
+    finally {
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
+}
+
 function Wait-MonitorBootstrapGateIfNeeded {
     param(
         [AllowEmptyString()][string]$GateFilePath,
@@ -1283,7 +1313,7 @@ function Wait-MonitorBootstrapGateIfNeeded {
                 released_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
                 reason = $fallbackReason
             }
-            [System.IO.File]::WriteAllText($resolvedGatePath, ($gateRelease | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+            Write-Utf8NoBomTextFileAtomically -Path $resolvedGatePath -Text ($gateRelease | ConvertTo-Json -Depth 4)
 
             Write-Output ("[DEV-VERIFY-MULTI] monitor_bootstrap_gate_wait release status=degraded reason=live-monitor-fallback file={0}" -f $resolvedGatePath)
             return

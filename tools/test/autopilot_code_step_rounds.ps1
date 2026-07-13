@@ -542,34 +542,6 @@ function Invoke-TaskDefinitionRound {
             return Invoke-BuiltinRoundTask -BuiltinName $builtinName -Text $Text
         }
         "regex-patch" {
-            $markers = @()
-            if ($RoundTask.PSObject.Properties.Name -contains "idempotentContains") {
-                $rawMarkers = $RoundTask.idempotentContains
-                if ($rawMarkers -is [string]) {
-                    $markers = @($rawMarkers)
-                }
-                else {
-                    $markers = @($rawMarkers)
-                }
-            }
-
-            if ($markers.Count -gt 0) {
-                $allPresent = $true
-                foreach ($marker in $markers) {
-                    $markerText = [string]$marker
-                    if ([string]::IsNullOrWhiteSpace($markerText)) {
-                        continue
-                    }
-                    if (-not $Text.Contains($markerText)) {
-                        $allPresent = $false
-                        break
-                    }
-                }
-                if ($allPresent) {
-                    return $Text
-                }
-            }
-
             $operations = @()
             if ($RoundTask.PSObject.Properties.Name -contains "operations") {
                 $operations = @($RoundTask.operations)
@@ -839,23 +811,7 @@ function Invoke-AutoInjectForwardDecl {
     if ($normalizationFailed) { return $result }
     if ($injectCount -eq 0) { return $result }
 
-    # 5. Persist new ops to task definition JSON
-    try {
-        $jsonText = Get-Content -LiteralPath $TaskDefinitionFile -Raw
-        if (-not [string]::IsNullOrWhiteSpace($jsonText)) {
-            $taskDefObj = $jsonText | ConvertFrom-Json
-            $targetRound = Get-RoundTaskDefinition -TaskDefinition $taskDefObj -RoundTag $RoundTag
-            if ($null -ne $targetRound) {
-                foreach ($newOp in $injectedOps) {
-                    $targetRound.operations += $newOp
-                }
-                $taskDefObj | ConvertTo-Json -Depth 8 | Out-File -FilePath $TaskDefinitionFile -Encoding utf8
-            }
-        }
-    }
-    catch {
-        Write-Warning "[CODE-STEP-AUTOINJECT] persist_error: $($_.Exception.Message)"
-    }
+    Write-Warning "[CODE-STEP-AUTOINJECT] task_definition_unchanged=true reason=avoid-non-atomic-json-rewrite round=$RoundTag"
 
     $result.Injected = $true
     $result.Text = $text

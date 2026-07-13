@@ -636,6 +636,36 @@ function Assert-NetworkPrecheckReady {
     Write-Output ("[{0}] network_precheck status=PASS targets={1} local={2} remote={3} check_ipv4={4} check_ipv6={5} require_ipv4={6} require_ipv6={7}" -f $RoleTag, $targets, $checkLocal, $checkRemote, $checkIPv4, $checkIPv6, $requireIPv4, $requireIPv6)
 }
 
+function Write-Utf8NoBomTextFileAtomically {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    $commitToken = ([guid]::NewGuid().ToString('N'))
+    $tempPath = Join-Path $parent ('.{0}.{1}.{2}.tmp' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    $backupPath = Join-Path $parent ('.{0}.{1}.{2}.bak' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $Text, [System.Text.UTF8Encoding]::new($false))
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+    }
+    finally {
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
+}
+
 function Write-StageExitReasonArtifact {
     param(
         [string]$RepoRoot,
@@ -702,8 +732,8 @@ function Write-StageExitReasonArtifact {
         }
 
         $json = (($record | ConvertTo-Json -Depth 8) -replace "`r`n", "`n")
-        [System.IO.File]::WriteAllText($historyFile, $json, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText($latestFile, $json, [System.Text.UTF8Encoding]::new($false))
+        Write-Utf8NoBomTextFileAtomically -Path $historyFile -Text $json
+        Write-Utf8NoBomTextFileAtomically -Path $latestFile -Text $json
 
         Write-Output ("[{0}] exit_reason_file={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $historyFile -RepoRoot $RepoRoot))
         Write-Output ("[{0}] exit_reason_latest={1}" -f $ScriptTag, (Convert-ToRepoRelativePath -Path $latestFile -RepoRoot $RepoRoot))

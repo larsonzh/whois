@@ -64,6 +64,17 @@ function Add-InfoIssue {
     [void]$infos.Add($Message)
 }
 
+function Add-OperationSafetyIssue {
+    param([string]$Message)
+
+    if ($script:operationSafetyPolicy -eq 'enforce') {
+        Add-ErrorIssue $Message
+    }
+    elseif ($script:operationSafetyPolicy -eq 'warn') {
+        Add-WarnIssue $Message
+    }
+}
+
 function Read-KeyValuePairs {
     param([string]$Path)
 
@@ -181,6 +192,30 @@ function Test-LikelyDoubleEscapedReplacement {
 
     if ($hasLiteralEscapedTab -and -not $hasActualTab) {
         return $true
+    }
+
+    return $false
+}
+
+function Test-LikelyOrphanFunctionBodyReplacement {
+    param(
+        [AllowEmptyString()][string]$Pattern,
+        [AllowEmptyString()][string]$Replacement
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Pattern) -or [string]::IsNullOrWhiteSpace($Replacement)) {
+        return $false
+    }
+    if ($Pattern.Contains('\{') -or $Pattern.Contains('{')) {
+        return $false
+    }
+
+    $definitionPattern = '(?m)^(?:static\s+)?[A-Za-z_][A-Za-z0-9_\s*]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;\r\n]*\)\r?\n\{'
+    foreach ($definition in [regex]::Matches($Replacement, $definitionPattern)) {
+        $functionName = [string]$definition.Groups[1].Value
+        if ($Pattern.Contains([regex]::Escape($functionName))) {
+            return $true
+        }
     }
 
     return $false
@@ -453,6 +488,20 @@ if ($null -eq $taskDefinition -or -not ($taskDefinition.PSObject.Properties.Name
     throw "[TASK-STATIC-CHECK] task definition missing rounds: $resolvedTaskDefinition"
 }
 
+$script:operationSafetyPolicy = 'off'
+if ($taskDefinition.PSObject.Properties.Name -contains 'qualityPolicy' -and
+    $null -ne $taskDefinition.qualityPolicy -and
+    $taskDefinition.qualityPolicy.PSObject.Properties.Name -contains 'operationSafetyPolicy') {
+    $candidateSafetyPolicy = ([string]$taskDefinition.qualityPolicy.operationSafetyPolicy).Trim().ToLowerInvariant()
+    if ($candidateSafetyPolicy -notin @('off', 'warn', 'enforce')) {
+        Add-ErrorIssue ("qualityPolicy.operationSafetyPolicy invalid value={0}" -f $candidateSafetyPolicy)
+    }
+    else {
+        $script:operationSafetyPolicy = $candidateSafetyPolicy
+    }
+}
+Add-InfoIssue ("operation_safety_policy={0}" -f $script:operationSafetyPolicy)
+
 $targetFileRaw = Resolve-PrimaryTargetFile -TaskDefinition $taskDefinition -TaskDefinitionPath $resolvedTaskDefinition
 
 $targetFileResolved = if ([System.IO.Path]::IsPathRooted($targetFileRaw)) {
@@ -514,6 +563,40 @@ foreach ($roundEntry in $roundEntries) {
         Add-WarnIssue ("round={0} idempotentContains missing or empty" -f $roundTag)
     }
 
+    $operationMarkerOwners = @{}
+    for ($operationIndex = 0; $operationIndex -lt $operations.Count; $operationIndex++) {
+        if ($RequestedOperationIndex -gt 0 -and $operationIndex -ge $RequestedOperationIndex) {
+            break
+        }
+        $operation = $operations[$operationIndex]
+        $operationMarkers = @()
+        if ($operation.PSObject.Properties.Name -contains 'idempotentContains') {
+            $operationMarkers = @(Get-StringArray -Value $operation.idempotentContains)
+        }
+        if ($operationMarkers.Count -eq 0) {
+            Add-OperationSafetyIssue ("round={0} op={1} operation idempotentContains missing or empty" -f $roundTag, ($operationIndex + 1))
+            continue
+        }
+
+        $ownReplacement = [string]$operation.replacement
+        foreach ($operationMarker in $operationMarkers) {
+            $markerText = $operationMarker.Trim()
+            if ([string]::IsNullOrWhiteSpace($markerText)) {
+                Add-OperationSafetyIssue ("round={0} op={1} operation idempotent marker is blank" -f $roundTag, ($operationIndex + 1))
+                continue
+            }
+            if ($operationMarkerOwners.ContainsKey($markerText)) {
+                Add-OperationSafetyIssue ("round={0} op={1} operation idempotent marker reused by op={2} marker={3}" -f $roundTag, ($operationIndex + 1), $operationMarkerOwners[$markerText], $markerText)
+            }
+            else {
+                $operationMarkerOwners[$markerText] = $operationIndex + 1
+            }
+            if ([string]::IsNullOrWhiteSpace($ownReplacement) -or -not $ownReplacement.Contains($markerText)) {
+                Add-OperationSafetyIssue ("round={0} op={1} operation idempotent marker not owned by replacement marker={2}" -f $roundTag, ($operationIndex + 1), $markerText)
+            }
+        }
+    }
+
     $roundHasAnyMarkerInWorking = $false
     foreach ($marker in $markers) {
         $markerTrimmed = $marker.Trim()
@@ -560,6 +643,9 @@ foreach ($roundEntry in $roundEntries) {
         if (Test-LikelyDoubleEscapedReplacement -Replacement $replacement) {
             Add-ErrorIssue ("round={0} op={1} replacement likely double-escaped (literal \\n/\\t without actual control chars)" -f $roundTag, $operationOrdinal)
         }
+        if (Test-LikelyOrphanFunctionBodyReplacement -Pattern $pattern -Replacement $replacement) {
+            Add-OperationSafetyIssue ("round={0} op={1} replacement defines matched function body but pattern does not consume the original body" -f $roundTag, $operationOrdinal)
+        }
 
         $regex = $null
         try {
@@ -587,6 +673,10 @@ foreach ($roundEntry in $roundEntries) {
 
             try {
                 $workingText = $regex.Replace($workingText, $replacement, 1)
+                $postReplaceMatchCount = $regex.Matches($workingText).Count
+                if ($postReplaceMatchCount -ne 0) {
+                    Add-OperationSafetyIssue ("round={0} op={1} pattern remains matchable after replacement match_count={2}" -f $roundTag, $operationOrdinal, $postReplaceMatchCount)
+                }
             }
             catch {
                 Add-ErrorIssue ("round={0} op={1} replacement_apply_failed detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
@@ -620,6 +710,70 @@ foreach ($roundEntry in $roundEntries) {
         }
 
         Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 and no idempotent marker found in effective text" -f $roundTag, $operationOrdinal)
+    }
+
+    if ($script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
+        $firstPassText = $workingText
+        $replayText = $firstPassText
+        for ($operationIndex = 0; $operationIndex -lt $operations.Count; $operationIndex++) {
+            $operation = $operations[$operationIndex]
+            $pattern = [string]$operation.pattern
+            if ([string]::IsNullOrWhiteSpace($pattern)) {
+                continue
+            }
+            try {
+                $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+            }
+            catch {
+                continue
+            }
+            $replayMatchCount = $regex.Matches($replayText).Count
+            if ($replayMatchCount -ne 0) {
+                Add-OperationSafetyIssue ("round={0} op={1} replay pattern must be unmatched actual={2}" -f $roundTag, ($operationIndex + 1), $replayMatchCount)
+                if ($replayMatchCount -eq 1) {
+                    $replayText = $regex.Replace($replayText, [string]$operation.replacement, 1)
+                }
+                continue
+            }
+            if (-not (Test-OperationIdempotentMarkerPresent -Operation $operation -Text $replayText)) {
+                Add-OperationSafetyIssue ("round={0} op={1} replay missing operation idempotent evidence" -f $roundTag, ($operationIndex + 1))
+            }
+        }
+        if ($replayText -ne $firstPassText) {
+            Add-OperationSafetyIssue ("round={0} replay changed effective text" -f $roundTag)
+        }
+    }
+
+    if ($script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
+        $postApplyAssertions = @()
+        if ($roundTask.PSObject.Properties.Name -contains 'postApplyAssertions') {
+            $postApplyAssertions = @($roundTask.postApplyAssertions)
+        }
+        if ($postApplyAssertions.Count -eq 0) {
+            Add-OperationSafetyIssue ("round={0} postApplyAssertions missing or empty" -f $roundTag)
+        }
+        foreach ($assertion in $postApplyAssertions) {
+            $assertionPattern = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'pattern') { [string]$assertion.pattern } else { '' }
+            $expectedCount = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'expectedCount') { [int]$assertion.expectedCount } else { -1 }
+            $assertionName = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'name') { [string]$assertion.name } else { 'unnamed' }
+            if ([string]::IsNullOrWhiteSpace($assertionPattern) -or $expectedCount -lt 0) {
+                Add-OperationSafetyIssue ("round={0} postApplyAssertion invalid name={1}" -f $roundTag, $assertionName)
+                continue
+            }
+            try {
+                $actualCount = ([regex]::new($assertionPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)).Matches($workingText).Count
+            }
+            catch {
+                Add-OperationSafetyIssue ("round={0} postApplyAssertion invalid regex name={1} detail={2}" -f $roundTag, $assertionName, $_.Exception.Message)
+                continue
+            }
+            if ($actualCount -ne $expectedCount) {
+                Add-OperationSafetyIssue ("round={0} postApplyAssertion failed name={1} expected={2} actual={3}" -f $roundTag, $assertionName, $expectedCount, $actualCount)
+            }
+            else {
+                Add-InfoIssue ("round={0} postApplyAssertion pass name={1} count={2}" -f $roundTag, $assertionName, $actualCount)
+            }
+        }
     }
 }
 

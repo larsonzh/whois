@@ -38,19 +38,23 @@
 
 ## D/V 轮次任务定义设计指导（自愈修复专用）
 - **D 轮执行前门禁与报票时序（硬规则）**：A/B 启动入口先做 D1-op1 静态预检；进入每个实际执行的 D 轮前，`round runtime static gate` 必须对该轮全部 `operations` 按顺序 dry-run（op2 基于 op1 replacement 后的内存文本，依次类推）。若任一 op 不是唯一命中或替换不可落地，门禁立即将该轮标记为 `TASK-STATIC-FAIL`，跳过该轮 code-step 并使主流程失败退出；运行中的 guard 再依据 `round_task_static_gate_fail` / `[TASK-STATIC-CHECK]` 证据归类为 `task-definition-mismatch`，生成 `incident-captured` 自愈修复票。因此正常情况下无需等到 code-step 再失败。仅当门禁未启用、该轮因 `pre-resume` 被跳过门禁，或存在门禁未覆盖的运行时差异时，才由 code-step 的逐 op 唯一匹配检查 fail-fast，随后由 guard 生成对应事故票。启动/重启入口静态预检失败则由 launcher 直接生成 `task-definition-fix-required` 票；两类票均必须包含 stage、round、op（可定位时）和 task-definition。
-- **静态检查语义（硬规则）**：每轮前整轮检查与 code-step 均采用顺序内存文本语义，目标源码只在该轮全部 operations 通过后统一写入，禁止留下半轮源码状态。AI 修复 code-step 故障后，只对触发故障的当前 op 执行目标检查：`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce -RoundTag <Dn> -OperationIndex <n>`；checker 会顺序模拟同轮 op1 至 op(n-1) 作为只读前提，只把 op(n) 作为目标检查。前置 op 被模拟不代表允许修改。
+- **静态检查语义（硬规则）**：每轮前整轮检查与 code-step 均采用顺序内存文本语义，目标源码只在该轮全部 operations 通过后统一写入，禁止留下半轮源码状态。AI 修复 code-step 故障后，先对触发故障的当前 op 执行目标检查：`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce -RoundTag <Dn> -OperationIndex <n>`；checker 会顺序模拟同轮 op1 至 op(n-1) 作为只读前提，只把 op(n) 作为目标检查。前置 op 被模拟不代表允许修改。
+- **两层静态检查（硬规则）**：`-OperationIndex` 目标检查仅用于快速定位，不执行完整整轮 replay 与 `postApplyAssertions`，不能作为重启前最终门禁。任何任务定义修改后，先按故障点运行目标 op 检查，再对所有受影响 D 轮运行不带 `-OperationIndex` 的整轮严格检查；只有目标检查和整轮检查均通过才允许重启。
+- **operation 安全契约（硬规则）**：保持 `qualityPolicy.operationSafetyPolicy=enforce`。每个 op 必须使用由自身 replacement 产生且不与其他 op 复用的 `idempotentContains` marker；replacement 后原 pattern 必须零命中，整轮第二次应用不得改变文本。每个 regex-patch 轮必须维护 `postApplyAssertions`，以精确计数验证 definition、prototype、真实 call site 及旧形态移除；静态检查通过不替代编译和业务验证。
+- **空 D 轮表达与禁止绕过（硬规则）**：仅当任务编制阶段已确认某 D 轮从设计上没有代码变更目标时，才将该轮定义为最小 `{"type":"noop","description":"..."}`，且不得包含 `operations`、`idempotentContains` 或 `postApplyAssertions`。禁止用 pattern 与 replacement 相同的自替换 op 或无意义替换伪装 no-op。若原轮有真实目标，只是执行/自愈时发现已被前置轮吸收、replacement 结果已存在或 pattern 不再命中，必须保持 `type=regex-patch`，用逐 op 自有 marker 证明 `absorbed-by-prior-round` / `idempotent-replay` 并完成整轮检查；不得把失败轮改成 `noop` 绕过 pattern、replay、断言或编辑边界门禁。自愈中仅当整轮尚未执行、整轮均可编辑且已确认无变更目标时，才可改为 `noop`，否则继续修复或报告阻塞。
 - **跨轮次修改边界（硬规则）**：D1 故障可改 D1-D4；D2 故障可改 D2-D4、不得改 D1；D3 故障可改 D3-D4、不得改 D1-D2；D4 故障仅可改 D4、不得改 D1-D3。V1-V4 是验证轮次而非 JSON 轮次键：不得改 D1-D3，也不得修改或删除 D4 既有内容，只能在 D4 `operations` 末尾连续追加一个或多个 op。静态门禁必须按上述前向范围验证，不得错误地限制为仅当前 D 轮。
 - **D 轮次内操作边界（硬规则）**：code-step 阶段失败时，当前故障 op 之前的 op 为只读；仅允许从故障 op 位置起修改、删除、插入或追加 op。编译/验证阶段失败时，该轮原有 op 均为只读，只能在该轮末尾连续追加一个或多个 op。
 - **改动量评估优先**：先评估代码改动量。改动量小，在当前 D 轮次末尾追加 op 补丁（追加模式）；改动量大，则重设计当前 D 轮次所有 ops（重构模式）。追加模式优先，重构模式仅当追加模式导致 ops 数量膨胀或语义混乱时选用。
 - **低成本模型任务定义编辑最小操作清单（GPT-5 mini 等）**：
-  - 只改 `rounds.<Dn>.operations`，不要改 `rounds` 键名、轮次编号、顶层 schema 字段。
+  - 只改允许范围内的 `rounds.<Dn>.operations`；仅在 operation 结构结果变化时同步更新同轮 `postApplyAssertions`。不要改 `rounds` 键名、轮次编号、顶层 schema 字段或前置只读契约。
   - 先定位“当前故障 op”在 operations 中的索引；前置轮次和该索引之前的 op 只读，禁止修改。
   - 允许动作仅限跨轮次矩阵允许的 D 轮，以及当前故障 op 及其后续：修改、删除、插入或追加 op。
   - 每次编辑后，保持 operations 内 op 顺序稳定；不要因为格式化或重排导致语义漂移。
-  - 修改 pattern/replacement 时必须保证“唯一命中 + 可落地替换”；若无法唯一命中，优先追加新 op，不要强改前置 op。
-  - 提交前必跑静态检查；若静态检查失败，继续在当前故障 op 及其后续修复，禁止回头改前置 op。
+  - 修改 pattern/replacement 时必须同时保证“唯一命中 + 可落地替换 + marker 自有且唯一 + pattern 收敛 + 整轮 replay 稳定 + 精确断言通过”；若无法唯一命中，优先在允许边界内追加新 op，不要强改前置 op。
+  - 不得以自替换 op 表示空轮，也不得把失败或运行时已吸收的 `regex-patch` 改成 `noop`；设计时确无变更目标才使用不含 operations/marker/assertions 的最小 `type=noop` 结构。
+  - 重启前先跑目标 op 检查，再跑所有受影响轮的整轮严格检查；若静态检查失败，继续在当前故障 op 及其后续修复，禁止回头改前置 op。
 - 任何重启前必须运行静态检查（`tools/test/check_task_definition_static.ps1 -TaskDefinitionFile <file> -Policy enforce`）；若静态检查失败，必须根据诊断继续在允许修改边界内修复任务定义并重新检查，只有检查通过后才可重启。若无法合规通过检查，报告阻塞并停止重启，禁止绕过门禁。
-- 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。发现后应在该轮次末尾追加删除孤儿体的 op，或修改原 op 的 pattern 使其一并消耗原函数体。
+- 修改 D 轮次任务定义后，务必检查该轮次中每个 op 是否在源码中遗留了**孤儿函数体**。当 op 的 pattern 只匹配函数签名而不匹配其函数体时，签名被替换后原函数体将残留为悬空代码块，导致编译错误。修复必须服从编辑边界：仅当问题 op 可编辑时修改其 pattern；编译/验证或 V 轮故障只能在允许轮次末尾追加清理 op，不得回改只读 op。修复后用精确断言证明旧孤儿形态为 0。
 - 修改 helper 前向声明时必须保留 helper 的函数定义；若首次 caller 调用之前没有 prototype，则在 caller 前添加，并删除 caller 之后或其他位置的重复 prototype。完成后同一 helper 必须恰好保留一个 prototype，且位于首次 caller 之前。“删除旧 prototype + 插入 caller 前 prototype”必须作为原子归一化操作，任一步失败都不得写入部分源码或持久化不完整 operations。
 - D 轮次代码设计必须基于 whois 项目的整体方案，包括但不限于：
   - 项目架构文档与 RFC（`docs/` 目录下），当前代码改动涉及的具体方案见 [../docs/RFC-address-space-preclassifier.md](../docs/RFC-address-space-preclassifier.md)。

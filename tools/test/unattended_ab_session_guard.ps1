@@ -290,6 +290,37 @@ function Write-GuardPastedBlock {
     Write-GuardLog ("{0}_end" -f $Tag)
 }
 
+function Write-Utf8NoBomTextFileAtomically {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text,
+        [bool]$EmitBom = $false
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    $commitToken = ([guid]::NewGuid().ToString('N'))
+    $tempPath = Join-Path $parent ('.{0}.{1}.{2}.tmp' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    $backupPath = Join-Path $parent ('.{0}.{1}.{2}.bak' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $Text, [System.Text.UTF8Encoding]::new($EmitBom))
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+    }
+    finally {
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
+}
+
 function Write-GuardState {
     param([hashtable]$Values)
 
@@ -306,7 +337,7 @@ function Write-GuardState {
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
             $normalizedJson = [string]$json -replace "`r`n", "`n"
-            [System.IO.File]::WriteAllText($script:GuardStatePath, $normalizedJson, [System.Text.UTF8Encoding]::new($false))
+            Write-Utf8NoBomTextFileAtomically -Path $script:GuardStatePath -Text $normalizedJson
             $writeSucceeded = $true
             break
         }
@@ -330,7 +361,7 @@ function Write-GuardState {
         # Also write same content as live_status.json for backward compatibility
         try {
             $normalizedJsonLive = [string]$json -replace "`r`n", "`n"
-            [System.IO.File]::WriteAllText($script:LiveStatusPath, $normalizedJsonLive, [System.Text.UTF8Encoding]::new($false))
+            Write-Utf8NoBomTextFileAtomically -Path $script:LiveStatusPath -Text $normalizedJsonLive
         }
         catch {
             $null = $_
@@ -2817,7 +2848,7 @@ static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)
 
     try {
         $json = ($taskDefinition | ConvertTo-Json -Depth 64) -replace "`r`n", "`n"
-        [System.IO.File]::WriteAllText($TaskDefinitionPath, $json, [System.Text.UTF8Encoding]::new($true))
+        Write-Utf8NoBomTextFileAtomically -Path $TaskDefinitionPath -Text $json -EmitBom $true
     }
     catch {
         Copy-Item -LiteralPath $backupPath -Destination $TaskDefinitionPath -Force
@@ -3962,13 +3993,13 @@ function Get-AutoFixAwaitRecommendedAction {
 
     $recommendedAction = 'Set LOCAL_GUARD_RESTART_APPROVED=true only after evidence review, then resume A-stage restart.'
     if ($IsDevRound -and $FailureHasScriptFault -and $FailureHasCodeFault) {
-        return 'Code fault markers exist in this D-round failure. Prefer code/task-definition fix workflow first, then set LOCAL_GUARD_RESTART_APPROVED=true only after fix+verify evidence is ready.'
+        return 'Code fault markers exist in this D-round failure. Repair only allowed task-definition operations, run failed-op target check then all affected full-round checks, and keep absorbed/idempotent rounds as regex-patch rather than noop; set LOCAL_GUARD_RESTART_APPROVED=true only after evidence is ready.'
     }
     if ($IsDevRound -and $FailureHasScriptFault) {
         return 'Fix D-round unattended scripts only (guard/trigger/dispatch/poll), complete script validation evidence, then set LOCAL_GUARD_RESTART_APPROVED=true for guarded restart.'
     }
     if ($IsDevRound -and $FailureHasCodeFault) {
-        return 'Review D-round code-fix evidence, then set LOCAL_GUARD_RESTART_APPROVED=true to restart guarded A-stage flow; when the fix is a self-heal output mismatch, update the matching task-definition round under testdata, and for V1-V4 prefer appending the incremental patch after the existing D4 definition.'
+        return 'Review D-round code-fix evidence, run failed-op target check then all affected full-round checks, and only then approve the same-stage restart; keep absorbed/idempotent rounds as regex-patch, and for V1-V4 only append operations after existing D4 content.'
     }
 
     return $recommendedAction
@@ -6167,8 +6198,8 @@ try {
                         }
                         default {
                             if ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch') {
-                                $incidentRecommendedAction = ('Dev-round task-definition mismatch ({0}). Run the automatic code-fix workflow: update the matching task-definition round, pass static precheck, then restart the same stage through the standard stage window. Continue automatically while the fingerprint and recovery budgets permit; escalate only when those budgets are exhausted.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Dev-round task-definition mismatch ({0}). Automatic code-fix owns the repair, static precheck and same-stage restart. Escalate to manual handling only after the fingerprint or recovery budget is exhausted.' -f [string]$failurePolicy.FailedRoundTag)
+                                $incidentRecommendedAction = ('Dev-round task-definition mismatch ({0}). Edit only allowed operations; run the failed-op -OperationIndex check, then every affected full-round check without -OperationIndex. Absorbed/idempotent rounds stay regex-patch with owned markers, never noop. After both checks pass, restart only the same stage through the standard stage window; continue while fingerprint and recovery budgets permit.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round task-definition mismatch ({0}). Repair within edit boundaries, pass target-op and affected full-round checks, preserve regex-patch for absorbed/idempotent states, then restart only the same stage. Escalate after fingerprint or recovery budget exhaustion.' -f [string]$failurePolicy.FailedRoundTag)
                             }
                             elseif ($failureHasCodeFault) {
                                 $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) rather than rewriting D1-D4 validated content.' -f [string]$failurePolicy.FailedRoundTag)

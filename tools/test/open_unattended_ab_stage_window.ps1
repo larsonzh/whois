@@ -2544,6 +2544,36 @@ elseif ($Stage -eq 'B') {
     }
 }
 
+function Write-Utf8NoBomTextFileAtomically {
+    param(
+        [string]$Path,
+        [AllowEmptyString()][string]$Text
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    $commitToken = ([guid]::NewGuid().ToString('N'))
+    $tempPath = Join-Path $parent ('.{0}.{1}.{2}.tmp' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    $backupPath = Join-Path $parent ('.{0}.{1}.{2}.bak' -f (Split-Path -Leaf $fullPath), $PID, $commitToken)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $Text, [System.Text.UTF8Encoding]::new($false))
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath)
+        }
+        else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+    }
+    finally {
+        if ([System.IO.File]::Exists($tempPath)) {
+            [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
+}
+
 $monitorBootstrapGateFile = ''
 if ($autoStartMonitorsPlanned) {
     $gateDir = Join-Path $repoRoot 'out\artifacts\ab_monitor_gate'
@@ -2560,7 +2590,7 @@ if ($autoStartMonitorsPlanned) {
         created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         reason = 'waiting-monitor-bootstrap-gate'
     }
-    [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateSeed | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+    Write-Utf8NoBomTextFileAtomically -Path $monitorBootstrapGateFile -Text ($gateSeed | ConvertTo-Json -Depth 4)
     Set-Item -Path 'Env:AUTO_MONITOR_BOOTSTRAP_GATE_FILE' -Value $monitorBootstrapGateFile
 
     $gateWaitSec = 120
@@ -3335,7 +3365,7 @@ finally {
             released_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             reason = $monitorGateReason
         }
-        [System.IO.File]::WriteAllText($monitorBootstrapGateFile, ($gateRelease | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
+        Write-Utf8NoBomTextFileAtomically -Path $monitorBootstrapGateFile -Text ($gateRelease | ConvertTo-Json -Depth 4)
         Write-Output ("[OPEN-AB-STAGE] monitor_bootstrap_gate release stage={0} status={1} file={2}" -f $Stage, $monitorGateStatus, (Convert-ToAnchorPath -Path $monitorBootstrapGateFile))
     }
 
