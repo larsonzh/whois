@@ -371,14 +371,14 @@ elseif ($isStatusTicket -and $hasNewerBarrier) {
 }
 elseif ($isStatusTicket) {
     $classification = 'status-health-check-only'
-    $recommendedAction = 'run-minimal-health-check-and-continue-watch'
+    $recommendedAction = 'report-observed-runtime-status-only'
     $mustAvoidStageRestart = $true
-    $allowedActions = @('business_command', 'continue_watch_command', 'handled_at')
-    $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
-    $reason = 'Running-status ticket in low-disturb flow should execute only minimal health check and continue watch.'
+    $allowedActions = @('read-only-status-check', 'status-report', 'handled_at')
+    $blockedActions = @('self_heal', 'fault_handling', 'business_resume', 'stage_restart', 'guard_restart', 'source_edit', 'script_edit', 'new_non_tmp_script', 'business_command', 'continue_watch_command')
+    $reason = 'Scheduled running-status tickets are observation-only and must not initiate repair, fault handling, process control, or recovery.'
     [void]$decisionFactors.Add('status_ticket=true')
-    [void]$decisionFactors.Add('health_check_only=true')
-    $decisionConfidence = 0.95
+    [void]$decisionFactors.Add('report_only=true')
+    $decisionConfidence = 0.99
 }
 elseif ($isNoticeEvent) {
     switch ($eventName) {

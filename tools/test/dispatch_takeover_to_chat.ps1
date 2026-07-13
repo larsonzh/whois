@@ -3932,6 +3932,8 @@ $runningStatusFullMessageEn = @'
 Fault-phase enforcement: when route_guard_expected != status-health-check-only, low-disturb/two-line reply is forbidden; use normal/full response and mandatory handled_at immediate receipt.
 '@
 $runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1) Report root cause + remediation in one concise block. For a healthy running-status-report, root cause is "no active fault / routine status ticket" and remediation is "continue watch only". 2) Run the provided business_command as health check, then continue_watch_command; do not stage-restart A/B from this status ticket unless a separate incident ticket is raised. 3) Return to read-only watch (scheduled status-ticket heartbeat + poll) until "stop monitoring". Do not ask for extra approval to continue polling/watch. 4) Mandatory receipts: always return handled_at (YYYY-MM-DD HH:mm:ss) after this ticket cycle; for running-status-report, handled_at must be returned immediately after business/continue_watch; return session_closed_at only when stop monitoring is requested or both A/B are terminal, and include the explicit session end date/time in the final closure message. If ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command (including final_status_closeout_apply_ack_command) are present, continue in next_command_order after route_guard_command. Do not infer a B restart from stale exit artifacts. Do not create ad-hoc handled/heartbeat files and do not create new scripts outside tmp. During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn. Return chat_heartbeat fields: SESSION/A/B, run_dir, main_round, guard latest heartbeat, B exit digest. Status: {3}.'
+$runningStatusFullMessageEn = '[FULL-RUNBOOK][STATUS-REPORT-ONLY] This scheduled running-status-report is observation-only. Use only read-only status commands supplied by the ticket and report current SESSION/A/B state, run_dir, main_round, process/monitor liveness, heartbeat, and pending incident summary. Do not perform self-heal, fault handling, main-process or guard restart, business_resume, source/script/task-definition edits, environment stabilization, or any recovery action. If an abnormal condition is observed, report it and wait for a separate incident ticket. Return handled_at after reporting; return session_closed_at only when stop monitoring is requested or A/B are terminal. Do not commit or push without explicit same-turn authorization. Status: {3}.'
+$runningStatusShortMessageEn = '[SHORT-CARD][STATUS-REPORT-ONLY] Scheduled status report only. Report observed SESSION/A/B, main_round, process/monitor liveness, heartbeat, and pending incident summary using read-only checks. Do not self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover anything from this ticket. Report anomalies and wait for a separate incident ticket. Return handled_at. Status: {3}.'
 $finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
 $taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. If the target round is known, name the stage / round / file explicitly (for example, B D4).
 
@@ -3972,6 +3974,10 @@ $runningStatusFullMessageZh = @'
 $runningStatusShortMessageZh = '[SHORT-CARD] 票据 {0}（event={1}），先读 {2}。1）用一段话先报根因+修复路径；若本票是 healthy 的 running-status-report，根因应写“无活动故障/常规定时状态票”，修复路径应写“continue_watch only”。2）执行已给出的 business_command 作为健康检查，然后执行 continue_watch_command；除非出现独立事故票据，否则不得从该状态票发起 A/B 阶段重启。3）处置后回到票据驱动只读监控（沿用定时状态票节奏），直到“stop monitoring”，不要再询问是否继续轮询/监控。4）强制回执：本票当轮动作完成后必须回传 handled_at（YYYY-MM-DD HH:mm:ss）；running-status-report 在 business/continue_watch 后必须立即回传 handled_at；session_closed_at 仅在 stop monitoring 或 A/B 终态时回传，且最终收尾消息必须显式写出会话结束日期时间；若返回 ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command（含 final_status_closeout_apply_ack_command）则按 next_command_order 继续执行。不得仅凭旧 exit 证据推断需要重启 B；不得手工创建 chat_heartbeat/handled 临时回执文件；不得在未获同意时创建非 tmp 新脚本。无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。回传 chat_heartbeat：SESSION/A/B、run_dir、main_round、guard 最新心跳、B exit digest。状态：{3}。'
 $runningStatusLowDisturbMessageEn = '[LOW-DISTURB] Ticket {0} (event={1}). Read {2} first, run route_guard_command from the brief and follow its classification before any action, then run only the minimal health check from business_command: current run status plus live main process and monitor-chain processes (guard/trigger), and do not treat lingering -NoExit shells as healthy stage processes. If the result is healthy and no repair/restart is triggered, reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss". If the result is abnormal, or any self-heal/fault-handling action is triggered, switch to normal status-report style immediately, execute continue_watch_command to re-arm guard/event chain, explain root cause and remediation/self-heal actions, report current status, then return handled_at.'
 $runningStatusLowDisturbMessageZh = '[LOW-DISTURB] 票据 {0}（event={1}），先读 {2}，并先执行 brief 中的 route_guard_command，必须按其 classification 决定分支后再执行动作；然后只执行 business_command 中的最小健康检查：当前运行状态，以及主进程与监控链进程（guard/trigger）是否真实存活；不要把残留的 -NoExit 空壳 shell 当作阶段主进程健康。若检查结果正常，且没有触发任何自愈/重启/故障处理动作，则根因视为“无活动故障/常规定时状态票”，不要建议重启 B，回复内容只保留两行："运行正常" 和 "handled_at: YYYY-MM-DD HH:mm:ss"。若检查结果异常，或触发了自愈修复/故障处理，则立即切换为 normal 状态票口径，并先执行 continue_watch_command 以恢复 guard/事件链，再说明根因与修复/自愈动作、当前运行状态，然后回传 handled_at。不得手工创建 chat_heartbeat/handled 临时回执文件，也不得在未获同意时创建非 tmp 新脚本。'
+$runningStatusFullMessageZh = '[FULL-RUNBOOK][STATUS-REPORT-ONLY] 本定时 running-status-report 只汇报运行状态。仅执行票据提供的只读状态查询，汇报 SESSION/A/B、run_dir、main_round、主进程与监控链存活、heartbeat 及待处理事故票摘要。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、源码/脚本/任务定义修改、环境稳定化或任何恢复动作。发现异常只汇报并等待独立事故票，不得在本状态票内处置。汇报后回传 handled_at；仅在 stop monitoring 或 A/B 终态时回传 session_closed_at。未经用户同轮明确授权不得 commit/push。状态：{3}。'
+$runningStatusShortMessageZh = '[SHORT-CARD][STATUS-REPORT-ONLY] 本定时状态票只汇报运行状态。仅用只读检查汇报 SESSION/A/B、main_round、主进程/监控链存活、heartbeat 和待处理事故票摘要。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、文件修改、环境稳定化或任何恢复动作；发现异常只汇报并等待独立事故票。回传 handled_at。状态：{3}。'
+$runningStatusLowDisturbMessageEn = '[LOW-DISTURB][STATUS-REPORT-ONLY] Report observed runtime status in two lines using read-only checks: "Running normal" or a concise anomaly summary, then "handled_at: YYYY-MM-DD HH:mm:ss". Never self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover from this status ticket. Wait for a separate incident ticket for any action.'
+$runningStatusLowDisturbMessageZh = '[LOW-DISTURB][STATUS-REPORT-ONLY] 仅用只读检查汇报运行状态：正常时只回“运行正常”与 handled_at，异常时只回异常摘要与 handled_at。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、文件修改、环境稳定化或任何恢复动作；任何处置均等待独立事故票。'
 $finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
 $taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码；若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
 
@@ -4053,6 +4059,8 @@ Always run static check (tools/test/check_task_definition_static.ps1 -TaskDefini
 
 $gitGuardSuffixEn = ' During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn.'
 $gitGuardSuffixZh = ' 无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。'
+$passiveWaitSuffixEn = ' After this ticket is handled, wait silently for the next event/status ticket delivered by the existing guard/trigger/dispatch chain. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
+$passiveWaitSuffixZh = ' 本票处理并回执后，静默等待现有 guard/trigger/dispatch 链投送下一张事件票或状态票；不得创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或周期性 heartbeat/poll。'
 
 function Add-GitGuardConstraint {
     param(
@@ -4066,6 +4074,23 @@ function Add-GitGuardConstraint {
 
     $normalized = $Template.ToLowerInvariant()
     if ($normalized.Contains('git commit') -and $normalized.Contains('git push')) {
+        return $Template
+    }
+
+    return ($Template.TrimEnd() + $Suffix)
+}
+
+function Add-PassiveWaitConstraint {
+    param(
+        [AllowEmptyString()][string]$Template,
+        [AllowEmptyString()][string]$Suffix
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Template) -or [string]::IsNullOrWhiteSpace($Suffix)) {
+        return $Template
+    }
+
+    if ($Template.Contains($Suffix.Trim())) {
         return $Template
     }
 
@@ -4103,6 +4128,36 @@ $noticeManualWaitMessageZh = Add-GitGuardConstraint -Template $noticeManualWaitM
 $noticeBudgetMessageZh = Add-GitGuardConstraint -Template $noticeBudgetMessageZh -Suffix $gitGuardSuffixZh
 $noticeInfraMessageZh = Add-GitGuardConstraint -Template $noticeInfraMessageZh -Suffix $gitGuardSuffixZh
 $runningStatusLowDisturbMessageZh = Add-GitGuardConstraint -Template $runningStatusLowDisturbMessageZh -Suffix $gitGuardSuffixZh
+
+$runningStatusFullMessageEn = Add-PassiveWaitConstraint -Template $runningStatusFullMessageEn -Suffix $passiveWaitSuffixEn
+$runningStatusShortMessageEn = Add-PassiveWaitConstraint -Template $runningStatusShortMessageEn -Suffix $passiveWaitSuffixEn
+$taskDefinitionFixMessageEn = Add-PassiveWaitConstraint -Template $taskDefinitionFixMessageEn -Suffix $passiveWaitSuffixEn
+$runningStatusFullWrapMessageEn = Add-PassiveWaitConstraint -Template $runningStatusFullWrapMessageEn -Suffix $passiveWaitSuffixEn
+$genericRecoveryMessageEn = Add-PassiveWaitConstraint -Template $genericRecoveryMessageEn -Suffix $passiveWaitSuffixEn
+$eventReviewMessageEn = Add-PassiveWaitConstraint -Template $eventReviewMessageEn -Suffix $passiveWaitSuffixEn
+$eventReviewLowDisturbMessageEn = Add-PassiveWaitConstraint -Template $eventReviewLowDisturbMessageEn -Suffix $passiveWaitSuffixEn
+$scriptFixRecoveryMessageEn = Add-PassiveWaitConstraint -Template $scriptFixRecoveryMessageEn -Suffix $passiveWaitSuffixEn
+$codeFixRecoveryMessageEn = Add-PassiveWaitConstraint -Template $codeFixRecoveryMessageEn -Suffix $passiveWaitSuffixEn
+$nonCodeRecoveryMessageEn = Add-PassiveWaitConstraint -Template $nonCodeRecoveryMessageEn -Suffix $passiveWaitSuffixEn
+$noticeManualWaitMessageEn = Add-PassiveWaitConstraint -Template $noticeManualWaitMessageEn -Suffix $passiveWaitSuffixEn
+$noticeBudgetMessageEn = Add-PassiveWaitConstraint -Template $noticeBudgetMessageEn -Suffix $passiveWaitSuffixEn
+$noticeInfraMessageEn = Add-PassiveWaitConstraint -Template $noticeInfraMessageEn -Suffix $passiveWaitSuffixEn
+$runningStatusLowDisturbMessageEn = Add-PassiveWaitConstraint -Template $runningStatusLowDisturbMessageEn -Suffix $passiveWaitSuffixEn
+
+$runningStatusFullMessageZh = Add-PassiveWaitConstraint -Template $runningStatusFullMessageZh -Suffix $passiveWaitSuffixZh
+$runningStatusShortMessageZh = Add-PassiveWaitConstraint -Template $runningStatusShortMessageZh -Suffix $passiveWaitSuffixZh
+$taskDefinitionFixMessageZh = Add-PassiveWaitConstraint -Template $taskDefinitionFixMessageZh -Suffix $passiveWaitSuffixZh
+$runningStatusFullWrapMessageZh = Add-PassiveWaitConstraint -Template $runningStatusFullWrapMessageZh -Suffix $passiveWaitSuffixZh
+$genericRecoveryMessageZh = Add-PassiveWaitConstraint -Template $genericRecoveryMessageZh -Suffix $passiveWaitSuffixZh
+$eventReviewMessageZh = Add-PassiveWaitConstraint -Template $eventReviewMessageZh -Suffix $passiveWaitSuffixZh
+$eventReviewLowDisturbMessageZh = Add-PassiveWaitConstraint -Template $eventReviewLowDisturbMessageZh -Suffix $passiveWaitSuffixZh
+$scriptFixRecoveryMessageZh = Add-PassiveWaitConstraint -Template $scriptFixRecoveryMessageZh -Suffix $passiveWaitSuffixZh
+$codeFixRecoveryMessageZh = Add-PassiveWaitConstraint -Template $codeFixRecoveryMessageZh -Suffix $passiveWaitSuffixZh
+$nonCodeRecoveryMessageZh = Add-PassiveWaitConstraint -Template $nonCodeRecoveryMessageZh -Suffix $passiveWaitSuffixZh
+$noticeManualWaitMessageZh = Add-PassiveWaitConstraint -Template $noticeManualWaitMessageZh -Suffix $passiveWaitSuffixZh
+$noticeBudgetMessageZh = Add-PassiveWaitConstraint -Template $noticeBudgetMessageZh -Suffix $passiveWaitSuffixZh
+$noticeInfraMessageZh = Add-PassiveWaitConstraint -Template $noticeInfraMessageZh -Suffix $passiveWaitSuffixZh
+$runningStatusLowDisturbMessageZh = Add-PassiveWaitConstraint -Template $runningStatusLowDisturbMessageZh -Suffix $passiveWaitSuffixZh
 
 $runningStatusFullMessage = if ($useChineseDispatchMessage) { $runningStatusFullMessageZh } else { $runningStatusFullMessageEn }
 $runningStatusShortMessage = if ($useChineseDispatchMessage) { $runningStatusShortMessageZh } else { $runningStatusShortMessageEn }
@@ -4156,6 +4211,11 @@ if ($startSettings.Contains('AI_CHAT_DISPATCH_MESSAGE_GENERIC_RECOVERY')) {
         $genericRecoveryMessage = $overrideText
     }
 }
+$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage) { $passiveWaitSuffixZh } else { $passiveWaitSuffixEn }
+$runningStatusFullMessage = Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix
+$runningStatusShortMessage = Add-PassiveWaitConstraint -Template $runningStatusShortMessage -Suffix $selectedPassiveWaitSuffix
+$taskDefinitionFixMessage = Add-PassiveWaitConstraint -Template $taskDefinitionFixMessage -Suffix $selectedPassiveWaitSuffix
+$genericRecoveryMessage = Add-PassiveWaitConstraint -Template $genericRecoveryMessage -Suffix $selectedPassiveWaitSuffix
 $runningStatusUseFullMessage = $false
 $runningStatusEffectiveMode = 'n/a'
 $policyWorkMode = ''

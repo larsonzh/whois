@@ -1048,88 +1048,6 @@ function Write-GitSnapshot {
     @($Snapshot.SourcePatchHash) | Out-File -FilePath $sourceHashPath -Encoding utf8
 }
 
-function Get-AgentTicketQueuePath {
-    param([string]$RepoRoot)
-
-    $queueRaw = Get-EnvRawValue -Name 'LOCAL_GUARD_AGENT_QUEUE_PATH'
-    if ([string]::IsNullOrWhiteSpace($queueRaw)) {
-        $queueRaw = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
-    }
-
-    if ([System.IO.Path]::IsPathRooted($queueRaw)) {
-        return [System.IO.Path]::GetFullPath($queueRaw)
-    }
-
-    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $queueRaw))
-}
-
-function Add-RoundTaskStaticGateTicket {
-    param(
-        [string]$RepoRoot,
-        [string]$Stage,
-        [string]$RoundTag,
-        [int]$RoundIndex,
-        [string]$TaskDefinitionFile,
-        [int]$ExitCode,
-        [AllowEmptyString()][string]$Reason,
-        [AllowEmptyString()][string]$Scope,
-        [AllowEmptyString()][string]$RunDirAnchor
-    )
-
-    $queuePath = Get-AgentTicketQueuePath -RepoRoot $RepoRoot
-    if ([string]::IsNullOrWhiteSpace($queuePath)) {
-        return
-    }
-
-    $queueDir = Split-Path -Parent $queuePath
-    if (-not [string]::IsNullOrWhiteSpace($queueDir) -and -not (Test-Path -LiteralPath $queueDir)) {
-        New-Item -ItemType Directory -Path $queueDir -Force | Out-Null
-    }
-
-    $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
-    $detail = ('stage={0} round={1} round_index={2} scope={3} exit={4} reason={5} task_definition={6}' -f $Stage, $RoundTag, $RoundIndex, $Scope, $ExitCode, $Reason, $TaskDefinitionFile)
-    $recommendedAction = 'Report root cause and remediation path first. Fix the failing task-definition round under testdata, rerun static precheck for this round scope, then resume via business_command -> continue_watch_command. After handling, return handled_at (YYYY-MM-DD HH:mm:ss).'
-
-    $ticket = [ordered]@{
-        schema = 'AB_AGENT_TICKET_V1'
-        ticket_id = $ticketId
-        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-        source = 'start_dev_verify_8round_multiround'
-        event = 'task-definition-fix-required'
-        severity = 'high'
-        requires_confirmation = $false
-        confirmation_key = ''
-        start_file = (Get-EnvRawValue -Name 'AUTO_START_FILE_PATH')
-        guard_log = ''
-        guard_state = ''
-        queue_path = $queuePath
-        session_final_status = (Get-EnvRawValue -Name 'AUTO_SESSION_FINAL_STATUS')
-        a_final_status = (Get-EnvRawValue -Name 'AUTO_A_FINAL_STATUS')
-        b_final_status = (Get-EnvRawValue -Name 'AUTO_B_FINAL_STATUS')
-        run_dir = $RunDirAnchor
-        incident_dir = ''
-        detail = $detail
-        recommended_action = $recommendedAction
-        preferred_stage = $Stage
-        main_round = $RoundTag
-        failure_kind = 'task-definition-mismatch'
-        failure_category = 'task-definition-runtime-static-gate'
-        failure_source = 'tools/test/start_dev_verify_8round_multiround.ps1'
-        failure_evidence = $detail
-        self_healable = $true
-        non_recoverable_env = $false
-        dedup_signature = ('task-definition-runtime-static-gate|{0}|{1}|{2}|{3}' -f $Stage, $RoundTag, $Scope, $TaskDefinitionFile)
-    }
-
-    try {
-        ($ticket | ConvertTo-Json -Compress -Depth 8) | Add-Content -LiteralPath $queuePath -Encoding utf8
-        Write-Host ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=queued id={0} queue={1} round={2}' -f $ticketId, $queuePath, $RoundTag)
-    }
-    catch {
-        Write-Warning ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=failed queue={0} round={1} detail={2}' -f $queuePath, $RoundTag, $_.Exception.Message)
-    }
-}
-
 function Get-NormalizedPathIdentity {
     param(
         [AllowEmptyString()][string]$Path,
@@ -1402,7 +1320,7 @@ function Invoke-RoundTaskStaticGate {
     @($lines) | Out-File -FilePath $logFile -Encoding utf8
 
     if (-not $result.Pass) {
-        Write-Information ('[DEV-VERIFY-MULTI] task_static_runtime_ticket=deferred stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile) -InformationAction Continue
+        Write-Information ('[DEV-VERIFY-MULTI] task_static_repair_ticket=deferred_until_main_exit stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile) -InformationAction Continue
     }
 
     return [pscustomobject]$result
@@ -1801,6 +1719,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     # Skip task static gate for pre-resume rounds (code-step only, no verification)
     $roundTaskStaticGateShouldRun = $EnableRoundTaskStaticGate -and $roundResumeRole -ne "pre-resume"
+    if ($roundTaskStaticGateShouldRun -and $round -ge $RoundTaskStaticGateStartRound -and $round -le $RoundTaskStaticGateEndRound) {
+        Write-Output ("[DEV-VERIFY-MULTI] task_static_runtime_gate_begin stage={0} round={1} scope={2}" -f $Stage, $roundTag, $roundTag)
+    }
     $roundTaskStaticGate = Invoke-RoundTaskStaticGate `
         -RepoRoot $repoRoot `
         -ScriptPath $taskStaticCheckScript `
@@ -1829,6 +1750,11 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
         Write-Output $taskGateLine
         $lines += $taskGateLine
+    }
+
+    if ($roundTaskStaticGateApplied) {
+        $taskStaticGateStatus = if ($roundTaskStaticGatePass) { 'PASS' } else { 'FAIL' }
+        Write-Output ("[DEV-VERIFY-MULTI] task_static_runtime_gate_result={0} stage={1} round={2} scope={3} exit={4}" -f $taskStaticGateStatus, $Stage, $roundTag, $roundTaskStaticGateScope, $roundTaskStaticGateExit)
     }
 
     if ($roundTaskStaticGateApplied -and -not $roundTaskStaticGatePass) {

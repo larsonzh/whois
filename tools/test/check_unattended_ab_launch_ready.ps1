@@ -288,6 +288,15 @@ $aTaskDefinition = [string]$startSettings.A_TASK_DEFINITION
 $bTaskDefinition = [string]$startSettings.B_TASK_DEFINITION
 $taskStaticPrecheckPolicy = [string]$startSettings.TASK_STATIC_PRECHECK_POLICY
 $taskStaticFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$startSettings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $true
+$taskStaticPrecheckFailureMode = if ($startSettings.Contains('TASK_STATIC_PRECHECK_FAILURE_MODE')) {
+    ([string]$startSettings.TASK_STATIC_PRECHECK_FAILURE_MODE).Trim().ToLowerInvariant()
+}
+else {
+    'block'
+}
+if ($taskStaticPrecheckFailureMode -notin @('block', 'runtime-ticket')) {
+    Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason ('invalid TASK_STATIC_PRECHECK_FAILURE_MODE={0}' -f $taskStaticPrecheckFailureMode) -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
+}
 $expectedRunMode = [string]$startSettings.RUN_MODE
 $expectedEntryMode = [string]$startSettings.ENTRY_MODE
 
@@ -309,7 +318,8 @@ $startFileLines = @(
     ('RUN_MODE={0}' -f $expectedRunMode),
     ('ENTRY_MODE={0}' -f $expectedEntryMode),
     ('TASK_STATIC_PRECHECK_POLICY={0}' -f $taskStaticPrecheckPolicy),
-    ('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS={0}' -f $taskStaticFailOnWarnings)
+    ('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS={0}' -f $taskStaticFailOnWarnings),
+    ('TASK_STATIC_PRECHECK_FAILURE_MODE={0}' -f $taskStaticPrecheckFailureMode)
 )
 
 $staticCheckScript = Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1' -MustExist $true
@@ -343,10 +353,16 @@ if ($Stage -eq 'A') {
             $reason = Get-FirstMeaningfulLine -Lines $aCheck.Lines
         }
 
-        Write-ResultAndExit -Step 'task-static-check-a-baseline' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+        if ($taskStaticPrecheckFailureMode -eq 'runtime-ticket') {
+            [void]$staticCheckMessages.Add(('A baseline static check deferred to runtime repair ticket: {0}' -f $reason))
+        }
+        else {
+            Write-ResultAndExit -Step 'task-static-check-a-baseline' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
+        }
     }
-
-    [void]$staticCheckMessages.Add(('A baseline static check passed: {0} scope=D1:op1' -f $resolvedATask))
+    else {
+        [void]$staticCheckMessages.Add(('A baseline static check passed: {0} scope=D1:op1' -f $resolvedATask))
+    }
 }
 else {
     [void]$staticCheckMessages.Add('B stage launch-ready static check skipped by stage policy (runtime fail-fast enabled).')

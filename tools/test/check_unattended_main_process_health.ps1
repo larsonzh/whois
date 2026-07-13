@@ -360,10 +360,13 @@ function Get-RunningProcessIdsByScriptLeaf {
     return @($ids)
 }
 
-function Get-BStageProcessCandidate {
+function Get-StageProcessCandidate {
     param(
-        [string]$StartFileLeaf
+        [string]$StartFileLeaf,
+        [ValidateSet('A', 'B')][string]$Stage
     )
+
+    $stagePattern = if ($Stage -eq 'A') { 'start_dev_verify_fastmode_a\.ps1' } else { 'start_dev_verify_fastmode_b\.ps1' }
 
     $candidates = @(
         Get-CimInstance Win32_Process |
@@ -384,7 +387,7 @@ function Get-BStageProcessCandidate {
                     return $false
                 }
 
-                return ($lineLower -match 'start_dev_verify_fastmode_b\.ps1|start_dev_verify_8round_multiround\.ps1')
+                return ($lineLower -match ($stagePattern + '|start_dev_verify_8round_multiround\.ps1'))
             } |
             Select-Object ProcessId, Name, CreationDate, CommandLine |
             Sort-Object CreationDate, ProcessId -Descending
@@ -509,13 +512,19 @@ $bStatus = if ($settings.Contains('B_FINAL_STATUS')) { Get-StatusValue -Value ([
 $aLaunchProcessId = if ($settings.Contains('A_LAUNCH_PID')) { Convert-ToNullablePositiveInt -Value ([string]$settings.A_LAUNCH_PID) } else { $null }
 $bLaunchProcessId = if ($settings.Contains('B_LAUNCH_PID')) { Convert-ToNullablePositiveInt -Value ([string]$settings.B_LAUNCH_PID) } else { $null }
 
-$aAlive = if ($null -ne $aLaunchProcessId) { Test-ProcessAlive -ProcessId ([int]$aLaunchProcessId) } else { $false }
+$aExpectedAlive = if ($null -ne $aLaunchProcessId) { Test-ProcessAlive -ProcessId ([int]$aLaunchProcessId) } else { $false }
+$aCandidates = @()
+if (-not $aExpectedAlive) {
+    $aCandidates = @(Get-StageProcessCandidate -StartFileLeaf $startFileLeaf -Stage 'A')
+}
+$aAlive = $aExpectedAlive -or ($aCandidates.Count -gt 0)
 $bExpectedAlive = if ($null -ne $bLaunchProcessId) { Test-ProcessAlive -ProcessId ([int]$bLaunchProcessId) } else { $false }
 $bCandidates = @()
-if ($bStatus -eq 'RUNNING' -and -not $bExpectedAlive) {
-    $bCandidates = @(Get-BStageProcessCandidate -StartFileLeaf $startFileLeaf)
+if (-not $bExpectedAlive) {
+    $bCandidates = @(Get-StageProcessCandidate -StartFileLeaf $startFileLeaf -Stage 'B')
 }
 $bHasAliveProcess = $bExpectedAlive -or ($bCandidates.Count -gt 0)
+$anyMainProcessAlive = ($aAlive -or $bHasAliveProcess)
 
 $expectedProcessIdForExitEvidence = if ($null -eq $bLaunchProcessId) { 0 } else { [int]$bLaunchProcessId }
 $bExitEvidence = Get-BStageExitReasonEvidence -RepoRoot $repoRoot -StartFilePath $startFilePath -ExpectedProcessId $expectedProcessIdForExitEvidence
@@ -771,6 +780,10 @@ if ($EscalateMonitorChainDegraded.IsPresent) {
             $reason = 'incident-already-emitted-for-active-streak'
         }
         elseif ($currentStreak -ge $EscalateMonitorChainDegradedThreshold) {
+            if ($anyMainProcessAlive) {
+                $reason = 'fault-action-ticket-deferred-main-process-running'
+            }
+            else {
             $preferredStage = if ($bStatus -eq 'RUNNING') { 'B' } else { 'A' }
             $missingComponents = ($monitorChainMissingComponents.ToArray()) -join ','
             $ticketId = ('T{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
@@ -811,6 +824,7 @@ if ($EscalateMonitorChainDegraded.IsPresent) {
             }
             else {
                 $reason = 'incident-enqueue-failed'
+            }
             }
         }
     }

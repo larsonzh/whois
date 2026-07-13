@@ -945,19 +945,19 @@ function Add-StageTaskDefinitionBlockedTicket {
     $selfHealable = $false
     $failureCategory = 'task-definition-static-precheck-blocked'
     $detailCategory = 'task-definition-static-precheck-blocked'
-    $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not continue automatic stage restarts. Review the task-definition file under testdata, decide whether to repair or reset baseline, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+    $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not continue automatic stage restarts. Review the task-definition file under testdata, decide whether to repair or reset baseline, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
 
     switch ((Convert-ToSingleLineText -Text $BlockEvent).ToLowerInvariant()) {
         'recovery-await-confirmation' {
             $eventName = 'recovery-await-confirmation'
-            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so pause automatic retries and require explicit restart approval after evidence review. Repair or reset the task-definition file under testdata, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so pause automatic retries and require explicit restart approval after evidence review. Repair or reset the task-definition file under testdata, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
         }
         'task-definition-fix-required' {
             $eventName = 'task-definition-fix-required'
             $requiresConfirmation = $false
             $confirmationKey = ''
             $selfHealable = $true
-            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not restart automatically; instead repair the task-definition file under testdata until static precheck passes, then resume via the standard business_resume path. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not restart automatically; instead repair the task-definition file under testdata until static precheck passes, then resume via the standard business_resume path. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
         }
     }
 
@@ -2071,6 +2071,14 @@ if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS')) {
     $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $false
 }
 
+$taskStaticPrecheckFailureMode = 'block'
+if ($settings.Contains('TASK_STATIC_PRECHECK_FAILURE_MODE')) {
+    $failureModeCandidate = (Convert-ToSingleLineText -Text ([string]$settings.TASK_STATIC_PRECHECK_FAILURE_MODE)).ToLowerInvariant()
+    if ($failureModeCandidate -in @('block', 'runtime-ticket')) {
+        $taskStaticPrecheckFailureMode = $failureModeCandidate
+    }
+}
+
 $taskStaticPrecheckMaxFails = 3
 if ($settings.Contains('TASK_STATIC_PRECHECK_MAX_FAILS')) {
     $parsedMaxFails = Get-ParsedPositiveInt -Value ([string]$settings.TASK_STATIC_PRECHECK_MAX_FAILS)
@@ -2098,6 +2106,7 @@ if (-not (Test-Path -LiteralPath $taskStaticPrecheckScript)) {
 }
 
 $taskStaticPrecheckEnabled = ($Stage -eq 'A')
+$taskStaticPrecheckDeferred = $false
 if ($taskStaticPrecheckEnabled) {
     $precheckScopeRoundTag = 'D1'
     $precheckScopeOperationIndex = 1
@@ -2146,7 +2155,7 @@ if ($taskStaticPrecheckEnabled) {
         Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $precheckFailUpdates
 
         $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
-        if (-not $overLimit) {
+        if (-not $overLimit -and $taskStaticPrecheckFailureMode -ne 'runtime-ticket') {
             Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'static-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
         }
         if ($overLimit) {
@@ -2154,17 +2163,25 @@ if ($taskStaticPrecheckEnabled) {
             throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4} scope={5}:op{6}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative, $precheckScopeRoundTag, $precheckScopeOperationIndex)
         }
 
-        throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4} scope={5}:op{6}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+        if ($taskStaticPrecheckFailureMode -eq 'runtime-ticket') {
+            $taskStaticPrecheckDeferred = $true
+            Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit stage={0} task={1} fail_count={2} limit={3} scope={4}:op{5}" -f $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+        }
+        else {
+            throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4} scope={5}:op{6}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+        }
     }
 
-    if ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT')) {
+    if (-not $taskStaticPrecheckDeferred -and ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT'))) {
         Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
             TASK_STATIC_PRECHECK_FAIL_COUNT = '0'
             TASK_STATIC_PRECHECK_LAST_PASS_STAGE = $Stage
             TASK_STATIC_PRECHECK_LAST_PASS_AT = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')
         }
     }
-    Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} scope={1}:op{2} policy={3} fail_on_warnings={4} fail_count=0 limit={5}" -f $Stage, $precheckScopeRoundTag, $precheckScopeOperationIndex, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
+    if (-not $taskStaticPrecheckDeferred) {
+        Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} scope={1}:op{2} policy={3} fail_on_warnings={4} fail_count=0 limit={5}" -f $Stage, $precheckScopeRoundTag, $precheckScopeOperationIndex, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
+    }
 }
 else {
     Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=SKIP stage={0} reason=stage-policy runtime_fail_fast=enabled" -f $Stage)

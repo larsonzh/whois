@@ -400,7 +400,7 @@ function Get-StatusReportBusinessCommand {
         [int]$Last,
         [bool]$IncludeTicketChainCheck = $false,
         [bool]$IncludeMainProcessHealthCheck = $true,
-        [bool]$EnableMainProcessAutoHeal = $true,
+        [bool]$EnableMainProcessAutoHeal = $false,
         [bool]$EnableMonitorChainDegradedEscalation = $false,
         [ValidateRange(1, 20)][int]$MonitorChainDegradedEscalationThreshold = 3,
         [bool]$LowDisturbMode = $false
@@ -2168,10 +2168,7 @@ $statusReportIncludeMainProcessHealthCheck = $true
 if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK')) {
     $statusReportIncludeMainProcessHealthCheck = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK) -Default $true
 }
-$statusReportEnableMainProcessAutoHeal = $true
-if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')) {
-    $statusReportEnableMainProcessAutoHeal = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL) -Default $true
-}
+$statusReportEnableMainProcessAutoHeal = $false
 
 $statusReportEnableMonitorChainDegradedEscalation = $false
 if ($settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION')) {
@@ -2242,15 +2239,12 @@ if ($settings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
 }
 $statusReportLowDisturbMode = ($chatPolicyWorkMode -eq 'low-disturb')
 if ($statusReportLowDisturbMode) {
-    # In low-disturb mode, keep health checks and bounded self-heal, but reduce verbose chain checks.
-    $statusReportEnableMainProcessAutoHeal = $true
+    # Scheduled status tickets remain observation-only in every work mode.
     $statusReportIncludeTicketChainCheck = $false
     $statusReportIncludeMainProcessHealthCheck = $true
-
-    if (-not $settings.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MONITOR_CHAIN_DEGRADED_ESCALATION')) {
-        $statusReportEnableMonitorChainDegradedEscalation = $true
-    }
 }
+
+$statusReportEnableMonitorChainDegradedEscalation = $false
 
 $chatHeartbeatPath = ''
 if ($chatHeartbeatEnabled) {
@@ -2669,7 +2663,7 @@ foreach ($ticket in $tickets) {
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = ''
-                continue_watch_command = $continueWatchCommand
+                continue_watch_command = ''
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
@@ -2778,21 +2772,21 @@ foreach ($ticket in $tickets) {
                 business_command_stage = [string]$ticketResumePlan.stage
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -EnableMonitorChainDegradedEscalation $statusReportEnableMonitorChainDegradedEscalation -MonitorChainDegradedEscalationThreshold $statusReportMonitorChainDegradedEscalationThreshold -LowDisturbMode $statusReportLowDisturbMode)
-                continue_watch_command = $continueWatchCommand
+                continue_watch_command = ''
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
                 contract_gate_command = (Get-ContractGateCommand -EventName $eventName)
                 route_guard_command = (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId)
-                ticket_closure_check_command = $ticketClosureCheckCommand
-                event_dedup_health_check_command = $eventDedupHealthCheckCommand
-                final_status_closeout_command = $finalStatusCloseoutCommand
-                final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                ticket_closure_check_command = ''
+                event_dedup_health_check_command = ''
+                final_status_closeout_command = ''
+                final_status_closeout_apply_ack_command = ''
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $false -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $false -EnableMonitorChainDegradedEscalation $false -LowDisturbMode $statusReportLowDisturbMode) -ContinueWatchCommand '' -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand '' -TicketClosureCheckCommand '' -EventDedupHealthCheckCommand '' -FinalStatusCloseoutCommand '' -FinalStatusCloseoutApplyAckCommand '')
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
-                post_check_command = (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last)
+                post_check_command = ''
             }) | Out-Null
 
         if (-not $claimedIds.Contains($ticketId)) {

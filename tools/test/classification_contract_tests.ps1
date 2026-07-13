@@ -140,9 +140,14 @@ function New-ContractCase {
     foreach ($action in @($Expect.allowed_actions)) {
         Assert-Contains -Label "$Name.allowed_actions" -Values @($guard.route.allowed_actions) -Expected $action
     }
+    if ($Expect.Contains('blocked_actions')) {
+        foreach ($action in @($Expect.blocked_actions)) {
+            Assert-Contains -Label "$Name.blocked_actions" -Values @($guard.route.blocked_actions) -Expected $action
+        }
+    }
 
     foreach ($key in $Expect.Keys) {
-        if ($key -in @('classification', 'recommended_action', 'decision_confidence', 'decision_factors', 'allowed_actions')) {
+        if ($key -in @('classification', 'recommended_action', 'decision_confidence', 'decision_factors', 'allowed_actions', 'blocked_actions')) {
             continue
         }
         Assert-Equal -Label "$Name.$key" -Actual $guard.route.$key -Expected $Expect[$key]
@@ -196,10 +201,11 @@ $cases = @(
         }
         Expect = [ordered]@{
             classification = 'status-health-check-only'
-            recommended_action = 'run-minimal-health-check-and-continue-watch'
-            decision_confidence = 0.95
-            decision_factors = @('status_ticket=true', 'health_check_only=true')
-            allowed_actions = @('business_command', 'continue_watch_command', 'handled_at')
+            recommended_action = 'report-observed-runtime-status-only'
+            decision_confidence = 0.99
+            decision_factors = @('status_ticket=true', 'report_only=true')
+            allowed_actions = @('read-only-status-check', 'status-report', 'handled_at')
+            blocked_actions = @('self_heal', 'fault_handling', 'business_resume', 'stage_restart', 'guard_restart', 'source_edit', 'script_edit', 'business_command', 'continue_watch_command')
             must_avoid_stage_restart = $true
         }
         StartFileValues = @{}

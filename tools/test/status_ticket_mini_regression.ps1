@@ -160,6 +160,7 @@ $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
+$takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
@@ -167,6 +168,8 @@ $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
+$takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
+$multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $operationFlowPath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_OPERATION_FLOW_CN.md'
 $copilotInstructionsPath = Resolve-RepoPath -Path '.github/copilot-instructions.md'
 $operationFlowText = Get-Content -LiteralPath $operationFlowPath -Raw -Encoding utf8
@@ -196,6 +199,57 @@ $launchReadyEnforcesMessageMatch = $launchReadyText.Contains("'-EnforceRunningSt
 $launchReadyMessageGatePass = ($launchReadyUsesSelectedStartFile -and $launchReadyEnforcesMessageMatch)
 $launchReadyMessageGateReason = if ($launchReadyMessageGatePass) { 'launch-ready-running-status-message-gate-present' } else { 'missing-launch-ready-running-status-message-gate' }
 [void]$results.Add((Get-CaseResult -Name 'launch-ready-running-status-message-gate' -Pass $launchReadyMessageGatePass -Reason $launchReadyMessageGateReason))
+
+# Scheduled status tickets are strictly read-only reports and cannot initiate remediation or process control.
+$guardStatusIsReportOnly = $sessionGuardText.Contains('Scheduled status report only: report observed runtime state') -and $sessionGuardText.Contains('Do not execute self-heal, fault handling, process restart, business_resume, source/script edits, or operational recovery from this ticket.')
+$briefSuppressesStatusActions = $takeoverTriggerText.Contains("`$nextCommandPolicy = 'status-report-only-readonly'") -and $takeoverTriggerText.Contains('status_ticket_action_policy={0}') -and -not $takeoverTriggerText.Contains("`$nextCommandPolicy = 'status-healthcheck'")
+$pollDisablesStatusSelfHeal = $pollText.Contains("`$statusReportEnableMainProcessAutoHeal = `$false") -and -not $pollText.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')
+$dispatchHasReadOnlyStatusContract = $dispatchText.Contains('STATUS-REPORT-ONLY') -and $dispatchText.Contains('不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、源码/脚本/任务定义修改、环境稳定化或任何恢复动作')
+$templateHasReadOnlyStatusContract = $startTemplateText.Contains('AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK][STATUS-REPORT-ONLY]') -and $startTemplateText.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=false')
+$statusReportOnlyPass = ($guardStatusIsReportOnly -and $briefSuppressesStatusActions -and $pollDisablesStatusSelfHeal -and $dispatchHasReadOnlyStatusContract -and $templateHasReadOnlyStatusContract)
+$statusReportOnlyReason = if ($statusReportOnlyPass) { 'scheduled-status-report-only-contract-present' } else { 'missing-scheduled-status-report-only-contract' }
+[void]$results.Add((Get-CaseResult -Name 'scheduled-status-report-only' -Pass $statusReportOnlyPass -Reason $statusReportOnlyReason))
+
+# Runtime ticket handling is passive: delivery belongs to guard/trigger/dispatch, not agent-created polling loops.
+$promptHasPassiveWaitInAllVariants = ([regex]::Matches($promptDocText, '静默等待')).Count -ge 4 -and $promptDocText.Contains('不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`') -and $promptDocText.Contains('后台 job、watcher 或常驻内存命令')
+$templateHasPassiveWaitContract = $startTemplateText.Contains('进入事件驱动被动接收模式') -and $startTemplateText.Contains('等待本身不执行任何命令') -and $startTemplateText.Contains('不是 AI 自建定时巡检的依据')
+$operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigger/dispatch 链负责生成并投送') -and $operationFlowText.Contains('工单处理完后只需静默等待下一条投送消息')
+$copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行任何定时巡检监控脚本')
+$guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands')
+$stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'wait silently for the next ticket delivered by guard/trigger/dispatch')).Count -ge 3
+$dispatchHasPassiveWaitSuffixes = $dispatchText.Contains("`$passiveWaitSuffixEn = ' After this ticket is handled, wait silently") -and $dispatchText.Contains("`$passiveWaitSuffixZh = ' 本票处理并回执后，静默等待") -and $dispatchText.Contains('Add-PassiveWaitConstraint') -and $dispatchText.Contains('$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage)') -and $dispatchText.Contains('Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix')
+$passiveTicketWaitPass = ($promptHasPassiveWaitInAllVariants -and $templateHasPassiveWaitContract -and $operationFlowHasPassiveWaitContract -and $copilotHasPassiveWaitHardRule -and $guardHasPassiveWaitTicketSuffix -and $stageWindowHasPassiveWaitTicketSuffix -and $dispatchHasPassiveWaitSuffixes)
+$passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-contract-present' } else { 'missing-passive-ticket-wait-contract' }
+[void]$results.Add((Get-CaseResult -Name 'passive-ticket-wait-no-agent-polling' -Pass $passiveTicketWaitPass -Reason $passiveTicketWaitReason))
+
+# Static precheck failures may enter the runtime ticket workflow only when explicitly configured.
+$launchReadyHasBlockDefault = $launchReadyText.Contains("'block'") -and $launchReadyText.Contains("@('block', 'runtime-ticket')")
+$launchReadyDefersStaticFailure = $launchReadyText.Contains("if (`$taskStaticPrecheckFailureMode -eq 'runtime-ticket')") -and $launchReadyText.Contains('deferred to runtime repair ticket')
+$stageWindowHasBlockDefault = $stageWindowText.Contains("`$taskStaticPrecheckFailureMode = 'block'")
+$stageWindowDefersToRuntimeGate = $stageWindowText.Contains('DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit') -and $stageWindowText.Contains("if (-not `$overLimit -and `$taskStaticPrecheckFailureMode -ne 'runtime-ticket')")
+$multiRoundPrintsStaticResult = $multiRoundText.Contains('task_static_runtime_gate_begin') -and $multiRoundText.Contains('task_static_runtime_gate_result=')
+$multiRoundDoesNotQueueStaticTicket = -not $multiRoundText.Contains('function Add-RoundTaskStaticGateTicket') -and -not $multiRoundText.Contains("event = 'task-definition-fix-required'")
+$guardWaitsForMainExit = $sessionGuardText.Contains('task_definition_repair_wait reason=main-process-still-running') -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains('task_definition_repair_ready reason=main-process-stopped')
+$templateEnablesRuntimeTicket = $startTemplateText.Contains('TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket')
+$staticRepairWaitPass = ($launchReadyHasBlockDefault -and $launchReadyDefersStaticFailure -and $stageWindowHasBlockDefault -and $stageWindowDefersToRuntimeGate -and $multiRoundPrintsStaticResult -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit -and $templateEnablesRuntimeTicket)
+$staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-runtime-ticket-contract-present' } else { 'missing-task-static-runtime-ticket-contract' }
+[void]$results.Add((Get-CaseResult -Name 'task-static-runtime-ticket-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
+
+# Every fault-handling or self-heal ticket must wait until all A/B business processes stop.
+$guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')
+$guardHasTicketWriteGate = $sessionGuardText.Contains('fault_action_ticket_wait event=') -and $sessionGuardText.Contains('fault_action_ticket_ready event=') -and $sessionGuardText.Contains("`$faultActionTicket = `$eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')")
+$guardFiltersNoExitHostStrictly = $sessionGuardText.Contains('function Get-StageBusinessProcessSnapshot') -and $sessionGuardText.Contains('[bool]$exitEvidence.StartFileMatch') -and $sessionGuardText.Contains('$artifactFresh -and') -and $sessionGuardText.Contains('([bool]$exitEvidence.ProcessIdMatch -or $artifactMatchesCandidate)') -and $sessionGuardText.Contains("ResolvedSource = if (`$terminalExitConfirmed) { 'terminal-exit-artifact-filtered' }")
+$d1BlockStart = $sessionGuardText.IndexOf('d1_stall_detected detail=')
+$d1BlockEnd = if ($d1BlockStart -ge 0) { $sessionGuardText.IndexOf('# Log periodic stall heartbeat', $d1BlockStart) } else { -1 }
+$d1BlockText = if ($d1BlockStart -ge 0 -and $d1BlockEnd -gt $d1BlockStart) { $sessionGuardText.Substring($d1BlockStart, $d1BlockEnd - $d1BlockStart) } else { '' }
+$d1StopIndex = $d1BlockText.IndexOf('Stop-ProcessTree -RootPids')
+$d1SnapshotIndex = $d1BlockText.IndexOf("Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId")
+$d1TicketIndex = $d1BlockText.IndexOf("Add-AgentTicket -Enabled `$agentQueueEnabled")
+$d1StopsBeforeTicket = ($d1StopIndex -ge 0 -and $d1SnapshotIndex -gt $d1StopIndex -and $d1TicketIndex -gt $d1SnapshotIndex -and -not $d1BlockText.Contains("Invoke-StageRestartByPolicy -Stage 'A'"))
+$healthDefersDegradedTicket = $mainHealthText.Contains('$anyMainProcessAlive = ($aAlive -or $bHasAliveProcess)') -and $mainHealthText.Contains("`$reason = 'fault-action-ticket-deferred-main-process-running'")
+$allFaultActionsAfterExitPass = ($guardHasFaultBranchGate -and $guardHasTicketWriteGate -and $guardFiltersNoExitHostStrictly -and $d1StopsBeforeTicket -and $healthDefersDegradedTicket)
+$allFaultActionsAfterExitReason = if ($allFaultActionsAfterExitPass) { 'all-fault-actions-after-main-exit-contract-present' } else { 'missing-all-fault-actions-after-main-exit-contract' }
+[void]$results.Add((Get-CaseResult -Name 'all-fault-actions-after-main-exit' -Pass $allFaultActionsAfterExitPass -Reason $allFaultActionsAfterExitReason))
 
 # Field-sync output must identify the actual start files checked.
 $fieldSyncHasScope = $startFieldSyncText.Contains('check_scope = $checkScope')
@@ -395,7 +449,25 @@ if (-not $pollOrderPass) {
 }
 [void]$results.Add((Get-CaseResult -Name 'poll-next-command-order-runtime' -Pass $pollOrderPass -Reason $pollOrderReason))
 
-# Case 8: notice/manual events must also expose command order with route guard first.
+# Case 11: status-ticket rows must not expose recovery, closure, or post-check commands.
+$pollStatusBusinessCommand = if ($null -ne $pollOrderRow) { [string]$pollOrderRow.business_command } else { '' }
+$pollStatusForbiddenOrderNames = @('continue_watch_command', 'post_check_command', 'ticket_closure_check_command', 'event_dedup_health_check_command', 'final_status_closeout_command', 'final_status_closeout_apply_ack_command')
+$pollStatusOrderHasForbiddenCommand = @($pollOrderNames | Where-Object { $_ -in $pollStatusForbiddenOrderNames }).Count -gt 0
+$pollStatusReadonlyPass = (
+    $null -ne $pollOrderRow -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.continue_watch_command) -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.ticket_closure_check_command) -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.event_dedup_health_check_command) -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.final_status_closeout_command) -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.final_status_closeout_apply_ack_command) -and
+    [string]::IsNullOrWhiteSpace([string]$pollOrderRow.post_check_command) -and
+    $pollStatusBusinessCommand -notmatch '(?i)-AutoHeal|-EscalateMonitorChainDegraded|business_resume|open_unattended_ab_session_guard_window' -and
+    -not $pollStatusOrderHasForbiddenCommand
+)
+$pollStatusReadonlyReason = if ($pollStatusReadonlyPass) { 'poll-status-row-report-only-runtime-present' } else { 'poll-status-row-exposes-side-effect-command' }
+[void]$results.Add((Get-CaseResult -Name 'poll-status-row-report-only-runtime' -Pass $pollStatusReadonlyPass -Reason $pollStatusReadonlyReason))
+
+# Case 12: notice/manual events must also expose command order with route guard first.
 $pollNoticeQueue = Join-Path $outDir 'poll_notice_command_order_queue.jsonl'
 $pollNoticeTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'

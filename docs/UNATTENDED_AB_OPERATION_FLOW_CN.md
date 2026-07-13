@@ -132,12 +132,14 @@ AI：
 - 是协助层，不是授权层，也不是执行入口替代品。
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
-- 进入无人值守运行期后，事件驱动票与定时状态票中列出的既定动作属于预授权执行项；AI 应直接执行工单工作流，不应为 `business_command`、`continue_watch_command`、`mark_processed_command`、`handled_at` 回执再向用户逐项征求确认。
+- 进入无人值守运行期后，事件驱动票中列出的既定动作属于预授权执行项；AI 应按事件票 `next_command_order` 执行。定时状态票是严格例外，只预授权只读状态查询、状态汇报与 `handled_at` 回执，不预授权任何故障处理或进程控制动作。
+- 运行期工单由既有 guard/trigger/dispatch 链负责生成并投送。AI 只需保持在线并静默等待已投送的事件驱动票或状态票；等待期间不执行命令，不主动定时 heartbeat/poll，不创建或运行定时巡检脚本、轮询循环、后台 job、watcher 或常驻内存命令。
+- 收到工单后，AI 按工单指令与 `next_command_order` 执行无需用户确认的预授权操作，完成回执后继续静默等待下一张工单。
 - 当票据或 brief 中给出 `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command`（以及 final-status 场景的 `final_status_closeout_apply_ack_command`）时，应在 route guard 通过后按 `next_command_order` 执行；`chat-session-final-status` 优先执行 final-status 收口链。
 - 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - `event-only` 仅定义“是否触发/发送常规状态票”的调度策略，不得在事件票或故障处置话术中表述为“按 low-disturb 流程执行”。
-- 对 healthy 的 `running-status-report`，根因应写成“无活动故障/常规定时状态票”，修复路径应写成“continue_watch only”；不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
-- 模式仅影响“非故障状态票”的对话密度与展示形式；一旦进入自愈修复/故障处理期（含 `route_guard_expected != status-health-check-only`），状态票回复标准必须强制提升到 normal 口径，问题闭环后再回归原模式。
+- 对 `running-status-report`，只汇报当前观测状态；healthy 时写“运行正常”，异常时只描述异常与待处理事故票，不提供或执行修复路径。不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
+- 模式只影响状态票的生成、投送和文本密度，不改变“只汇报、零处置”边界。状态票观察到异常时不得切换 normal 修复口径，必须等待独立事故票。
 - 运行期不得手工创建新的 `chat_heartbeat*.jsonl`、`handled_tickets/*.md` 等临时回执产物；应仅使用现有脚本输出的 ledger/heartbeat。
 - 运行期不得在未获用户明确同意时创建非 `tmp/` 新脚本，也不得偏题提出 PR、服务化改造或其他超出当前票据闭环的实施方案。
 - 无人值守运行期间禁止执行提交与推送操作（如 `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入版本控制提交发布步骤。
@@ -164,7 +166,7 @@ AI：
 - 每次接管票据前，先执行 route guard 预检脚本：
 	- `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath <takeover_brief_path> -QueuePath out/artifacts/ab_agent_queue/agent_tickets.jsonl -AsJson`
 - 必须按 `route.classification` 进入对应分支，不允许跳步：
-	- `status-health-check-only`：仅执行最小健康检查（business_command）+ continue_watch + handled_at，禁止 stage restart/business_resume。
+  - `status-health-check-only`：仅执行只读状态查询、状态汇报与 handled_at；禁止 self-heal、fault handling、continue_watch、stage/guard restart、business_resume、文件修改和环境恢复。
 	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：脚本自愈专用流程（guard/trigger/dispatch/poll），先报根因与脚本修复路径；manual 分支需先报阻断条件，不得盲目 resume。
 	- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：代码修复专用流程（源码/任务定义/编译校验）；manual 分支先报阻断条件，再决定是否恢复。
 	- `incident-auto-resume-noncode` / `incident-manual-noncode`：非代码故障专用流程（环境/监控链/瞬态），优先稳定化，不与代码修复流程混用。
@@ -183,7 +185,7 @@ AI：
 	- `tools/test/unattended_ab_takeover_trigger.ps1`：在 external trigger 启动前先执行 route guard 校验（普通票据与 final-status 路径均适用）。
 - `tools/test/poll_agent_tickets.ps1`：事件驱动票按队列顺序幂等排空，且仅处理“本期执行启动基线之后”的事件票（`created_at >= event_queue_floor_at`）；启动基线之前的历史事件票应自动标记已处理并跳过。
 - 事件排空循环规则：先找“本期内最早未处理事件票”，若事件仍存在则处理；若事件不存在则直接回写 `handled_at/done` 后继续下一张；直到本期事件票全部排空。
-- 当本期事件票排空后，执行链自动回到进入事件处置前的工作模式（`normal/anti-missent/low-disturb/event-only`），继续常规轮询与监控节奏。
+- 当本期事件票排空后，外部投送链自动回到进入事件处置前的工作模式（`normal/anti-missent/low-disturb/event-only`）；AI 回到静默等待，不自行恢复轮询或监控命令。
 - 运行期观测锚点（用于快速确认门控生效）：
 	- 放行：`external_trigger_route_allowed` / `final_status_trigger_route_allowed`
 	- 阻断：`external_trigger_blocked` / `final_status_trigger_blocked`
@@ -672,13 +674,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 - `PRECHECK_REQUIRED=true`
 - `TASK_STATIC_PRECHECK_POLICY=enforce`
 - `TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS=true`
+- `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket`（允许启动监控链；启动预检只打印结果，不发票；D1 整轮静态失败且主进程停止后才进入自愈票链）
+
+所有故障动作统一停机门禁：
+- guard 在进入 `FAIL/BLOCKED` 故障处理、生成任何可修复/重启类票据或执行 auto-fix/recovery 前，必须通过 A/B 统一业务进程快照确认全部主进程已停止。
+- 统一快照同时检查 start-file 绑定候选进程；仅当终态 exit artifact 的 start-file、PID/候选和 10 分钟新鲜度全部匹配时，才把 `-NoExit` 遗留的 PowerShell 宿主窗口视为业务脚本已退出。
+- 任一业务进程仍存活或存活状态无法确认时，只记录 `fault_processing_wait` / `fault_action_ticket_wait`，不得发故障动作票、修改任务定义/源码或执行 restart/`business_resume`。
+- `running-status-report`、`a-pass-conclusion-b-started`、`chat-session-final-status` 属于观察/通知票，可在运行中发送，但不得触发故障修复。
+- D1 stall 的固定顺序为：检测停滞 → 停止 A 进程树 → 统一快照确认离线 → 写 FAIL/采集证据 → 发 `incident-captured`。不再在 stall 检测分支即时 auto-restart，恢复统一由 AI 在停机票据闭环中完成。
 
 如果要低打扰或 event-only：
 - 只改 `AI_CHAT_POLICY_WORK_MODE`
 - 不要手工随意发明一整组派生键
 - 模式差异只作用于“非故障状态票生成/分发与回执文本密度”；不应关闭事件票（如 `incident-captured`、`task-definition-fix-required`）的自愈闭环能力。
-- 对 `running-status-report` 的主进程健康检查，`normal/anti-missent/low-disturb/event-only` 都应保留“进程缺失 -> 脚本自愈+事件票升级”的能力。
-- 当状态票触发故障处理或自愈动作时，回复与回执应立即切换到 normal 标准；闭环完成后恢复原工作模式。
+- 对 `running-status-report` 的主进程健康检查，`normal/anti-missent/low-disturb` 都只允许只读检查；进程缺失只汇报，不得由状态票触发脚本自愈或事件升级。`event-only` 不生成状态票。
+- 状态票永远不得触发故障处理或自愈动作；任何处置必须等待独立事故票并遵守停机门禁。
 - 对 B 阶段可恢复编译类故障（含任务定义失配导致的编译失败），route guard 应进入 `incident-auto-resume-code-fix`，执行 `fix -> verify -> business_resume -> continue_watch -> handled_at`。
 
 ### 4.7 阶段 6：启动文件同步检查
@@ -770,8 +780,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 执行预检并回填 `PRECHECK_*`
 
 返回约定：
-- 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤。
+- 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤；唯一例外是 A 基线静态体检失败且显式配置 `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket`，此时记录延迟修复原因并继续完成其余 launch-ready 门禁。
 - 全部通过，返回 `step=launch-ready`、`status=PASS`，表示当前 A/B 任务已具备启动条件。
+- `runtime-ticket` 例外下的 `PASS` 仅表示编排与监控链可启动，不表示任务定义静态检查通过。launcher 只打印启动预检失败和 `ticket=deferred_until_main_exit`，不得立即发票；主进程在 D1 整轮静态 gate 打印 `task_static_runtime_gate_begin` / `task_static_runtime_gate_result=FAIL`，于 code-step 前停止错误 operation并故障退出。guard 通过阶段进程快照确认主进程已停止后，才生成 `incident-captured` 自愈票；仍运行时只写 `task_definition_repair_wait`。达到 `TASK_STATIC_PRECHECK_MAX_FAILS` 后仍硬阻断。
 - 默认直接看终端最后一行：`AB_LAUNCH_READY_RESULT=PASS` 或 `AB_LAUNCH_READY_RESULT=FAIL`。
 
 AI 在此阶段的工作方式：
@@ -893,6 +904,7 @@ VS Code 可选任务入口：
 
 自动触发与默认策略（2026-07 更新）：
 - `open_unattended_ab_stage_window.ps1` 在调用 launch-ready gate 时会进入 `check_unattended_ab_launch_ready.ps1`。
+- `TASK_STATIC_PRECHECK_FAILURE_MODE` 缺省为 `block`；仅显式设为 `runtime-ticket` 时，A 基线静态失败可进入监控启动流程。启动预检不发修复票；必须等待 D1 整轮静态 gate 失败、业务主进程停止，再由 guard 发 `incident-captured` 自愈票。该设置不改变运行期整轮静态 gate、operation safety 或失败预算阻断。
 - 当该流程属于守护管理启动（`-GuardManagedLaunch`）且不在 CI 环境时，`route_guard_smoke_suite.ps1` 默认跳过，避免 guard 重启期间反复写入 smoke 产物。
 - 以下场景默认执行 `route_guard_smoke_suite.ps1`：
   - 非守护链路直接调用 launch-ready gate；
@@ -976,7 +988,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 正确监控链路：
 - guard 产票
-- 会话轮询 `poll_agent_tickets.ps1`
+- trigger/dispatch 将工单投送到会话
+- AI 被动接收工单；仅在工单指令要求时一次性调用 `poll_agent_tickets.ps1`
 - 执行 `business_command`
 - 执行 `continue_watch_command`
 - 执行 `handled_receipt_command`（写入 `handled_at`）
@@ -984,11 +997,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 执行 `mark_processed_command`
 
 运行期执行规则：
-- 事件驱动票和定时状态票中的工作内容视为预授权操作，AI 在无人值守运行期间应直接执行，不再向用户逐条确认。
+- 事件驱动票中的工作内容视为预授权操作，AI 按事件票 `next_command_order` 执行。定时状态票只预授权只读查询、汇报与 handled 回执。
+- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher 或常驻 PowerShell 命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单处理完后只需静默等待下一条投送消息。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
-- 对 healthy 的 `running-status-report`，默认处置应为“最小健康检查 + continue_watch only”；不得因为历史失败证据或旧 exit 文件自动上升为 B 重启建议。
-- 默认执行顺序固定为：`business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`。
+- 对 `running-status-report`，默认处置为只读状态查询、汇报与 handled 回执；不得执行 continue_watch、故障处理或恢复动作。
+- 事件票默认执行顺序固定为：`business_command -> continue_watch_command -> handled_receipt_command -> validate_receipt_command -> mark_processed_command`。状态票不适用该顺序。
 - 若票据附带检查器命令，执行顺序扩展为：`... -> post_check_command -> ticket_closure_check_command -> event_dedup_health_check_command -> final_status_closeout_command`（仅在命令存在时执行）。`chat-session-final-status` 可继续执行 `final_status_closeout_apply_ack_command` 完成收口确认。
 - 若 `validate_receipt_command` 未检测到有效 `handled_at`，应自动补发 `handled-receipt-reminder` 工单（轻量提醒票）并阻断本票 `mark_processed`，不得仅靠人工观察补救。
 - 聊天输出层（relay/转录）校验默认关闭，不作为常态强门禁；该层信号仅作为辅证，不替代 ledger 的强约束状态。
@@ -997,7 +1011,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 若工单处理过程中确需辅助脚本，优先调用现有脚本；确需临时脚本时，只能放在 tmp，下游动作完成后删除。
 - 不得手工补写 `chat_heartbeat*.jsonl`、`chat_heartbeat_reports_additional_*.jsonl` 或额外 handled 回执文件来“模拟完成”；应使用 `tools/test/update_chat_session_heartbeat.ps1` 与 `poll_agent_tickets.ps1 -AcknowledgeTicketIds ...` 的正式链路。
 
-示例：
+一次性工单消费/排障示例（仅在收到工单指令或人工排障时执行，不得包装为定时循环）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md" -IncludeStatusReports -AsJson

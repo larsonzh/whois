@@ -436,6 +436,37 @@ function Add-AgentTicket {
         return [pscustomobject]$result
     }
 
+    $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    $faultActionTicket = $eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')
+    if ($faultActionTicket) {
+        $livenessKnown = $false
+        $aProcessSnapshot = $null
+        $bProcessSnapshot = $null
+        try {
+            $ticketSettings = Read-KeyValueFile -Path $script:StartFilePath
+            $ticketALaunchPid = if ($ticketSettings.Contains('A_LAUNCH_PID')) { Get-ParsedPositiveInt -Value ([string]$ticketSettings.A_LAUNCH_PID) } else { 0 }
+            $ticketBLaunchPid = if ($ticketSettings.Contains('B_LAUNCH_PID')) { Get-ParsedPositiveInt -Value ([string]$ticketSettings.B_LAUNCH_PID) } else { 0 }
+            $aProcessSnapshot = Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId $ticketALaunchPid
+            $bProcessSnapshot = Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId $ticketBLaunchPid
+            $livenessKnown = $true
+        }
+        catch {
+            Write-GuardLog ("fault_action_ticket_wait event={0} reason=main-process-liveness-unknown detail={1}" -f $eventNormalized, (Convert-ToSingleLineText -Text $_.Exception.Message))
+        }
+
+        if (-not $livenessKnown -or [bool]$aProcessSnapshot.HasAliveProcess -or [bool]$bProcessSnapshot.HasAliveProcess) {
+            $result.Reason = if ($livenessKnown) { 'main-process-running' } else { 'main-process-liveness-unknown' }
+            $aAliveText = if ($null -ne $aProcessSnapshot) { [bool]$aProcessSnapshot.HasAliveProcess } else { 'unknown' }
+            $aResolvedProcessId = if ($null -ne $aProcessSnapshot) { [int]$aProcessSnapshot.ResolvedProcessId } else { 0 }
+            $bAliveText = if ($null -ne $bProcessSnapshot) { [bool]$bProcessSnapshot.HasAliveProcess } else { 'unknown' }
+            $bResolvedProcessId = if ($null -ne $bProcessSnapshot) { [int]$bProcessSnapshot.ResolvedProcessId } else { 0 }
+            Write-GuardLog ("fault_action_ticket_wait event={0} reason={1} a_alive={2} a_pid={3} b_alive={4} b_pid={5}" -f $eventNormalized, $result.Reason, $aAliveText, $aResolvedProcessId, $bAliveText, $bResolvedProcessId)
+            return [pscustomobject]$result
+        }
+
+        Write-GuardLog ("fault_action_ticket_ready event={0} reason=all-main-processes-stopped" -f $eventNormalized)
+    }
+
     $resolvedQueuePath = Resolve-RepoPathAllowMissing -Path $QueuePath
     if ([string]::IsNullOrWhiteSpace($resolvedQueuePath)) {
         $result.Reason = 'queue-path-empty'
@@ -970,6 +1001,73 @@ function Get-AStageExitReasonEvidence {
 
     $result.ProcessIdMatch = ($ExpectedProcessId -gt 0 -and [int]$result.ProcessId -eq $ExpectedProcessId)
     return [pscustomobject]$result
+}
+
+function Get-StageBusinessProcessSnapshot {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [int]$ExpectedProcessId
+    )
+
+    $rawSnapshot = if ($Stage -eq 'B') {
+        Get-BStageProcessSnapshot -ExpectedProcessId $ExpectedProcessId
+    }
+    else {
+        Get-AStageProcessSnapshot -ExpectedProcessId $ExpectedProcessId
+    }
+    $exitEvidence = if ($Stage -eq 'B') {
+        Get-BStageExitReasonEvidence -ExpectedProcessId $ExpectedProcessId
+    }
+    else {
+        Get-AStageExitReasonEvidence -ExpectedProcessId $ExpectedProcessId
+    }
+
+    $artifactProcessId = if ($null -ne $exitEvidence) { [int]$exitEvidence.ProcessId } else { 0 }
+    $artifactMatchesCandidate = ($artifactProcessId -gt 0 -and @($rawSnapshot.CandidateIds) -contains $artifactProcessId)
+    $artifactFresh = $false
+    if ($null -ne $exitEvidence -and -not [string]::IsNullOrWhiteSpace([string]$exitEvidence.GeneratedAt)) {
+        $artifactGeneratedAt = [datetime]::MinValue
+        if ([datetime]::TryParse(([string]$exitEvidence.GeneratedAt), [ref]$artifactGeneratedAt)) {
+            $artifactAgeMinutes = ((Get-Date) - $artifactGeneratedAt).TotalMinutes
+            $artifactFresh = ($artifactAgeMinutes -ge -1 -and $artifactAgeMinutes -le 10)
+        }
+    }
+    $terminalExitConfirmed = (
+        $null -ne $exitEvidence -and
+        [bool]$exitEvidence.Available -and
+        [bool]$exitEvidence.StartFileMatch -and
+        $artifactFresh -and
+        [string]$exitEvidence.Result -in @('pass', 'fail') -and
+        ([bool]$exitEvidence.ProcessIdMatch -or $artifactMatchesCandidate)
+    )
+
+    $remainingCandidateIds = @($rawSnapshot.CandidateIds)
+    $expectedAlive = [bool]$rawSnapshot.ExpectedAlive
+    if ($terminalExitConfirmed) {
+        $remainingCandidateIds = @($remainingCandidateIds | Where-Object { [int]$_ -ne $artifactProcessId })
+        if ($ExpectedProcessId -eq $artifactProcessId) {
+            $expectedAlive = $false
+        }
+    }
+
+    $resolvedProcessId = if ($expectedAlive -and $ExpectedProcessId -gt 0) {
+        $ExpectedProcessId
+    }
+    elseif ($remainingCandidateIds.Count -gt 0) {
+        [int]$remainingCandidateIds[0]
+    }
+    else {
+        0
+    }
+
+    return [pscustomobject]@{
+        HasAliveProcess = [bool]($expectedAlive -or $remainingCandidateIds.Count -gt 0)
+        ResolvedProcessId = [int]$resolvedProcessId
+        CandidateCount = [int]$remainingCandidateIds.Count
+        CandidateIds = @($remainingCandidateIds)
+        ResolvedSource = if ($terminalExitConfirmed) { 'terminal-exit-artifact-filtered' } else { [string]$rawSnapshot.ResolvedSource }
+        TerminalExitConfirmed = [bool]$terminalExitConfirmed
+    }
 }
 
 function Get-BPassFailConflictEvidence {
@@ -5522,62 +5620,47 @@ try {
                                 if ($stallSig -ne $d1StallTriggeredSignature) {
                                     Write-GuardLog ("d1_stall_detected detail={0}" -f $d1Detail)
 
-                                    # Save incident package
-                                    $d1IncidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                                    try {
+                                        Stop-ProcessTree -RootPids @($aLaunchPid)
+                                    }
+                                    catch {
+                                        Write-GuardLog ("d1_stall_process_tree_stop_error pid={0} detail={1}" -f $aLaunchPid, (Convert-ToSingleLineText -Text $_.Exception.Message))
+                                    }
+
+                                    $d1StoppedSnapshot = Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId $aLaunchPid
+                                    if ([bool]$d1StoppedSnapshot.HasAliveProcess) {
+                                        Write-GuardLog ("d1_stall_ticket_wait reason=main-process-still-running expected_pid={0} resolved_pid={1} candidates={2}" -f $aLaunchPid, [int]$d1StoppedSnapshot.ResolvedProcessId, [int]$d1StoppedSnapshot.CandidateCount)
+                                        continue
+                                    }
+
+                                    Write-GuardLog ("d1_stall_process_tree_stopped pid={0}" -f $aLaunchPid)
+                                    Invoke-SafeRemoteLockCleanup
+
+                                    $stallFailNote = "guard_d1_stall_stopped_for_agent_repair file_count={0} csv_rows={1} stall_min={2:N1}" -f $d1ProgressResult.FileCount, $d1ProgressResult.RowCount, $d1StallMinutes
+                                    $updatedANotes = Add-DelimitedNote -Existing $notes -Append $stallFailNote
+                                    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
+                                        A_FINAL_STATUS = 'FAIL'
+                                        A_LAUNCH_PID = '0'
+                                        A_FAIL_CATEGORY = 'd1-stall'
+                                        A_FAIL_REASON = ('D1 round stall: no_progress_for_{0:N1}_min file_count={1} csv_rows={2}' -f $d1StallMinutes, $d1ProgressResult.FileCount, $d1ProgressResult.RowCount)
+                                        SESSION_FINAL_STATUS = 'FAIL'
+                                        SESSION_FINAL_NOTES = $updatedANotes
+                                    }
+                                    Write-GuardLog ("d1_stall_fail_written restart=deferred-to-agent-ticket")
+
+                                    $d1IncidentDir = Save-IncidentPackage -Settings $settings -SessionStatus 'FAIL' -AStatus 'FAIL' -BStatus $bStatus
                                     $d1IncidentRel = Convert-ToRepoRelativePath -Path $d1IncidentDir
                                     Write-GuardLog ("d1_stall_incident evidence={0}" -f $d1IncidentRel)
 
-                                    # Create agent ticket for D1 stall
-                                    $d1StallDetail = ("D1 round stall detected: {0}; evidence={1}" -f $d1Detail, $d1IncidentRel)
-                                    $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $d1IncidentDir -Detail $d1StallDetail -DedupSuffix $stallSig -RecommendedAction 'D1 round stall detected — run script-level self-heal or restart A stage' -PreferredStage 'A' -MainRound 'D1' -FailureKind 'runner-fail' -FailureCategory 'd1-stall' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $d1Detail -SelfHealable $true -NonRecoverableEnv $false
-                                    $d1StallTriggeredSignature = $stallSig
-
-                                    # D1 stall auto-restart
-                                    if ($d1AutoRestartEnabled -and -not $d1AutoRestartAttempted) {
-                                        Write-GuardLog ("d1_stall_auto_restart_start detail={0}" -f $d1Detail)
-
-                                        # Stop stalled A process tree
-                                        try {
-                                            Stop-ProcessTree -RootPids @($aLaunchPid)
-                                            Write-GuardLog ("d1_stall_process_tree_stopped pid={0}" -f $aLaunchPid)
-                                        }
-                                        catch {
-                                            Write-GuardLog ("d1_stall_process_tree_stop_error pid={0} detail={1}" -f $aLaunchPid, (Convert-ToSingleLineText -Text $_.Exception.Message))
-                                        }
-
-                                        # Clean remote build lock
-                                        Invoke-SafeRemoteLockCleanup
-
-                                        # Write FAIL status to start file
-                                        $stallFailNote = "guard_d1_stall_auto_restart file_count={0} csv_rows={1} stall_min={2:N1}" -f $d1ProgressResult.FileCount, $d1ProgressResult.RowCount, $d1StallMinutes
-                                        $updatedANotes = Add-DelimitedNote -Existing $notes -Append $stallFailNote
-                                        Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
-                                            A_FINAL_STATUS = 'FAIL'
-                                            A_LAUNCH_PID = '0'
-                                            A_FAIL_CATEGORY = 'd1-stall'
-                                            A_FAIL_REASON = ('D1 round stall: no_progress_for_{0:N1}_min file_count={1} csv_rows={2}' -f $d1StallMinutes, $d1ProgressResult.FileCount, $d1ProgressResult.RowCount)
-                                            SESSION_FINAL_STATUS = 'RUNNING'
-                                            SESSION_FINAL_NOTES = $updatedANotes
-                                        }
-                                        Write-GuardLog ("d1_stall_fail_written")
-
-                                        # Reset D1 tracking variables
-                                        Reset-D1ProgressTracking -StallSince ([ref]$script:d1StallSince) -StallTriggeredSignature ([ref]$d1StallTriggeredSignature) -StallPrevFileCount ([ref]$d1StallPrevFileCount) -StallPrevLatestWrite ([ref]$d1StallPrevLatestWrite) -StallPrevRowCount ([ref]$d1StallPrevRowCount) -StallLastReportAt ([ref]$d1StallLastReportAt) -ObserveStartedAt ([ref]$script:D1ObserveStartedAt) -ResetLastReportAt $true
-                                        $d1AutoRestartAttempted = $true
-
-                                        # Restart A stage
-                                        Write-GuardLog ("d1_stall_restart_begin")
-                                        $stallRestartResult = Invoke-StageRestartByPolicy -Stage 'A' -Attempt 1 -RoundTag 'D1'
-                                        if ([bool]$stallRestartResult.Succeeded) {
-                                            Write-GuardLog ("d1_stall_restart_succeeded")
-                                        }
-                                        else {
-                                            Write-GuardLog ("d1_stall_restart_failed exit_code={0}" -f [int]$stallRestartResult.ExitCode)
-                                        }
-
-                                        Invoke-RestartSettlePause
-                                        continue
+                                    $d1StallDetail = ("D1 round stall detected after A main process stopped: {0}; evidence={1}" -f $d1Detail, $d1IncidentRel)
+                                    $d1TicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus 'FAIL' -AStatus 'FAIL' -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $d1IncidentDir -Detail $d1StallDetail -DedupSuffix $stallSig -RecommendedAction 'D1 round stall stopped the A main process. Diagnose and repair while all main processes remain stopped, then restart A only through the standard stage window.' -PreferredStage 'A' -MainRound 'D1' -FailureKind 'runner-fail' -FailureCategory 'd1-stall' -FailureSource 'tools/test/unattended_ab_session_guard.ps1' -FailureEvidence $d1Detail -SelfHealable $true -NonRecoverableEnv $false
+                                    if ([bool]$d1TicketResult.Queued) {
+                                        $d1StallTriggeredSignature = $stallSig
                                     }
+
+                                    Reset-D1ProgressTracking -StallSince ([ref]$script:d1StallSince) -StallTriggeredSignature ([ref]$d1StallTriggeredSignature) -StallPrevFileCount ([ref]$d1StallPrevFileCount) -StallPrevLatestWrite ([ref]$d1StallPrevLatestWrite) -StallPrevRowCount ([ref]$d1StallPrevRowCount) -StallLastReportAt ([ref]$d1StallLastReportAt) -ObserveStartedAt ([ref]$script:D1ObserveStartedAt) -ResetLastReportAt $true
+                                    $d1AutoRestartAttempted = $true
+                                    continue
                                 }
 
                                 # Log periodic stall heartbeat (every 5 min)
@@ -6128,6 +6211,15 @@ try {
             }
 
             if (($sessionStatus -in @('FAIL', 'BLOCKED')) -and -not $running) {
+                $faultAProcessSnapshot = Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId $aLaunchPid
+                $faultBProcessSnapshot = Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId $bLaunchPid
+                if ([bool]$faultAProcessSnapshot.HasAliveProcess -or [bool]$faultBProcessSnapshot.HasAliveProcess) {
+                    Write-GuardLog ("fault_processing_wait reason=main-process-still-running session={0} a={1} a_pid={2} b={3} b_pid={4}" -f $sessionStatus, [bool]$faultAProcessSnapshot.HasAliveProcess, [int]$faultAProcessSnapshot.ResolvedProcessId, [bool]$faultBProcessSnapshot.HasAliveProcess, [int]$faultBProcessSnapshot.ResolvedProcessId)
+                    Start-Sleep -Seconds $PollSec
+                    continue
+                }
+
+                Write-GuardLog ("fault_processing_ready reason=all-main-processes-stopped session={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
                 # Capture initial status at guard startup for stale-FAIL suppression
                 if ($script:GuardStartAt -and ([string]::IsNullOrWhiteSpace($guardStartupSessionStatus) -or $guardStartupSessionStatus -eq '')) {
                     $guardStartupSessionStatus = $sessionStatus
@@ -6160,6 +6252,24 @@ try {
                 $failureHasScriptFault = [bool]$failurePolicy.FailureHasScriptFault
                 $failureHasCodeFault = [bool]$failurePolicy.FailureHasCodeFault
                 $failureTicketMeta = Get-FailureTicketMeta -FailurePolicy $failurePolicy -KnownInfraTransient ([bool]$knownInfraTransient) -AutoRecoverB ([bool]$autoRecoverB) -RestartApproved ([bool]$restartApproved) -AStatus $aStatus -BStatus $bStatus
+                if ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch') {
+                    $repairStage = ([string]$failureTicketMeta.PreferredStage).ToUpperInvariant()
+                    $repairProcessId = if ($repairStage -eq 'B') { $bLaunchPid } else { $aLaunchPid }
+                    $repairProcessSnapshot = if ($repairStage -eq 'B') {
+                        Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId $repairProcessId
+                    }
+                    else {
+                        Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId $repairProcessId
+                    }
+                    $repairProcessAlive = [bool]$repairProcessSnapshot.HasAliveProcess
+
+                    if ($repairProcessAlive) {
+                        Write-GuardLog ("task_definition_repair_wait reason=main-process-still-running stage={0} pid={1} resolved_pid={2} source={3} candidates={4} round={5}" -f $repairStage, $repairProcessId, [int]$repairProcessSnapshot.ResolvedProcessId, [string]$repairProcessSnapshot.ResolvedSource, [int]$repairProcessSnapshot.CandidateCount, [string]$failureTicketMeta.MainRound)
+                        continue
+                    }
+
+                    Write-GuardLog ("task_definition_repair_ready reason=main-process-stopped stage={0} pid={1} round={2}" -f $repairStage, $repairProcessId, [string]$failureTicketMeta.MainRound)
+                }
                 if ([bool]$failurePolicy.IsVerifyRound) {
                     $verifyCategory = (Convert-ToSingleLineText -Text ([string]$failurePolicy.VerifyFailureCategory)).ToLowerInvariant()
                     switch ($verifyCategory) {
@@ -6212,7 +6322,7 @@ try {
                         }
                     }
                 }
-                $eventTicketPolicySuffix = ' If self-healable and not blocked by nonrecoverable env or exhausted budget/cooldown, trigger business_resume immediately. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".'
+                $eventTicketPolicySuffix = ' If self-healable and not blocked by nonrecoverable env or exhausted budget/cooldown, trigger business_resume immediately. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
                 $incidentRecommendedAction = Convert-ToBoundedSingleLineText -Text ($incidentRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
@@ -6738,7 +6848,7 @@ try {
                         $approvalWaitSignature = [string]$recoveryWaitTicketContext.DedupSuffix
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
                             Write-RecoveryWaitingConfirmationLog -Stage 'B' -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
-                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, keep read-only monitoring with scheduled status-ticket heartbeat + poll cadence until "stop monitoring".' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage ([string]$bRecoveryStagePolicy.PreferredStage) -SelfHealable $true
+                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage ([string]$bRecoveryStagePolicy.PreferredStage) -SelfHealable $true
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 
@@ -6982,7 +7092,7 @@ try {
                     if ($statusTicketDue) {
                         $statusDetail = Get-SessionRunningSummaryDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Running $running -RunDirAnchor $runDirAnchor
                         $statusDedupSuffix = ("interval={0}|slot={1}|status={2}|a={3}|b={4}|run={5}" -f $statusTicketIntervalMinutes, $now.ToString('yyyyMMdd-HHmm'), $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
-                        $statusRecommendedAction = 'Report root cause and remediation path first. For running-status-report, execute only the provided status business_command (health check) and then continue_watch_command; do NOT stage-restart A/B from this status ticket unless a separate incident ticket is raised. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss). For running-status-report, handled_at is mandatory immediately after business/continue_watch and cannot be omitted even when monitoring continues. session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, switch to read-only monitoring and keep scheduled status-ticket heartbeat + poll cadence until "stop monitoring". Poll hint: include -IncludeStatusReports when consuming running-status-report tickets; continue_watch_command uses -NoRestartIfRunning to avoid unnecessary guard restarts.'
+                        $statusRecommendedAction = 'Scheduled status report only: report observed runtime state from read-only status checks. Do not execute self-heal, fault handling, process restart, business_resume, source/script edits, or operational recovery from this ticket. If an abnormal condition is observed, report it and wait for a separate incident ticket; do not handle the fault from the status ticket. Return handled_at (YYYY-MM-DD HH:mm:ss) after reporting. session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal.'
                         $lastStatusTicketAt = $now
                         $statusPreferredStage = if ($aStatus -eq 'PASS' -and $bStatus -ne 'PASS') { 'B' } else { 'A' }
                         $statusTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'running-status-report' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $statusDetail -DedupSuffix $statusDedupSuffix -RecommendedAction $statusRecommendedAction -PreferredStage $statusPreferredStage -MainRound '' -FailureKind 'running-status' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $false -NonRecoverableEnv $false

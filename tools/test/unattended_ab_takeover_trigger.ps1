@@ -1970,7 +1970,7 @@ function New-TakeoverBrief {
         'notice-manual-wait' { 'notice: report blocker and handled_at only'; break }
         'notice-budget-exhausted' { 'notice: report budget/cooldown constraint and handled_at only'; break }
         'notice-known-infra-transient' { 'notice: report infra stabilization state and handled_at only'; break }
-        'status-health-check-only' { 'status: health-check only'; break }
+        'status-health-check-only' { 'status: read-only runtime report; no repair, fault handling, recovery, or process control'; break }
         default { 'event-review: follow brief classification'; break }
     }
 
@@ -1990,9 +1990,8 @@ function New-TakeoverBrief {
     $nextCommandNames = New-Object 'System.Collections.Generic.List[string]'
     $nextCommandPolicy = 'default-route-then-watch'
     if ($routeGuardExpected -eq 'status-health-check-only') {
-        $nextCommandPolicy = 'status-healthcheck'
+        $nextCommandPolicy = 'status-report-only-readonly'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
-        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
     elseif ($routeGuardExpected -like 'notice-*') {
         $nextCommandPolicy = 'notice-stabilize-then-watch'
@@ -2031,7 +2030,7 @@ function New-TakeoverBrief {
         if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutCommand)) { [void]$nextCommands.Add($finalStatusCloseoutCommand); [void]$nextCommandNames.Add('final_status_closeout_command') }
         if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutApplyAckCommand)) { [void]$nextCommands.Add($finalStatusCloseoutApplyAckCommand); [void]$nextCommandNames.Add('final_status_closeout_apply_ack_command') }
     }
-    elseif ($routeGuardExpected -eq 'status-health-check-only' -or $routeGuardExpected -like 'notice-*') {
+    elseif ($routeGuardExpected -like 'notice-*') {
         if (-not [string]::IsNullOrWhiteSpace($ticketClosureCheckCommand)) { [void]$nextCommands.Add($ticketClosureCheckCommand); [void]$nextCommandNames.Add('ticket_closure_check_command') }
         if (-not [string]::IsNullOrWhiteSpace($eventDedupHealthCheckCommand)) { [void]$nextCommands.Add($eventDedupHealthCheckCommand); [void]$nextCommandNames.Add('event_dedup_health_check_command') }
     }
@@ -2041,7 +2040,7 @@ function New-TakeoverBrief {
     }
 
     $expectedNextCommandPolicy = switch -Wildcard ($routeGuardExpected) {
-        'status-health-check-only' { 'status-healthcheck'; break }
+        'status-health-check-only' { 'status-report-only-readonly'; break }
         'notice-*' { 'notice-stabilize-then-watch'; break }
         'incident-auto-resume-*' { 'incident-auto-resume'; break }
         'incident-manual-*' { 'incident-manual-gated'; break }
@@ -2082,6 +2081,7 @@ function New-TakeoverBrief {
     if ($eventNameNormalized -eq 'chat-session-final-status') {
         $finalStatusCloseoutApplyAckCommandForBrief = $finalStatusCloseoutApplyAckCommand
     }
+    $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
 
     $lines = @(
         '# AB Takeover Brief',
@@ -2095,6 +2095,7 @@ function New-TakeoverBrief {
         ('queue_path={0}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath)),
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
+        ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
         ('event_only_wording_hard_rule={0}' -f 'event-only scheduling must not be interpreted or described as low-disturb execution flow'),
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
