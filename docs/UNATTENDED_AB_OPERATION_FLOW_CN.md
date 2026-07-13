@@ -133,8 +133,9 @@ AI：
 - 负责帮助生成任务定义、起草 RFC、整理启动文件、读取工单、解释状态、调用现有入口脚本。
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
 - 进入无人值守运行期后，事件驱动票中列出的既定动作属于预授权执行项；AI 应按事件票 `next_command_order` 执行。定时状态票是严格例外，只预授权只读状态查询、状态汇报与 `handled_at` 回执，不预授权任何故障处理或进程控制动作。
-- 运行期工单由既有 guard/trigger/dispatch 链负责生成并投送。AI 只需保持在线并静默等待已投送的事件驱动票或状态票；等待期间不执行命令，不主动定时 heartbeat/poll，不创建或运行定时巡检脚本、轮询循环、后台 job、watcher 或常驻内存命令。
-- 收到工单后，AI 按工单指令与 `next_command_order` 执行无需用户确认的预授权操作，完成回执后继续静默等待下一张工单。
+- 运行期工单由既有 guard/trigger/dispatch 链负责生成并投送。AI 只需保持在线并静默等待已投送的事件驱动票或状态票；等待期间不执行命令，不主动定时 heartbeat/poll，不创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。此类命令可能在下一张事件票到达时中断任务、收尾与回执写入。
+- 收到工单后，AI 严格按工单指令与 `next_command_order` 执行所有无需用户确认的预授权操作，不得遗漏；回执必须真实准确并有证据支撑，完成 `handled_at` 校验与 `mark_processed` 后才算票据闭环，随后继续静默等待下一张工单。
+- 通过标准 stage window 重启主进程后，AI 必须在 3 分钟内完成当前自愈修复/故障处理的收尾、`handled_at` 回执校验与 `mark_processed`，然后回到静默被动等待。该时限是票据闭环上限，不是主动巡检窗口；无法按时闭环时立即如实报告阻塞，不得以轮询或长时间观察延长处置。
 - 当票据或 brief 中给出 `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command`（以及 final-status 场景的 `final_status_closeout_apply_ack_command`）时，应在 route guard 通过后按 `next_command_order` 执行；`chat-session-final-status` 优先执行 final-status 收口链。
 - 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - `event-only` 仅定义“是否触发/发送常规状态票”的调度策略，不得在事件票或故障处置话术中表述为“按 low-disturb 流程执行”。
@@ -998,7 +999,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 运行期执行规则：
 - 事件驱动票中的工作内容视为预授权操作，AI 按事件票 `next_command_order` 执行。定时状态票只预授权只读查询、汇报与 handled 回执。
-- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher 或常驻 PowerShell 命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单处理完后只需静默等待下一条投送消息。
+- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单完成真实回执与闭环后只需静默等待下一条投送消息；主进程重启后的收尾、回执校验与 `mark_processed` 必须在 3 分钟内完成。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
 - 对 `running-status-report`，默认处置为只读状态查询、汇报与 handled 回执；不得执行 continue_watch、故障处理或恢复动作。

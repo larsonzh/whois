@@ -5568,7 +5568,7 @@ try {
                     $d1Eligible = (Test-HasUsableRunDirAnchor -RunDirAnchor $runDirAnchor)
                     if ($d1Eligible) {
                         $d1ResolvedRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
-                        if ([string]::IsNullOrWhiteSpace($d1ResolvedRunDir)) { $d1Eligible = $false }
+                        if ([string]::IsNullOrWhiteSpace($d1ResolvedRunDir) -or -not (Test-Path -LiteralPath $d1ResolvedRunDir)) { $d1Eligible = $false }
                     }
 
                     if ($d1Eligible) {
@@ -5621,7 +5621,7 @@ try {
                                     Write-GuardLog ("d1_stall_detected detail={0}" -f $d1Detail)
 
                                     try {
-                                        Stop-ProcessTree -RootPids @($aLaunchPid)
+                                        $null = Stop-ProcessTree -RootPids @($aLaunchPid)
                                     }
                                     catch {
                                         Write-GuardLog ("d1_stall_process_tree_stop_error pid={0} detail={1}" -f $aLaunchPid, (Convert-ToSingleLineText -Text $_.Exception.Message))
@@ -6322,7 +6322,7 @@ try {
                         }
                     }
                 }
-                $eventTicketPolicySuffix = ' If self-healable and not blocked by nonrecoverable env or exhausted budget/cooldown, trigger business_resume immediately. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
+                $eventTicketPolicySuffix = ' If eligible, run business_resume immediately. Execute every ticket step without omission and return accurate evidence-backed handled_at. After a main-process restart, finish closure, receipt validation, and mark_processed within 3 minutes; this is not a monitoring window. Then wait silently for the next ticket delivered by guard/trigger/dispatch. Never run scheduled, persistent, or long-running cross-round monitoring commands.'
                 $incidentRecommendedAction = Convert-ToBoundedSingleLineText -Text ($incidentRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
@@ -6848,7 +6848,7 @@ try {
                         $approvalWaitSignature = [string]$recoveryWaitTicketContext.DedupSuffix
                         if ($approvalWaitSignature -ne $lastRestartApprovalWaitSignature) {
                             Write-RecoveryWaitingConfirmationLog -Stage 'B' -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
-                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately (business_command -> continue_watch_command; continue only when business_command is empty). After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage ([string]$bRecoveryStagePolicy.PreferredStage) -SelfHealable $true
+                            $null = Add-RestartAwaitConfirmationTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'recovery-await-confirmation' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -TicketContext $recoveryWaitTicketContext -RecommendedAction 'Report root cause and remediation path first. After evidence check, set LOCAL_GUARD_RESTART_APPROVED=true and execute business_resume immediately. Execute every ticket step without omission and return accurate evidence-backed handled_at. After a main-process restart, finish closure, receipt validation, and mark_processed within 3 minutes; this is not a monitoring window. Then wait silently for the next ticket delivered by guard/trigger/dispatch. Never run scheduled, persistent, or long-running cross-round monitoring commands.' -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -PreferredStage ([string]$bRecoveryStagePolicy.PreferredStage) -SelfHealable $true
                             $lastRestartApprovalWaitSignature = $approvalWaitSignature
                         }
 

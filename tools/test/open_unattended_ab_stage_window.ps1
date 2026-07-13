@@ -658,7 +658,7 @@ function Resolve-CurrentStageRunDir {
     $currentRunDir = ''
     for ($attempt = 0; $attempt -lt 24; $attempt++) {
         $candidate = Get-LatestTimestampedDirectory -Root $SessionOutDirRoot -After $LaunchTime
-        if ($null -ne $candidate) {
+        if ($null -ne $candidate -and $candidate.CreationTime -ge $LaunchTime.AddSeconds(-2)) {
             $currentRunDir = $candidate.FullName
             break
         }
@@ -676,18 +676,6 @@ function Resolve-CurrentStageRunDir {
 
     if ($StageProcessId -gt 0 -and -not (Test-ProcessAlive -ProcessId $StageProcessId)) {
         return ''
-    }
-
-    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
-        $hintRunDir = Get-LatestAnchorValueFromNoteText -Notes ([string]$Settings.SESSION_FINAL_NOTES) -Key 'run_dir'
-        if (-not [string]::IsNullOrWhiteSpace($hintRunDir)) {
-            try {
-                return (Resolve-RepoPath -Path $hintRunDir)
-            }
-            catch {
-                return ''
-            }
-        }
     }
 
     return ''
@@ -945,19 +933,19 @@ function Add-StageTaskDefinitionBlockedTicket {
     $selfHealable = $false
     $failureCategory = 'task-definition-static-precheck-blocked'
     $detailCategory = 'task-definition-static-precheck-blocked'
-    $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not continue automatic stage restarts. Review the task-definition file under testdata, decide whether to repair or reset baseline, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
+    $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not continue automatic stage restarts. Review the task-definition file under testdata, decide whether to repair or reset baseline, rerun task static precheck manually, and only then resume the guarded workflow. Execute every ticket step without omission and return accurate evidence-backed handled_at. After a main-process restart, finish closure, receipt validation, and mark_processed within 3 minutes; this is not a monitoring window. Then wait silently for the next ticket; never run scheduled, persistent, or long-running cross-round monitoring commands.'
 
     switch ((Convert-ToSingleLineText -Text $BlockEvent).ToLowerInvariant()) {
         'recovery-await-confirmation' {
             $eventName = 'recovery-await-confirmation'
-            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so pause automatic retries and require explicit restart approval after evidence review. Repair or reset the task-definition file under testdata, rerun task static precheck manually, and only then resume the guarded workflow. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so pause automatic retries and require explicit restart approval after evidence review. Repair or reset the task-definition file under testdata, rerun task static precheck manually, and only then resume the guarded workflow. Execute every ticket step without omission and return accurate evidence-backed handled_at. After a main-process restart, finish closure, receipt validation, and mark_processed within 3 minutes; this is not a monitoring window. Then wait silently for the next ticket; never run scheduled, persistent, or long-running cross-round monitoring commands.'
         }
         'task-definition-fix-required' {
             $eventName = 'task-definition-fix-required'
             $requiresConfirmation = $false
             $confirmationKey = ''
             $selfHealable = $true
-            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not restart automatically; instead repair the task-definition file under testdata until static precheck passes, then resume via the standard business_resume path. After completing this ticket cycle, you MUST return handled_at (YYYY-MM-DD HH:mm:ss); session_closed_at is session-level only and MUST be returned only when stop monitoring is requested or both A/B are terminal. After handling, wait silently for the next ticket delivered by guard/trigger/dispatch; do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or periodic heartbeat/poll commands.'
+            $recommendedAction = 'Report root cause and remediation path first. Task-definition static precheck has exceeded the allowed retry limit, so do not restart automatically; instead repair the task-definition file under testdata until static precheck passes, then resume via the standard business_resume path. Execute every ticket step without omission and return accurate evidence-backed handled_at. After a main-process restart, finish closure, receipt validation, and mark_processed within 3 minutes; this is not a monitoring window. Then wait silently for the next ticket; never run scheduled, persistent, or long-running cross-round monitoring commands.'
         }
     }
 
@@ -2762,8 +2750,10 @@ if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
     $settings = Read-KeyValueFile -Path $startFilePath
 }
 else {
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = 'unknown' }
     Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
     Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = 'unknown' }
+    $settings = Read-KeyValueFile -Path $startFilePath
 }
 
 $bRestartMode = $bRestartModeForGate
