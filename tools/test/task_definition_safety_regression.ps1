@@ -71,6 +71,42 @@ function Invoke-Case {
     Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name) status=pass exit=$exitCode"
 }
 
+function New-ChainTask {
+    param(
+        [string]$Directory,
+        [string]$Name,
+        [string]$Pattern,
+        [string]$Replacement
+    )
+
+    $taskPath = Join-Path $Directory ("{0}.json" -f $Name)
+    $task = [ordered]@{
+        schemaVersion = 1
+        name = $Name
+        targetFile = 'fixture.c'
+        qualityPolicy = [ordered]@{ operationSafetyPolicy = 'enforce' }
+        rounds = [ordered]@{
+            D1 = [ordered]@{
+                type = 'regex-patch'
+                idempotentContains = @($Replacement)
+                operations = @(
+                    [ordered]@{
+                        pattern = [regex]::Escape($Pattern)
+                        replacement = $Replacement
+                        idempotentContains = @($Replacement)
+                    }
+                )
+                postApplyAssertions = @(
+                    [ordered]@{ name = 'replacement-present'; pattern = [regex]::Escape($Replacement); expectedCount = 1 },
+                    [ordered]@{ name = 'pattern-removed'; pattern = [regex]::Escape($Pattern); expectedCount = 0 }
+                )
+            }
+        }
+    }
+    Write-Utf8NoBom -Path $taskPath -Text ($task | ConvertTo-Json -Depth 16)
+    return $taskPath
+}
+
 try {
     $passCase = New-TaskCase -Name 'pass-convergent' -Operations @(
         [ordered]@{
@@ -129,6 +165,41 @@ try {
         throw "case=$($targetedCase.Name) targeted op check failed output=$($targetedOutput -join ' | ')"
     }
     Invoke-Case -Case $targetedCase -ExpectedExitCode 2 -ExpectedFragments @('op=2 operation idempotentContains missing or empty')
+
+    $chainDirectory = Join-Path $caseRoot 'prerequisite-chain'
+    New-Item -ItemType Directory -Path $chainDirectory -Force | Out-Null
+    Write-Utf8NoBom -Path (Join-Path $chainDirectory 'fixture.c') -Text "baseline-token`n"
+    $prerequisiteTask = New-ChainTask -Directory $chainDirectory -Name 'prerequisite-pass' -Pattern 'baseline-token' -Replacement 'prerequisite-token'
+    $mainTask = New-ChainTask -Directory $chainDirectory -Name 'main-pass' -Pattern 'prerequisite-token' -Replacement 'main-token'
+
+    $withoutPrerequisiteOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $mainTask -RepoRoot $chainDirectory -Policy enforce 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 2 -or -not ($withoutPrerequisiteOutput -match 'baseline=current-source prerequisites_requested=0 prerequisites_applied=0')) {
+        throw "case=prerequisite-default-current-source unexpected output=$($withoutPrerequisiteOutput -join ' | ')"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=prerequisite-default-current-source status=pass exit=2'
+
+    $withPrerequisiteOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $mainTask -PrerequisiteTaskDefinitionFiles $prerequisiteTask `
+        -RepoRoot $chainDirectory -Policy enforce 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($withPrerequisiteOutput -match 'baseline=prerequisite-chain prerequisites_requested=1 prerequisites_applied=1') -or
+        -not ($withPrerequisiteOutput -match 'prerequisite check passed order=1')) {
+        throw "case=prerequisite-chain-pass unexpected output=$($withPrerequisiteOutput -join ' | ')"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=prerequisite-chain-pass status=pass exit=0'
+
+    $failedPrerequisiteTask = New-ChainTask -Directory $chainDirectory -Name 'prerequisite-fail' -Pattern 'missing-token' -Replacement 'unreachable-token'
+    $failedPrerequisiteOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $mainTask -PrerequisiteTaskDefinitionFiles $failedPrerequisiteTask `
+        -RepoRoot $chainDirectory -Policy enforce 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 2 -or
+        -not ($failedPrerequisiteOutput -match 'prerequisite check failed') -or
+        -not ($failedPrerequisiteOutput -match 'baseline=prerequisite-chain-failed prerequisites_requested=1 prerequisites_applied=0') -or
+        ($failedPrerequisiteOutput -match 'round=D1 op=1 pattern_unmatched')) {
+        throw "case=prerequisite-chain-fail-blocks-main unexpected output=$($failedPrerequisiteOutput -join ' | ')"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=prerequisite-chain-fail-blocks-main status=pass exit=2'
 
     Write-Output '[TASK-SAFETY-REGRESSION] result=pass'
 }

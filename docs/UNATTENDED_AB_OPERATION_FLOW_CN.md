@@ -567,6 +567,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 参数速览（`tools/test/check_task_definition_static.ps1`）：
 - `-TaskDefinitionFile <path>`：必填，任务定义 JSON 文件。
+- `-PrerequisiteTaskDefinitionFiles <path[]>`：可选，按传入顺序在内存中完整检查并应用前置任务定义，再以结果作为当前任务定义基线；未传时直接使用当前源码。
 - `-RepoRoot <path>`：可选，仓库根目录（默认自动解析到当前仓库）。
 - `-Policy off|warn|enforce`：可选，默认 `enforce`；`off` 直接跳过。
 - `-FailOnWarnings`：可选，开启后 warning 也会按失败返回（建议无人值守门禁开启）。
@@ -577,7 +578,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -PrerequisiteTaskDefinitionFiles testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
 
 # 仅检查 A 的 D1 第 1 个 operation（启动前基线检查常用）
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings -RoundTag D1 -OperationIndex 1
@@ -585,6 +586,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 # 仅检查某个验证轮（例如 V2）
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -Policy enforce -FailOnWarnings -RoundTag V2
 ```
+
+前置任务定义必须与当前定义指向同一目标源码；任一前置定义未通过完整安全检查时，checker 会阻断且不再检查当前定义，避免基于无效中间文本产生级联误报。该参数用于初始设计期的 A -> B 链式模拟，不写入源码，也不替代运行期 A PASS snapshot；运行期 B 仍以 snapshot 对齐后的当前源码为权威基线。
 
 通过标准：
 - 不残留 TODO

@@ -1,5 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$TaskDefinitionFile,
+    [string[]]$PrerequisiteTaskDefinitionFiles = @(),
     [AllowEmptyString()][string]$RepoRoot = '',
     [ValidateSet('off', 'warn', 'enforce')][string]$Policy = 'enforce',
     [switch]$FailOnWarnings,
@@ -7,7 +8,9 @@
     [Alias('OperationIndex')][ValidateRange(0, 256)][int]$RequestedOperationIndex = 0,
     [AllowEmptyString()][string]$StartFilePath = '',
     [ValidateSet('A', 'B')][string]$Stage = 'A',
-    [switch]$EnableFingerprintCheck
+    [switch]$EnableFingerprintCheck,
+    [AllowEmptyString()][string]$BaselineTargetFile = '',
+    [AllowEmptyString()][string]$OutputEffectiveTargetFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -515,12 +518,105 @@ if (-not (Test-Path -LiteralPath $targetFileResolved)) {
     throw "[TASK-STATIC-CHECK] target file not found: $targetFileRaw"
 }
 
-$targetText = Get-Content -LiteralPath $targetFileResolved -Raw
+$baselineTargetResolved = ''
+if (-not [string]::IsNullOrWhiteSpace($BaselineTargetFile)) {
+    $baselineTargetResolved = if ([System.IO.Path]::IsPathRooted($BaselineTargetFile)) {
+        $BaselineTargetFile
+    }
+    else {
+        Join-Path $RepoRoot $BaselineTargetFile
+    }
+    if (-not (Test-Path -LiteralPath $baselineTargetResolved)) {
+        throw "[TASK-STATIC-CHECK] baseline target file not found: $BaselineTargetFile"
+    }
+}
+
+$effectiveBaselinePath = if ([string]::IsNullOrWhiteSpace($baselineTargetResolved)) { $targetFileResolved } else { $baselineTargetResolved }
+$baselineSource = if ([string]::IsNullOrWhiteSpace($baselineTargetResolved)) { 'current-source' } else { 'explicit-file' }
+$prerequisiteChain = New-Object 'System.Collections.Generic.List[string]'
+$ownedBaselinePath = ''
+$prerequisiteChainFailed = $false
+$prerequisiteRequestedCount = @($PrerequisiteTaskDefinitionFiles | Where-Object { -not [string]::IsNullOrWhiteSpace(([string]$_).Trim()) }).Count
+
+foreach ($prerequisiteTaskDefinitionFile in @($PrerequisiteTaskDefinitionFiles)) {
+    $prerequisiteInput = ([string]$prerequisiteTaskDefinitionFile).Trim()
+    if ([string]::IsNullOrWhiteSpace($prerequisiteInput)) {
+        continue
+    }
+
+    $prerequisiteResolved = if ([System.IO.Path]::IsPathRooted($prerequisiteInput)) {
+        (Resolve-Path -LiteralPath $prerequisiteInput).Path
+    }
+    else {
+        (Resolve-Path -LiteralPath (Join-Path $RepoRoot $prerequisiteInput)).Path
+    }
+    $prerequisiteDefinition = (Get-Content -LiteralPath $prerequisiteResolved -Raw) | ConvertFrom-Json
+    $prerequisiteTargetRaw = Resolve-PrimaryTargetFile -TaskDefinition $prerequisiteDefinition -TaskDefinitionPath $prerequisiteResolved
+    $prerequisiteTargetResolved = if ([System.IO.Path]::IsPathRooted($prerequisiteTargetRaw)) {
+        [System.IO.Path]::GetFullPath($prerequisiteTargetRaw)
+    }
+    else {
+        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $prerequisiteTargetRaw))
+    }
+    if ($prerequisiteTargetResolved -ne [System.IO.Path]::GetFullPath($targetFileResolved)) {
+        Add-ErrorIssue ("prerequisite target mismatch task={0} expected={1} actual={2}" -f $prerequisiteResolved, $targetFileResolved, $prerequisiteTargetResolved)
+        $prerequisiteChainFailed = $true
+        break
+    }
+
+    $nextBaselinePath = Join-Path ([System.IO.Path]::GetTempPath()) ('whois-task-static-baseline-{0}.tmp' -f ([guid]::NewGuid().ToString('N')))
+    $prerequisiteArgs = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $PSCommandPath,
+        '-TaskDefinitionFile', $prerequisiteResolved,
+        '-RepoRoot', $RepoRoot,
+        '-Policy', $Policy,
+        '-BaselineTargetFile', $effectiveBaselinePath,
+        '-OutputEffectiveTargetFile', $nextBaselinePath
+    )
+    if ($FailOnWarnings.IsPresent) {
+        $prerequisiteArgs += '-FailOnWarnings'
+    }
+
+    $prerequisiteOutput = @(& powershell @prerequisiteArgs 2>&1 | ForEach-Object { [string]$_ })
+    $prerequisiteExitCode = $LASTEXITCODE
+    if ($prerequisiteExitCode -ne 0 -or -not (Test-Path -LiteralPath $nextBaselinePath)) {
+        $failureDetail = @($prerequisiteOutput | Where-Object { $_ -match 'severity=error|warning_gate=fail|summary errors=' } | Select-Object -Last 1)
+        $failureText = if ($failureDetail.Count -gt 0) { [string]$failureDetail[0] } else { 'effective baseline was not produced' }
+        Add-ErrorIssue ("prerequisite check failed task={0} exit={1} detail={2}" -f $prerequisiteResolved, $prerequisiteExitCode, $failureText)
+        $prerequisiteChainFailed = $true
+        if (Test-Path -LiteralPath $nextBaselinePath) {
+            Remove-Item -LiteralPath $nextBaselinePath -Force
+        }
+        break
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ownedBaselinePath) -and (Test-Path -LiteralPath $ownedBaselinePath)) {
+        Remove-Item -LiteralPath $ownedBaselinePath -Force
+    }
+    $ownedBaselinePath = $nextBaselinePath
+    $effectiveBaselinePath = $nextBaselinePath
+    $baselineSource = 'prerequisite-chain'
+    [void]$prerequisiteChain.Add($prerequisiteResolved)
+    Add-InfoIssue ("prerequisite check passed order={0} task={1}" -f $prerequisiteChain.Count, $prerequisiteResolved)
+}
+
+$targetText = Get-Content -LiteralPath $effectiveBaselinePath -Raw
+if (-not [string]::IsNullOrWhiteSpace($ownedBaselinePath) -and (Test-Path -LiteralPath $ownedBaselinePath)) {
+    Remove-Item -LiteralPath $ownedBaselinePath -Force
+}
 $workingText = $targetText
-$roundEntries = @($taskDefinition.rounds.PSObject.Properties | Sort-Object Name)
+if ($prerequisiteChainFailed) {
+    $baselineSource = 'prerequisite-chain-failed'
+}
+$roundEntries = @()
+if (-not $prerequisiteChainFailed) {
+    $roundEntries = @($taskDefinition.rounds.PSObject.Properties | Sort-Object Name)
+}
 $roundFound = $false
 
-if ($roundEntries.Count -eq 0) {
+if ($roundEntries.Count -eq 0 -and -not $prerequisiteChainFailed) {
     Add-ErrorIssue 'rounds section is empty'
 }
 
@@ -777,7 +873,7 @@ foreach ($roundEntry in $roundEntries) {
     }
 }
 
-if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound) {
+if (-not $prerequisiteChainFailed -and -not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound) {
     if ($effectiveRoundTag -match '^V[1-4]$') {
         Add-InfoIssue ("round={0} not found in task definition (V-rounds have no JSON definition, skipping)" -f $effectiveRoundTag)
     }
@@ -890,7 +986,7 @@ elseif ($RequestedOperationIndex -gt 0) {
 else {
     $effectiveRoundTag
 }
-Write-Output ("[TASK-STATIC-CHECK] policy={0} scope={1} task={2} target={3}" -f $Policy, $scopeText, $resolvedTaskDefinition, $targetFileResolved)
+Write-Output ("[TASK-STATIC-CHECK] policy={0} scope={1} task={2} target={3} baseline={4} prerequisites_requested={5} prerequisites_applied={6}" -f $Policy, $scopeText, $resolvedTaskDefinition, $targetFileResolved, $baselineSource, $prerequisiteRequestedCount, $prerequisiteChain.Count)
 foreach ($info in $infos) {
     Write-Output ("[TASK-STATIC-CHECK] severity=info detail={0}" -f $info)
 }
@@ -903,12 +999,28 @@ foreach ($errorItem in $errors) {
 
 Write-Output ("[TASK-STATIC-CHECK] summary errors={0} warnings={1} infos={2}" -f $errors.Count, $warnings.Count, $infos.Count)
 
-if ($warnings.Count -gt 0 -and $FailOnWarnings.IsPresent -and $Policy -eq 'enforce') {
+$warningGateFailed = ($warnings.Count -gt 0 -and $FailOnWarnings.IsPresent -and $Policy -eq 'enforce')
+$errorGateFailed = ($errors.Count -gt 0 -and $Policy -eq 'enforce')
+if (-not [string]::IsNullOrWhiteSpace($OutputEffectiveTargetFile) -and -not $warningGateFailed -and -not $errorGateFailed) {
+    $outputEffectiveTargetResolved = if ([System.IO.Path]::IsPathRooted($OutputEffectiveTargetFile)) {
+        $OutputEffectiveTargetFile
+    }
+    else {
+        Join-Path $RepoRoot $OutputEffectiveTargetFile
+    }
+    $outputParent = Split-Path -Parent $outputEffectiveTargetResolved
+    if (-not [string]::IsNullOrWhiteSpace($outputParent) -and -not (Test-Path -LiteralPath $outputParent)) {
+        New-Item -ItemType Directory -Path $outputParent -Force | Out-Null
+    }
+    [System.IO.File]::WriteAllText($outputEffectiveTargetResolved, $workingText, [System.Text.UTF8Encoding]::new($false))
+}
+
+if ($warningGateFailed) {
     Write-Output '[TASK-STATIC-CHECK] warning_gate=fail fail_on_warnings=true'
     exit 3
 }
 
-if ($errors.Count -gt 0 -and $Policy -eq 'enforce') {
+if ($errorGateFailed) {
     exit 2
 }
 

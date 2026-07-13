@@ -252,10 +252,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 补充约束：
 - `check_task_definition_static.ps1` 参数说明：
    - `-TaskDefinitionFile` 必填；`-RepoRoot` 可选（默认仓库根）。
+   - `-PrerequisiteTaskDefinitionFiles <path[]>` 可选；按顺序在内存中完整检查并应用前置定义。未传时以当前源码为基线；前置失败时阻断当前定义检查。
    - `-Policy off|warn|enforce` 默认 `enforce`。
    - `-FailOnWarnings` 开启后 warning 也按失败返回。
    - `-RoundTag D1..D4|V1..V4` 可只检查单轮。
    - `-OperationIndex <n>` 必须配合 `-RoundTag` 使用，用于只检查该轮第 n 个 operation。
+- 初始设计期检查 B 时，应将 A 作为 `-PrerequisiteTaskDefinitionFiles` 传入；该模拟不写源码。A PASS 后的运行期 B 检查仍以 `a_success_snapshot` 对齐后的当前源码为准，不用设计期模拟替代 snapshot。
 - 生成后请先填写 D1~D4（至少 D1~D3）任务内容，再用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`。
 - 任务定义 JSON 允许出现中文 `description` / `notes`，因此模板与新生成文件固定使用 UTF-8 with BOM + LF。
 - 若体检报错或 warning（启用 `-FailOnWarnings` 时），应先修复任务定义再启动 A/B。
