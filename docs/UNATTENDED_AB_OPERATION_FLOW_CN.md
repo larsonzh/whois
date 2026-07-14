@@ -988,7 +988,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - AI 被动接收工单；仅在工单指令要求时一次性调用 `poll_agent_tickets.ps1`
 - 执行 `business_command`
 - 执行 `continue_watch_command`
-- 执行唯一的 `atomic_closeout_command`；该单入口命令先通过 poll mutex 原子写入 `handled_at/done/processed_ids`，释放 poll 子事务锁后立即校验 ledger、receipt 与 closure。这里的“原子”指单命令、幂等、任一后置条件失败即整体 fail-close，不表示三项后置校验全程持有同一 mutex
+- 执行唯一的 `atomic_closeout_command`；该单入口命令先通过 poll mutex 原子写入 `handled_at/done/processed_ids`，释放 poll 子事务锁后立即校验当前票的 ledger、receipt 与 closure。当前票 closure 校验使用 `check_unattended_ticket_closure.ps1 -TicketId <ticket-id>` 聚焦模式，不得因其他历史票或孤立 brief 阻断本票闭环；不带 `-TicketId` 的 checker 仍用于独立全局巡检。这里的“原子”指单命令、幂等、任一后置条件失败即整体 fail-close，不表示三项后置校验全程持有同一 mutex
 - 仅当原子命令退出码为 0 且 JSON 同时满足 `success=true`、`processed=true`、`ledger_status=done`、`receipt_valid=true`、`closure_pass=true` 和有效 `handled_at` 时，才可回传机器输出中的时间并声称闭环
 
 运行期执行规则：
@@ -1513,6 +1513,8 @@ A/B 启动
 ### 10.4 fast-pass 流程（自愈修复后）
 
 自愈修复仅发生在某一轮次，之前已验证通过的轮次无需再次完整验证。fast-pass 流程前缀带有 **"Fast-"** 标记表示该轮跳过了冗重的全量验证（仍执行 code-step，跳过 smoketest/golden 等验证集）。
+
+fast-pass 只适用于故障轮之前的 DEV 轮。D1 修复没有前置 DEV 轮，因此 D1-D4 都必须完整执行，D2-D4 的 runtime gate 也不得因 fast-pass 被关闭。只有 D4 或 V1-V4 恢复属于“恢复锚点之后没有 DEV 轮”的场景；V1-V4 恢复统一以 D4 作为完整 code-step、编译与验证锚点。
 
 **自愈修复发生在 D1：**
 ```

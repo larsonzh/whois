@@ -162,6 +162,7 @@ $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_w
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
 $atomicCloseoutPath = Resolve-RepoPath -Path 'tools/test/complete_agent_ticket_closeout.ps1'
+$ticketClosurePath = Resolve-RepoPath -Path 'tools/test/check_unattended_ticket_closure.ps1'
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
@@ -336,6 +337,41 @@ $taskSafetyRejectsAffectedRoundPreflight = -not $startTemplateText.Contains('再
 $taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached -and $taskSafetyHasSharedEngine -and $taskSafetyHasRetryScope -and $taskSafetyRejectsAffectedRoundPreflight)
 $taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
+
+$fastPassHasExactTerminalDevPolicy = $multiRoundText.Contains('function Test-ResumeHasNoPostResumeDevRounds') -and $multiRoundText.Contains("`$FailedRound -eq 'D4' -or `$FailedRound -match '^V[1-4]`$'")
+$fastPassUsesExactRuntimeGatePolicy = $multiRoundText.Contains('$phaseRound -gt $StartRound -and $resumeHasNoPostResumeDevRounds')
+$fastPassUsesPreResumeOnly = $multiRoundText.Contains('round_fast_pass_skip=$roundTag role=pre-resume') -and -not $multiRoundText.Contains("-not (`$ResumeFailedRound -match '^D[23]`$')") -and -not $multiRoundText.Contains('round_resume_skip=$roundTag')
+$fastPassPolicyRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -DescribeResumePolicy | Out-String
+$fastPassPolicy = $fastPassPolicyRaw | ConvertFrom-Json -ErrorAction Stop
+$fastPassCases = @{}
+foreach ($policyCase in @($fastPassPolicy.cases)) { $fastPassCases[[string]$policyCase.failed_round] = $policyCase }
+$fastPassExpectedRoles = @{
+    D1 = @('resume', 'normal', 'normal', 'normal')
+    D2 = @('pre-resume', 'resume', 'normal', 'normal')
+    D3 = @('pre-resume', 'pre-resume', 'resume', 'normal')
+    D4 = @('pre-resume', 'pre-resume', 'pre-resume', 'resume')
+    V1 = @('pre-resume', 'pre-resume', 'pre-resume', 'resume')
+    V2 = @('pre-resume', 'pre-resume', 'pre-resume', 'resume')
+    V3 = @('pre-resume', 'pre-resume', 'pre-resume', 'resume')
+    V4 = @('pre-resume', 'pre-resume', 'pre-resume', 'resume')
+}
+$fastPassRuntimeMatrixPass = ([string]$fastPassPolicy.schema -eq 'AB_FAST_PASS_RESUME_POLICY_V1' -and $fastPassCases.Count -eq 8)
+foreach ($failedRound in @($fastPassExpectedRoles.Keys)) {
+    if (-not $fastPassCases.ContainsKey($failedRound)) { $fastPassRuntimeMatrixPass = $false; continue }
+    $actualRounds = @($fastPassCases[$failedRound].rounds)
+    $actualRoles = @($actualRounds | ForEach-Object { [string]$_.role })
+    $expectedRoles = @($fastPassExpectedRoles[$failedRound])
+    if ([string]::Join(',', $actualRoles) -ne [string]::Join(',', $expectedRoles)) { $fastPassRuntimeMatrixPass = $false }
+    for ($roundIndex = 0; $roundIndex -lt $actualRounds.Count; $roundIndex++) {
+        if ([bool]$actualRounds[$roundIndex].fast_pass -ne ($expectedRoles[$roundIndex] -eq 'pre-resume')) { $fastPassRuntimeMatrixPass = $false }
+        if ([bool]$actualRounds[$roundIndex].full_autopilot -ne ($expectedRoles[$roundIndex] -ne 'pre-resume')) { $fastPassRuntimeMatrixPass = $false }
+    }
+}
+$d1RuntimeGateEligibility = @($fastPassCases['D1'].rounds | ForEach-Object { [bool]$_.runtime_gate_eligible })
+if ([string]::Join(',', $d1RuntimeGateEligibility) -ne 'False,True,True,True') { $fastPassRuntimeMatrixPass = $false }
+$fastPassPolicyPass = ($fastPassHasExactTerminalDevPolicy -and $fastPassUsesExactRuntimeGatePolicy -and $fastPassUsesPreResumeOnly -and $fastPassRuntimeMatrixPass)
+$fastPassPolicyReason = if ($fastPassPolicyPass) { 'fast-pass-resume-matrix-is-exact' } else { 'fast-pass-resume-matrix-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'fast-pass-resume-matrix' -Pass $fastPassPolicyPass -Reason $fastPassPolicyReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
 $stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")
@@ -625,6 +661,18 @@ $closeoutTicket = [ordered]@{
 Set-Content -LiteralPath $closeoutQueue -Encoding utf8 -Value (($closeoutTicket | ConvertTo-Json -Compress -Depth 10))
 $null = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -Last 20 -AsJson
 
+$unrelatedBriefPath = Join-Path $closeoutTakeover 'unrelated-orphan.md'
+$unrelatedBriefLines = @(
+    'ticket_id=T-MINI-CLOSEOUT-UNRELATED-' + $stamp,
+    'start_file=' + $pollRuntimeStartFile,
+    'queue_path=' + $closeoutQueue
+)
+[System.IO.File]::WriteAllText($unrelatedBriefPath, ([string]::Join("`n", $unrelatedBriefLines) + "`n"), [System.Text.UTF8Encoding]::new($false))
+$globalClosureRaw = & $ticketClosurePath -StartFile $pollRuntimeStartFile -QueuePath $closeoutQueue -LedgerPath $closeoutLedger -TakeoverRoot $closeoutTakeover -AsJson | Out-String
+$globalClosureJsonStart = $globalClosureRaw.IndexOf('{')
+$globalClosure = if ($globalClosureJsonStart -ge 0) { $globalClosureRaw.Substring($globalClosureJsonStart) | ConvertFrom-Json -ErrorAction Stop } else { $null }
+$globalClosureDetectsUnrelatedBrief = ($null -ne $globalClosure -and -not [bool]$globalClosure.pass -and [int]$globalClosure.counts.brief_without_queue_or_ledger -eq 1)
+
 $closeoutFirst = $null
 $closeoutReplay = $null
 try {
@@ -639,7 +687,7 @@ catch {
 }
 $closeoutFirstPass = ($null -ne $closeoutFirst -and [bool]$closeoutFirst.success -and [bool]$closeoutFirst.processed -and [string]$closeoutFirst.ledger_status -eq 'done' -and [bool]$closeoutFirst.receipt_valid -and [bool]$closeoutFirst.closure_pass)
 $closeoutReplayPass = ($null -ne $closeoutReplay -and [bool]$closeoutReplay.success -and [bool]$closeoutReplay.processed -and [string]$closeoutReplay.ledger_status -eq 'done' -and [bool]$closeoutReplay.receipt_valid -and [bool]$closeoutReplay.closure_pass)
-$atomicCloseoutRuntimePass = ($closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
+$atomicCloseoutRuntimePass = ($globalClosureDetectsUnrelatedBrief -and $closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
 $atomicCloseoutRuntimeReason = if ($atomicCloseoutRuntimePass) { 'atomic-ticket-closeout-runtime-present' } else { 'atomic-ticket-closeout-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-runtime' -Pass $atomicCloseoutRuntimePass -Reason $atomicCloseoutRuntimeReason))
 
@@ -662,6 +710,50 @@ catch {
 $atomicCloseoutFailClosedPass = ($closeoutMissingExitCode -ne 0 -and $null -ne $closeoutMissing -and -not [bool]$closeoutMissing.success -and (-not [bool]$closeoutMissing.processed -or -not [bool]$closeoutMissing.receipt_valid -or [string]$closeoutMissing.ledger_status -ne 'done' -or -not [bool]$closeoutMissing.closure_pass) -and [string]::IsNullOrWhiteSpace([string]$closeoutMissing.handled_at))
 $atomicCloseoutFailClosedReason = if ($atomicCloseoutFailClosedPass) { 'atomic-ticket-closeout-fail-closed-runtime-present' } else { 'atomic-ticket-closeout-fail-closed-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-fail-closed-runtime' -Pass $atomicCloseoutFailClosedPass -Reason $atomicCloseoutFailClosedReason))
+
+# Poll mutex contention must fail closed and preserve the lock-busy machine fact.
+$closeoutMutexStartKey = [System.IO.Path]::GetFullPath($pollRuntimeStartFile).ToLowerInvariant()
+$closeoutMutexQueueKey = [System.IO.Path]::GetFullPath($closeoutQueue).ToLowerInvariant()
+$closeoutMutexBytes = [System.Text.Encoding]::UTF8.GetBytes(("{0}|{1}" -f $closeoutMutexStartKey, $closeoutMutexQueueKey))
+$closeoutMutexSha1 = [System.Security.Cryptography.SHA1]::Create()
+try {
+    $closeoutMutexHashBytes = $closeoutMutexSha1.ComputeHash($closeoutMutexBytes)
+}
+finally {
+    $closeoutMutexSha1.Dispose()
+}
+$closeoutMutexHash = [System.BitConverter]::ToString($closeoutMutexHashBytes).Replace('-', '')
+$closeoutMutex = New-Object System.Threading.Mutex($false, ("Global\whois-poll-state-ledger-{0}" -f $closeoutMutexHash))
+$closeoutMutexAcquired = $false
+$closeoutLockBusy = $null
+$closeoutLockBusyExitCode = 0
+try {
+    $closeoutMutexAcquired = $closeoutMutex.WaitOne(0)
+    if (-not $closeoutMutexAcquired) {
+        throw 'atomic closeout regression could not acquire poll mutex'
+    }
+
+    $closeoutLockBusyRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $atomicCloseoutPath -StartFile $pollRuntimeStartFile -TicketId ([string]$closeoutTicket.ticket_id) -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -TakeoverRoot $closeoutTakeover -Last 20 -AsJson 2>&1)
+    $closeoutLockBusyExitCode = $LASTEXITCODE
+    $closeoutLockBusyText = [string]::Join("`n", @($closeoutLockBusyRaw | ForEach-Object { [string]$_ }))
+    $closeoutLockBusyJsonStart = $closeoutLockBusyText.IndexOf('{')
+    if ($closeoutLockBusyJsonStart -lt 0) {
+        throw 'lock-busy closeout probe did not return JSON'
+    }
+    $closeoutLockBusy = ($closeoutLockBusyText.Substring($closeoutLockBusyJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+}
+catch {
+    $closeoutLockBusy = $null
+}
+finally {
+    if ($closeoutMutexAcquired) {
+        $closeoutMutex.ReleaseMutex() | Out-Null
+    }
+    $closeoutMutex.Dispose()
+}
+$atomicCloseoutLockBusyPass = ($closeoutLockBusyExitCode -ne 0 -and $null -ne $closeoutLockBusy -and -not [bool]$closeoutLockBusy.success -and [bool]$closeoutLockBusy.poll_lock_busy -and [string]$closeoutLockBusy.reason -eq 'acknowledge poll lock is busy' -and [string]::IsNullOrWhiteSpace([string]$closeoutLockBusy.handled_at))
+$atomicCloseoutLockBusyReason = if ($atomicCloseoutLockBusyPass) { 'atomic-ticket-closeout-lock-busy-fail-closed' } else { 'atomic-ticket-closeout-lock-busy-facts-missing' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-lock-busy-runtime' -Pass $atomicCloseoutLockBusyPass -Reason $atomicCloseoutLockBusyReason))
 
 # Render a real dispatch message with all interactive senders disabled.
 $dispatchRuntimeRoot = Join-Path $outDir 'atomic_dispatch_runtime'

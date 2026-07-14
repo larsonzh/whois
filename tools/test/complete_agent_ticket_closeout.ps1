@@ -106,10 +106,6 @@ try {
         $pollOutput = @(& powershell @pollArgs 2>&1)
         $pollExitCode = $LASTEXITCODE
         $poll = Convert-CommandOutputToJson -Output $pollOutput -Step 'acknowledge'
-        if ($pollExitCode -ne 0) {
-            throw ("acknowledge exited with code {0}" -f $pollExitCode)
-        }
-
         $pollLockBusy = $false
         if ($poll.PSObject.Properties.Name -contains 'lock_busy') {
             $pollLockBusy = [bool]$poll.lock_busy
@@ -121,6 +117,9 @@ try {
         if ($pollLockBusy) {
             $result.poll_lock_busy = $true
             throw 'acknowledge poll lock is busy'
+        }
+        if ($pollExitCode -ne 0) {
+            throw ("acknowledge exited with code {0}" -f $pollExitCode)
         }
 
         $statePath = Resolve-OutputPath -RepoRoot $repoRoot -Path ([string]$poll.state_path)
@@ -152,6 +151,7 @@ try {
             '-NoProfile', '-ExecutionPolicy', 'Bypass',
             '-File', (Join-Path $PSScriptRoot 'check_unattended_ticket_closure.ps1'),
             '-StartFile', $StartFile,
+            '-TicketId', $ticket,
             '-AsJson'
         )
         if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $closureArgs += @('-QueuePath', $QueuePath) }

@@ -1,5 +1,6 @@
 ﻿param(
     [string]$StartFile = 'testdata\unattended_start\smoke\unattended_ab_start_status_ticket_smoke.md',
+    [AllowEmptyString()][string]$TicketId = '',
     [AllowEmptyString()][string]$QueuePath = '',
     [AllowEmptyString()][string]$LedgerPath = '',
     [AllowEmptyString()][string]$TakeoverRoot = '',
@@ -162,6 +163,7 @@ if ([string]::IsNullOrWhiteSpace($takeoverRootPath)) {
     $takeoverRootPath = 'out\artifacts\ab_agent_queue\takeover_requests'
 }
 $takeoverRootResolved = Resolve-RepoPathAllowMissing -Path $takeoverRootPath
+$targetTicketId = Convert-ToSingleLineText -Text $TicketId
 
 if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
     $OutDirRoot = Join-Path $repoRoot 'out\artifacts\ticket_closure_check'
@@ -199,6 +201,10 @@ $issues = New-Object 'System.Collections.Generic.List[object]'
 $pollCommand = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -IncludeStatusReports -Last 20 -AsJson' -f (Convert-ToRepoRelativePath -Path $startFilePath))
 
 foreach ($ticketId in @($queueById.Keys | Sort-Object)) {
+    if (-not [string]::IsNullOrWhiteSpace($targetTicketId) -and -not $ticketId.Equals($targetTicketId, [System.StringComparison]::OrdinalIgnoreCase)) {
+        continue
+    }
+
     if (-not $ledgerById.ContainsKey($ticketId)) {
         [void]$issues.Add((New-IssueRecord -Type 'queue-without-ledger' -Severity 'high' -TicketId $ticketId -Detail 'ticket exists in queue but has no ledger record' -SuggestedCommand $pollCommand))
         continue
@@ -222,6 +228,9 @@ if (-not [string]::IsNullOrWhiteSpace($takeoverRootResolved) -and (Test-Path -Li
         $briefMeta = Read-KeyValueFile -Path $briefFile.FullName
         $ticketId = if ($briefMeta.Contains('ticket_id')) { Convert-ToSingleLineText -Text ([string]$briefMeta.ticket_id) } else { '' }
         if ([string]::IsNullOrWhiteSpace($ticketId)) {
+            continue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($targetTicketId) -and -not $ticketId.Equals($targetTicketId, [System.StringComparison]::OrdinalIgnoreCase)) {
             continue
         }
 
@@ -255,6 +264,7 @@ $summary = [ordered]@{
     schema = 'AB_TICKET_CLOSURE_CHECK_V1'
     generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     start_file = (Convert-ToRepoRelativePath -Path $startFilePath)
+    ticket_id = $targetTicketId
     queue_path = (Convert-ToRepoRelativePath -Path $queueFilePath)
     ledger_path = (Convert-ToRepoRelativePath -Path $ledgerFilePath)
     takeover_root = (Convert-ToRepoRelativePath -Path $takeoverRootResolved)

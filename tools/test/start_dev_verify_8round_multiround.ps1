@@ -59,7 +59,8 @@
     [AllowNull()][object]$RoundRuntimeGateCheckNetwork = $true,
     [AllowNull()][object]$RoundRuntimeGateCheckProcessConflict = $true,
     [switch]$DisableUnknownNoOpBudgetGate,
-    [switch]$DisableSourceDrivenSkip
+    [switch]$DisableSourceDrivenSkip,
+    [switch]$DescribeResumePolicy
 )
 
 $ErrorActionPreference = "Stop"
@@ -193,6 +194,63 @@ function Get-EnvBoolOrDefault {
     }
 
     return Convert-ToStrictBool -Value $raw -ParameterName $Name -DefaultValue $DefaultValue
+}
+
+function Test-ResumeHasNoPostResumeDevRounds {
+    param([AllowEmptyString()][string]$FailedRound)
+
+    return (-not [string]::IsNullOrWhiteSpace($FailedRound) -and ($FailedRound -eq 'D4' -or $FailedRound -match '^V[1-4]$'))
+}
+
+function Get-ResumeDevRoundPolicy {
+    param(
+        [AllowEmptyString()][string]$FailedRound,
+        [ValidateRange(1, 4)][int]$DevRound,
+        [ValidateRange(1, 4)][int]$FirstDevRound = 1
+    )
+
+    $resumeRound = 0
+    if ($FailedRound -match '^D([1-4])$') {
+        $resumeRound = [int]$Matches[1]
+    }
+    elseif ($FailedRound -match '^V[1-4]$') {
+        $resumeRound = 4
+    }
+
+    $role = 'normal'
+    if ($resumeRound -gt 0) {
+        if ($DevRound -lt $resumeRound) { $role = 'pre-resume' }
+        elseif ($DevRound -eq $resumeRound) { $role = 'resume' }
+    }
+
+    $hasNoPostResumeDevRounds = Test-ResumeHasNoPostResumeDevRounds -FailedRound $FailedRound
+    return [pscustomobject]@{
+        failed_round = $FailedRound
+        dev_round = "D$DevRound"
+        role = $role
+        fast_pass = ($role -eq 'pre-resume')
+        full_autopilot = ($role -ne 'pre-resume')
+        runtime_gate_eligible = ($role -eq 'normal' -and -not ($DevRound -gt $FirstDevRound -and $hasNoPostResumeDevRounds))
+        resume_has_no_post_dev_rounds = $hasNoPostResumeDevRounds
+    }
+}
+
+if ($DescribeResumePolicy.IsPresent) {
+    $policyCases = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($failedRound in @('D1', 'D2', 'D3', 'D4', 'V1', 'V2', 'V3', 'V4')) {
+        $roundPolicies = New-Object 'System.Collections.Generic.List[object]'
+        foreach ($devRound in 1..4) {
+            [void]$roundPolicies.Add((Get-ResumeDevRoundPolicy -FailedRound $failedRound -DevRound $devRound -FirstDevRound $StartRound))
+        }
+        [void]$policyCases.Add([pscustomobject]@{ failed_round = $failedRound; rounds = @($roundPolicies.ToArray()) })
+    }
+
+    [ordered]@{
+        schema = 'AB_FAST_PASS_RESUME_POLICY_V1'
+        start_round = $StartRound
+        cases = @($policyCases.ToArray())
+    } | ConvertTo-Json -Depth 8
+    return
 }
 
 function Set-StartFileResumeFailedRound {
@@ -1644,6 +1702,7 @@ $globalNoSourceChange = $false
 $unknownNoOpCount = 0
 $unknownNoOpConsecutive = 0
 $unknownNoOpBudgetExceeded = $false
+$resumeHasNoPostResumeDevRounds = Test-ResumeHasNoPostResumeDevRounds -FailedRound $ResumeFailedRound
 
 for ($round = $StartRound; $round -le $EndRound; $round++) {
     $phase = if ($round -le 4) { "DEV" } else { "VERIFY" }
@@ -1671,18 +1730,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     # V-prefix (e.g., V4): resume at a VERIFY round; the LAST DEV round (D4) gets resume role
     # so the source modification is compiled before V-round validation.
     $roundResumeRole = "normal"
-    if (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and $phase -eq "DEV") {
-        $resumeRoundNum = 0
-        if ($ResumeFailedRound -match '^D(\d)$') {
-            $resumeRoundNum = [int]$Matches[1]
-        }
-        elseif ($ResumeFailedRound -match '^V[1-4]$') {
-            $resumeRoundNum = 4  # V-resume: last DEV round (D4) runs full autopilot
-        }
-        if ($resumeRoundNum -gt 0) {
-            if ($phaseRound -lt $resumeRoundNum) { $roundResumeRole = "pre-resume" }
-            elseif ($phaseRound -eq $resumeRoundNum) { $roundResumeRole = "resume" }
-        }
+    if ($phase -eq "DEV") {
+        $roundResumePolicy = Get-ResumeDevRoundPolicy -FailedRound $ResumeFailedRound -DevRound $phaseRound -FirstDevRound $StartRound
+        $roundResumeRole = [string]$roundResumePolicy.role
     }
 
     $skipReason = ""
@@ -1732,7 +1782,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         -RemoteIp $RemoteIp `
         -RemoteUser $User `
         -KeyPath $KeyPath `
-        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume" -and $roundResumeRole -ne "pre-resume" -and -not ($phase -eq "DEV" -and $phaseRound -gt $StartRound -and (-not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$')))) `
+        -Enabled ($EnableRoundRuntimeGate -and $roundResumeRole -ne "resume" -and $roundResumeRole -ne "pre-resume" -and -not ($phase -eq "DEV" -and $phaseRound -gt $StartRound -and $resumeHasNoPostResumeDevRounds)) `
         -StartRound $RoundRuntimeGateStartRound `
         -MaxAttempts $RoundRuntimeGateMaxAttempts `
         -RetryDelaySec $RoundRuntimeGateRetryDelaySec `
@@ -2017,24 +2067,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         if (-not $skipRound -and $roundResumeRole -eq "pre-resume" -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
             $skipRound = $true
             $roundDecision = "D-CODESTEP-ONLY"
-            $skipReason = "resume-failed-round=$ResumeFailedRound"
-            $resumeLine = "[DEV-VERIFY-MULTI] round_resume_skip=$roundTag role=pre-resume reason=$skipReason"
+            $skipReason = "resume-fast-pass-round=$ResumeFailedRound"
+            $resumeLine = "[DEV-VERIFY-MULTI] round_fast_pass_skip=$roundTag role=pre-resume reason=$skipReason"
             Write-Output $resumeLine
             $lines += $resumeLine
-        }
-
-        # Fast-pass: when ResumeFailedRound has no post-resume D-rounds (D4 or V1-V4),
-        # pre-resume DEV rounds are code-step only — verification is deferred to V-rounds.
-        # The resume round itself (roundResumeRole == "resume") runs full autopilot
-        # (code-step + compile + verify) so the self-healing fix is validated before
-        # proceeding to V-rounds.
-        if (-not $skipRound -and $phase -eq "DEV" -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound) -and -not ($ResumeFailedRound -match '^D[23]$') -and $roundResumeRole -ne "resume" -and $roundDecision -ne "CODE-STEP-FAIL" -and $roundDecision -ne "D-NOP-RISK") {
-            $skipRound = $true
-            $roundDecision = "D-CODESTEP-ONLY"
-            $skipReason = "resume-fast-pass-round=$ResumeFailedRound"
-            $fastLine = "[DEV-VERIFY-MULTI] round_fast_pass_skip=$roundTag reason=$skipReason"
-            Write-Output $fastLine
-            $lines += $fastLine
         }
     }
 
