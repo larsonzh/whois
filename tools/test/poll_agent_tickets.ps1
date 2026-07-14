@@ -154,7 +154,7 @@ function Get-EffectiveRecommendedAction {
 
     $normalized = Convert-ToSingleLineText -Text $RecommendedAction
     if ([bool]$script:PreauthorizedExecution -and $OriginalRequiresConfirmation) {
-        return 'Preauthorized unattended action: execute business_command immediately, then continue_watch_command, then mark_processed_command and handled_receipt_command; do not ask for an extra restart approval.'
+        return 'Preauthorized unattended action: execute business_command immediately, then continue_watch_command, then execute atomic_closeout_command exactly once; split receipt commands are audit-only and must not be run one by one; do not ask for an extra restart approval.'
     }
 
     return $normalized
@@ -165,6 +165,7 @@ function Get-NextCommandOrder {
         [AllowEmptyString()][string]$RouteGuardCommand,
         [AllowEmptyString()][string]$BusinessCommand,
         [AllowEmptyString()][string]$ContinueWatchCommand,
+        [AllowEmptyString()][string]$AtomicCloseoutCommand,
         [AllowEmptyString()][string]$HandledReceiptCommand,
         [AllowEmptyString()][string]$ValidateReceiptCommand,
         [AllowEmptyString()][string]$MarkProcessedCommand,
@@ -179,14 +180,19 @@ function Get-NextCommandOrder {
     if (-not [string]::IsNullOrWhiteSpace($RouteGuardCommand)) { [void]$order.Add('route_guard_command') }
     if (-not [string]::IsNullOrWhiteSpace($BusinessCommand)) { [void]$order.Add('business_command') }
     if (-not [string]::IsNullOrWhiteSpace($ContinueWatchCommand)) { [void]$order.Add('continue_watch_command') }
-    if (-not [string]::IsNullOrWhiteSpace($HandledReceiptCommand)) { [void]$order.Add('handled_receipt_command') }
-    if (-not [string]::IsNullOrWhiteSpace($ValidateReceiptCommand)) { [void]$order.Add('validate_receipt_command') }
-    if (-not [string]::IsNullOrWhiteSpace($MarkProcessedCommand)) { [void]$order.Add('mark_processed_command') }
-    if (-not [string]::IsNullOrWhiteSpace($PostCheckCommand)) { [void]$order.Add('post_check_command') }
-    if (-not [string]::IsNullOrWhiteSpace($TicketClosureCheckCommand)) { [void]$order.Add('ticket_closure_check_command') }
-    if (-not [string]::IsNullOrWhiteSpace($EventDedupHealthCheckCommand)) { [void]$order.Add('event_dedup_health_check_command') }
-    if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutCommand)) { [void]$order.Add('final_status_closeout_command') }
-    if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutApplyAckCommand)) { [void]$order.Add('final_status_closeout_apply_ack_command') }
+    if (-not [string]::IsNullOrWhiteSpace($AtomicCloseoutCommand)) {
+        [void]$order.Add('atomic_closeout_command')
+    }
+    else {
+        if (-not [string]::IsNullOrWhiteSpace($HandledReceiptCommand)) { [void]$order.Add('handled_receipt_command') }
+        if (-not [string]::IsNullOrWhiteSpace($ValidateReceiptCommand)) { [void]$order.Add('validate_receipt_command') }
+        if (-not [string]::IsNullOrWhiteSpace($MarkProcessedCommand)) { [void]$order.Add('mark_processed_command') }
+        if (-not [string]::IsNullOrWhiteSpace($PostCheckCommand)) { [void]$order.Add('post_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($TicketClosureCheckCommand)) { [void]$order.Add('ticket_closure_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($EventDedupHealthCheckCommand)) { [void]$order.Add('event_dedup_health_check_command') }
+        if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutCommand)) { [void]$order.Add('final_status_closeout_command') }
+        if (-not [string]::IsNullOrWhiteSpace($FinalStatusCloseoutApplyAckCommand)) { [void]$order.Add('final_status_closeout_apply_ack_command') }
+    }
 
     return @($order.ToArray())
 }
@@ -301,6 +307,29 @@ function Get-ValidateHandledReceiptCommand {
     $expected = (Convert-ToSingleLineText -Text $ExpectedRetryBudgetUsed).ToLowerInvariant()
     if ($expected -in @('yes', 'no')) {
         $command = ('{0} -ExpectedRetryBudgetUsed "{1}"' -f $command, $expected)
+    }
+
+    return $command
+}
+
+function Get-AtomicCloseoutCommand {
+    param(
+        [string]$StartFileRel,
+        [string]$QueuePathRel,
+        [string]$TicketId,
+        [int]$Last,
+        [AllowEmptyString()][string]$RetryBudgetUsed = ''
+    )
+
+    $ticket = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        return ''
+    }
+
+    $command = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_agent_ticket_closeout.ps1 -StartFile "{0}" -TicketId "{1}" -QueuePath "{2}" -Last {3} -AsJson' -f $StartFileRel, $ticket, $QueuePathRel, $Last)
+    $retryUsed = (Convert-ToSingleLineText -Text $RetryBudgetUsed).ToLowerInvariant()
+    if ($retryUsed -in @('yes', 'no')) {
+        $command = ('{0} -AcknowledgeRetryBudgetUsed "{1}"' -f $command, $retryUsed)
     }
 
     return $command
@@ -2664,6 +2693,7 @@ foreach ($ticket in $tickets) {
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = ''
                 continue_watch_command = ''
+                atomic_closeout_command = (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
@@ -2673,7 +2703,7 @@ foreach ($ticket in $tickets) {
                 event_dedup_health_check_command = $eventDedupHealthCheckCommand
                 final_status_closeout_command = $finalStatusCloseoutCommand
                 final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2773,6 +2803,7 @@ foreach ($ticket in $tickets) {
                 business_command_reason = [string]$ticketResumePlan.reason
                 business_command = (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $statusReportIncludeTicketChainCheck -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $statusReportEnableMainProcessAutoHeal -EnableMonitorChainDegradedEscalation $statusReportEnableMonitorChainDegradedEscalation -MonitorChainDegradedEscalationThreshold $statusReportMonitorChainDegradedEscalationThreshold -LowDisturbMode $statusReportLowDisturbMode)
                 continue_watch_command = ''
+                atomic_closeout_command = ''
                 mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
                 validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
@@ -2841,6 +2872,7 @@ foreach ($ticket in $tickets) {
             business_command_reason = [string]$ticketResumePlan.reason
             business_command = $selectedBusinessCommand
             continue_watch_command = $continueWatchCommand
+            atomic_closeout_command = (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
             mark_processed_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
             handled_receipt_command = (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed)
             validate_receipt_command = (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed)
@@ -2850,7 +2882,7 @@ foreach ($ticket in $tickets) {
             event_dedup_health_check_command = $eventDedupHealthCheckCommand
             final_status_closeout_command = $finalStatusCloseoutCommand
             final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $continueWatchCommand -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
             route_guard_required = $true
             receipt_required = $true
             receipt_type = 'handled_at'
@@ -3156,6 +3188,7 @@ else {
             Write-Output ('  business_command={0}' -f [string]$row.business_command)
             Write-Output ('  continue_watch_command={0}' -f [string]$row.continue_watch_command)
             Write-Output ('  route_guard_command={0}' -f [string]$row.route_guard_command)
+            Write-Output ('  atomic_closeout_command={0}' -f [string]$row.atomic_closeout_command)
             Write-Output ('  mark_processed_command={0}' -f [string]$row.mark_processed_command)
             if ([bool]$row.receipt_required) {
                 Write-Output ('  receipt_type={0}' -f [string]$row.receipt_type)

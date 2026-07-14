@@ -161,6 +161,7 @@ $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
+$atomicCloseoutPath = Resolve-RepoPath -Path 'tools/test/complete_agent_ticket_closeout.ps1'
 
 $dispatchText = Get-Content -LiteralPath $dispatchPath -Raw -Encoding utf8
 $mainHealthText = Get-Content -LiteralPath $mainHealthPath -Raw -Encoding utf8
@@ -169,6 +170,8 @@ $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
+$atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
+$statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $operationFlowPath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_OPERATION_FLOW_CN.md'
 $copilotInstructionsPath = Resolve-RepoPath -Path '.github/copilot-instructions.md'
@@ -212,15 +215,37 @@ $statusReportOnlyReason = if ($statusReportOnlyPass) { 'scheduled-status-report-
 
 # Runtime ticket handling is passive: delivery belongs to guard/trigger/dispatch, not agent-created polling loops.
 $promptHasPassiveWaitInAllVariants = ([regex]::Matches($promptDocText, '静默等待')).Count -ge 4 -and $promptDocText.Contains('不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`') -and $promptDocText.Contains('长时间跨轮次巡检命令') -and $promptDocText.Contains('重启主进程后 3 分钟内')
-$templateHasPassiveWaitContract = $startTemplateText.Contains('进入事件驱动被动接收模式') -and $startTemplateText.Contains('等待本身不执行任何命令') -and $startTemplateText.Contains('不是 AI 自建定时巡检的依据') -and ([regex]::Matches($startTemplateText, '真实准确的 handled_at')).Count -ge 4 -and ([regex]::Matches($startTemplateText, '重启主进程后 3 分钟内')).Count -ge 4 -and ([regex]::Matches($startTemplateText, '长时间跨轮次巡检命令')).Count -ge 4
-$operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigger/dispatch 链负责生成并投送') -and $operationFlowText.Contains('工单完成真实回执与闭环后只需静默等待下一条投送消息') -and $operationFlowText.Contains('3 分钟内完成当前自愈修复/故障处理的收尾')
-$copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票与三分钟收尾（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行任何定时巡检监控脚本') -and $copilotInstructionsText.Contains('3 分钟是闭环上限，不是继续巡检的窗口')
-$guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('finish closure, receipt validation, and mark_processed within 3 minutes') -and $sessionGuardText.Contains('long-running cross-round monitoring commands')
-$stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'finish closure, receipt validation, and mark_processed within 3 minutes')).Count -ge 3 -and $stageWindowText.Contains('long-running cross-round monitoring commands')
+$templateHasPassiveWaitContract = $startTemplateText.Contains('进入事件驱动被动接收模式') -and $startTemplateText.Contains('等待本身不执行任何命令') -and $startTemplateText.Contains('不是 AI 自建定时巡检的依据') -and ([regex]::Matches($startTemplateText, 'atomic_closeout_command')).Count -ge 5 -and ([regex]::Matches($startTemplateText, '重启主进程后 3 分钟内')).Count -ge 4 -and ([regex]::Matches($startTemplateText, '长时间跨轮次巡检命令')).Count -ge 4 -and -not $startTemplateText.Contains('回执校验与 mark_processed')
+$operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigger/dispatch 链负责生成并投送') -and $operationFlowText.Contains('工单通过唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息') -and $operationFlowText.Contains('3 分钟内执行事件票唯一的 `atomic_closeout_command`') -and $operationFlowText.Contains('仅作审计兼容展示；事件票不得逐条执行这些旧分步命令') -and -not $operationFlowText.Contains('回执校验与 `mark_processed`')
+$copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票与三分钟收尾（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行定时巡检监控脚本') -and $copilotInstructionsText.Contains('3 分钟是闭环上限，不是继续巡检的窗口')
+$guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('complete atomic closeout within 3 minutes') -and $sessionGuardText.Contains('long-running cross-round monitoring commands') -and -not $sessionGuardText.Contains('finish closure, receipt validation, and mark_processed within 3 minutes')
+$stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'complete atomic closeout within 3 minutes')).Count -ge 3 -and $stageWindowText.Contains('long-running cross-round monitoring commands') -and -not $stageWindowText.Contains('finish closure, receipt validation, and mark_processed within 3 minutes')
 $dispatchHasPassiveWaitSuffixes = $dispatchText.Contains("`$passiveWaitSuffixEn = ' Follow every ticket step without omission") -and $dispatchText.Contains("`$passiveWaitSuffixZh = ' 严格按票据流程执行") -and $dispatchText.Contains('重启主进程后，必须在 3 分钟内') -and $dispatchText.Contains('Add-PassiveWaitConstraint') -and $dispatchText.Contains('$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage)') -and $dispatchText.Contains('Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix')
 $passiveTicketWaitPass = ($promptHasPassiveWaitInAllVariants -and $templateHasPassiveWaitContract -and $operationFlowHasPassiveWaitContract -and $copilotHasPassiveWaitHardRule -and $guardHasPassiveWaitTicketSuffix -and $stageWindowHasPassiveWaitTicketSuffix -and $dispatchHasPassiveWaitSuffixes)
 $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-contract-present' } else { 'missing-passive-ticket-wait-contract' }
 [void]$results.Add((Get-CaseResult -Name 'passive-ticket-wait-no-agent-polling' -Pass $passiveTicketWaitPass -Reason $passiveTicketWaitReason))
+
+# Event tickets close through one machine-verified command; missing command data must fail closed.
+$atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false')
+$takeoverProjectsAtomicCloseout = $takeoverTriggerText.Contains("`$nextCommandNames.Add('atomic_closeout_command')") -and $takeoverTriggerText.Contains("('atomic_closeout_command={0}' -f `$atomicCloseoutCommand)") -and $takeoverTriggerText.Contains('-QueuePath "{2}" -Last 20 -AsJson') -and ([regex]::Matches($takeoverTriggerText, "nextCommandNames\.Add\('atomic_closeout_command'\)")).Count -eq 1
+$pollProjectsAtomicCloseout = $pollText.Contains('function Get-AtomicCloseoutCommand') -and $pollText.Contains("`$order.Add('atomic_closeout_command')") -and ([regex]::Matches($pollText, 'atomic_closeout_command = \(Get-AtomicCloseoutCommand')).Count -eq 2 -and $statusOnlyAutoflowText.Contains("'atomic_closeout_command' { return @('handled_at', 'mark-handled') }") -and $statusOnlyAutoflowText.Contains("atomic_closeout_command = Get-ObjectPropertyString -InputObject `$selectedTicket -Name 'atomic_closeout_command'")
+$promptRejectsSplitCloseout = $promptDocText.Contains('其职责已由 atomic_closeout_command 统一覆盖') -and -not $promptDocText.Contains('也必须按 next_command_order 继续执行')
+$dispatchRequiresMachineFacts = $dispatchText.Contains('机器事实闭环门禁') -and $dispatchText.Contains('atomic_closeout_command is missing from the brief') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
+$copilotForbidsInlineEditing = $copilotInstructionsText.Contains('**Agent 工具与机器回执门禁（硬规则）**') -and $copilotInstructionsText.Contains('禁止使用终端内联 Python') -and $copilotInstructionsText.Contains('事件票收尾必须执行 brief 的 `atomic_closeout_command`')
+$atomicCloseoutContractPass = ($atomicCloseoutVerifiesFacts -and $takeoverProjectsAtomicCloseout -and $pollProjectsAtomicCloseout -and $promptRejectsSplitCloseout -and $dispatchRequiresMachineFacts -and $copilotForbidsInlineEditing)
+$atomicCloseoutContractReason = if ($atomicCloseoutContractPass) { 'atomic-ticket-closeout-contract-present' } else { 'missing-atomic-ticket-closeout-contract' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-contract' -Pass $atomicCloseoutContractPass -Reason $atomicCloseoutContractReason))
+
+# Task-definition semantic edits must name apply_patch explicitly in every operator-facing layer.
+$copilotRequiresApplyPatch = $copilotInstructionsText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
+$promptRequiresApplyPatch = ([regex]::Matches($promptDocText, '任务定义 JSON 的语义修改.*VS Code `apply_patch`')).Count -ge 3
+$operationFlowRequiresApplyPatch = $operationFlowText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
+$startTemplateRequiresApplyPatch = $startTemplateText.Contains('只能使用 VS Code `apply_patch` 修改当前阶段任务定义 JSON')
+$dispatchRequiresApplyPatch = $dispatchText.Contains('Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool') -and $dispatchText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
+$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only the allowed task-definition operations') -and $takeoverTriggerText.Contains('validate JSON parse, target-op, then affected full-round checks')
+$taskDefinitionApplyPatchPass = ($copilotRequiresApplyPatch -and $promptRequiresApplyPatch -and $operationFlowRequiresApplyPatch -and $startTemplateRequiresApplyPatch -and $dispatchRequiresApplyPatch -and $takeoverRequiresApplyPatch)
+$taskDefinitionApplyPatchReason = if ($taskDefinitionApplyPatchPass) { 'task-definition-apply-patch-contract-present' } else { 'missing-task-definition-apply-patch-contract' }
+[void]$results.Add((Get-CaseResult -Name 'task-definition-apply-patch-contract' -Pass $taskDefinitionApplyPatchPass -Reason $taskDefinitionApplyPatchReason))
 
 # Static precheck failures may enter the runtime ticket workflow only when explicitly configured.
 $launchReadyHasBlockDefault = $launchReadyText.Contains("'block'") -and $launchReadyText.Contains("@('block', 'runtime-ticket')")
@@ -375,6 +400,8 @@ $pollRuntimeReason = if ($pollRuntimePass) { 'poll-triage-runtime-json-present' 
 
 # Case 10: runtime poll ordering must place route guard first for status-ticket execution.
 $pollOrderQueue = Join-Path $outDir 'poll_next_command_order_queue.jsonl'
+$pollOrderState = Join-Path $outDir 'poll_next_command_order_state.json'
+$pollOrderLedger = Join-Path $outDir 'poll_next_command_order_ledger.json'
 $pollOrderTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'
     ticket_id = 'T-MINI-ORDER-' + $stamp
@@ -402,7 +429,7 @@ $pollRetry = 0
 while ($pollRetry -lt 3 -and $null -eq $pollOrderJson) {
     $pollRetry++
     try {
-        $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -IncludeStatusReports -Last 20 -AsJson
+        $pollOrderRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollOrderQueue -StatePath $pollOrderState -LedgerPath $pollOrderLedger -IncludeStatusReports -Last 20 -AsJson
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($pollOrderRaw)) {
             $pollOrderJson = $pollOrderRaw | ConvertFrom-Json -ErrorAction Stop
         }
@@ -417,7 +444,7 @@ while ($pollRetry -lt 3 -and $null -eq $pollOrderJson) {
 $pollOrderRow = if ($null -ne $pollOrderJson -and $pollOrderJson.PSObject.Properties.Name -contains 'rows' -and $pollOrderJson.rows.Count -gt 0) { $pollOrderJson.rows[0] } else { $null }
 $pollOrderHasOrder = ($null -ne $pollOrderRow -and ($pollOrderRow.PSObject.Properties.Name -contains 'next_command_order'))
 $pollOrderNames = if ($pollOrderHasOrder) { @($pollOrderRow.next_command_order) } else { @() }
-$pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $pollOrderNames[0] -eq 'route_guard_command' -and $pollOrderNames[1] -eq 'business_command')
+$pollOrderPass = ($pollOrderHasOrder -and $pollOrderNames.Count -ge 2 -and $pollOrderNames[0] -eq 'route_guard_command' -and $pollOrderNames[1] -eq 'business_command' -and -not ($pollOrderNames -contains 'atomic_closeout_command'))
 $pollOrderReason = if ($pollOrderPass) { 'poll-next-command-order-runtime-present' } else { 'missing-poll-next-command-order-runtime' }
 if (-not $pollOrderPass) {
     $debugDir = Join-Path (Split-Path $pollOrderQueue -Parent) ('debug_case10_' + (Get-Date -Format 'HHmmss'))
@@ -471,6 +498,8 @@ $pollStatusReadonlyReason = if ($pollStatusReadonlyPass) { 'poll-status-row-repo
 
 # Case 12: notice/manual events must also expose command order with route guard first.
 $pollNoticeQueue = Join-Path $outDir 'poll_notice_command_order_queue.jsonl'
+$pollNoticeState = Join-Path $outDir 'poll_notice_command_order_state.json'
+$pollNoticeLedger = Join-Path $outDir 'poll_notice_command_order_ledger.json'
 $pollNoticeTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'
     ticket_id = 'T-MINI-NOTICE-' + $stamp
@@ -495,7 +524,7 @@ $pollNoticeTicket = [ordered]@{
 Set-Content -LiteralPath $pollNoticeQueue -Encoding utf8 -Value (($pollNoticeTicket | ConvertTo-Json -Compress -Depth 10))
 New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollNoticeTicket.ticket_id) -EventName ([string]$pollNoticeTicket.event)
 
-$pollNoticeRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollNoticeQueue -Last 20 -AsJson | Out-String
+$pollNoticeRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollNoticeQueue -StatePath $pollNoticeState -LedgerPath $pollNoticeLedger -Last 20 -AsJson | Out-String
 $pollNoticeJson = $null
 try {
     $pollNoticeJson = $pollNoticeRaw | ConvertFrom-Json -ErrorAction Stop
@@ -512,7 +541,8 @@ $pollNoticeRow = @($pollNoticeRows | Where-Object { [string]$_.event -eq 'budget
 $pollNoticeTarget = if ($pollNoticeRow.Count -gt 0) { $pollNoticeRow[0] } else { $null }
 $pollNoticeHasOrder = ($null -ne $pollNoticeTarget -and ($pollNoticeTarget.PSObject.Properties.Name -contains 'next_command_order'))
 $pollNoticeNames = if ($pollNoticeHasOrder) { @($pollNoticeTarget.next_command_order) } else { @() }
-$pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -ge 2 -and $pollNoticeNames[0] -eq 'route_guard_command' -and $pollNoticeNames[1] -eq 'business_command')
+$pollNoticeLegacySteps = @($pollNoticeNames | Where-Object { $_ -in @('handled_receipt_command', 'validate_receipt_command', 'mark_processed_command', 'post_check_command', 'ticket_closure_check_command', 'event_dedup_health_check_command', 'final_status_closeout_command', 'final_status_closeout_apply_ack_command') })
+$pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -ge 3 -and $pollNoticeNames[0] -eq 'route_guard_command' -and $pollNoticeNames[1] -eq 'business_command' -and $pollNoticeNames[$pollNoticeNames.Count - 1] -eq 'atomic_closeout_command' -and $pollNoticeLegacySteps.Count -eq 0)
 $pollNoticeReason = if ($pollNoticePass) { 'poll-notice-command-order-runtime-present' } else { 'missing-poll-notice-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-notice-command-order-runtime' -Pass $pollNoticePass -Reason $pollNoticeReason))
 
@@ -520,6 +550,8 @@ $pollNoticeReason = if ($pollNoticePass) { 'poll-notice-command-order-runtime-pr
 # keep continue-watch in order list.  For drain-safe events, business_command
 # is empty (not emitted) so we only check route_guard_command + continue_watch.
 $pollManualQueue = Join-Path $outDir 'poll_manual_command_order_queue.jsonl'
+$pollManualState = Join-Path $outDir 'poll_manual_command_order_state.json'
+$pollManualLedger = Join-Path $outDir 'poll_manual_command_order_ledger.json'
 $pollManualTicket = [ordered]@{
     schema = 'AB_AGENT_TICKET_V1'
     ticket_id = 'T-MINI-MANUAL-' + $stamp
@@ -543,7 +575,7 @@ $pollManualTicket = [ordered]@{
 Set-Content -LiteralPath $pollManualQueue -Encoding utf8 -Value (($pollManualTicket | ConvertTo-Json -Compress -Depth 10))
 New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollManualTicket.ticket_id) -EventName ([string]$pollManualTicket.event)
 
-$pollManualRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollManualQueue -Last 20 -AsJson | Out-String
+$pollManualRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollManualQueue -StatePath $pollManualState -LedgerPath $pollManualLedger -Last 20 -AsJson | Out-String
 $pollManualJson = $null
 try {
     $pollManualJson = $pollManualRaw | ConvertFrom-Json -ErrorAction Stop
@@ -557,11 +589,148 @@ $pollManualTarget = if ($pollManualRow.Count -gt 0) { $pollManualRow[0] } else {
 $pollManualHasOrder = ($null -ne $pollManualTarget -and ($pollManualTarget.PSObject.Properties.Name -contains 'next_command_order'))
 $pollManualNames = if ($pollManualHasOrder) { @($pollManualTarget.next_command_order) } else { @() }
 $pollManualHasContinueWatch = ($pollManualNames -contains 'continue_watch_command')
-$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 2 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualHasContinueWatch)
+$pollManualLegacySteps = @($pollManualNames | Where-Object { $_ -in @('handled_receipt_command', 'validate_receipt_command', 'mark_processed_command', 'post_check_command', 'ticket_closure_check_command', 'event_dedup_health_check_command', 'final_status_closeout_command', 'final_status_closeout_apply_ack_command') })
+$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 3 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualHasContinueWatch -and $pollManualNames[$pollManualNames.Count - 1] -eq 'atomic_closeout_command' -and $pollManualLegacySteps.Count -eq 0)
 $pollManualReason = if ($pollManualPass) { 'poll-manual-command-order-runtime-present' } else { 'missing-poll-manual-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-manual-command-order-runtime' -Pass $pollManualPass -Reason $pollManualReason))
 
-# Case 10: fingerprint normalization must collapse the same issue with different line numbers to one token.
+# Atomic closeout must persist receipt and processed state, and replay idempotently.
+$closeoutRoot = Join-Path $outDir 'atomic_closeout_runtime'
+$closeoutQueue = Join-Path $closeoutRoot 'queue.jsonl'
+$closeoutState = Join-Path $closeoutRoot 'state.json'
+$closeoutLedger = Join-Path $closeoutRoot 'ledger.json'
+$closeoutTakeover = Join-Path $closeoutRoot 'takeover'
+New-Item -ItemType Directory -Path $closeoutTakeover -Force | Out-Null
+$closeoutTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = 'T-MINI-CLOSEOUT-' + $stamp
+    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    source = 'status-ticket-mini-regression'
+    event = 'incident-captured'
+    severity = 'high'
+    requires_confirmation = $false
+    start_file = $pollRuntimeStartFile
+    queue_path = $closeoutQueue
+    session_final_status = 'RUNNING'
+    a_final_status = 'FAIL'
+    b_final_status = 'PENDING'
+    detail = 'atomic closeout runtime probe'
+    recommended_action = 'probe'
+    preferred_stage = 'A'
+    self_healable = $true
+    non_recoverable_env = $false
+}
+Set-Content -LiteralPath $closeoutQueue -Encoding utf8 -Value (($closeoutTicket | ConvertTo-Json -Compress -Depth 10))
+$null = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -Last 20 -AsJson
+
+$closeoutFirst = $null
+$closeoutReplay = $null
+try {
+    $closeoutFirstRaw = & $atomicCloseoutPath -StartFile $pollRuntimeStartFile -TicketId ([string]$closeoutTicket.ticket_id) -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -TakeoverRoot $closeoutTakeover -Last 20 -AsJson | Out-String
+    $closeoutFirst = $closeoutFirstRaw | ConvertFrom-Json -ErrorAction Stop
+    $closeoutReplayRaw = & $atomicCloseoutPath -StartFile $pollRuntimeStartFile -TicketId ([string]$closeoutTicket.ticket_id) -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -TakeoverRoot $closeoutTakeover -Last 20 -AsJson | Out-String
+    $closeoutReplay = $closeoutReplayRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $closeoutFirst = $null
+    $closeoutReplay = $null
+}
+$closeoutFirstPass = ($null -ne $closeoutFirst -and [bool]$closeoutFirst.success -and [bool]$closeoutFirst.processed -and [string]$closeoutFirst.ledger_status -eq 'done' -and [bool]$closeoutFirst.receipt_valid -and [bool]$closeoutFirst.closure_pass)
+$closeoutReplayPass = ($null -ne $closeoutReplay -and [bool]$closeoutReplay.success -and [bool]$closeoutReplay.processed -and [string]$closeoutReplay.ledger_status -eq 'done' -and [bool]$closeoutReplay.receipt_valid -and [bool]$closeoutReplay.closure_pass)
+$atomicCloseoutRuntimePass = ($closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
+$atomicCloseoutRuntimeReason = if ($atomicCloseoutRuntimePass) { 'atomic-ticket-closeout-runtime-present' } else { 'atomic-ticket-closeout-runtime-failed' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-runtime' -Pass $atomicCloseoutRuntimePass -Reason $atomicCloseoutRuntimeReason))
+
+# An unknown ticket must fail closed with parseable machine facts and a nonzero exit code.
+$closeoutMissingTicketId = 'T-MINI-CLOSEOUT-MISSING-' + $stamp
+$closeoutMissingRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $atomicCloseoutPath -StartFile $pollRuntimeStartFile -TicketId $closeoutMissingTicketId -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -TakeoverRoot $closeoutTakeover -Last 20 -AsJson 2>&1)
+$closeoutMissingExitCode = $LASTEXITCODE
+$closeoutMissing = $null
+try {
+    $closeoutMissingText = [string]::Join("`n", @($closeoutMissingRaw | ForEach-Object { [string]$_ }))
+    $closeoutMissingJsonStart = $closeoutMissingText.IndexOf('{')
+    if ($closeoutMissingJsonStart -lt 0) {
+        throw 'fail-closed probe did not return JSON'
+    }
+    $closeoutMissing = ($closeoutMissingText.Substring($closeoutMissingJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+}
+catch {
+    $closeoutMissing = $null
+}
+$atomicCloseoutFailClosedPass = ($closeoutMissingExitCode -ne 0 -and $null -ne $closeoutMissing -and -not [bool]$closeoutMissing.success -and (-not [bool]$closeoutMissing.processed -or -not [bool]$closeoutMissing.receipt_valid -or [string]$closeoutMissing.ledger_status -ne 'done' -or -not [bool]$closeoutMissing.closure_pass) -and [string]::IsNullOrWhiteSpace([string]$closeoutMissing.handled_at))
+$atomicCloseoutFailClosedReason = if ($atomicCloseoutFailClosedPass) { 'atomic-ticket-closeout-fail-closed-runtime-present' } else { 'atomic-ticket-closeout-fail-closed-runtime-failed' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-fail-closed-runtime' -Pass $atomicCloseoutFailClosedPass -Reason $atomicCloseoutFailClosedReason))
+
+# Render a real dispatch message with all interactive senders disabled.
+$dispatchRuntimeRoot = Join-Path $outDir 'atomic_dispatch_runtime'
+$dispatchRuntimeStartFile = Join-Path $dispatchRuntimeRoot 'start.md'
+$dispatchRuntimeQueue = Join-Path $dispatchRuntimeRoot 'queue.jsonl'
+$dispatchRuntimeBrief = Join-Path $dispatchRuntimeRoot 'brief.md'
+$dispatchRuntimeTicketId = 'T-MINI-DISPATCH-' + $stamp
+$dispatchRuntimeAtomicMarker = 'ATOMIC-CLOSEOUT-RUNTIME-MARKER-' + $stamp
+Write-Utf8BomText -Path $dispatchRuntimeStartFile -Text @"
+AI_CHAT_POLICY_WORK_MODE=event-only
+AI_CHAT_DISPATCH_USE_IPC=false
+AI_CHAT_DISPATCH_USE_PY_SENDER=false
+AI_CHAT_DISPATCH_USE_AHK=false
+SESSION_FINAL_STATUS=RUNNING
+A_FINAL_STATUS=FAIL
+B_FINAL_STATUS=PENDING
+"@
+$dispatchRuntimeTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = $dispatchRuntimeTicketId
+    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    event = 'incident-captured'
+    start_file = $dispatchRuntimeStartFile
+    queue_path = $dispatchRuntimeQueue
+}
+Set-Content -LiteralPath $dispatchRuntimeQueue -Encoding utf8 -Value (($dispatchRuntimeTicket | ConvertTo-Json -Compress -Depth 6))
+Write-Utf8BomText -Path $dispatchRuntimeBrief -Text @"
+ticket_id=$dispatchRuntimeTicketId
+event=incident-captured
+route_guard_expected=incident-manual-code-fix
+atomic_closeout_command=$dispatchRuntimeAtomicMarker
+"@
+$dispatchRuntimeState = $null
+try {
+    $null = & $dispatchPath -TicketId $dispatchRuntimeTicketId -TicketEvent 'incident-captured' -StartFile $dispatchRuntimeStartFile -QueuePath $dispatchRuntimeQueue -BriefPath $dispatchRuntimeBrief -NoOpenEditor -SkipClipboard
+    $dispatchRuntimeToken = Get-StableStartFileToken -StartFilePath $dispatchRuntimeStartFile
+    $dispatchRuntimeStatePath = Join-Path (Get-UnattendedRepoRoot) ("out\artifacts\ab_agent_queue\chat_dispatch\latest_relay_{0}.json" -f $dispatchRuntimeToken)
+    $dispatchRuntimeState = Get-Content -LiteralPath $dispatchRuntimeStatePath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $dispatchRuntimeState = $null
+}
+$dispatchRuntimeMessage = if ($null -ne $dispatchRuntimeState) { [string]$dispatchRuntimeState.dispatch_message } else { '' }
+$dispatchRuntimeMarkerCount = ([regex]::Matches($dispatchRuntimeMessage, [regex]::Escape($dispatchRuntimeAtomicMarker))).Count
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 JSON 解析'))
+$dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
+
+# A real event dispatch without atomic_closeout_command must explicitly fail closed.
+$dispatchMissingBrief = Join-Path $dispatchRuntimeRoot 'brief_missing_atomic.md'
+Write-Utf8BomText -Path $dispatchMissingBrief -Text @"
+ticket_id=$dispatchRuntimeTicketId
+event=incident-captured
+route_guard_expected=incident-manual-code-fix
+"@
+$dispatchMissingState = $null
+try {
+    $null = & $dispatchPath -TicketId $dispatchRuntimeTicketId -TicketEvent 'incident-captured' -StartFile $dispatchRuntimeStartFile -QueuePath $dispatchRuntimeQueue -BriefPath $dispatchMissingBrief -NoOpenEditor -SkipClipboard
+    $dispatchMissingToken = Get-StableStartFileToken -StartFilePath $dispatchRuntimeStartFile
+    $dispatchMissingStatePath = Join-Path (Get-UnattendedRepoRoot) ("out\artifacts\ab_agent_queue\chat_dispatch\latest_relay_{0}.json" -f $dispatchMissingToken)
+    $dispatchMissingState = Get-Content -LiteralPath $dispatchMissingStatePath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $dispatchMissingState = $null
+}
+$dispatchMissingMessage = if ($null -ne $dispatchMissingState) { [string]$dispatchMissingState.dispatch_message } else { '' }
+$dispatchMissingAtomicPass = ($dispatchMissingMessage.Contains('缺少 atomic_closeout_command') -and $dispatchMissingMessage.Contains('必须 fail-close') -and $dispatchMissingMessage.Contains('不得自行生成 handled_at'))
+$dispatchMissingAtomicReason = if ($dispatchMissingAtomicPass) { 'atomic-dispatch-missing-command-fail-closed-runtime-present' } else { 'atomic-dispatch-missing-command-fail-closed-runtime-failed' }
+[void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-missing-command-fail-closed-runtime' -Pass $dispatchMissingAtomicPass -Reason $dispatchMissingAtomicReason))
+
+# Fingerprint normalization must collapse the same issue with different line numbers to one token.
 $fingerprintProbeA = 'src/core/net.c:42: conflicting types for wc_retry_connect'
 $fingerprintProbeB = 'src/core/net.c:57: conflicting types for wc_retry_connect'
 $fingerprintProbeNormalizedA = Get-FingerprintProbeText -Text $fingerprintProbeA

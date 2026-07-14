@@ -3527,6 +3527,11 @@ if ($briefExists) {
     }
 }
 
+$atomicCloseoutCommand = ''
+if ($briefSettings.Contains('atomic_closeout_command')) {
+    $atomicCloseoutCommand = Convert-ToSingleLineText -Text ([string]$briefSettings.atomic_closeout_command)
+}
+
 $ticketEventOriginal = Convert-ToSingleLineText -Text $TicketEvent
 $ticketEventResolved = $ticketEventOriginal
 $ticketEventSource = ''
@@ -3935,7 +3940,7 @@ $runningStatusShortMessageEn = '[SHORT-CARD] Ticket {0} (event={1}). Read {2}. 1
 $runningStatusFullMessageEn = '[FULL-RUNBOOK][STATUS-REPORT-ONLY] This scheduled running-status-report is observation-only. Use only read-only status commands supplied by the ticket and report current SESSION/A/B state, run_dir, main_round, process/monitor liveness, heartbeat, and pending incident summary. Do not perform self-heal, fault handling, main-process or guard restart, business_resume, source/script/task-definition edits, environment stabilization, or any recovery action. If an abnormal condition is observed, report it and wait for a separate incident ticket. Return handled_at after reporting; return session_closed_at only when stop monitoring is requested or A/B are terminal. Do not commit or push without explicit same-turn authorization. Status: {3}.'
 $runningStatusShortMessageEn = '[SHORT-CARD][STATUS-REPORT-ONLY] Scheduled status report only. Report observed SESSION/A/B, main_round, process/monitor liveness, heartbeat, and pending incident summary using read-only checks. Do not self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover anything from this ticket. Report anomalies and wait for a separate incident ticket. Return handled_at. Status: {3}.'
 $finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
-$taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata; do not change business source code. If the target round is known, name the stage / round / file explicitly (for example, B D4).
+$taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a mismatch between task-definition and current source shape (for example, CODE-STEP expected exactly one match, actual=0), then provide the minimal fix. Only modify task definition files under testdata with the VS Code apply_patch editing tool; do not change business source code. Never use inline Python/PowerShell, redirection, generic string replacement, or a formatter to change task-definition semantics. After editing, validate in this order: JSON parse, focused failing-op static check, then full-round strict checks for every affected D round. If the target round is known, name the stage / round / file explicitly (for example, B D4).
 
 Fix placement rules:
   [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
@@ -3951,7 +3956,7 @@ $genericRecoveryMessageEn = 'Please take over ticket {0} (event={1}) and execute
 $eventReviewMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. This is not an incident recovery ticket; do not run business_resume/stage restart unless route explicitly allows. Produce contract-aligned review conclusion for this event, return handled_at immediately, then continue read-only ticket-driven watch.'
 $eventReviewLowDisturbMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW low-disturb text-receipt flow: read {3} first, run route_guard_command, and stop at concise text receipt plus handled_at. Do not run business_command, continue_watch_command, recovery, or restart unless route_guard classification explicitly allows and requires it.'
 $scriptFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on unattended script self-heal path (guard/trigger/dispatch/poll scripts), keep business source unchanged unless explicitly required by route. If eligible, execute business_resume immediately after script fix verification, then continue_watch_command and handled_at. Keep evidence concise and deterministic.'
-$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code.
+$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code. Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool; never use inline Python/PowerShell, redirection, generic string replacement, or a formatter. Validate in order: JSON parse, focused failing-op check, then strict full-round checks for every affected D round.
 
 Fix placement rules:
   [D1-D4 code-step phase failed: code-edit-failure / task-definition-mismatch]
@@ -3979,7 +3984,7 @@ $runningStatusShortMessageZh = '[SHORT-CARD][STATUS-REPORT-ONLY] 本定时状态
 $runningStatusLowDisturbMessageEn = '[LOW-DISTURB][STATUS-REPORT-ONLY] Report observed runtime status in two lines using read-only checks: "Running normal" or a concise anomaly summary, then "handled_at: YYYY-MM-DD HH:mm:ss". Never self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover from this status ticket. Wait for a separate incident ticket for any action.'
 $runningStatusLowDisturbMessageZh = '[LOW-DISTURB][STATUS-REPORT-ONLY] 仅用只读检查汇报运行状态：正常时只回“运行正常”与 handled_at，异常时只回异常摘要与 handled_at。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、文件修改、环境稳定化或任何恢复动作；任何处置均等待独立事故票。'
 $finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
-$taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许修改 testdata 下任务定义文件，不改业务源码；若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
+$taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-definition 与当前源码形态不匹配（例如 CODE-STEP expected exactly one match, actual=0），并给出最小修复。仅允许使用 VS Code `apply_patch` 编辑工具修改 testdata 下任务定义 JSON，不改业务源码；禁止用终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。编辑后固定按 JSON 解析、故障目标 op 静态检查、所有受影响 D 轮整轮严格检查的顺序验证。若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
 
 修复位置规则：
   [D1-D4 code-step 阶段失败：code-edit-failure / task-definition-mismatch]
@@ -3995,7 +4000,7 @@ $genericRecoveryMessageZh = '请接管票据 {0}（event={1}），按 {2} 执行
 $eventReviewMessageZh = '请接管票据 {0}（event={1}），进入“事件评审流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。本票不是故障恢复票，除非路由明确允许，不得执行 business_resume 或阶段重启。输出与该事件一致的评审结论，立即回传 handled_at，然后继续只读票据监控。'
 $eventReviewLowDisturbMessageZh = '请接管票据 {0}（event={1}），进入“事件评审-低干扰文本回执流程”：先阅读 {3}，执行 route_guard_command 后即止于“简短文本结论 + handled_at”。除非 route_guard 分类明确允许且要求，否则不得执行 business_command、continue_watch_command、恢复或重启动作。'
 $scriptFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“脚本自愈专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理无人值守脚本链路（guard/trigger/dispatch/poll）问题，除非路由明确允许，不要混入业务源码改动。修复后做有界验证，满足条件立即 business_resume -> continue_watch_command -> handled_at。'
-$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。
+$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改。验证顺序固定为 JSON 解析、故障目标 op 检查、所有受影响 D 轮整轮严格检查。
 
 修复位置规则：
   [D1-D4 code-step 阶段失败：code-edit-failure / task-definition-mismatch]
@@ -4013,8 +4018,8 @@ $noticeInfraMessageZh = '请接管票据 {0}（event={1}），进入“known-inf
 
 $selfHealRuleSuffixEn = ''
 $selfHealRuleSuffixZh = ''
-$taskDefinitionSafetySuffixEn = "`n`n[Task-definition safety] Keep qualityPolicy.operationSafetyPolicy=enforce. Use a minimal type=noop round without operations/idempotentContains/postApplyAssertions only when that D round has no code-change objective by design. Never model an empty round with a pattern-equals-replacement self-replacement, and never convert a failed or runtime-absorbed regex-patch round to noop; keep regex-patch and prove absorbed-by-prior-round/idempotent-replay with per-op evidence. Every op must own a unique idempotentContains marker emitted by its replacement; the pattern must be unmatched after replacement and a second whole-round apply must not change text. A replacement that defines the matched function must consume its complete original body. Preserve behavior token-for-token: do not merge distinct action/reason/class tokens. Every new helper must have exactly one definition, any required prototype before its first caller, and at least one real call site. Update same-round postApplyAssertions only when operation results change, using exact regex counts for definitions/prototypes/calls and removed legacy forms; do not alter read-only prior contracts. A focused -OperationIndex check is only a diagnostic fast check and does not run whole-round replay/assertions. Before restart, run tools/test/task_definition_safety_regression.ps1 and full-round static checks without -OperationIndex for every affected D round."
-$taskDefinitionSafetySuffixZh = "`n`n[任务定义安全] 保持 qualityPolicy.operationSafetyPolicy=enforce。仅当某 D 轮从设计上没有代码变更目标时，才使用不含 operations/idempotentContains/postApplyAssertions 的最小 type=noop 结构。禁止用 pattern 与 replacement 相同的自替换表示空轮，也禁止把失败或运行时已被前置轮吸收的 regex-patch 改成 noop；后者必须保留 regex-patch，并用逐 op 证据证明 absorbed-by-prior-round/idempotent-replay。每个 op 必须拥有由自身 replacement 产生的唯一 idempotentContains marker；替换后 pattern 必须不再命中，整轮第二次应用不得改变文本。若 replacement 重写被匹配函数，pattern 必须消费完整原函数体。逐 token 保持语义，不得合并不同 action/reason/class token。每个新 helper 必须恰好一个 definition、在首次 caller 前具备所需且唯一的 prototype，并至少有一个真实调用点。仅当 operation 结构结果变化时同步更新同轮 postApplyAssertions，用精确正则计数验证 definition/prototype/call 和旧形态移除，不得改变前置只读契约。带 -OperationIndex 的目标检查只是诊断快检，不执行整轮 replay/断言。重启前运行 tools/test/task_definition_safety_regression.ps1，并对每个受影响 D 轮执行不带 -OperationIndex 的整轮静态检查。"
+$taskDefinitionSafetySuffixEn = "`n`n[Task-definition safety] Change task-definition JSON semantics only with the VS Code apply_patch editing tool. Never use inline Python/PowerShell, here-strings, redirection, generic string replacement, or a formatter for semantic edits; a formatter may only preserve every JSON value, array order, and operation structure. After editing, validate JSON parsing first, then the focused failing op, then strict full-round checks for every affected D round. Keep qualityPolicy.operationSafetyPolicy=enforce. Use a minimal type=noop round without operations/idempotentContains/postApplyAssertions only when that D round has no code-change objective by design. Never model an empty round with a pattern-equals-replacement self-replacement, and never convert a failed or runtime-absorbed regex-patch round to noop; keep regex-patch and prove absorbed-by-prior-round/idempotent-replay with per-op evidence. Every op must own a unique idempotentContains marker emitted by its replacement; the pattern must be unmatched after replacement and a second whole-round apply must not change text. A replacement that defines the matched function must consume its complete original body. Preserve behavior token-for-token: do not merge distinct action/reason/class tokens. Every new helper must have exactly one definition, any required prototype before its first caller, and at least one real call site. Update same-round postApplyAssertions only when operation results change, using exact regex counts for definitions/prototypes/calls and removed legacy forms; do not alter read-only prior contracts. A focused -OperationIndex check is only a diagnostic fast check and does not run whole-round replay/assertions. Before restart, run tools/test/task_definition_safety_regression.ps1 and full-round static checks without -OperationIndex for every affected D round."
+$taskDefinitionSafetySuffixZh = "`n`n[任务定义安全] 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch` 编辑工具。禁止使用终端内联 Python/PowerShell、here-string、重定向、通用字符串替换或格式化器进行语义编辑；格式化器只能保持所有 JSON 值、数组顺序与 operation 结构不变。编辑后先验证 JSON 解析，再检查故障目标 op，最后对所有受影响 D 轮执行整轮严格检查。保持 qualityPolicy.operationSafetyPolicy=enforce。仅当某 D 轮从设计上没有代码变更目标时，才使用不含 operations/idempotentContains/postApplyAssertions 的最小 type=noop 结构。禁止用 pattern 与 replacement 相同的自替换表示空轮，也禁止把失败或运行时已被前置轮吸收的 regex-patch 改成 noop；后者必须保留 regex-patch，并用逐 op 证据证明 absorbed-by-prior-round/idempotent-replay。每个 op 必须拥有由自身 replacement 产生的唯一 idempotentContains marker；替换后 pattern 必须不再命中，整轮第二次应用不得改变文本。若 replacement 重写被匹配函数，pattern 必须消费完整原函数体。逐 token 保持语义，不得合并不同 action/reason/class token。每个新 helper 必须恰好一个 definition、在首次 caller 前具备所需且唯一的 prototype，并至少有一个真实调用点。仅当 operation 结构结果变化时同步更新同轮 postApplyAssertions，用精确正则计数验证 definition/prototype/call 和旧形态移除，不得改变前置只读契约。带 -OperationIndex 的目标检查只是诊断快检，不执行整轮 replay/断言。重启前运行 tools/test/task_definition_safety_regression.ps1，并对每个受影响 D 轮执行不带 -OperationIndex 的整轮静态检查。"
 if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
     $roundTag = $briefMainRound.ToUpperInvariant()
     $kindTag = $briefFailureKind.ToLowerInvariant()
@@ -4059,8 +4064,8 @@ Always run static check (tools/test/check_task_definition_static.ps1 -TaskDefini
 
 $gitGuardSuffixEn = ' During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn.'
 $gitGuardSuffixZh = ' 无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。'
-$passiveWaitSuffixEn = ' Follow every ticket step without omission and close the ticket with an accurate, evidence-based handled_at receipt. After this ticket is handled, wait silently for the next event/status ticket delivered by the existing guard/trigger/dispatch chain. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or long-running/cross-round monitoring commands; these can interrupt closure when the next ticket arrives. After restarting a main process, finish the current self-heal/fault-handling closure, receipt validation, and mark-processed steps within 3 minutes, then return to silent passive waiting; this limit is not a monitoring window.'
-$passiveWaitSuffixZh = ' 严格按票据流程执行，不遗漏任何操作；回执必须真实准确并有证据支撑，完成 handled_at 校验与 mark_processed，确保票据闭环。本票闭环后，静默等待现有 guard/trigger/dispatch 链投送下一张事件票或状态票；不得创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，这些命令可能在下一张事件票到达时中断收尾。重启主进程后，必须在 3 分钟内完成当前自愈修复/故障处理的收尾、回执校验和 mark_processed，然后回到静默被动等待；该时限不是巡检窗口。'
+$passiveWaitSuffixEn = ' Follow every ticket step without omission. For an event ticket, execute atomic_closeout_command exactly once and claim closure only from its successful machine facts; split receipt fields are audit-only and must not be run one by one. After this ticket is handled, wait silently for the next event/status ticket delivered by the existing guard/trigger/dispatch chain. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or long-running/cross-round monitoring commands; these can interrupt closure when the next ticket arrives. After restarting a main process, execute atomic closeout and pass all machine-fact gates within 3 minutes, then return to silent passive waiting; this limit is not a monitoring window.'
+$passiveWaitSuffixZh = ' 严格按票据流程执行，不遗漏任何操作；事件票最终只执行一次 atomic_closeout_command，仅凭其成功的机器事实声称闭环，旧分步回执字段只作审计兼容、不得逐条执行。本票闭环后，静默等待现有 guard/trigger/dispatch 链投送下一张事件票或状态票；不得创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，这些命令可能在下一张事件票到达时中断收尾。重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后回到静默被动等待；该时限不是巡检窗口。'
 
 function Add-GitGuardConstraint {
     param(
@@ -4486,8 +4491,31 @@ if ($retryBudgetOneTimeOnly -or $retryBudgetExhausted) {
     }
 }
 
+$machineFactCloseoutRule = ''
+if ($eventNormalized -ne 'running-status-report') {
+    if ([string]::IsNullOrWhiteSpace($atomicCloseoutCommand)) {
+        $machineFactCloseoutRule = if ($useChineseDispatchMessage) {
+            '机器事实闭环门禁：当前 brief 缺少 atomic_closeout_command，必须 fail-close。只报告闭环命令缺失并停止；不得自行生成 handled_at，不得声称票据已处理或已闭环。'
+        }
+        else {
+            'Machine-fact closeout gate: atomic_closeout_command is missing from the brief. Fail closed: report the missing command and stop; do not invent handled_at or claim that the ticket is processed or closed.'
+        }
+    }
+    else {
+        $machineFactCloseoutRule = if ($useChineseDispatchMessage) {
+            ('机器事实闭环门禁：最终回复前必须执行以下唯一原子收尾命令：{0}。仅当命令退出码为 0 且 JSON 同时满足 success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true、handled_at 格式有效时，才可从该机器输出原样回传 handled_at 并声称闭环；自然语言声明不能替代此门禁。' -f $atomicCloseoutCommand)
+        }
+        else {
+            ('Machine-fact closeout gate: before the final reply, execute this single atomic closeout command: {0}. Claim closure and copy handled_at verbatim from machine output only when exit code is 0 and JSON reports success=true, processed=true, ledger_status=done, receipt_valid=true, closure_pass=true, and a valid handled_at; natural-language claims do not satisfy this gate.' -f $atomicCloseoutCommand)
+        }
+    }
+}
+
 if (-not [string]::IsNullOrWhiteSpace($eventQueuePolicyHint)) {
-    $firstMessage = ("{0}`n`n{1}`n`n{2}" -f $firstMessage, $eventQueuePolicyHint, $mandatoryReceiptRule).Trim()
+    $firstMessage = ("{0}`n`n{1}" -f $firstMessage, $eventQueuePolicyHint).Trim()
+}
+if (-not [string]::IsNullOrWhiteSpace($machineFactCloseoutRule)) {
+    $firstMessage = ("{0}`n`n{1}`n`n{2}" -f $firstMessage, $machineFactCloseoutRule, $mandatoryReceiptRule).Trim()
 }
 
 Write-DispatchLog ("dispatch_phase message_ready ticket={0} event={1} route_guard_expected={2} summary_len={3}" -f $TicketId, $TicketEvent, $routeGuardExpected, $runningStatusShortSummary.Length)

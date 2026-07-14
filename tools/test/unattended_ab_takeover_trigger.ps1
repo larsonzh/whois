@@ -1859,6 +1859,18 @@ function New-TakeoverBrief {
     $eventDedupHealthCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $finalStatusCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $finalStatusCloseoutApplyAckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -ApplyAcknowledge -AsJson' -f $startFileRel
+    $handledReceiptCommand = ''
+    $validateReceiptCommand = ''
+    $markProcessedCommand = ''
+    $postCheckCommand = ''
+    $atomicCloseoutCommand = ''
+    if ($eventNameNormalized -ne 'running-status-report') {
+        $handledReceiptCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last 20 -AsJson' -f $startFileRel, $ticketId
+        $validateReceiptCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/validate_ticket_handled_receipt.ps1 -StartFile "{0}" -TicketId "{1}" -AsJson' -f $startFileRel, $ticketId
+        $markProcessedCommand = $handledReceiptCommand
+        $postCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -IncludeStatusReports -Last 20 -AsJson' -f $startFileRel
+        $atomicCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_agent_ticket_closeout.ps1 -StartFile "{0}" -TicketId "{1}" -QueuePath "{2}" -Last 20 -AsJson' -f $startFileRel, $ticketId, $queueRel
+    }
 
     $incidentLikeEvents = @{
         'incident-captured' = $true
@@ -1956,13 +1968,13 @@ function New-TakeoverBrief {
         'incident-auto-resume-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: edit only the allowed task-definition operations for {0}/{1} under testdata; run target-op then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
+            'code-fix: use VS Code apply_patch to edit only the allowed task-definition operations for {0}/{1} under testdata; validate JSON parse, target-op, then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
             break
         }
         'incident-manual-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: edit only the allowed task-definition operations for {0}/{1} under testdata; run target-op then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
+            'code-fix: use VS Code apply_patch to edit only the allowed task-definition operations for {0}/{1} under testdata; validate JSON parse, target-op, then affected full-round checks; do not edit business source directly' -f $stageText, $roundText
             break
         }
         'incident-auto-resume-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
@@ -2021,6 +2033,10 @@ function New-TakeoverBrief {
         if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
         if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) { [void]$nextCommands.Add($resumeCommand); [void]$nextCommandNames.Add('resume_command') }
         if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
+    }
+
+    if ($eventNameNormalized -ne 'running-status-report') {
+        if (-not [string]::IsNullOrWhiteSpace($atomicCloseoutCommand)) { [void]$nextCommands.Add($atomicCloseoutCommand); [void]$nextCommandNames.Add('atomic_closeout_command') }
     }
 
     # Integrate diagnostic/closeout helper commands into brief suggestions.
@@ -2140,6 +2156,11 @@ function New-TakeoverBrief {
         ('self_heal_scope={0}' -f $selfHealScope),
         ('self_heal_hint={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_heal_hint'))),
         ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
+        ('handled_receipt_command={0}' -f $handledReceiptCommand),
+        ('validate_receipt_command={0}' -f $validateReceiptCommand),
+        ('mark_processed_command={0}' -f $markProcessedCommand),
+        ('post_check_command={0}' -f $postCheckCommand),
+        ('atomic_closeout_command={0}' -f $atomicCloseoutCommand),
         ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),
         ('event_dedup_health_check_command={0}' -f $eventDedupHealthCheckCommand),
         ('final_status_closeout_command={0}' -f $finalStatusCloseoutCommand),

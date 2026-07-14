@@ -648,8 +648,8 @@ Get-Process -Name Code | Where-Object { $_.MainWindowTitle } |
    - 记录已执行工单 ID 到持久化位置
 
   在本仓库无人值守链路中，可直接复用 `tools/test/poll_agent_tickets.ps1` 返回字段：
-  - `mark_processed_command`：回写已执行 `ticket_id`（持久化到 poll state/ledger）
-  - `post_check_command`：执行后补偿检查（再次拉取 pending rows；若仍有 rows 则继续处理直到 `no_pending_rows`）
+  - `atomic_closeout_command`：事件票业务动作完成后只执行一次；统一写入 `handled_at`、processed、ledger receipt 并完成 closure 校验。仅当退出码为 0 且机器事实门禁全部通过时才可声称闭环。
+  - `mark_processed_command`、`handled_receipt_command`、`validate_receipt_command`、`post_check_command`：保留为审计兼容字段，不得由 Agent 逐条执行。
   - 状态票去重：post-check 仅执行最新一条 `running-status-report`；更早未完成状态票会在同轮自动标记已执行，避免短时间重复执行相同任务流
 
 3. **监控重试** — `-AutoEscalate` 可在 normal 超时时自动升级为 high 重试，

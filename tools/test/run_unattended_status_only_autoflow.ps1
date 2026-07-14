@@ -144,6 +144,7 @@ function Get-RequiredRouteActionsForStep {
     switch ((Convert-ToSingleLineText -Text $StepName).ToLowerInvariant()) {
         'business_command' { return @('business_command', 'business_resume') }
         'continue_watch_command' { return @('continue_watch_command', 'read-only-watch') }
+        'atomic_closeout_command' { return @('handled_at', 'mark-handled') }
         'handled_receipt_command' { return @('handled_at', 'mark-handled') }
         'validate_receipt_command' { return @('handled_at', 'mark-handled') }
         'mark_processed_command' { return @('handled_at', 'mark-handled') }
@@ -508,6 +509,7 @@ if ($canExecute) {
     $stepCommandMap = [ordered]@{
         business_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command'
         continue_watch_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command'
+        atomic_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'atomic_closeout_command'
         ticket_closure_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'ticket_closure_check_command'
         event_dedup_health_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event_dedup_health_check_command'
         final_status_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_command'
@@ -531,6 +533,7 @@ if ($canExecute) {
         'route_guard_command',
         'business_command',
         'continue_watch_command',
+        'atomic_closeout_command',
         'ticket_closure_check_command',
         'event_dedup_health_check_command',
         'final_status_closeout_command',
@@ -673,6 +676,7 @@ $output = [ordered]@{
             next_command_order = @(Get-NormalizedStringList -Values (Get-ObjectPropertyValue -InputObject $selectedTicket -Name 'next_command_order'))
             business_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'business_command'
             continue_watch_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'continue_watch_command'
+            atomic_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'atomic_closeout_command'
             ticket_closure_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'ticket_closure_check_command'
             event_dedup_health_check_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'event_dedup_health_check_command'
             final_status_closeout_command = Get-ObjectPropertyString -InputObject $selectedTicket -Name 'final_status_closeout_command'

@@ -35,8 +35,12 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $stdout1 = Join-Path $outDir 'poll1.json'
 $stdout2 = Join-Path $outDir 'poll2.json'
+$queuePath = Join-Path $outDir 'agent_tickets.jsonl'
+$statePath = Join-Path $outDir 'poll_state.json'
+$ledgerPath = Join-Path $outDir 'poll_ledger.json'
+[System.IO.File]::WriteAllText($queuePath, '', (New-Object System.Text.UTF8Encoding($true)))
 
-$argLine = "-NoProfile -ExecutionPolicy Bypass -File `"$pollScript`" -StartFile `"$startFilePath`" -Last $Last -AsJson"
+$argLine = "-NoProfile -ExecutionPolicy Bypass -File `"$pollScript`" -StartFile `"$startFilePath`" -QueuePath `"$queuePath`" -StatePath `"$statePath`" -LedgerPath `"$ledgerPath`" -Last $Last -AsJson"
 $proc1 = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -RedirectStandardOutput $stdout1 -NoNewWindow -PassThru
 $proc2 = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -RedirectStandardOutput $stdout2 -NoNewWindow -PassThru
 
@@ -58,7 +62,31 @@ $raw2 = Get-Content -LiteralPath $stdout2 -Raw -Encoding utf8
 $json1 = $raw1 | ConvertFrom-Json -ErrorAction Stop
 $json2 = $raw2 | ConvertFrom-Json -ErrorAction Stop
 
-$busyFlags = @([bool]$json1.lock_busy, [bool]$json2.lock_busy)
+function Get-PollLockFact {
+    param([object]$PollResult)
+
+    if ($PollResult.PSObject.Properties.Name -contains 'lock_busy') {
+        return [pscustomobject]@{
+            lock_busy = [bool]$PollResult.lock_busy
+            lock_name = [string]$PollResult.lock_name
+            lock_wait_ms = if ($PollResult.PSObject.Properties.Name -contains 'lock_wait_ms') { [int]$PollResult.lock_wait_ms } else { -1 }
+        }
+    }
+
+    if ($PollResult.PSObject.Properties.Name -contains 'poll_lock') {
+        return [pscustomobject]@{
+            lock_busy = [bool]$PollResult.poll_lock.lock_busy
+            lock_name = [string]$PollResult.poll_lock.lock_name
+            lock_wait_ms = [int]$PollResult.poll_lock.lock_wait_ms
+        }
+    }
+
+    throw 'poll result does not contain lock facts'
+}
+
+$lock1 = Get-PollLockFact -PollResult $json1
+$lock2 = Get-PollLockFact -PollResult $json2
+$busyFlags = @([bool]$lock1.lock_busy, [bool]$lock2.lock_busy)
 $busyCount = @($busyFlags | Where-Object { $_ }).Count
 $pass = ($busyCount -eq 1)
 
@@ -71,15 +99,15 @@ $summary = [ordered]@{
     busy_count = $busyCount
     poll1 = [ordered]@{
         exit_code = [int]$proc1.ExitCode
-        lock_busy = [bool]$json1.lock_busy
-        lock_name = [string]$json1.lock_name
-        lock_wait_ms = if ($json1.PSObject.Properties.Name -contains 'lock_wait_ms') { [int]$json1.lock_wait_ms } else { -1 }
+        lock_busy = [bool]$lock1.lock_busy
+        lock_name = [string]$lock1.lock_name
+        lock_wait_ms = [int]$lock1.lock_wait_ms
     }
     poll2 = [ordered]@{
         exit_code = [int]$proc2.ExitCode
-        lock_busy = [bool]$json2.lock_busy
-        lock_name = [string]$json2.lock_name
-        lock_wait_ms = if ($json2.PSObject.Properties.Name -contains 'lock_wait_ms') { [int]$json2.lock_wait_ms } else { -1 }
+        lock_busy = [bool]$lock2.lock_busy
+        lock_name = [string]$lock2.lock_name
+        lock_wait_ms = [int]$lock2.lock_wait_ms
     }
 }
 

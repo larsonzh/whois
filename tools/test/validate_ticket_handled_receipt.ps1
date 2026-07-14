@@ -281,8 +281,8 @@ if ($missingReceipt -and $enqueueReminder) {
         }
         $reminderTicketId = ('receipt-reminder-{0}-{1}' -f $timestamp, $ticketSuffix)
 
-        $detail = ('Missing mandatory handled_at receipt for ticket {0}. Run handled_receipt_command and return handled_at: YYYY-MM-DD HH:mm:ss.' -f $ticketId)
-        $recommended = ('Execute handled_receipt_command for ticket {0}, then reply with handled_at: YYYY-MM-DD HH:mm:ss.' -f $ticketId)
+        $detail = ('Missing mandatory handled_at receipt for ticket {0}. Fail closed and execute the ticket brief atomic_closeout_command; do not run split receipt commands individually.' -f $ticketId)
+        $recommended = ('Execute atomic_closeout_command exactly once for ticket {0}; return handled_at only when all machine-fact gates pass.' -f $ticketId)
         if ($retryBudgetMismatch) {
             $detail = ('{0} retry_budget_used expected={1} actual={2}.' -f $detail, $expectedRetryBudgetUsed, (if ([string]::IsNullOrWhiteSpace($retryBudgetUsed)) { 'missing' } else { $retryBudgetUsed }))
             $recommended = ('{0} Also provide retry_budget_used: {1}.' -f $recommended, $expectedRetryBudgetUsed)
