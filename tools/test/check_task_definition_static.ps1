@@ -10,7 +10,13 @@
     [ValidateSet('A', 'B')][string]$Stage = 'A',
     [switch]$EnableFingerprintCheck,
     [AllowEmptyString()][string]$BaselineTargetFile = '',
-    [AllowEmptyString()][string]$OutputEffectiveTargetFile = ''
+    [AllowEmptyString()][string]$OutputEffectiveTargetFile = '',
+    [ValidateRange(100, 30000)][int]$RegexTimeoutMs = 2000,
+    [switch]$SyntaxOnly,
+    [switch]$SkipSingleInstance,
+    [ValidateRange(1000, 300000)][int]$WorkerTimeoutMs = 30000,
+    [switch]$InternalWorker,
+    [AllowEmptyString()][string]$WorkerExitCodeFile = ''
 )
 
 Set-StrictMode -Version Latest
@@ -25,6 +31,142 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
 
+function Get-TaskStaticMutexName {
+    param([string]$RepositoryRoot)
+
+    $fullPath = [System.IO.Path]::GetFullPath($RepositoryRoot).ToLowerInvariant()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($fullPath)
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try {
+        $hashBytes = $sha1.ComputeHash($bytes)
+    }
+    finally {
+        $sha1.Dispose()
+    }
+
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
+    return "Local\whois-task-static-check-$hash"
+}
+
+$taskStaticMutex = $null
+$taskStaticMutexAcquired = $false
+if (-not $SkipSingleInstance.IsPresent) {
+    $taskStaticMutexName = Get-TaskStaticMutexName -RepositoryRoot $RepoRoot
+    $taskStaticMutex = New-Object System.Threading.Mutex($false, $taskStaticMutexName)
+    try {
+        try {
+            $taskStaticMutexAcquired = $taskStaticMutex.WaitOne(0)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $taskStaticMutexAcquired = $true
+        }
+
+        if (-not $taskStaticMutexAcquired) {
+            Write-Output ("[TASK-STATIC-CHECK] single_instance_conflict=true mutex={0}" -f $taskStaticMutexName)
+            $taskStaticMutex.Dispose()
+            exit 4
+        }
+    }
+    catch {
+        if (-not $taskStaticMutexAcquired -and $null -ne $taskStaticMutex) {
+            $taskStaticMutex.Dispose()
+        }
+        throw
+    }
+}
+
+function Exit-TaskStaticCheck {
+    param([int]$ExitCode)
+
+    if ($script:InternalWorker.IsPresent -and -not [string]::IsNullOrWhiteSpace($script:WorkerExitCodeFile)) {
+        [System.IO.File]::WriteAllText($script:WorkerExitCodeFile, [string]$ExitCode, [System.Text.Encoding]::ASCII)
+    }
+    if ($script:taskStaticMutexAcquired -and $null -ne $script:taskStaticMutex) {
+        try {
+            $script:taskStaticMutex.ReleaseMutex()
+        }
+        finally {
+            $script:taskStaticMutex.Dispose()
+            $script:taskStaticMutex = $null
+            $script:taskStaticMutexAcquired = $false
+        }
+    }
+    exit $ExitCode
+}
+
+if (-not $InternalWorker.IsPresent) {
+    $workerParameters = @{}
+    foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+        if ($entry.Key -notin @('InternalWorker', 'SkipSingleInstance', 'WorkerTimeoutMs')) {
+            $workerParameters[$entry.Key] = $entry.Value
+        }
+    }
+    $workerParameters['RepoRoot'] = $RepoRoot
+    $workerParameters['InternalWorker'] = $true
+    $workerParameters['SkipSingleInstance'] = $true
+
+    $workerToken = [guid]::NewGuid().ToString('N')
+    $workerParameterFile = Join-Path $env:TEMP ("whois-task-static-{0}.clixml" -f $workerToken)
+    $workerStdoutFile = Join-Path $env:TEMP ("whois-task-static-{0}.stdout" -f $workerToken)
+    $workerStderrFile = Join-Path $env:TEMP ("whois-task-static-{0}.stderr" -f $workerToken)
+    $workerExitCodeFile = Join-Path $env:TEMP ("whois-task-static-{0}.exit" -f $workerToken)
+    $workerProcess = $null
+
+    try {
+        $workerParameters['WorkerExitCodeFile'] = $workerExitCodeFile
+        $workerParameters | Export-Clixml -LiteralPath $workerParameterFile
+        $escapedParameterFile = $workerParameterFile.Replace("'", "''")
+        $escapedScriptPath = $PSCommandPath.Replace("'", "''")
+        $escapedExitCodeFile = $workerExitCodeFile.Replace("'", "''")
+        $workerCommand = "`$ProgressPreference = 'SilentlyContinue'; `$parameters = Import-Clixml -LiteralPath '$escapedParameterFile'; try { & '$escapedScriptPath' @parameters } catch { Write-Error `$_; [IO.File]::WriteAllText('$escapedExitCodeFile', '1', [Text.Encoding]::ASCII) }; exit 0"
+        $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
+
+        $workerProcess = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) `
+            -RedirectStandardOutput $workerStdoutFile -RedirectStandardError $workerStderrFile `
+            -WindowStyle Hidden -PassThru
+
+        if (-not $workerProcess.WaitForExit($WorkerTimeoutMs)) {
+            try {
+                $workerProcess.Kill()
+                [void]$workerProcess.WaitForExit(5000)
+            }
+            catch {
+                [Console]::Error.WriteLine("[TASK-STATIC-CHECK] worker_termination_error={0}" -f $_.Exception.Message)
+            }
+            Write-Output ("[TASK-STATIC-CHECK] worker_timeout=true timeout_ms={0}" -f $WorkerTimeoutMs)
+            Exit-TaskStaticCheck -ExitCode 5
+        }
+        $workerProcess.WaitForExit()
+
+        if (Test-Path -LiteralPath $workerStdoutFile -PathType Leaf) {
+            Get-Content -LiteralPath $workerStdoutFile | ForEach-Object { Write-Output ([string]$_) }
+        }
+        if (Test-Path -LiteralPath $workerStderrFile -PathType Leaf) {
+            Get-Content -LiteralPath $workerStderrFile | ForEach-Object { [Console]::Error.WriteLine([string]$_) }
+        }
+        $effectiveWorkerExitCode = $workerProcess.ExitCode
+        if (Test-Path -LiteralPath $workerExitCodeFile -PathType Leaf) {
+            $workerExitCodeText = (Get-Content -LiteralPath $workerExitCodeFile -Raw).Trim()
+            $parsedWorkerExitCode = 0
+            if ([int]::TryParse($workerExitCodeText, [ref]$parsedWorkerExitCode)) {
+                $effectiveWorkerExitCode = $parsedWorkerExitCode
+            }
+        }
+        Exit-TaskStaticCheck -ExitCode $effectiveWorkerExitCode
+    }
+    finally {
+        if ($null -ne $workerProcess) {
+            $workerProcess.Dispose()
+        }
+        foreach ($temporaryFile in @($workerParameterFile, $workerStdoutFile, $workerStderrFile, $workerExitCodeFile)) {
+            if (Test-Path -LiteralPath $temporaryFile) {
+                Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 $effectiveRoundTag = ''
 if (-not [string]::IsNullOrWhiteSpace($RoundTag)) {
     $effectiveRoundTag = $RoundTag.Trim().ToUpperInvariant()
@@ -37,16 +179,17 @@ if ($RequestedOperationIndex -gt 0 -and [string]::IsNullOrWhiteSpace($effectiveR
     throw '[TASK-STATIC-CHECK] OperationIndex requires RoundTag'
 }
 
-$resolvedTaskDefinition = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) {
-    (Resolve-Path -LiteralPath $TaskDefinitionFile).Path
+$taskDefinitionCandidate = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) {
+    $TaskDefinitionFile
 }
 else {
-    (Resolve-Path -LiteralPath (Join-Path $RepoRoot $TaskDefinitionFile)).Path
+    Join-Path $RepoRoot $TaskDefinitionFile
 }
 
-if (-not (Test-Path -LiteralPath $resolvedTaskDefinition)) {
+if (-not (Test-Path -LiteralPath $taskDefinitionCandidate -PathType Leaf)) {
     throw "[TASK-STATIC-CHECK] task definition not found: $TaskDefinitionFile"
 }
+$resolvedTaskDefinition = (Resolve-Path -LiteralPath $taskDefinitionCandidate).Path
 
 $errors = New-Object 'System.Collections.Generic.List[string]'
 $warnings = New-Object 'System.Collections.Generic.List[string]'
@@ -76,6 +219,21 @@ function Add-OperationSafetyIssue {
     elseif ($script:operationSafetyPolicy -eq 'warn') {
         Add-WarnIssue $Message
     }
+}
+
+function New-TaskRegex {
+    param(
+        [string]$Pattern,
+        [System.Text.RegularExpressions.RegexOptions]$Options = [System.Text.RegularExpressions.RegexOptions]::None
+    )
+
+    return [regex]::new($Pattern, $Options, [TimeSpan]::FromMilliseconds($RegexTimeoutMs))
+}
+
+function Test-UnsafeNestedQuantifier {
+    param([string]$Pattern)
+
+    return [regex]::IsMatch($Pattern, '\((?:\\.|[^()]){0,512}[+*](?:\\.|[^()]){0,512}\)\s*(?:[+*]|\{\d+(?:,\d*)?\})')
 }
 
 function Read-KeyValuePairs {
@@ -491,6 +649,19 @@ if ($null -eq $taskDefinition -or -not ($taskDefinition.PSObject.Properties.Name
     throw "[TASK-STATIC-CHECK] task definition missing rounds: $resolvedTaskDefinition"
 }
 
+if ($SyntaxOnly.IsPresent) {
+    if (-not ($taskDefinition.PSObject.Properties.Name -contains 'targetFile') -or
+        [string]::IsNullOrWhiteSpace([string]$taskDefinition.targetFile)) {
+        throw "[TASK-STATIC-CHECK] task definition missing targetFile: $resolvedTaskDefinition"
+    }
+    if ($null -eq $taskDefinition.rounds -or @($taskDefinition.rounds.PSObject.Properties).Count -eq 0) {
+        throw "[TASK-STATIC-CHECK] task definition rounds section is empty: $resolvedTaskDefinition"
+    }
+
+    Write-Output ("[TASK-STATIC-CHECK] syntax_only=true status=PASS task={0}" -f $resolvedTaskDefinition)
+    Exit-TaskStaticCheck -ExitCode 0
+}
+
 $script:operationSafetyPolicy = 'off'
 if ($taskDefinition.PSObject.Properties.Name -contains 'qualityPolicy' -and
     $null -ne $taskDefinition.qualityPolicy -and
@@ -578,6 +749,8 @@ foreach ($prerequisiteTaskDefinitionFile in @($PrerequisiteTaskDefinitionFiles))
     if ($FailOnWarnings.IsPresent) {
         $prerequisiteArgs += '-FailOnWarnings'
     }
+    $prerequisiteArgs += '-SkipSingleInstance'
+    $prerequisiteArgs += '-InternalWorker'
 
     $prerequisiteOutput = @(& powershell @prerequisiteArgs 2>&1 | ForEach-Object { [string]$_ })
     $prerequisiteExitCode = $LASTEXITCODE
@@ -721,6 +894,7 @@ foreach ($roundEntry in $roundEntries) {
     }
 
     $operationOrdinal = 0
+    $roundOperationFailed = $false
     foreach ($operation in $operations) {
         $operationOrdinal++
         if ($RequestedOperationIndex -gt 0 -and $operationOrdinal -gt $RequestedOperationIndex) {
@@ -732,7 +906,13 @@ foreach ($roundEntry in $roundEntries) {
         $pattern = [string]$operation.pattern
         if ([string]::IsNullOrWhiteSpace($pattern)) {
             Add-ErrorIssue ("round={0} op={1} missing pattern" -f $roundTag, $operationOrdinal)
-            continue
+            $roundOperationFailed = $true
+            break
+        }
+        if (Test-UnsafeNestedQuantifier -Pattern $pattern) {
+            Add-ErrorIssue ("round={0} op={1} unsafe_nested_quantifier=true" -f $roundTag, $operationOrdinal)
+            $roundOperationFailed = $true
+            break
         }
 
         $replacement = [string]$operation.replacement
@@ -745,18 +925,27 @@ foreach ($roundEntry in $roundEntries) {
 
         $regex = $null
         try {
-            $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+            $regex = New-TaskRegex -Pattern $pattern -Options ([System.Text.RegularExpressions.RegexOptions]::Singleline)
         }
         catch {
             Add-ErrorIssue ("round={0} op={1} invalid regex pattern detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
-            continue
+            $roundOperationFailed = $true
+            break
         }
 
-        $matchCount = $regex.Matches($workingText).Count
+        try {
+            $matchCount = $regex.Matches($workingText).Count
+        }
+        catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+            Add-ErrorIssue ("round={0} op={1} regex_timeout phase=match timeout_ms={2}" -f $roundTag, $operationOrdinal, $RegexTimeoutMs)
+            $roundOperationFailed = $true
+            break
+        }
         if ($matchCount -gt 1) {
             $issuePrefix = if ($isPrerequisiteSimulation) { 'prerequisite simulation failed ' } else { '' }
             Add-ErrorIssue ("{0}round={1} op={2} pattern not unique match_count={3}" -f $issuePrefix, $roundTag, $operationOrdinal, $matchCount)
-            continue
+            $roundOperationFailed = $true
+            break
         }
 
         if ($matchCount -eq 1) {
@@ -772,10 +961,21 @@ foreach ($roundEntry in $roundEntries) {
                 $postReplaceMatchCount = $regex.Matches($workingText).Count
                 if ($postReplaceMatchCount -ne 0) {
                     Add-OperationSafetyIssue ("round={0} op={1} pattern remains matchable after replacement match_count={2}" -f $roundTag, $operationOrdinal, $postReplaceMatchCount)
+                    if ($script:operationSafetyPolicy -eq 'enforce') {
+                        $roundOperationFailed = $true
+                        break
+                    }
                 }
+            }
+            catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+                Add-ErrorIssue ("round={0} op={1} regex_timeout phase=replace-or-postcheck timeout_ms={2}" -f $roundTag, $operationOrdinal, $RegexTimeoutMs)
+                $roundOperationFailed = $true
+                break
             }
             catch {
                 Add-ErrorIssue ("round={0} op={1} replacement_apply_failed detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
+                $roundOperationFailed = $true
+                break
             }
 
             continue
@@ -802,13 +1002,16 @@ foreach ($roundEntry in $roundEntries) {
 
         if ($roundHasAnyMarkerInWorking) {
             Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 but only round-level idempotent marker exists; add operation.idempotentContains or restore a unique pattern" -f $roundTag, $operationOrdinal)
-            continue
+            $roundOperationFailed = $true
+            break
         }
 
         Add-ErrorIssue ("round={0} op={1} pattern_unmatched=0 and no idempotent marker found in effective text" -f $roundTag, $operationOrdinal)
+        $roundOperationFailed = $true
+        break
     }
 
-    if ($script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
+    if (-not $roundOperationFailed -and $script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
         $firstPassText = $workingText
         $replayText = $firstPassText
         for ($operationIndex = 0; $operationIndex -lt $operations.Count; $operationIndex++) {
@@ -818,12 +1021,19 @@ foreach ($roundEntry in $roundEntries) {
                 continue
             }
             try {
-                $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+                $regex = New-TaskRegex -Pattern $pattern -Options ([System.Text.RegularExpressions.RegexOptions]::Singleline)
             }
             catch {
                 continue
             }
-            $replayMatchCount = $regex.Matches($replayText).Count
+            try {
+                $replayMatchCount = $regex.Matches($replayText).Count
+            }
+            catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+                Add-OperationSafetyIssue ("round={0} op={1} regex_timeout phase=replay timeout_ms={2}" -f $roundTag, ($operationIndex + 1), $RegexTimeoutMs)
+                $roundOperationFailed = $true
+                break
+            }
             if ($replayMatchCount -ne 0) {
                 Add-OperationSafetyIssue ("round={0} op={1} replay pattern must be unmatched actual={2}" -f $roundTag, ($operationIndex + 1), $replayMatchCount)
                 if ($replayMatchCount -eq 1) {
@@ -840,7 +1050,7 @@ foreach ($roundEntry in $roundEntries) {
         }
     }
 
-    if ($script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
+    if (-not $roundOperationFailed -and $script:operationSafetyPolicy -ne 'off' -and $RequestedOperationIndex -eq 0) {
         $postApplyAssertions = @()
         if ($roundTask.PSObject.Properties.Name -contains 'postApplyAssertions') {
             $postApplyAssertions = @($roundTask.postApplyAssertions)
@@ -857,7 +1067,12 @@ foreach ($roundEntry in $roundEntries) {
                 continue
             }
             try {
-                $actualCount = ([regex]::new($assertionPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)).Matches($workingText).Count
+                $actualCount = (New-TaskRegex -Pattern $assertionPattern -Options ([System.Text.RegularExpressions.RegexOptions]::Singleline)).Matches($workingText).Count
+            }
+            catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+                Add-OperationSafetyIssue ("round={0} postApplyAssertion regex_timeout name={1} timeout_ms={2}" -f $roundTag, $assertionName, $RegexTimeoutMs)
+                $roundOperationFailed = $true
+                break
             }
             catch {
                 Add-OperationSafetyIssue ("round={0} postApplyAssertion invalid regex name={1} detail={2}" -f $roundTag, $assertionName, $_.Exception.Message)
@@ -1017,11 +1232,11 @@ if (-not [string]::IsNullOrWhiteSpace($OutputEffectiveTargetFile) -and -not $war
 
 if ($warningGateFailed) {
     Write-Output '[TASK-STATIC-CHECK] warning_gate=fail fail_on_warnings=true'
-    exit 3
+    Exit-TaskStaticCheck -ExitCode 3
 }
 
 if ($errorGateFailed) {
-    exit 2
+    Exit-TaskStaticCheck -ExitCode 2
 }
 
-exit 0
+Exit-TaskStaticCheck -ExitCode 0

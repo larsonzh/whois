@@ -3,7 +3,8 @@
     [switch]$ResetStateOnly,
     [string]$StateDir = "",
     [string]$TargetFile = "",
-    [string]$TaskDefinitionFile = ""
+    [string]$TaskDefinitionFile = "",
+    [ValidateRange(100, 30000)][int]$RegexTimeoutMs = 2000
 )
 
 $ErrorActionPreference = "Stop"
@@ -274,8 +275,21 @@ function Invoke-RegexReplaceSingle {
         [string[]]$IdempotentMarkers = @()
     )
 
-    $rx = [regex]::new($Pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-    $matchCount = $rx.Matches($Text).Count
+    if ([regex]::IsMatch($Pattern, '\((?:\\.|[^()]){0,512}[+*](?:\\.|[^()]){0,512}\)\s*(?:[+*]|\{\d+(?:,\d*)?\})')) {
+        throw "[CODE-STEP] step=$StepName unsafe_nested_quantifier=true"
+    }
+
+    $rx = [regex]::new(
+        $Pattern,
+        [System.Text.RegularExpressions.RegexOptions]::Singleline,
+        [TimeSpan]::FromMilliseconds($RegexTimeoutMs)
+    )
+    try {
+        $matchCount = $rx.Matches($Text).Count
+    }
+    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+        throw "[CODE-STEP] step=$StepName regex timeout phase=match timeout_ms=$RegexTimeoutMs"
+    }
     Write-Information "[CODE-STEP-STATIC] step=$StepName match_count=$matchCount" -InformationAction Continue
     if ($matchCount -ne 1) {
         if ($matchCount -eq 0) {
@@ -298,7 +312,12 @@ function Invoke-RegexReplaceSingle {
         throw "[CODE-STEP] step=$StepName expected exactly one match, actual=$matchCount"
     }
 
-    return $rx.Replace($Text, $Replacement, 1)
+    try {
+        return $rx.Replace($Text, $Replacement, 1)
+    }
+    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+        throw "[CODE-STEP] step=$StepName regex timeout phase=replace timeout_ms=$RegexTimeoutMs"
+    }
 }
 
 function Test-LiteralReplacementPresent {

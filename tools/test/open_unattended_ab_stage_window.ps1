@@ -2054,19 +2054,6 @@ if ($settings.Contains('TASK_STATIC_PRECHECK_POLICY')) {
     }
 }
 
-$taskStaticPrecheckFailOnWarnings = $false
-if ($settings.Contains('TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS')) {
-    $taskStaticPrecheckFailOnWarnings = Convert-ToBooleanSetting -Value ([string]$settings.TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS) -Default $false
-}
-
-$taskStaticPrecheckFailureMode = 'block'
-if ($settings.Contains('TASK_STATIC_PRECHECK_FAILURE_MODE')) {
-    $failureModeCandidate = (Convert-ToSingleLineText -Text ([string]$settings.TASK_STATIC_PRECHECK_FAILURE_MODE)).ToLowerInvariant()
-    if ($failureModeCandidate -in @('block', 'runtime-ticket')) {
-        $taskStaticPrecheckFailureMode = $failureModeCandidate
-    }
-}
-
 $taskStaticPrecheckMaxFails = 3
 if ($settings.Contains('TASK_STATIC_PRECHECK_MAX_FAILS')) {
     $parsedMaxFails = Get-ParsedPositiveInt -Value ([string]$settings.TASK_STATIC_PRECHECK_MAX_FAILS)
@@ -2093,39 +2080,17 @@ if (-not (Test-Path -LiteralPath $taskStaticPrecheckScript)) {
     throw "[OPEN-AB-STAGE] missing static precheck script: $taskStaticPrecheckScript"
 }
 
-$taskStaticPrecheckEnabled = ($Stage -eq 'A')
+$taskStaticPrecheckEnabled = $true
 $taskStaticPrecheckDeferred = $false
 if ($taskStaticPrecheckEnabled) {
-    $precheckScopeRoundTag = 'D1'
-    $precheckScopeOperationIndex = 1
-    $resumeFailedRound = if ($settings.Contains('RESUME_FAILED_ROUND')) {
-        (Convert-ToSingleLineText -Text ([string]$settings.RESUME_FAILED_ROUND)).ToUpperInvariant()
-    }
-    else {
-        ''
-    }
-    if ($resumeFailedRound -match '^D[1-4]$') {
-        $precheckScopeRoundTag = $resumeFailedRound
-        $precheckScopeOperationIndex = 0
-    }
-
     $precheckArgs = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', $taskStaticPrecheckScript,
         '-TaskDefinitionFile', $taskDefinitionRelative,
         '-Policy', $taskStaticPrecheckPolicy,
-        '-RoundTag', $precheckScopeRoundTag,
-        '-StartFilePath', $startFilePath,
-        '-Stage', $Stage,
-        '-EnableFingerprintCheck'
+        '-SyntaxOnly'
     )
-    if ($precheckScopeOperationIndex -gt 0) {
-        $precheckArgs += @('-OperationIndex', [string]$precheckScopeOperationIndex)
-    }
-    if ($taskStaticPrecheckFailOnWarnings) {
-        $precheckArgs += '-FailOnWarnings'
-    }
 
     $precheckOutput = @(& $powershellPath @precheckArgs 2>&1)
     $precheckExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
@@ -2133,7 +2098,7 @@ if ($taskStaticPrecheckEnabled) {
         Write-Output ([string]$precheckLine)
     }
     if ($precheckExitCode -ne 0) {
-        $failureLocation = Get-TaskStaticFailureLocation -Lines @($precheckOutput | ForEach-Object { [string]$_ }) -FallbackRound $precheckScopeRoundTag
+        $failureLocation = Get-TaskStaticFailureLocation -Lines @($precheckOutput | ForEach-Object { [string]$_ }) -FallbackRound 'unknown'
         $taskStaticPrecheckFailCount += 1
         $precheckFailUpdates = @{
             TASK_STATIC_PRECHECK_FAIL_COUNT = [string]$taskStaticPrecheckFailCount
@@ -2143,21 +2108,14 @@ if ($taskStaticPrecheckEnabled) {
         Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $precheckFailUpdates
 
         $overLimit = ($taskStaticPrecheckFailCount -gt $taskStaticPrecheckMaxFails)
-        if (-not $overLimit -and $taskStaticPrecheckFailureMode -ne 'runtime-ticket') {
-            Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'static-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
+        if (-not $overLimit) {
+            Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'syntax-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
         }
         if ($overLimit) {
             Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $taskStaticPrecheckFailCount -MaxFails $taskStaticPrecheckMaxFails -PrecheckExitCode $precheckExitCode -BlockEvent $taskStaticPrecheckBlockEvent -MainRound ([string]$failureLocation.Round) -FailureOperation ([int]$failureLocation.Operation) -FailurePhase 'static-precheck' -FailureEvidence ([string]$failureLocation.Evidence)
-            throw ("[OPEN-AB-STAGE] task static precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4} scope={5}:op{6}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative, $precheckScopeRoundTag, $precheckScopeOperationIndex)
+            throw ("[OPEN-AB-STAGE] task syntax precheck failed and blocked: fail_count={0} limit={1} exit={2} stage={3} task={4}" -f $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckExitCode, $Stage, $taskDefinitionRelative)
         }
-
-        if ($taskStaticPrecheckFailureMode -eq 'runtime-ticket') {
-            $taskStaticPrecheckDeferred = $true
-            Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit stage={0} task={1} fail_count={2} limit={3} scope={4}:op{5}" -f $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
-        }
-        else {
-            throw ("[OPEN-AB-STAGE] task static precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4} scope={5}:op{6}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails, $precheckScopeRoundTag, $precheckScopeOperationIndex)
-        }
+        throw ("[OPEN-AB-STAGE] task syntax precheck failed exit={0} stage={1} task={2} fail_count={3} limit={4}" -f $precheckExitCode, $Stage, $taskDefinitionRelative, $taskStaticPrecheckFailCount, $taskStaticPrecheckMaxFails)
     }
 
     if (-not $taskStaticPrecheckDeferred -and ($taskStaticPrecheckFailCount -gt 0 -or $settings.Contains('TASK_STATIC_PRECHECK_FAIL_COUNT'))) {
@@ -2168,11 +2126,11 @@ if ($taskStaticPrecheckEnabled) {
         }
     }
     if (-not $taskStaticPrecheckDeferred) {
-        Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} scope={1}:op{2} policy={3} fail_on_warnings={4} fail_count=0 limit={5}" -f $Stage, $precheckScopeRoundTag, $precheckScopeOperationIndex, $taskStaticPrecheckPolicy, [string]$taskStaticPrecheckFailOnWarnings, $taskStaticPrecheckMaxFails)
+        Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=PASS stage={0} scope=syntax-only policy={1} fail_count=0 limit={2}" -f $Stage, $taskStaticPrecheckPolicy, $taskStaticPrecheckMaxFails)
     }
 }
 else {
-    Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=SKIP stage={0} reason=stage-policy runtime_fail_fast=enabled" -f $Stage)
+    Write-Output ("[OPEN-AB-STAGE] task_static_precheck status=SKIP stage={0} reason=policy-off" -f $Stage)
 }
 
 Invoke-EnvFromSetting -EnvName 'AUTO_REMOTE_IP' -Settings $settings -Key 'REMOTE_IP'

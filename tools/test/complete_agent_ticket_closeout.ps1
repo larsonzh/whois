@@ -109,7 +109,16 @@ try {
         if ($pollExitCode -ne 0) {
             throw ("acknowledge exited with code {0}" -f $pollExitCode)
         }
-        if ($null -ne $poll.poll_lock -and [bool]$poll.poll_lock.lock_busy) {
+
+        $pollLockBusy = $false
+        if ($poll.PSObject.Properties.Name -contains 'lock_busy') {
+            $pollLockBusy = [bool]$poll.lock_busy
+        }
+        elseif ($poll.PSObject.Properties.Name -contains 'poll_lock' -and $null -ne $poll.poll_lock) {
+            $pollLockBusy = [bool]$poll.poll_lock.lock_busy
+        }
+
+        if ($pollLockBusy) {
             $result.poll_lock_busy = $true
             throw 'acknowledge poll lock is busy'
         }

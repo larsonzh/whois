@@ -1717,59 +1717,10 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTaskStaticGateReason = ''
     $lines = @()
 
-    # Skip task static gate for pre-resume rounds (code-step only, no verification)
-    $roundTaskStaticGateShouldRun = $EnableRoundTaskStaticGate -and $roundResumeRole -ne "pre-resume"
-    if ($roundTaskStaticGateShouldRun -and $round -ge $RoundTaskStaticGateStartRound -and $round -le $RoundTaskStaticGateEndRound) {
-        Write-Output ("[DEV-VERIFY-MULTI] task_static_runtime_gate_begin stage={0} round={1} scope={2}" -f $Stage, $roundTag, $roundTag)
-    }
-    $roundTaskStaticGate = Invoke-RoundTaskStaticGate `
-        -RepoRoot $repoRoot `
-        -ScriptPath $taskStaticCheckScript `
-        -TaskDefinitionFile $resolvedTaskDefinitionFile `
-        -Policy $TaskStaticPrecheckPolicy `
-        -FailOnWarnings $TaskStaticPrecheckFailOnWarnings `
-        -Enabled $roundTaskStaticGateShouldRun `
-        -StartRound $RoundTaskStaticGateStartRound `
-        -EndRound $RoundTaskStaticGateEndRound `
-        -OperationIndex $RoundTaskStaticGateOperationIndex `
-        -Stage $Stage `
-        -RoundIndex $round `
-        -RoundTag $roundTag `
-        -SessionOutDir $sessionOutDir
-
-    $roundTaskStaticGateApplied = [bool]$roundTaskStaticGate.Applied
-    $roundTaskStaticGatePass = [bool]$roundTaskStaticGate.Pass
-    $roundTaskStaticGateExit = [int]$roundTaskStaticGate.ExitCode
-    $roundTaskStaticGateScope = [string]$roundTaskStaticGate.Scope
-    $roundTaskStaticGateReason = [string]$roundTaskStaticGate.Reason
-
-    foreach ($taskGateLine in @($roundTaskStaticGate.Lines)) {
-        if ([string]::IsNullOrWhiteSpace($taskGateLine)) {
-            continue
-        }
-
-        Write-Output $taskGateLine
-        $lines += $taskGateLine
-    }
-
-    if ($roundTaskStaticGateApplied) {
-        $taskStaticGateStatus = if ($roundTaskStaticGatePass) { 'PASS' } else { 'FAIL' }
-        Write-Output ("[DEV-VERIFY-MULTI] task_static_runtime_gate_result={0} stage={1} round={2} scope={3} exit={4}" -f $taskStaticGateStatus, $Stage, $roundTag, $roundTaskStaticGateScope, $roundTaskStaticGateExit)
-    }
-
-    if ($roundTaskStaticGateApplied -and -not $roundTaskStaticGatePass) {
-        $skipRound = $true
-        $roundDecision = 'TASK-STATIC-FAIL'
-        $skipReason = if ([string]::IsNullOrWhiteSpace($roundTaskStaticGateReason)) {
-            "task-static-gate-failed scope=$roundTaskStaticGateScope exit=$roundTaskStaticGateExit"
-        }
-        else {
-            $roundTaskStaticGateReason
-        }
-        $taskGateFailLine = "[DEV-VERIFY-MULTI] round_task_static_gate_fail=$roundTag stage=$Stage scope=$roundTaskStaticGateScope exit=$roundTaskStaticGateExit reason=$skipReason"
-        Write-Output $taskGateFailLine
-        $lines += $taskGateFailLine
-    }
+    $roundTaskStaticGateReason = 'owned-by-code-step-progressive'
+    $taskGateSkipLine = "[DEV-VERIFY-MULTI] task_static_runtime_gate_result=SKIP stage=$Stage round=$roundTag reason=$roundTaskStaticGateReason"
+    Write-Output $taskGateSkipLine
+    $lines += $taskGateSkipLine
 
     $roundGate = Invoke-RoundRuntimeGate `
         -RoundTag $roundTag `

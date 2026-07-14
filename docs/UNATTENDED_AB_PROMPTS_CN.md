@@ -35,7 +35,7 @@
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
 
 执行规则：
-1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。格式化器仅可做不改变 JSON 值、数组顺序或 operation 结构的机械格式化。编辑后依次执行 JSON 解析、故障目标 op 静态检查、所有受影响 D 轮的整轮严格检查。
+1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。格式化器仅可做不改变 JSON 值、数组顺序或 operation 结构的机械格式化。编辑后依次执行 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查；不得预演后续轮阻断当前轮恢复。
 2. 准备阶段可直接运行统一检查脚本 tools/test/check_unattended_ab_launch_ready.ps1；不要为每个检查子项逐项申请授权。
 3. 只有当统一检查整体 PASS 后，才向用户提一次最终授权；只有用户明确下达“启动 A（带 -StartMonitors）”或等价命令后，才允许真正启动。
 4. 标准启动入口只能是 tools/test/open_unattended_ab_stage_window.ps1，并且命令必须显式带 -StartMonitors。
@@ -47,7 +47,7 @@
 10. running-status-report 只汇报观测状态，禁止输出或执行修复路径；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B，异常等待独立事故票。
 11. 运行期静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按票据 `next_command_order` 执行其中所有无需用户确认的预授权操作，不得遗漏。事件票最终只执行一次 `atomic_closeout_command`，仅当其退出码和全部 JSON 机器事实门禁通过后才继续静默等待；旧分步回执字段不得逐条执行。不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`，不得创建任何定时巡检监控脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁；无法完成则立即如实报告阻塞，不得转为主动巡检。
 12. 若收到的工单指出 strict、heartbeat/poll/dispatch 链路异常，按该工单允许边界处理；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
-13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先用 `tools/test/check_task_definition_static.ps1 -RoundTag <Dn> -OperationIndex <n>` 对故障 op 做快速定位检查；该检查只模拟前置 op 且不执行完整整轮 replay 与 `postApplyAssertions`，不能作为最终门禁。随后必须运行 `tools/test/task_definition_safety_regression.ps1`，并让所有受影响 D 轮分别通过不带 `-OperationIndex` 的整轮严格检查，才允许任何重启或 resume；并且只能重启当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
+13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。checker 与 code-step 均首错即停，不检查后续 op/轮；只有当前故障轮通过才允许同阶段重启或 resume。`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。
@@ -90,8 +90,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 running-status-report 不提供或执行修复路径；不得仅凭旧 exit 证据建议重启 B。不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户明确授权。
 
-若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。改任务定义后，`-OperationIndex` 目标 op 检查只用于快速定位，所有受影响 D 轮还必须通过不带 `-OperationIndex` 的整轮严格检查，后者才是恢复前最终门禁；并且只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
-任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`；禁止通过终端内联 Python、PowerShell 多层命令、重定向、通用字符串替换或格式化器修改。修改后先做 JSON 解析，再做目标 op 检查，最后做所有受影响 D 轮整轮严格检查。
+若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。自愈只改当前阶段任务定义，不直接改源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。改任务定义后先通过 SyntaxOnly，可用 `-OperationIndex` 快检目标 op，恢复前只要求当前故障 D 轮通过递进严格检查；后续轮由实际 code-step 检查。只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`；禁止通过终端内联 Python、PowerShell 多层命令、重定向、通用字符串替换或格式化器修改。修改后先做 SyntaxOnly，再做目标 op 快检（可定位时），最后做当前故障 D 轮递进严格检查。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 
 ## 3. 极简压缩版
@@ -116,6 +116,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 low-disturb 的 running-status-report 正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at；不得据旧 exit 证据建议重启 B，不得处置异常。event-only 不期待定时状态票；若文档冲突、字段异常或入口行为异常，先汇报，不要猜。
 
-自愈只改当前阶段任务定义，不直改源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；改后可用 `-OperationIndex` 快查故障 op，但恢复前必须再让所有受影响 D 轮通过不带 `-OperationIndex` 的整轮严格检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
-任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改；修改后按 JSON 解析 -> 目标 op 检查 -> 受影响整轮严格检查的顺序验证。
+自愈只改当前阶段任务定义，不直改源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；改后先过 SyntaxOnly，可用 `-OperationIndex` 快查故障 op，但恢复前只检查当前故障 D 轮，后续轮在实际 code-step 到达时检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改；修改后按 SyntaxOnly -> 目标 op 快检（可定位时）-> 当前故障轮递进严格检查的顺序验证。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。

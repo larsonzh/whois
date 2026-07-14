@@ -53,11 +53,15 @@ function Invoke-Case {
     param(
         [object]$Case,
         [int]$ExpectedExitCode,
-        [string[]]$ExpectedFragments
+        [string[]]$ExpectedFragments,
+        [string[]]$AbsentFragments = @(),
+        [int]$RegexTimeoutMs = 2000,
+        [int]$WorkerTimeoutMs = 30000
     )
 
     $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
-        -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 2>&1 | `
+        -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 `
+        -RegexTimeoutMs $RegexTimeoutMs -WorkerTimeoutMs $WorkerTimeoutMs 2>&1 | `
         ForEach-Object { [string]$_ })
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne $ExpectedExitCode) {
@@ -66,6 +70,11 @@ function Invoke-Case {
     foreach ($fragment in $ExpectedFragments) {
         if (-not ($output -match [regex]::Escape($fragment))) {
             throw "case=$($Case.Name) missing_fragment=$fragment output=$($output -join ' | ')"
+        }
+    }
+    foreach ($fragment in $AbsentFragments) {
+        if ($output -match [regex]::Escape($fragment)) {
+            throw "case=$($Case.Name) unexpected_fragment=$fragment output=$($output -join ' | ')"
         }
     }
     Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name) status=pass exit=$exitCode"
@@ -142,7 +151,23 @@ try {
             idempotentContains = @('static int helper(void);')
         }
     ) -Assertions @([ordered]@{ name = 'helper-prototype'; pattern = 'static int helper\(void\);'; expectedCount = 1 })
-    Invoke-Case -Case $nonConvergentCase -ExpectedExitCode 2 -ExpectedFragments @('pattern remains matchable after replacement', 'replay changed effective text')
+    Invoke-Case -Case $nonConvergentCase -ExpectedExitCode 2 -ExpectedFragments @('pattern remains matchable after replacement') -AbsentFragments @('replay changed effective text')
+
+    $failFastCase = New-TaskCase -Name 'fail-first-op-stops-round' -Operations @(
+        [ordered]@{ pattern = 'missing-token'; replacement = 'first-op-marker'; idempotentContains = @('first-op-marker') },
+        [ordered]@{ pattern = 'return 1;'; replacement = 'second-op-marker'; idempotentContains = @('second-op-marker') }
+    ) -Assertions @([ordered]@{ name = 'second-op-applied'; pattern = 'second-op-marker'; expectedCount = 1 })
+    Invoke-Case -Case $failFastCase -ExpectedExitCode 2 `
+        -ExpectedFragments @('op=1 pattern_unmatched=0 but only round-level idempotent marker exists') `
+        -AbsentFragments @('op=2 pattern_match=1', 'postApplyAssertion')
+
+    $regexTimeoutCase = New-TaskCase -Name 'fail-regex-timeout' -Operations @(
+        [ordered]@{ pattern = '^(a+)+$'; replacement = 'target-timeout-marker'; idempotentContains = @('target-timeout-marker') }
+    ) -Assertions @([ordered]@{ name = 'timeout-marker'; pattern = 'target-timeout-marker'; expectedCount = 1 })
+    Write-Utf8NoBom -Path (Join-Path $regexTimeoutCase.Directory 'fixture.c') -Text ((('a' * 30000) -join '') + '!')
+    Invoke-Case -Case $regexTimeoutCase -ExpectedExitCode 2 `
+        -ExpectedFragments @('unsafe_nested_quantifier=true') `
+        -RegexTimeoutMs 30000 -WorkerTimeoutMs 10000
 
     $assertionCase = New-TaskCase -Name 'fail-post-assertion' -Operations @(
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }

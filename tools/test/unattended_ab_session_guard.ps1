@@ -4091,13 +4091,13 @@ function Get-AutoFixAwaitRecommendedAction {
 
     $recommendedAction = 'Set LOCAL_GUARD_RESTART_APPROVED=true only after evidence review, then resume A-stage restart.'
     if ($IsDevRound -and $FailureHasScriptFault -and $FailureHasCodeFault) {
-        return 'Code fault markers exist in this D-round failure. Repair only allowed task-definition operations, run failed-op target check then all affected full-round checks, and keep absorbed/idempotent rounds as regex-patch rather than noop; set LOCAL_GUARD_RESTART_APPROVED=true only after evidence is ready.'
+        return 'Code fault markers exist in this D-round failure. Repair only allowed task-definition operations; run SyntaxOnly, the failed-op target check when locatable, then the current failing round progressively. Do not preflight later rounds; keep absorbed/idempotent rounds as regex-patch rather than noop.'
     }
     if ($IsDevRound -and $FailureHasScriptFault) {
         return 'Fix D-round unattended scripts only (guard/trigger/dispatch/poll), complete script validation evidence, then set LOCAL_GUARD_RESTART_APPROVED=true for guarded restart.'
     }
     if ($IsDevRound -and $FailureHasCodeFault) {
-        return 'Review D-round code-fix evidence, run failed-op target check then all affected full-round checks, and only then approve the same-stage restart; keep absorbed/idempotent rounds as regex-patch, and for V1-V4 only append operations after existing D4 content.'
+        return 'Review D-round code-fix evidence; run SyntaxOnly, the failed-op target check when locatable, then the current failing round progressively before same-stage restart. Keep absorbed/idempotent rounds as regex-patch; for V1-V4 only append after existing D4 content.'
     }
 
     return $recommendedAction
@@ -6308,8 +6308,8 @@ try {
                         }
                         default {
                             if ([string]$failureTicketMeta.FailureKind -eq 'task-definition-mismatch') {
-                                $incidentRecommendedAction = ('Dev-round task-definition mismatch ({0}). Edit only allowed operations; run the failed-op -OperationIndex check, then every affected full-round check without -OperationIndex. Absorbed/idempotent rounds stay regex-patch with owned markers, never noop. After both checks pass, restart only the same stage through the standard stage window; continue while fingerprint and recovery budgets permit.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Dev-round task-definition mismatch ({0}). Repair within edit boundaries, pass target-op and affected full-round checks, preserve regex-patch for absorbed/idempotent states, then restart only the same stage. Escalate after fingerprint or recovery budget exhaustion.' -f [string]$failurePolicy.FailedRoundTag)
+                                $incidentRecommendedAction = ('Dev-round task-definition mismatch ({0}). Edit only allowed operations; run SyntaxOnly, the failed-op -OperationIndex check when locatable, then only the current failing round without -OperationIndex. Absorbed/idempotent rounds stay regex-patch. Restart only the same stage after this round passes.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Dev-round task-definition mismatch ({0}). Repair within edit boundaries, pass SyntaxOnly plus target-op when locatable and the current failing-round check, then restart only the same stage. Do not preflight later rounds.' -f [string]$failurePolicy.FailedRoundTag)
                             }
                             elseif ($failureHasCodeFault) {
                                 $incidentRecommendedAction = ('Dev-round failure detected ({0}) category=code-or-unknown with code-marker. Run code-fix workflow and restart after confirmation; if the fix is a self-heal output mismatch, update the matching task-definition round under testdata (prefer D4 append for V1-V4) rather than rewriting D1-D4 validated content.' -f [string]$failurePolicy.FailedRoundTag)

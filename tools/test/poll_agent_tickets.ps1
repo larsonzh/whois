@@ -939,6 +939,11 @@ function Write-PollLockBusyAndExit {
             lock_busy = $true
             lock_name = $LockName
             lock_wait_ms = [int]$LockWaitMs
+            poll_lock = [ordered]@{
+                lock_busy = $true
+                lock_name = $LockName
+                lock_wait_ms = [int]$LockWaitMs
+            }
             rows = @()
         }
         $output | ConvertTo-Json -Depth 6

@@ -242,23 +242,20 @@ $promptRequiresApplyPatch = ([regex]::Matches($promptDocText, '任务定义 JSON
 $operationFlowRequiresApplyPatch = $operationFlowText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
 $startTemplateRequiresApplyPatch = $startTemplateText.Contains('只能使用 VS Code `apply_patch` 修改当前阶段任务定义 JSON')
 $dispatchRequiresApplyPatch = $dispatchText.Contains('Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool') -and $dispatchText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
-$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only the allowed task-definition operations') -and $takeoverTriggerText.Contains('validate JSON parse, target-op, then affected full-round checks')
+$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only allowed task-definition operations') -and $takeoverTriggerText.Contains('validate SyntaxOnly, target-op when locatable, then the current failing round progressively')
 $taskDefinitionApplyPatchPass = ($copilotRequiresApplyPatch -and $promptRequiresApplyPatch -and $operationFlowRequiresApplyPatch -and $startTemplateRequiresApplyPatch -and $dispatchRequiresApplyPatch -and $takeoverRequiresApplyPatch)
 $taskDefinitionApplyPatchReason = if ($taskDefinitionApplyPatchPass) { 'task-definition-apply-patch-contract-present' } else { 'missing-task-definition-apply-patch-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-apply-patch-contract' -Pass $taskDefinitionApplyPatchPass -Reason $taskDefinitionApplyPatchReason))
 
-# Static precheck failures may enter the runtime ticket workflow only when explicitly configured.
-$launchReadyHasBlockDefault = $launchReadyText.Contains("'block'") -and $launchReadyText.Contains("@('block', 'runtime-ticket')")
-$launchReadyDefersStaticFailure = $launchReadyText.Contains("if (`$taskStaticPrecheckFailureMode -eq 'runtime-ticket')") -and $launchReadyText.Contains('deferred to runtime repair ticket')
-$stageWindowHasBlockDefault = $stageWindowText.Contains("`$taskStaticPrecheckFailureMode = 'block'")
-$stageWindowDefersToRuntimeGate = $stageWindowText.Contains('DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit') -and $stageWindowText.Contains("if (-not `$overLimit -and `$taskStaticPrecheckFailureMode -ne 'runtime-ticket')")
-$multiRoundPrintsStaticResult = $multiRoundText.Contains('task_static_runtime_gate_begin') -and $multiRoundText.Contains('task_static_runtime_gate_result=')
+# Startup validates loadable task-definition structure only; operation semantics belong to code-step.
+$stageWindowUsesSyntaxOnly = $stageWindowText.Contains("'-SyntaxOnly'") -and -not $stageWindowText.Contains('DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit')
+$stageWindowDoesNotPrecheckD1Op = -not $stageWindowText.Contains("`$precheckScopeRoundTag = 'D1'") -and -not $stageWindowText.Contains("'-OperationIndex'")
+$multiRoundDelegatesToCodeStep = $multiRoundText.Contains('task_static_runtime_gate_result=SKIP') -and $multiRoundText.Contains('owned-by-code-step-progressive')
 $multiRoundDoesNotQueueStaticTicket = -not $multiRoundText.Contains('function Add-RoundTaskStaticGateTicket') -and -not $multiRoundText.Contains("event = 'task-definition-fix-required'")
 $guardWaitsForMainExit = $sessionGuardText.Contains('task_definition_repair_wait reason=main-process-still-running') -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains('task_definition_repair_ready reason=main-process-stopped')
-$templateEnablesRuntimeTicket = $startTemplateText.Contains('TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket')
-$staticRepairWaitPass = ($launchReadyHasBlockDefault -and $launchReadyDefersStaticFailure -and $stageWindowHasBlockDefault -and $stageWindowDefersToRuntimeGate -and $multiRoundPrintsStaticResult -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit -and $templateEnablesRuntimeTicket)
-$staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-runtime-ticket-contract-present' } else { 'missing-task-static-runtime-ticket-contract' }
-[void]$results.Add((Get-CaseResult -Name 'task-static-runtime-ticket-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
+$staticRepairWaitPass = ($stageWindowUsesSyntaxOnly -and $stageWindowDoesNotPrecheckD1Op -and $multiRoundDelegatesToCodeStep -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit)
+$staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-progressive-entry-contract-present' } else { 'missing-task-static-progressive-entry-contract' }
+[void]$results.Add((Get-CaseResult -Name 'task-static-progressive-entry-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
 
 # Every fault-handling or self-heal ticket must wait until all A/B business processes stop.
 $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')
@@ -324,16 +321,17 @@ $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
 [void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
 
-# Case 5: task-definition repair prompts must preserve the two-layer static-check contract.
-$taskSafetyHasFocusedLimitEn = $dispatchText.Contains('A focused -OperationIndex check is only a diagnostic fast check and does not run whole-round replay/assertions.')
-$taskSafetyHasFocusedLimitZh = $dispatchText.Contains('带 -OperationIndex 的目标检查只是诊断快检，不执行整轮 replay/断言。')
-$taskSafetyHasFullRoundEn = $dispatchText.Contains('full-round static checks without -OperationIndex for every affected D round')
-$taskSafetyHasFullRoundZh = $dispatchText.Contains('对每个受影响 D 轮执行不带 -OperationIndex 的整轮静态检查')
-$taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结构结果变化时同步更新同轮 postApplyAssertions')
+# Case 5: repair prompts must require current-round progressive checks and reject later-round preflight.
+$taskSafetyHasFocusedLimitEn = $dispatchText.Contains('optionally a focused -OperationIndex check')
+$taskSafetyHasFocusedLimitZh = $dispatchText.Contains('可定位时运行 -OperationIndex 快检')
+$taskSafetyHasFullRoundEn = $dispatchText.Contains('then the current failing D round without -OperationIndex')
+$taskSafetyHasFullRoundZh = $dispatchText.Contains('再对当前故障 D 轮运行不带 -OperationIndex 的递进严格检查')
+$taskSafetyHasFailFast = $dispatchText.Contains('stop at the first failure; do not preflight later rounds') -and $dispatchText.Contains('首错即停，不预演后续轮')
+$taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结果变化时同步更新同轮 postApplyAssertions')
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
-$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached)
-$taskSafetyReason = if ($taskSafetyPass) { 'task-definition-two-layer-static-check-contract-present' } else { 'missing-task-definition-two-layer-static-check-contract' }
-[void]$results.Add((Get-CaseResult -Name 'task-definition-two-layer-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
+$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached)
+$taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
+[void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
 $stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")
@@ -704,7 +702,7 @@ catch {
 }
 $dispatchRuntimeMessage = if ($null -ne $dispatchRuntimeState) { [string]$dispatchRuntimeState.dispatch_message } else { '' }
 $dispatchRuntimeMarkerCount = ([regex]::Matches($dispatchRuntimeMessage, [regex]::Escape($dispatchRuntimeAtomicMarker))).Count
-$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 JSON 解析'))
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 SyntaxOnly 装载检查'))
 $dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
 
