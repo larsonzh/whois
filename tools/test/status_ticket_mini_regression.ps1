@@ -173,6 +173,7 @@ $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encod
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
+$codeStepText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_code_step_rounds.ps1') -Raw -Encoding utf8
 $operationFlowPath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_OPERATION_FLOW_CN.md'
 $copilotInstructionsPath = Resolve-RepoPath -Path '.github/copilot-instructions.md'
 $operationFlowText = Get-Content -LiteralPath $operationFlowPath -Raw -Encoding utf8
@@ -247,10 +248,10 @@ $taskDefinitionApplyPatchPass = ($copilotRequiresApplyPatch -and $promptRequires
 $taskDefinitionApplyPatchReason = if ($taskDefinitionApplyPatchPass) { 'task-definition-apply-patch-contract-present' } else { 'missing-task-definition-apply-patch-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-apply-patch-contract' -Pass $taskDefinitionApplyPatchPass -Reason $taskDefinitionApplyPatchReason))
 
-# Startup validates loadable task-definition structure only; operation semantics belong to code-step.
+# Startup validates loadable structure only; code-step invokes the checker as the shared operation engine.
 $stageWindowUsesSyntaxOnly = $stageWindowText.Contains("'-SyntaxOnly'") -and -not $stageWindowText.Contains('DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit')
 $stageWindowDoesNotPrecheckD1Op = -not $stageWindowText.Contains("`$precheckScopeRoundTag = 'D1'") -and -not $stageWindowText.Contains("'-OperationIndex'")
-$multiRoundDelegatesToCodeStep = $multiRoundText.Contains('task_static_runtime_gate_result=SKIP') -and $multiRoundText.Contains('owned-by-code-step-progressive')
+$multiRoundDelegatesToCodeStep = $multiRoundText.Contains('task_static_runtime_gate_result=SKIP') -and $multiRoundText.Contains('owned-by-code-step-progressive') -and $codeStepText.Contains('Invoke-ValidatedTaskDefinitionRound') -and $codeStepText.Contains('-OutputEffectiveTargetFile $effectiveTargetPath')
 $multiRoundDoesNotQueueStaticTicket = -not $multiRoundText.Contains('function Add-RoundTaskStaticGateTicket') -and -not $multiRoundText.Contains("event = 'task-definition-fix-required'")
 $guardWaitsForMainExit = $sessionGuardText.Contains('task_definition_repair_wait reason=main-process-still-running') -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains('task_definition_repair_ready reason=main-process-stopped')
 $staticRepairWaitPass = ($stageWindowUsesSyntaxOnly -and $stageWindowDoesNotPrecheckD1Op -and $multiRoundDelegatesToCodeStep -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit)
@@ -329,7 +330,10 @@ $taskSafetyHasFullRoundZh = $dispatchText.Contains('再对当前故障 D 轮运�
 $taskSafetyHasFailFast = $dispatchText.Contains('stop at the first failure; do not preflight later rounds') -and $dispatchText.Contains('首错即停，不预演后续轮')
 $taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结果变化时同步更新同轮 postApplyAssertions')
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
-$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached)
+$taskSafetyHasSharedEngine = $dispatchText.Contains('Code-step uses checker as the shared full-round engine') -and $dispatchText.Contains('code-step 复用 checker 作为完整整轮执行引擎') -and $takeoverTriggerText.Contains('code-step invokes checker as the shared full-round engine')
+$taskSafetyHasRetryScope = $dispatchText.Contains('local checker calls do not consume the identical-fingerprint main-process relaunch budget') -and $dispatchText.Contains('本地检查不消耗相同指纹主进程重启预算') -and $takeoverTriggerText.Contains('checker reruns within one repair ticket are not limited') -and $sessionGuardText.Contains('Checker reruns inside this ticket are unlimited') -and $startTemplateText.Contains('工单内可按首错诊断反复调用 checker')
+$taskSafetyRejectsAffectedRoundPreflight = -not $startTemplateText.Contains('再做全部受影响 D 轮整轮检查') -and -not $startTemplateText.Contains('再对全部受影响 D 轮分别运行')
+$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached -and $taskSafetyHasSharedEngine -and $taskSafetyHasRetryScope -and $taskSafetyRejectsAffectedRoundPreflight)
 $taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
 

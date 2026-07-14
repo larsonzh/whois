@@ -26,7 +26,7 @@ if (-not (Test-Path -LiteralPath $TaskDefinitionFile)) {
 }
 
 try {
-    $taskDefinition = (Get-Content -LiteralPath $TaskDefinitionFile -Raw) | ConvertFrom-Json
+    $taskDefinition = (Get-Content -LiteralPath $TaskDefinitionFile -Raw -Encoding utf8) | ConvertFrom-Json
 }
 catch {
     throw "[CODE-STEP] invalid task definition json: $TaskDefinitionFile"
@@ -154,6 +154,61 @@ function Invoke-FileUtf8NoBomWrite {
 
     $enc = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Text, $enc)
+}
+
+function Invoke-ValidatedTaskDefinitionRound {
+    param(
+        [string]$TaskDefinitionPath,
+        [string]$TargetPath,
+        [string]$RoundTag,
+        [string]$RepositoryRoot,
+        [int]$RegexTimeoutMs
+    )
+
+    $checkerPath = Join-Path $PSScriptRoot 'check_task_definition_static.ps1'
+    if (-not (Test-Path -LiteralPath $checkerPath)) {
+        throw "[CODE-STEP] task static checker not found: $checkerPath"
+    }
+
+    $effectiveTargetPath = Join-Path ([System.IO.Path]::GetTempPath()) ('whois-code-step-effective-{0}.tmp' -f ([guid]::NewGuid().ToString('N')))
+    try {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $checkerOutput = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $checkerPath `
+                -TaskDefinitionFile $TaskDefinitionPath `
+                -RepoRoot $RepositoryRoot `
+                -Policy enforce `
+                -RoundTag $RoundTag `
+                -BaselineTargetFile $TargetPath `
+                -OutputEffectiveTargetFile $effectiveTargetPath `
+                -RegexTimeoutMs $RegexTimeoutMs 2>&1 | ForEach-Object { [string]$_ })
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+
+        foreach ($line in $checkerOutput) {
+            Write-Information ("[CODE-STEP-STATIC] {0}" -f $line) -InformationAction Continue
+        }
+
+        if ($checkerExitCode -ne 0 -or -not (Test-Path -LiteralPath $effectiveTargetPath -PathType Leaf)) {
+            $failureDetail = @($checkerOutput | Where-Object { $_ -match '^\[TASK-STATIC-CHECK\] severity=(?:error|warn) detail=' } | Select-Object -First 1)
+            if ($failureDetail.Count -eq 0) {
+                $failureDetail = @($checkerOutput | Select-Object -Last 1)
+            }
+            $detail = if ($failureDetail.Count -gt 0) { [string]$failureDetail[0] } else { 'effective target was not produced' }
+            throw "[CODE-STEP] round=$RoundTag static validation failed exit=$checkerExitCode detail=$detail"
+        }
+
+        return Get-Content -LiteralPath $effectiveTargetPath -Raw
+    }
+    finally {
+        if (Test-Path -LiteralPath $effectiveTargetPath) {
+            Remove-Item -LiteralPath $effectiveTargetPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-NormalizedContentHash {
@@ -933,8 +988,12 @@ try {
     if ($next -le 4) {
         Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
         $text = Get-Content -LiteralPath $TargetFile -Raw
-        $roundTask = Get-RoundTaskDefinition -TaskDefinition $taskDefinition -RoundTag $roundTag
-        $updatedOutputs = @(Invoke-TaskDefinitionRound -RoundTask $roundTask -RoundTag $roundTag -Text $text)
+        $updatedOutputs = @(Invoke-ValidatedTaskDefinitionRound `
+            -TaskDefinitionPath $TaskDefinitionFile `
+            -TargetPath $TargetFile `
+            -RoundTag $roundTag `
+            -RepositoryRoot $repoRoot `
+            -RegexTimeoutMs $RegexTimeoutMs)
         if ($updatedOutputs.Count -ne 1 -or -not ($updatedOutputs[0] -is [string])) {
             throw "[CODE-STEP] task round produced unexpected output count=$($updatedOutputs.Count) round=$roundTag; refusing to write target file"
         }
@@ -942,23 +1001,6 @@ try {
         $updated = [string]$updatedOutputs[0]
 
         if ($updated -ne $text) {
-            # Auto-inject forward declarations for literal functions
-            # called before their definition (conflicting types in strict builds)
-            $autoInjectResult = Invoke-AutoInjectForwardDecl -TargetFile $TargetFile -TaskDefinition $taskDefinition -RoundTag $roundTag -UpdatedText $updated
-
-            if ($autoInjectResult.Injected) {
-                $updated = $autoInjectResult.Text
-                Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
-                Write-Output "[CODE-STEP-AUTOINJECT] round=$roundTag injected=$($autoInjectResult.Count) functions=$($autoInjectResult.Ops.ForEach({ '''' + $_.pattern.Substring(0, [math]::Min(40, $_.pattern.Length)) + '''' }) -join ',')"
-            }
-            elseif ($autoInjectResult.Needed) {
-                $diag = [string]$autoInjectResult.Diagnostics
-                if ([string]::IsNullOrWhiteSpace($diag)) {
-                    $diag = 'no-diagnostics'
-                }
-                throw "[CODE-STEP] auto-inject failed for round=${roundTag}: forward declarations needed but could not be applied; target=$TargetFile diagnostics=$diag; aborting to avoid certain compile failure"
-            }
-
             Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
             Write-Output "[CODE-STEP] round=$roundTag action=applied target=$TargetFile timestamp=$timestamp"
         }

@@ -207,15 +207,16 @@ AI：
 code-step 处理单轮（D1~D4）的 operations 时，采用以下流程：
 
 ```
-读取磁盘源码 → 复制到内存 $updatedText → 顺序执行该轮所有 op
-    ├─ 任一 op 匹配失败或替换失败 → 抛错退出，内存改动丢弃
-    └─ 全部 op 成功 → 统一写入磁盘目标文件
+读取磁盘源码 → 调用 checker 生成当前轮有效源码临时文件
+  ├─ 任一 op、replay 或 postApplyAssertions 失败 → 退出并删除临时文件
+  └─ 完整安全契约通过 → 读取临时文件并统一写入磁盘目标文件
 ```
 
-关键实现在 `autopilot_code_step_rounds.ps1` 的 `Invoke-TaskDefinitionRound` 函数中：
-- `$updatedText = $Text` 初始化内存副本。
-- 每个 op 通过 `Invoke-RegexReplaceSingle` 在 `$updatedText` 上顺序应用（参考 `Invoke-TaskDefinitionRound` 内 `foreach ($op in $operations)` 循环）。
-- 循环结束后若 `$updated -ne $text` 才调用 `Invoke-FileUtf8NoBomWrite` 写回磁盘。
+关键实现在 `autopilot_code_step_rounds.ps1` 的 `Invoke-ValidatedTaskDefinitionRound`：
+- code-step 以当前目标源码作为 `-BaselineTargetFile` 调用 `check_task_definition_static.ps1`。
+- checker 在同一内存副本上顺序执行当前轮 operations，并统一验证 marker 所有权、pattern 收敛、整轮 replay 与 `postApplyAssertions`。
+- checker 仅在完整门禁通过后写出 `-OutputEffectiveTargetFile` 临时文件；code-step 读取该文件，若内容变化才调用 `Invoke-FileUtf8NoBomWrite` 一次性写回业务目标文件。
+- checker 失败、单实例冲突、正则超时或 worker 超时时，code-step 均拒绝写回并按 code-step 故障退出。
 
 该设计的核心语义是**一轮写入视为一个原子事务**：要么本轮全部 op 的改动完整落盘，要么磁盘源码与进入本轮前完全一致。
 
@@ -242,21 +243,14 @@ $isPrerequisiteSimulation = ($RequestedOperationIndex -gt 0 -and $operationOrdin
 
 这一设计确保 AI 修复第 `n` 个 op 时，可以放心调整目标 pattern 和 replacement，而不必担心前置 op 在复盘中重复应用或干扰结果。
 
-#### 2.10.4 Forward declaration 自动注入的特殊性
+#### 2.10.4 Forward declaration 必须由任务定义表达
 
-`Invoke-AutoInjectForwardDecl` 在整轮全部 op 成功写入后，再次读取磁盘源码做自动注入。自动注入仅作为当前轮源码的兜底，不再回写任务定义 JSON，避免全量 JSON 重排、任务定义哈希漂移以及源码与任务定义之间的非原子持久化。其写盘时序为：
-
-```
-内存 op 全部成功 → 首次 Invoke-FileUtf8NoBomWrite（本轮 op 结果）
-→ auto-inject 处理 → 若注入成功 → 第二次 Invoke-FileUtf8NoBomWrite（含注入内容的最终结果）
-```
-
-自动注入不会修改任务定义文件。若触发自动注入，日志会输出 `task_definition_unchanged=true`；后续修复必须把完整的 prototype 归一化作为原子 op 明确写入任务定义，并重新通过严格静态门禁，不能依赖运行时副作用成为任务定义的一部分。
+code-step 写回路径不再执行 checker 之后的 forward declaration 自动注入。helper definition、首次 caller 前唯一 prototype、真实 call site 及重复 prototype 清理必须由当前轮 operations 和 `postApplyAssertions` 完整表达，并在 checker 生成有效源码前通过验证。禁止在 checker 通过后再用运行时副作用修改源码，否则会破坏任务定义与实际写回文本的一致性。
 
 #### 2.10.5 对自愈修复操作的建议
 
 1. **先定位故障阶段**：通过事故票中 `failure_kind` 和 `round_tag` 确定故障发生在 code-step 阶段还是 compile/verify 阶段。
-2. **code-step 阶段故障**：磁盘源码是干净的轮次基线。修改任务定义后，用 `-OperationIndex <n>` 聚焦检查故障 op，不检查整轮。
+2. **code-step 阶段故障**：磁盘源码是干净的轮次基线。修改任务定义后，可先用 `-OperationIndex <n>` 聚焦检查故障 op，但重启前仍须运行不带 `-OperationIndex` 的当前轮递进严格检查。
 3. **compile/verify 阶段故障**：磁盘源码已包含本轮全部 op。只能在该轮 `operations` 末尾追加补丁 op，不得修改或删除既有 op。
 4. **写盘异常或源码摘要不一致**：不进入自愈修复。先回报告障证据，由人工判断恢复还是重建 A/B。
 5. **修改完成后**：无论哪种场景，修改任务定义后均需 `check_task_definition_static.ps1 -Policy enforce` 通过，才允许执行 `stage_restart` 或 `business_resume`。
@@ -1497,7 +1491,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 A/B 启动入口只执行 `check_task_definition_static.ps1 -SyntaxOnly`：确认任务定义文件存在且为普通文件、JSON 可解析、`targetFile` 非空、`rounds` 存在且非空。入口不读取目标源码，不检查 D1-op1，也不执行任何 operation 正则。装载失败必须在 launcher 硬阻断，不得用 `runtime-ticket` 延迟到主流程。
 
-每个 D 轮的业务语义由 code-step 自己负责。code-step 在轮次内存副本上逐 op 检查唯一匹配、替换、安全 marker、收敛与正则时限；当前 op 全部通过后才把 replacement 应用到内存副本并进入下一 op。首个失败立即退出，不检查后续 op 或后续轮；目标源码仅在整轮 operations 全部通过后统一写入。独立的 code-step 前整轮 static gate 已停用，兼容日志固定输出 `task_static_runtime_gate_result=SKIP ... reason=owned-by-code-step-progressive`。
+每个 D 轮的业务语义由 code-step 负责触发，但静态执行语义统一由 checker 实现。code-step 将当前目标源码作为轮次基线调用 checker；checker 在内存副本上逐 op 检查唯一匹配、替换、安全 marker、收敛与正则时限，当前 op 全部通过后才推进到下一 op，首错立即停止。整轮 operations 通过后还必须通过 replay 与 `postApplyAssertions`，checker 才生成有效源码临时文件；code-step 只消费该结果并一次性写回。独立的 code-step 前整轮 static gate 已停用，兼容日志固定输出 `task_static_runtime_gate_result=SKIP ... reason=owned-by-code-step-progressive`，但这不表示跳过 checker，而是 checker 已由 code-step 内部调用。
 
 checker 按仓库使用 named Mutex 单实例运行。第二实例不等待，输出 `single_instance_conflict=true` 并返回 4。明显嵌套量词在进入正则引擎前拒绝，正则本身有 timeout，外层 worker 也有总时限；任何超时均按失败处理。
 
@@ -1682,6 +1676,7 @@ session memory 中的记录应在以下任一条件满足时清除：
   - `override_window`：满足重试条件后放行一次重启窗口。
   - `hard_block`：预算耗尽或证据不足，转人工处置，禁止自动重启。
 - 默认预算：`CODESTEP_IDENTICAL_FP_MAX_RETRIES=3`（可用 stage 级键覆盖：`A_CODESTEP_IDENTICAL_FP_MAX_RETRIES` / `B_CODESTEP_IDENTICAL_FP_MAX_RETRIES`）。
+- 该预算只统计“修复后重启主进程，仍再次产生相同 `main_round + phase + task_start_at + failure_fingerprint`”的恢复尝试，不限制单张自愈工单内调用 checker 的次数。代理可按首错诊断依次修复 op1、op2……并反复运行目标 op 快检和当前轮严格检查，直至本轮通过或确认阻塞；这些未重启主进程的本地检查不消耗相同指纹预算。
 - 第 2/3 次重试必须有“有效修复证据”，否则直接进入 `hard_block`：
   - 任务定义文件哈希变化；或
   - 轮次级任务定义印记（round operations imprint）变化；或

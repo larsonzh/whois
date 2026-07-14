@@ -2118,6 +2118,8 @@ function New-TakeoverBrief {
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),
         ('task_definition_check_order={0}' -f 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart'),
+        ('task_definition_execution_engine={0}' -f 'code-step invokes checker as the shared full-round engine and writes target source only after ops, replay, and postApplyAssertions pass'),
+        ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
         ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
         ('same_stage_restart_policy={0}' -f 'after valid repair evidence and full checks, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),

@@ -46,7 +46,7 @@ function New-TaskCase {
         }
     }
     Write-Utf8NoBom -Path $taskPath -Text ($task | ConvertTo-Json -Depth 16)
-    return [pscustomobject]@{ Name = $Name; Directory = $directory; TaskPath = $taskPath }
+    return [pscustomobject]@{ Name = $Name; Directory = $directory; SourcePath = $sourcePath; TaskPath = $taskPath }
 }
 
 function Invoke-Case {
@@ -78,6 +78,39 @@ function Invoke-Case {
         }
     }
     Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name) status=pass exit=$exitCode"
+}
+
+function Invoke-CodeStepCase {
+    param(
+        [object]$Case,
+        [int]$ExpectedExitCode,
+        [string]$ExpectedSourceText,
+        [string]$ExpectedOutputFragment
+    )
+
+    $task = (Get-Content -LiteralPath $Case.TaskPath -Raw) | ConvertFrom-Json
+    $task.targetFile = $Case.SourcePath
+    Write-Utf8NoBom -Path $Case.TaskPath -Text ($task | ConvertTo-Json -Depth 16)
+
+    $stateDir = Join-Path $Case.Directory 'code-step-state'
+    $codeStep = Join-Path $PSScriptRoot 'autopilot_code_step_rounds.ps1'
+    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $codeStep `
+        -TaskDefinitionFile $Case.TaskPath -TargetFile $Case.SourcePath -StateDir $stateDir 2>&1 | `
+        ForEach-Object { [string]$_ })
+    $exitCode = $LASTEXITCODE
+    $actualSourceText = Get-Content -LiteralPath $Case.SourcePath -Raw
+
+    if ($exitCode -ne $ExpectedExitCode) {
+        throw "case=$($Case.Name)-code-step expected_exit=$ExpectedExitCode actual_exit=$exitCode output=$($output -join ' | ')"
+    }
+    if ($actualSourceText -ne $ExpectedSourceText) {
+        throw "case=$($Case.Name)-code-step source mismatch expected=$ExpectedSourceText actual=$actualSourceText"
+    }
+    if (-not ($output -match [regex]::Escape($ExpectedOutputFragment))) {
+        throw "case=$($Case.Name)-code-step missing_fragment=$ExpectedOutputFragment output=$($output -join ' | ')"
+    }
+
+    Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name)-code-step status=pass exit=$exitCode"
 }
 
 function New-ChainTask {
@@ -173,6 +206,19 @@ try {
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
     ) -Assertions @([ordered]@{ name = 'required-helper-call'; pattern = 'helper\(\)'; expectedCount = 1 })
     Invoke-Case -Case $assertionCase -ExpectedExitCode 2 -ExpectedFragments @('postApplyAssertion failed name=required-helper-call')
+    Invoke-CodeStepCase -Case $assertionCase -ExpectedExitCode 1 `
+        -ExpectedSourceText "static int target(void)`n{`n`treturn 1;`n}`n" `
+        -ExpectedOutputFragment 'postApplyAssertion failed name=required-helper-call'
+
+    $codeStepPassCase = New-TaskCase -Name 'pass-code-step-complete-contract' -Operations @(
+        [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
+    ) -Assertions @(
+        [ordered]@{ name = 'updated-return'; pattern = 'return 2;'; expectedCount = 1 },
+        [ordered]@{ name = 'old-return-removed'; pattern = 'return 1;'; expectedCount = 0 }
+    )
+    Invoke-CodeStepCase -Case $codeStepPassCase -ExpectedExitCode 0 `
+        -ExpectedSourceText "static int target(void)`n{`n`treturn 2;`n}`n" `
+        -ExpectedOutputFragment 'round=D1 action=applied'
 
     $warnCase = New-TaskCase -Name 'pass-warn-compatibility' -Operations @(
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;' }

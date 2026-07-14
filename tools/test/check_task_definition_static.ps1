@@ -496,7 +496,7 @@ function Add-ResumeRoundBoundaryIssues {
     $currentTaskDefinition = $null
     try {
         $baselineTaskDefinition = ($baselineLines -join "`n") | ConvertFrom-Json -ErrorAction Stop
-        $currentTaskDefinition = (Get-Content -LiteralPath $TaskDefinitionPath -Raw) | ConvertFrom-Json -ErrorAction Stop
+        $currentTaskDefinition = (Get-Content -LiteralPath $TaskDefinitionPath -Raw -Encoding utf8) | ConvertFrom-Json -ErrorAction Stop
     }
     catch {
         Add-ErrorIssue ("resume-boundary-check json-parse-failed resume_round={0} task={1}" -f $resumeRound, $relativeTaskPath)
@@ -639,7 +639,7 @@ function Add-ResumeRoundBoundaryIssues {
 
 $taskDefinition = $null
 try {
-    $taskDefinition = (Get-Content -LiteralPath $resolvedTaskDefinition -Raw) | ConvertFrom-Json
+    $taskDefinition = (Get-Content -LiteralPath $resolvedTaskDefinition -Raw -Encoding utf8) | ConvertFrom-Json
 }
 catch {
     throw "[TASK-STATIC-CHECK] invalid task definition json: $resolvedTaskDefinition"
@@ -721,7 +721,7 @@ foreach ($prerequisiteTaskDefinitionFile in @($PrerequisiteTaskDefinitionFiles))
     else {
         (Resolve-Path -LiteralPath (Join-Path $RepoRoot $prerequisiteInput)).Path
     }
-    $prerequisiteDefinition = (Get-Content -LiteralPath $prerequisiteResolved -Raw) | ConvertFrom-Json
+    $prerequisiteDefinition = (Get-Content -LiteralPath $prerequisiteResolved -Raw -Encoding utf8) | ConvertFrom-Json
     $prerequisiteTargetRaw = Resolve-PrimaryTargetFile -TaskDefinition $prerequisiteDefinition -TaskDefinitionPath $prerequisiteResolved
     $prerequisiteTargetResolved = if ([System.IO.Path]::IsPathRooted($prerequisiteTargetRaw)) {
         [System.IO.Path]::GetFullPath($prerequisiteTargetRaw)
