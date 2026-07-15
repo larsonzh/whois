@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 $script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Move'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:ReadMaxAttempts'] = 8
@@ -1615,6 +1616,12 @@ function Save-ASuccessSnapshot {
             $dstParent = Split-Path -Parent $dstPath
             if (-not (Test-Path -LiteralPath $dstParent)) { New-Item -ItemType Directory -Path $dstParent -Force | Out-Null }
             Copy-Item -LiteralPath $srcPath -Destination $dstPath -Force
+        }
+
+        $null = Write-ASuccessSnapshotManifest -SnapshotDir $snapshotDir
+        $integrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir
+        if (-not $integrity.Pass) {
+            throw "A success snapshot integrity check failed: $($integrity.Errors -join ',')"
         }
 
         $patchRaw = @(& $invokeGitCapture @('diff', '--binary', '--', 'src', 'include'))

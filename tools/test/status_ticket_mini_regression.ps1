@@ -176,6 +176,8 @@ $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tool
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
 $codeStepText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_code_step_rounds.ps1') -Raw -Encoding utf8
+$fastModeBText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_fastmode_B.ps1') -Raw -Encoding utf8
+$snapshotIntegrityText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/a_success_snapshot_integrity.ps1') -Raw -Encoding utf8
 $operationFlowPath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_OPERATION_FLOW_CN.md'
 $copilotInstructionsPath = Resolve-RepoPath -Path '.github/copilot-instructions.md'
 $operationFlowText = Get-Content -LiteralPath $operationFlowPath -Raw -Encoding utf8
@@ -398,6 +400,21 @@ $monitorContextGatePass = (
 )
 $monitorContextGateReason = if ($monitorContextGatePass) { 'standalone-skips-monitor-launch-ab-context-keeps-health-check' } else { 'monitor-health-check-context-gate-regressed' }
 [void]$results.Add((Get-CaseResult -Name 'monitor-health-check-explicit-ab-context' -Pass $monitorContextGatePass -Reason $monitorContextGateReason))
+
+$snapshotIntegrityChainPass = (
+    $snapshotIntegrityText.Contains('A_SUCCESS_SNAPSHOT_MANIFEST_V1') -and
+    $snapshotIntegrityText.Contains('snapshot-hash-mismatch:') -and
+    $snapshotIntegrityText.Contains('path-not-allowed:') -and
+    $snapshotIntegrityText.Contains('destination-hash-mismatch:') -and
+    $sessionGuardText.Contains('Write-ASuccessSnapshotManifest -SnapshotDir $snapshotDir') -and
+    $sessionGuardText.Contains('Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir') -and
+    $stageWindowText.Contains('Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath') -and
+    $stageWindowText.Contains('b_start_gate blocked: A snapshot integrity failed') -and
+    $fastModeBText.Contains('A snapshot restore blocked by integrity check') -and
+    $fastModeBText.Contains('A snapshot post-encoding verification failed')
+)
+$snapshotIntegrityChainReason = if ($snapshotIntegrityChainPass) { 'a-snapshot-integrity-active-chain-present' } else { 'a-snapshot-integrity-active-chain-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'a-snapshot-integrity-active-chain' -Pass $snapshotIntegrityChainPass -Reason $snapshotIntegrityChainReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
 $stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")

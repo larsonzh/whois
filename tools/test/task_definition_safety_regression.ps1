@@ -113,6 +113,76 @@ function Invoke-CodeStepCase {
     Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name)-code-step status=pass exit=$exitCode"
 }
 
+function Invoke-ResetByteFidelityCase {
+    $worktree = Join-Path $caseRoot 'reset-byte-fidelity-worktree'
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $worktreeOutput = @(& git -C $repoRoot worktree add --detach $worktree HEAD 2>&1 | ForEach-Object { [string]$_ })
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "case=reset-byte-fidelity worktree_add_failed output=$($worktreeOutput -join ' | ')"
+    }
+
+    try {
+        $relativeTarget = 'src/core/whois_query_exec.c'
+        $target = Join-Path $worktree $relativeTarget
+        $stateDir = Join-Path $worktree 'out/artifacts/reset-byte-fidelity-state'
+        $baseline = Join-Path $stateDir 'target_baseline.c'
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'autopilot_code_step_rounds.ps1') `
+            -Destination (Join-Path $worktree 'tools/test/autopilot_code_step_rounds.ps1') -Force
+
+        $headBytes = [System.IO.File]::ReadAllBytes($target)
+        if ($headBytes.Length -lt 1 -or $headBytes[$headBytes.Length - 1] -ne 10) {
+            throw 'case=reset-byte-fidelity fixture must end with LF'
+        }
+        $withoutFinalLf = New-Object byte[] ($headBytes.Length - 1)
+        [System.Array]::Copy($headBytes, $withoutFinalLf, $withoutFinalLf.Length)
+        [System.IO.File]::WriteAllBytes($baseline, $withoutFinalLf)
+        [System.IO.File]::WriteAllBytes($target, $withoutFinalLf)
+
+        $beforeStatus = @(& git -C $worktree status --porcelain -- $relativeTarget)
+        if ($beforeStatus.Count -ne 1 -or $beforeStatus[0] -notmatch '^ M ') {
+            throw "case=reset-byte-fidelity expected_dirty_before_reset status=$($beforeStatus -join ' | ')"
+        }
+
+        $codeStep = Join-Path $worktree 'tools/test/autopilot_code_step_rounds.ps1'
+        $taskDefinition = Join-Path $worktree 'testdata/autopilot_code_step_tasks_default.json'
+        $resetOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $codeStep `
+            -Reset -TaskDefinitionFile $taskDefinition -TargetFile $target -StateDir $stateDir 2>&1 | `
+            ForEach-Object { [string]$_ })
+        if ($LASTEXITCODE -ne 0 -or -not ($resetOutput -match 'restore_policy=restored-head-due-baseline-mismatch')) {
+            throw "case=reset-byte-fidelity reset_failed output=$($resetOutput -join ' | ')"
+        }
+
+        $actualBytes = [System.IO.File]::ReadAllBytes($target)
+        if ($actualBytes.Length -ne $headBytes.Length) {
+            throw "case=reset-byte-fidelity byte_length_mismatch expected=$($headBytes.Length) actual=$($actualBytes.Length)"
+        }
+        for ($index = 0; $index -lt $headBytes.Length; $index++) {
+            if ($actualBytes[$index] -ne $headBytes[$index]) {
+                throw "case=reset-byte-fidelity byte_mismatch offset=$index"
+            }
+        }
+
+        $afterStatus = @(& git -C $worktree status --porcelain -- $relativeTarget)
+        if ($afterStatus.Count -ne 0) {
+            throw "case=reset-byte-fidelity expected_clean_after_reset status=$($afterStatus -join ' | ')"
+        }
+
+        Write-Output '[TASK-SAFETY-REGRESSION] case=reset-byte-fidelity status=pass bytes=head git_status=clean'
+    }
+    finally {
+        & git -C $repoRoot worktree remove --force $worktree 2>$null | Out-Null
+    }
+}
+
 function New-ChainTask {
     param(
         [string]$Directory,
@@ -219,6 +289,8 @@ try {
     Invoke-CodeStepCase -Case $codeStepPassCase -ExpectedExitCode 0 `
         -ExpectedSourceText "static int target(void)`n{`n`treturn 2;`n}`n" `
         -ExpectedOutputFragment 'round=D1 action=applied'
+
+    Invoke-ResetByteFidelityCase
 
     $warnCase = New-TaskCase -Name 'pass-warn-compatibility' -Operations @(
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;' }

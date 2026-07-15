@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 $script:UnhandledExitTag = 'OPEN-AB-STAGE'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Copy'
 
@@ -470,6 +471,15 @@ function Assert-BStartEligibility {
     if (-not (Test-Path -LiteralPath $snapshotDir)) {
         throw ("[{0}] b_start_gate blocked: snapshot directory missing ({1})" -f $ScriptTag, (Convert-ToAnchorPath -Path $snapshotDir))
     }
+
+    $aTaskDefinitionRaw = if ($updatedSettings.Contains('A_TASK_DEFINITION')) { [string]$updatedSettings.A_TASK_DEFINITION } else { '' }
+    $aTaskDefinitionPath = Resolve-RepoPathAllowMissing -Path $aTaskDefinitionRaw -RepoRoot $RepoRoot
+    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
+    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    if (-not $snapshotIntegrity.Pass) {
+        throw ("[{0}] b_start_gate blocked: A snapshot integrity failed errors={1}" -f $ScriptTag, ($snapshotIntegrity.Errors -join ','))
+    }
+    Write-Host ("[{0}] b_snapshot_integrity status=PASS files={1} manifest={2}" -f $ScriptTag, [int]$snapshotIntegrity.FileCount, (Convert-ToAnchorPath -Path $snapshotIntegrity.ManifestPath))
 
     $alignment = Test-BNormalModeSourceAlignedWithSnapshot -RepoRoot $RepoRoot -SnapshotDir $snapshotDir
     $effectiveRestartMode = $false

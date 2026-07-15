@@ -1484,6 +1484,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 静态检查通过后，重启主进程，源码会自动恢复到阶段基线：
   - **A 阶段基线**：仓库中上次提交推送后形成的基线（git HEAD）
   - **B 阶段基线**：A 阶段完成时的源码及源码快照
+- A PASS 快照必须包含 `source_manifest.json`，逐文件记录规范化相对路径、字节长度和 SHA-256。guard 在快照生成后立即自校验；B 启动前必须校验 manifest、实际文件树以及 A 任务定义允许的目标集合，任何缺失、篡改、额外源码或越权路径都 fail-close。
+- B 从 A PASS 快照恢复后必须逐文件复核目标工作区哈希，并在编码门禁结束后再次复核。旧快照若缺少 manifest，不得兼容降级或直接启动 B，应重跑 A 生成新快照。
 - 脚本按照任务定义文件中各轮次的顺序依次执行源码的改动
 - **绝对禁止 AI 直接修改源码**——所有变更须通过任务定义的 operation 间接实现
 

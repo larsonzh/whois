@@ -8,6 +8,7 @@ $script:RuntimeTranscriptStarted = $false
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 
 function Resolve-RepoScopedPath {
     param(
@@ -145,6 +146,14 @@ function Restore-AStageSnapshotSource {
         throw "A snapshot restore requested but source directory is missing: $sourceDir"
     }
 
+    $aTaskDefinitionRaw = if ($StartSettings.Contains('A_TASK_DEFINITION')) { [string]$StartSettings.A_TASK_DEFINITION } else { '' }
+    $aTaskDefinitionPath = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path $aTaskDefinitionRaw
+    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
+    $preRestoreIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    if (-not $preRestoreIntegrity.Pass) {
+        throw "A snapshot restore blocked by integrity check: $($preRestoreIntegrity.Errors -join ',')"
+    }
+
     try {
         $repoRootFull = [System.IO.Path]::GetFullPath($RepoRoot)
     }
@@ -268,6 +277,11 @@ function Restore-AStageSnapshotSource {
         }
     }
 
+    $postRestoreIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths -DestinationRoot $RepoRoot
+    if (-not $postRestoreIntegrity.Pass) {
+        throw "A snapshot restore verification failed: $($postRestoreIntegrity.Errors -join ',')"
+    }
+
     return [pscustomobject]@{
         SnapshotDir = $snapshotDir
         RestoreMode = $restoreMode
@@ -275,6 +289,7 @@ function Restore-AStageSnapshotSource {
         MissingCount = $missingCount
         UnsafeCount = $unsafeCount
         UnsafeDetails = @($unsafeDetails)
+        VerifiedCount = [int]$postRestoreIntegrity.FileCount
     }
 }
 
@@ -495,6 +510,15 @@ try {
         Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
         Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
         Write-Output '[FASTMODE-B] restore_from_a_snapshot post_restore_encoding_fix=end'
+
+        $aTaskDefinitionRaw = if ($snapshotRestoreDecision.StartSettings.Contains('A_TASK_DEFINITION')) { [string]$snapshotRestoreDecision.StartSettings.A_TASK_DEFINITION } else { '' }
+        $aTaskDefinitionPath = Resolve-RepoScopedPath -RepoRoot $repoRoot -Path $aTaskDefinitionRaw
+        $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
+        $postEncodingIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir ([string]$snapshotRestoreResult.SnapshotDir) -AllowedPaths $allowedSnapshotPaths -DestinationRoot $repoRoot
+        if (-not $postEncodingIntegrity.Pass) {
+            throw "A snapshot post-encoding verification failed: $($postEncodingIntegrity.Errors -join ',')"
+        }
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot integrity=PASS verified_files={0} phase=post-encoding" -f [int]$postEncodingIntegrity.FileCount)
     }
     else {
         Write-Output ("[FASTMODE-B] restore_skip reason={0}" -f [string]$snapshotRestoreDecision.Reason)

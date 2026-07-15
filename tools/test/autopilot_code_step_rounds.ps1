@@ -211,21 +211,68 @@ function Invoke-ValidatedTaskDefinitionRound {
     }
 }
 
-function Get-NormalizedContentHash {
+function Read-GitHeadBlobBytes {
     param(
-        [string]$Text
+        [string]$RepoRoot,
+        [string]$RelativePath
     )
 
-    $normalized = ($Text -replace "`r`n", "`n") -replace "`r", "`n"
-    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $gitCommand = Get-Command git.exe -ErrorAction Stop
+    $escapedRepoRoot = $RepoRoot.Replace('"', '\"')
+    $escapedBlob = ("HEAD:{0}" -f $RelativePath).Replace('"', '\"')
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $gitCommand.Source
+    $startInfo.Arguments = ('-c core.safecrlf=false -c core.autocrlf=false -C "{0}" show "{1}"' -f $escapedRepoRoot, $escapedBlob)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    $memory = New-Object System.IO.MemoryStream
     try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
-        $hashBytes = $sha.ComputeHash($bytes)
-        return ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
+        if (-not $process.Start()) {
+            throw "git process did not start"
+        }
+        $process.StandardOutput.BaseStream.CopyTo($memory)
+        $errorText = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            return [pscustomobject]@{
+                Success = $false
+                Bytes = [byte[]]@()
+                Detail = $errorText.Trim()
+            }
+        }
+
+        return [pscustomobject]@{
+            Success = $true
+            Bytes = [byte[]]$memory.ToArray()
+            Detail = ""
+        }
     }
     finally {
-        $sha.Dispose()
+        $memory.Dispose()
+        $process.Dispose()
     }
+}
+
+function Test-ByteArrayEqual {
+    param(
+        [byte[]]$Left,
+        [byte[]]$Right
+    )
+
+    if ($Left.Length -ne $Right.Length) {
+        return $false
+    }
+    for ($index = 0; $index -lt $Left.Length; $index++) {
+        if ($Left[$index] -ne $Right[$index]) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Test-BaselineMatchesHead {
@@ -244,27 +291,13 @@ function Test-BaselineMatchesHead {
         return $false
     }
 
-    $baselineText = Get-Content -LiteralPath $BaselinePath -Raw
-    $baselineHash = Get-NormalizedContentHash -Text $baselineText
-
-    $headRaw = & git -c core.safecrlf=false -c core.autocrlf=false -C $RepoRoot show "HEAD:$relativePath" 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $headBlob = Read-GitHeadBlobBytes -RepoRoot $RepoRoot -RelativePath $relativePath
+    if (-not $headBlob.Success) {
         return $false
     }
 
-    $headLines = @()
-    foreach ($item in $headRaw) {
-        if ($item -is [System.Management.Automation.ErrorRecord]) {
-            $headLines += $item.Exception.Message
-        }
-        else {
-            $headLines += [string]$item
-        }
-    }
-    $headText = $headLines -join "`n"
-    $headHash = Get-NormalizedContentHash -Text $headText
-
-    return $baselineHash -eq $headHash
+    $baselineBytes = [System.IO.File]::ReadAllBytes($BaselinePath)
+    return Test-ByteArrayEqual -Left $baselineBytes -Right $headBlob.Bytes
 }
 
 function Restore-TargetFromHead {
@@ -282,37 +315,16 @@ function Restore-TargetFromHead {
         }
     }
 
-    $headRaw = & git -c core.safecrlf=false -c core.autocrlf=false -C $RepoRoot show "HEAD:$relativePath" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $headLines = @()
-        foreach ($item in $headRaw) {
-            if ($item -is [System.Management.Automation.ErrorRecord]) {
-                $headLines += $item.Exception.Message
-            }
-            else {
-                $headLines += [string]$item
-            }
-        }
-
+    $headBlob = Read-GitHeadBlobBytes -RepoRoot $RepoRoot -RelativePath $relativePath
+    if (-not $headBlob.Success) {
         return [pscustomobject]@{
             Restored = $false
             Reason = "git-show-failed"
-            Detail = ($headLines -join '; ')
+            Detail = $headBlob.Detail
         }
     }
 
-    $headTextLines = @()
-    foreach ($item in $headRaw) {
-        if ($item -is [System.Management.Automation.ErrorRecord]) {
-            $headTextLines += $item.Exception.Message
-        }
-        else {
-            $headTextLines += [string]$item
-        }
-    }
-
-    $headText = $headTextLines -join "`n"
-    Invoke-FileUtf8NoBomWrite -Path $TargetPath -Text $headText
+    [System.IO.File]::WriteAllBytes($TargetPath, $headBlob.Bytes)
 
     return [pscustomobject]@{
         Restored = $true
