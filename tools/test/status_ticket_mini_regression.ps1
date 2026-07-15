@@ -174,6 +174,7 @@ $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encod
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
+$codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
 $codeStepText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_code_step_rounds.ps1') -Raw -Encoding utf8
 $operationFlowPath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_OPERATION_FLOW_CN.md'
 $copilotInstructionsPath = Resolve-RepoPath -Path '.github/copilot-instructions.md'
@@ -372,6 +373,31 @@ if ([string]::Join(',', $d1RuntimeGateEligibility) -ne 'False,True,True,True') {
 $fastPassPolicyPass = ($fastPassHasExactTerminalDevPolicy -and $fastPassUsesExactRuntimeGatePolicy -and $fastPassUsesPreResumeOnly -and $fastPassRuntimeMatrixPass)
 $fastPassPolicyReason = if ($fastPassPolicyPass) { 'fast-pass-resume-matrix-is-exact' } else { 'fast-pass-resume-matrix-regressed' }
 [void]$results.Add((Get-CaseResult -Name 'fast-pass-resume-matrix' -Pass $fastPassPolicyPass -Reason $fastPassPolicyReason))
+
+$wrapperPolicyRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File $codeChangeWrapperPath -EnableGateOnlySourceDrivenSkip true -EnableFastV2Skip false -EnableGuardedFastMode 1 -DescribeInvocationPolicy | Out-String
+$wrapperPolicy = $wrapperPolicyRaw | ConvertFrom-Json -ErrorAction Stop
+$wrapperBoolBindingPass = (
+    [string]$wrapperPolicy.schema -eq 'AUTOPILOT_CODE_CHANGE_INVOCATION_POLICY_V1' -and
+    [bool]$wrapperPolicy.enable_gate_only_source_driven_skip -and
+    -not [bool]$wrapperPolicy.enable_fast_v2_skip -and
+    [bool]$wrapperPolicy.enable_guarded_fast_mode
+)
+$wrapperBoolBindingReason = if ($wrapperBoolBindingPass) { 'wrapper-accepts-task-string-booleans' } else { 'wrapper-task-string-boolean-binding-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'code-change-wrapper-string-booleans' -Pass $wrapperBoolBindingPass -Reason $wrapperBoolBindingReason))
+
+$monitorExitBlockMatch = [regex]::Match($multiRoundText, '(?s)# Health-check monitor chain before exit only for an explicitly bound A/B run\.(?<block>.*?)if \(\$allPass\)')
+$monitorExitBlock = if ($monitorExitBlockMatch.Success) { [string]$monitorExitBlockMatch.Groups['block'].Value } else { '' }
+$monitorContextGatePass = (
+    $monitorExitBlockMatch.Success -and
+    $monitorExitBlock.Contains("Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'") -and
+    $monitorExitBlock.Contains('if (-not [string]::IsNullOrWhiteSpace($hcStartFilePath))') -and
+    $monitorExitBlock.Contains('Invoke-MonitorChainHealthCheck') -and
+    $monitorExitBlock.Contains('monitor_health_check_skip reason=no-explicit-ab-start-file') -and
+    $stageWindowText.Contains("Set-Item -Path 'Env:AUTO_START_FILE_PATH' -Value `$startFilePath") -and
+    -not $monitorExitBlock.Contains('unattended_ab_start_')
+)
+$monitorContextGateReason = if ($monitorContextGatePass) { 'standalone-skips-monitor-launch-ab-context-keeps-health-check' } else { 'monitor-health-check-context-gate-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'monitor-health-check-explicit-ab-context' -Pass $monitorContextGatePass -Reason $monitorContextGateReason))
 
 # Case 6: poll output must expose triage summary contract for fast diagnosis.
 $stageWindowHasForceFlag = $stageWindowText.Contains("`$bForceMonitorRestart = (`$Stage -eq 'B' -and `$EnableBMonitorRestart.IsPresent)")

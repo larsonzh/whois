@@ -23,19 +23,60 @@
     [ValidateRange(30, 900)][int]$TerminalWatchdogIntervalSec = 120,
     [ValidateRange(60, 7200)][int]$TerminalWatchdogMinAgeSec = 600,
     [ValidateRange(1, 4)][int]$DevVerifyStride = 1,
-    [bool]$EnableGateOnlySourceDrivenSkip = $true,
-    [bool]$EnableFastV2Skip = $true,
-    [bool]$EnableGuardedFastMode = $false,
+    [AllowNull()][object]$EnableGateOnlySourceDrivenSkip = $true,
+    [AllowNull()][object]$EnableFastV2Skip = $true,
+    [AllowNull()][object]$EnableGuardedFastMode = $false,
     [ValidateSet("off", "warn", "enforce")][string]$TaskDesignQualityPolicy = "warn",
     [ValidateRange(0, 3)][int]$UnknownNoOpBudget = 1,
     [ValidateRange(1, 3)][int]$UnknownNoOpConsecutiveLimit = 2,
     [switch]$DisableUnknownNoOpBudgetGate,
     [string]$OutDirRoot = "d:\LZProjects\whois\out\artifacts\autopilot_dev_recheck_8round",
     [string]$SessionOutDirRoot = "d:\LZProjects\whois\out\artifacts\dev_verify_multiround",
-    [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json"
+    [AllowEmptyString()][string]$TaskDefinitionFile = "testdata/autopilot_code_step_tasks_default.json",
+    [switch]$DescribeInvocationPolicy
 )
 
 $ErrorActionPreference = "Stop"
+
+function Convert-ToStrictBool {
+    param(
+        [AllowNull()][object]$Value,
+        [string]$ParameterName,
+        [bool]$DefaultValue
+    )
+
+    if ($null -eq $Value) { return $DefaultValue }
+    if ($Value -is [bool]) { return [bool]$Value }
+    if ($Value -is [int] -or $Value -is [long]) {
+        if ([int64]$Value -eq 0) { return $false }
+        if ([int64]$Value -eq 1) { return $true }
+        throw "$ParameterName only accepts bool/0/1, actual numeric value=$Value"
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $DefaultValue }
+    switch ($text.Trim().ToLowerInvariant()) {
+        "true"  { return $true }
+        "false" { return $false }
+        "1"     { return $true }
+        "0"     { return $false }
+        default { throw "$ParameterName only accepts bool/0/1/true/false, actual value='$text'" }
+    }
+}
+
+$EnableGateOnlySourceDrivenSkip = Convert-ToStrictBool -Value $EnableGateOnlySourceDrivenSkip -ParameterName "EnableGateOnlySourceDrivenSkip" -DefaultValue $true
+$EnableFastV2Skip = Convert-ToStrictBool -Value $EnableFastV2Skip -ParameterName "EnableFastV2Skip" -DefaultValue $true
+$EnableGuardedFastMode = Convert-ToStrictBool -Value $EnableGuardedFastMode -ParameterName "EnableGuardedFastMode" -DefaultValue $false
+
+if ($DescribeInvocationPolicy.IsPresent) {
+    [ordered]@{
+        schema = 'AUTOPILOT_CODE_CHANGE_INVOCATION_POLICY_V1'
+        enable_gate_only_source_driven_skip = $EnableGateOnlySourceDrivenSkip
+        enable_fast_v2_skip = $EnableFastV2Skip
+        enable_guarded_fast_mode = $EnableGuardedFastMode
+    } | ConvertTo-Json -Depth 3
+    exit 0
+}
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)

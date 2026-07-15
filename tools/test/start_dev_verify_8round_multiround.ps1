@@ -2434,16 +2434,18 @@ Write-Output ("[DEV-VERIFY-MULTI] final_decision={0}" -f $finalDecision)
 Invoke-TerminalWatchdogStop -Process $terminalWatchdogProcess
 Write-Output ("[DEV-VERIFY-MULTI] shutdown_pid pid={0}" -f $PID)
 
-# Health-check monitor chain before exit (Requirement 1)
+# Health-check monitor chain before exit only for an explicitly bound A/B run.
 $hcStartFilePath = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
-if ([string]::IsNullOrWhiteSpace($hcStartFilePath)) {
-    $hcStartFilePath = Join-Path $repoRoot 'testdata\unattended_start\active\unattended_ab_start_20261116-20261130.md'
+if (-not [string]::IsNullOrWhiteSpace($hcStartFilePath)) {
+    try {
+        $null = Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcStartFilePath -LogPrefix 'DEV-VERIFY-MULTI'
+    }
+    catch {
+        Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error detail={0}" -f $_.Exception.Message)
+    }
 }
-try {
-    $null = Invoke-MonitorChainHealthCheck -Roles @('guard', 'trigger') -RepoRoot $repoRoot -StartFilePath $hcStartFilePath -LogPrefix 'DEV-VERIFY-MULTI'
-}
-catch {
-    Write-Output ("[DEV-VERIFY-MULTI] monitor_health_check_error detail={0}" -f $_.Exception.Message)
+else {
+    Write-Output '[DEV-VERIFY-MULTI] monitor_health_check_skip reason=no-explicit-ab-start-file'
 }
 
 if ($allPass) {
