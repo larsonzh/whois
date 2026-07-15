@@ -145,6 +145,7 @@ $briefRecommendedAction = Convert-ToSingleLineText -Text ([string]$brief.recomme
 
 $policyWorkMode = ''
 $isLowDisturbMode = $false
+$scriptSelfHealEnabled = $false
 if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
     $startFilePath = Resolve-RepoPathAllowMissing -Path $startFileRel
     if (-not [string]::IsNullOrWhiteSpace($startFilePath) -and (Test-Path -LiteralPath $startFilePath)) {
@@ -152,6 +153,9 @@ if (-not [string]::IsNullOrWhiteSpace($startFileRel)) {
             $startSettings = Read-KeyValueFile -Path $startFilePath
             if ($startSettings.Contains('AI_CHAT_POLICY_WORK_MODE')) {
                 $policyWorkMode = (Convert-ToSingleLineText -Text ([string]$startSettings.AI_CHAT_POLICY_WORK_MODE)).ToLowerInvariant()
+            }
+            if ($startSettings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
+                $scriptSelfHealEnabled = (Convert-ToSingleLineText -Text ([string]$startSettings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED)).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
             }
         }
         catch {
@@ -332,6 +336,8 @@ elseif ($failureCategory -match '^task-definition(?:-|$)' -or $failureKind -in @
 elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
     $incidentLane = 'script-fix'
 }
+$scriptDiagnoseOnly = ($isIncidentLike -and $incidentLane -eq 'script-fix' -and -not $scriptSelfHealEnabled)
+$canAutoResume = ($canAutoResume -and -not $scriptDiagnoseOnly)
 
 # Skip tickets created before the session's initial launch (pre-start events)
 $isPreStart = $false
@@ -416,6 +422,20 @@ elseif ($isNoticeEvent) {
             break
         }
     }
+}
+elseif ($scriptDiagnoseOnly) {
+    $classification = 'incident-script-diagnose-only'
+    $recommendedAction = 'investigate-script-fault-and-report-proposal-only'
+    $mustTriggerBusinessResume = $false
+    $mustAvoidStageRestart = $true
+    $allowedActions = @('read-only-evidence', 'root-cause-analysis', 'remediation-proposal', 'chat-report', 'handled_at')
+    $blockedActions = @('script_edit', 'source_edit', 'task_definition_edit', 'self_heal', 'business_resume', 'stage_restart', 'guard_restart', 'process_kill', 'environment_mutation', 'new_script', 'continue_watch_command', 'business_command')
+    $reason = 'Script self-heal is disabled by start-file policy; investigate and report only. File edits, process control, restart, resume, and environment mutation are forbidden.'
+    [void]$decisionFactors.Add('incident_like=true')
+    [void]$decisionFactors.Add('incident_lane=script-diagnose')
+    [void]$decisionFactors.Add('script_self_heal_enabled=false')
+    [void]$decisionFactors.Add('diagnose_only=true')
+    $decisionConfidence = 0.99
 }
 elseif ($isIncidentLike -and $canAutoResume) {
     $classification = ('incident-auto-resume-{0}' -f $incidentLane)
@@ -502,6 +522,8 @@ $output = [ordered]@{
     }
     eligibility = [ordered]@{
         self_healable = [bool]$selfHealable
+        script_self_heal_enabled = [bool]$scriptSelfHealEnabled
+        script_diagnose_only = [bool]$scriptDiagnoseOnly
         fallback_auto_resume_eligible = [bool]$fallbackAutoResumeEligible
         effective_auto_resume_eligible = [bool]$canAutoResume
         non_recoverable_env = [bool]$nonRecoverableEnv

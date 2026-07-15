@@ -16,6 +16,7 @@
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
 - 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票最终只执行一次 `atomic_closeout_command`，仅在其机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
+- 脚本故障必须先读取 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED`。字段缺失、非法或为 `false` 时进入 `incident-script-diagnose-only`：只读排查并在聊天中输出根因、证据、影响、最小修复建议、验证命令、风险与回滚方案；禁止改文件、创建脚本、控制或重启进程、resume、改变环境。仅显式为 `true` 时才允许脚本自愈。
 - 如需新建 start-file，`tools/test/create_unattended_ab_start_file.ps1` 默认生成 `normal`；可显式用 `-Mode normal|anti-missent|low-disturb|event-only|all-modes` 生成对应模式文件。
 
 使用指引（先选模板，再替换 `<START_FILE>` 后整段复制发送）：
@@ -87,6 +88,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 进入无人值守运行期后，不要结束会话；仅在 A/B 都到终态或用户明确说“停止监控”时结束。事件工单流默认预授权并按 next_command_order 执行。running-status-report 只允许只读状态查询、状态汇报和 handled_at，不得执行 continue_watch、closure/dedup、恢复或重启命令。
 
 运行期只需静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按 `next_command_order` 执行全部预授权操作，不遗漏任务。事件票最终只执行一次 `atomic_closeout_command`，以其机器输出完成 handled_at、processed、receipt 与 closure 的统一校验后再继续静默等待；旧分步回执字段不得逐条执行。不得主动定时执行 heartbeat 或 poll，不得创建巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。重启主进程后 3 分钟内必须完成原子收尾并通过全部机器事实门禁；该期限不是巡检窗口。对 low-disturb 的 running-status-report，正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at，等待独立事故票。
+
+若 route guard 分类为 `incident-script-diagnose-only`，本票只允许只读取证、根因分析、修复方案、聊天汇报和原子收尾。不得修改脚本/源码/任务定义，不得创建脚本，不得停止或重启进程，不得执行 `business_resume`、`continue_watch_command` 或环境恢复；报告完成后执行唯一 `atomic_closeout_command` 并等待用户决定。
 
 running-status-report 不提供或执行修复路径；不得仅凭旧 exit 证据建议重启 B。不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户明确授权。
 

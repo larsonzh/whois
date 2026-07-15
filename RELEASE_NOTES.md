@@ -6,6 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- 脚本故障默认只排查（2026-07-16）：start-file 新增 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=false`。字段缺失、非法或关闭时，guard/trigger/route guard/poll/dispatch 共同强制 `incident-script-diagnose-only`，只允许只读取证、根因分析、修复方案、聊天汇报与原子收尾；禁止文件修改、进程控制、重启/resume、环境修改和创建脚本。仅显式开启后保留原脚本自愈流程。
 - 票据路由分类收敛（2026-06-12）：`tools/test/check_takeover_route_guard.ps1` 将 incident 分支细化为 `script-fix` / `code-fix` / `noncode` 三条专用流程，并新增通告类专用分类 `notice-manual-wait`、`notice-budget-exhausted`、`notice-known-infra-transient`，避免不同性质故障在执行层混流。
 - trigger/dispatch 对齐新分类（2026-06-12）：`tools/test/unattended_ab_takeover_trigger.ps1` 生成细粒度 `route_guard_expected`；`tools/test/dispatch_takeover_to_chat.ps1` 按 route classification 分发专用处理模板（脚本修复/代码修复/非代码故障/通告类），不再将非状态票统一降级为 generic recovery 流。
 - Trigger 路径 route guard 门控 smoke（2026-06-12）：新增 `tools/test/trigger_route_guard_gate_smoke.ps1`，并在 `.vscode/tasks.json` 增加可选任务入口 `Test: Trigger Route Guard Gate Smoke`；同步更新 `docs/UNATTENDED_AB_OPERATION_FLOW_CN.md`（阶段 4.10）说明执行命令、通过标准与证据路径。

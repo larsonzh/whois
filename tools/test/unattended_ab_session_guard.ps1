@@ -438,6 +438,24 @@ function Add-AgentTicket {
     }
 
     $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    $scriptSelfHealEnabled = $false
+    try {
+        $ticketPolicySettings = Read-KeyValueFile -Path $script:StartFilePath
+        if ($ticketPolicySettings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
+            $scriptSelfHealEnabled = Convert-ToBooleanSetting -Value ([string]$ticketPolicySettings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
+        }
+    }
+    catch {
+        $scriptSelfHealEnabled = $false
+    }
+    $scriptFaultTicket = (
+        (Convert-ToSingleLineText -Text $FailureCategory).ToLowerInvariant() -eq 'script-fault' -or
+        (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant() -in @('script-failure', 'script-edit-failure')
+    )
+    if ($scriptFaultTicket -and -not $scriptSelfHealEnabled) {
+        $SelfHealable = $false
+        $RecommendedAction = 'Script self-heal is disabled. Investigate read-only evidence, identify the root cause, and report a remediation proposal in chat. Do not edit files, control processes, restart, resume, mutate the environment, or create scripts.'
+    }
     $faultActionTicket = $eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')
     if ($faultActionTicket) {
         $livenessKnown = $false
@@ -527,6 +545,8 @@ function Add-AgentTicket {
         failure_source = (Convert-ToSingleLineText -Text $FailureSource)
         failure_evidence = (Convert-ToBoundedSingleLineText -Text $FailureEvidence -MaxChars 260)
         self_healable = [bool]$SelfHealable
+        script_self_heal_enabled = [bool]$scriptSelfHealEnabled
+        script_fault_action_policy = if ($scriptFaultTicket -and -not $scriptSelfHealEnabled) { 'diagnose-only' } elseif ($scriptFaultTicket) { 'self-heal' } else { 'not-applicable' }
         non_recoverable_env = [bool]$NonRecoverableEnv
         self_heal_hint = if ([string]::IsNullOrWhiteSpace($SelfHealHint)) { '' } else { (Convert-ToBoundedSingleLineText -Text $SelfHealHint -MaxChars 120) }
         dedup_signature = $signature
@@ -5046,6 +5066,10 @@ try {
             $settings, $sessionStatusRaw, $aStatusRaw, $bStatusRaw, $sessionStatus, $aStatus, $bStatus, $aLaunchPid, $bLaunchPid, $notes, $runDirAnchor = Update-StatusAndExpandTuple -StartFilePath $script:StartFilePath
 
             $autoRecoverB = Convert-ToBooleanSetting -Value (Get-SettingValueWithAlias -Settings $settings -PrimaryKey 'LOCAL_GUARD_AUTO_RECOVER' -FallbackKey 'LOCAL_GUARD_AUTO_RECOVER_B') -Default $true
+            $scriptSelfHealEnabled = $false
+            if ($settings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
+                $scriptSelfHealEnabled = Convert-ToBooleanSetting -Value ([string]$settings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
+            }
 
             $maxRecoveryAttemptsRaw = Get-SettingValueWithAlias -Settings $settings -PrimaryKey 'LOCAL_GUARD_MAX_RECOVERY_ATTEMPTS' -FallbackKey 'LOCAL_GUARD_MAX_B_RECOVERY_ATTEMPTS'
 
@@ -6334,7 +6358,8 @@ try {
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
                 $guardRestartAllowedForFailure = (
-                    [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch'
+                    [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch' -and
+                    -not ($failureCategory -eq 'script-fault' -and -not $scriptSelfHealEnabled)
                 )
 
                 $suppressDuplicateAExitIncident = $false

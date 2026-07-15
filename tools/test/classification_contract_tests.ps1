@@ -359,6 +359,94 @@ $cases = @(
         AdditionalQueueTickets = @()
     }
     [pscustomobject]@{
+        Name = 'incident-script-diagnose-only-default'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-SCRIPT-DIAGNOSE'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:30'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_kind = 'script-edit-failure'
+            failure_category = 'script-fault'
+            failure_evidence = 'ParserError at tools/test/unattended_ab_session_guard.ps1:42'
+            preferred_stage = 'B'
+            recommended_action = 'script-fix'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-SCRIPT-DIAGNOSE'
+            created_at = '2026-06-14 02:00:30'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-script-diagnose-only'
+            recommended_action = 'investigate-script-fault-and-report-proposal-only'
+            decision_confidence = 0.99
+            decision_factors = @('incident_like=true', 'incident_lane=script-diagnose', 'script_self_heal_enabled=false', 'diagnose_only=true')
+            allowed_actions = @('read-only-evidence', 'root-cause-analysis', 'remediation-proposal', 'chat-report', 'handled_at')
+            blocked_actions = @('script_edit', 'source_edit', 'task_definition_edit', 'self_heal', 'business_resume', 'stage_restart', 'guard_restart', 'process_kill', 'environment_mutation', 'new_script', 'continue_watch_command', 'business_command')
+            must_trigger_business_resume = $false
+            must_avoid_stage_restart = $true
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'incident-script-self-heal-enabled'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-SCRIPT-HEAL'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:35'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_kind = 'script-edit-failure'
+            failure_category = 'script-fault'
+            failure_evidence = 'ParserError at tools/test/unattended_ab_session_guard.ps1:42'
+            preferred_stage = 'B'
+            recommended_action = 'script-fix'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-SCRIPT-HEAL'
+            created_at = '2026-06-14 02:00:35'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-script-fix'
+            recommended_action = 'trigger-script-fix-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=script-fix', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'script-fix-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
+        }
+        StartFileValues = @{ LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED = 'true' }
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
         Name = 'notice-budget-exhausted'
         Brief = [ordered]@{
             ticket_id = 'T-CLASS-BUDGET'

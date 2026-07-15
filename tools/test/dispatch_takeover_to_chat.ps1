@@ -3736,6 +3736,15 @@ if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) {
         Write-DispatchLog ("route_guard_live_probe_failed ticket={0} reason={1}" -f $TicketId, $routeGuardLiveProbeReason)
     }
 }
+$scriptSelfHealEnabled = $false
+if ($startSettings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
+    $scriptSelfHealEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
+}
+if (-not $scriptSelfHealEnabled -and $routeGuardExpected -in @('incident-auto-resume-script-fix', 'incident-manual-script-fix')) {
+    Write-DispatchLog ("route_guard_expected_fail_closed ticket={0} previous={1} current=incident-script-diagnose-only source=start-file-policy" -f $TicketId, $routeGuardExpected)
+    $routeGuardExpected = 'incident-script-diagnose-only'
+    $routeGuardExpectedSource = 'start-file-policy'
+}
 $eventQueueIdempotentPolicy = ''
 if ($briefSettings.Contains('event_queue_idempotent_policy')) {
     $eventQueueIdempotentPolicy = Convert-ToSingleLineText -Text ([string]$briefSettings.event_queue_idempotent_policy)
@@ -3956,6 +3965,7 @@ $genericRecoveryMessageEn = 'Please take over ticket {0} (event={1}) and execute
 $eventReviewMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. This is not an incident recovery ticket; do not run business_resume/stage restart unless route explicitly allows. Produce contract-aligned review conclusion for this event, return handled_at immediately, then continue read-only ticket-driven watch.'
 $eventReviewLowDisturbMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW low-disturb text-receipt flow: read {3} first, run route_guard_command, and stop at concise text receipt plus handled_at. Do not run business_command, continue_watch_command, recovery, or restart unless route_guard classification explicitly allows and requires it.'
 $scriptFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on unattended script self-heal path (guard/trigger/dispatch/poll scripts), keep business source unchanged unless explicitly required by route. If eligible, execute business_resume immediately after script fix verification, then continue_watch_command and handled_at. Keep evidence concise and deterministic.'
+$scriptDiagnoseOnlyMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-DIAGNOSE-ONLY flow: read {3} first and run route_guard_command. This ticket authorizes investigation and reporting only. Read the incident package, failure logs, start-file, related scripts, and relevant recent changes. Use only read-only inspection, parser/static checks, or side-effect-free dry runs. Do not edit any file, create a script, kill or restart any process, run business_resume or continue_watch_command, mutate the environment, or perform recovery. Report: observed symptom, first error, call chain, root cause with evidence paths, impact, confidence, proposed minimal file changes, validation commands, risks, and rollback approach. Explicitly state that no file or process was changed, then execute atomic_closeout_command exactly once and wait for the user decision.'
 $codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code. Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool; never use inline Python/PowerShell, redirection, generic string replacement, or a formatter. Validate in order: SyntaxOnly load check, focused failing-op check when available, then progressive strict check for the current failing D round.
 
 Fix placement rules:
@@ -4000,6 +4010,7 @@ $genericRecoveryMessageZh = '请接管票据 {0}（event={1}），按 {2} 执行
 $eventReviewMessageZh = '请接管票据 {0}（event={1}），进入“事件评审流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。本票不是故障恢复票，除非路由明确允许，不得执行 business_resume 或阶段重启。输出与该事件一致的评审结论，立即回传 handled_at，然后继续只读票据监控。'
 $eventReviewLowDisturbMessageZh = '请接管票据 {0}（event={1}），进入“事件评审-低干扰文本回执流程”：先阅读 {3}，执行 route_guard_command 后即止于“简短文本结论 + handled_at”。除非 route_guard 分类明确允许且要求，否则不得执行 business_command、continue_watch_command、恢复或重启动作。'
 $scriptFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“脚本自愈专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理无人值守脚本链路（guard/trigger/dispatch/poll）问题，除非路由明确允许，不要混入业务源码改动。修复后做有界验证，满足条件立即 business_resume -> continue_watch_command -> handled_at。'
+$scriptDiagnoseOnlyMessageZh = '请接管票据 {0}（event={1}），进入“脚本故障排查专用流程”：先阅读 {3} 并执行 route_guard_command。本票只授权排查与汇报。只读检查事故包、失败日志、start-file、相关脚本及近期相关变更；仅允许无副作用的语法解析、静态检查或 dry-run。禁止修改任何文件、创建脚本、停止或重启任何进程、执行 business_resume/continue_watch_command、改变环境或实施恢复。聊天报告必须包含：故障现象、首次错误、调用链、根因及证据路径、影响范围、置信度、建议修改文件与最小方案、验证命令、风险和回滚方法；并明确声明“本票未修改任何文件，未停止或重启任何进程”。最后只执行一次 atomic_closeout_command，然后等待用户决定下一步。'
 $codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改。验证顺序固定为 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查。
 
 修复位置规则：
@@ -4111,6 +4122,7 @@ $genericRecoveryMessageEn = Add-GitGuardConstraint -Template $genericRecoveryMes
 $eventReviewMessageEn = Add-GitGuardConstraint -Template $eventReviewMessageEn -Suffix $gitGuardSuffixEn
 $eventReviewLowDisturbMessageEn = Add-GitGuardConstraint -Template $eventReviewLowDisturbMessageEn -Suffix $gitGuardSuffixEn
 $scriptFixRecoveryMessageEn = Add-GitGuardConstraint -Template $scriptFixRecoveryMessageEn -Suffix $gitGuardSuffixEn
+$scriptDiagnoseOnlyMessageEn = Add-GitGuardConstraint -Template $scriptDiagnoseOnlyMessageEn -Suffix $gitGuardSuffixEn
 $codeFixRecoveryMessageEn = Add-GitGuardConstraint -Template $codeFixRecoveryMessageEn -Suffix $gitGuardSuffixEn
 $nonCodeRecoveryMessageEn = Add-GitGuardConstraint -Template $nonCodeRecoveryMessageEn -Suffix $gitGuardSuffixEn
 $noticeManualWaitMessageEn = Add-GitGuardConstraint -Template $noticeManualWaitMessageEn -Suffix $gitGuardSuffixEn
@@ -4127,6 +4139,7 @@ $genericRecoveryMessageZh = Add-GitGuardConstraint -Template $genericRecoveryMes
 $eventReviewMessageZh = Add-GitGuardConstraint -Template $eventReviewMessageZh -Suffix $gitGuardSuffixZh
 $eventReviewLowDisturbMessageZh = Add-GitGuardConstraint -Template $eventReviewLowDisturbMessageZh -Suffix $gitGuardSuffixZh
 $scriptFixRecoveryMessageZh = Add-GitGuardConstraint -Template $scriptFixRecoveryMessageZh -Suffix $gitGuardSuffixZh
+$scriptDiagnoseOnlyMessageZh = Add-GitGuardConstraint -Template $scriptDiagnoseOnlyMessageZh -Suffix $gitGuardSuffixZh
 $codeFixRecoveryMessageZh = Add-GitGuardConstraint -Template $codeFixRecoveryMessageZh -Suffix $gitGuardSuffixZh
 $nonCodeRecoveryMessageZh = Add-GitGuardConstraint -Template $nonCodeRecoveryMessageZh -Suffix $gitGuardSuffixZh
 $noticeManualWaitMessageZh = Add-GitGuardConstraint -Template $noticeManualWaitMessageZh -Suffix $gitGuardSuffixZh
@@ -4142,6 +4155,7 @@ $genericRecoveryMessageEn = Add-PassiveWaitConstraint -Template $genericRecovery
 $eventReviewMessageEn = Add-PassiveWaitConstraint -Template $eventReviewMessageEn -Suffix $passiveWaitSuffixEn
 $eventReviewLowDisturbMessageEn = Add-PassiveWaitConstraint -Template $eventReviewLowDisturbMessageEn -Suffix $passiveWaitSuffixEn
 $scriptFixRecoveryMessageEn = Add-PassiveWaitConstraint -Template $scriptFixRecoveryMessageEn -Suffix $passiveWaitSuffixEn
+$scriptDiagnoseOnlyMessageEn = Add-PassiveWaitConstraint -Template $scriptDiagnoseOnlyMessageEn -Suffix $passiveWaitSuffixEn
 $codeFixRecoveryMessageEn = Add-PassiveWaitConstraint -Template $codeFixRecoveryMessageEn -Suffix $passiveWaitSuffixEn
 $nonCodeRecoveryMessageEn = Add-PassiveWaitConstraint -Template $nonCodeRecoveryMessageEn -Suffix $passiveWaitSuffixEn
 $noticeManualWaitMessageEn = Add-PassiveWaitConstraint -Template $noticeManualWaitMessageEn -Suffix $passiveWaitSuffixEn
@@ -4157,6 +4171,7 @@ $genericRecoveryMessageZh = Add-PassiveWaitConstraint -Template $genericRecovery
 $eventReviewMessageZh = Add-PassiveWaitConstraint -Template $eventReviewMessageZh -Suffix $passiveWaitSuffixZh
 $eventReviewLowDisturbMessageZh = Add-PassiveWaitConstraint -Template $eventReviewLowDisturbMessageZh -Suffix $passiveWaitSuffixZh
 $scriptFixRecoveryMessageZh = Add-PassiveWaitConstraint -Template $scriptFixRecoveryMessageZh -Suffix $passiveWaitSuffixZh
+$scriptDiagnoseOnlyMessageZh = Add-PassiveWaitConstraint -Template $scriptDiagnoseOnlyMessageZh -Suffix $passiveWaitSuffixZh
 $codeFixRecoveryMessageZh = Add-PassiveWaitConstraint -Template $codeFixRecoveryMessageZh -Suffix $passiveWaitSuffixZh
 $nonCodeRecoveryMessageZh = Add-PassiveWaitConstraint -Template $nonCodeRecoveryMessageZh -Suffix $passiveWaitSuffixZh
 $noticeManualWaitMessageZh = Add-PassiveWaitConstraint -Template $noticeManualWaitMessageZh -Suffix $passiveWaitSuffixZh
@@ -4174,6 +4189,7 @@ $genericRecoveryMessage = if ($useChineseDispatchMessage) { $genericRecoveryMess
 $eventReviewMessage = if ($useChineseDispatchMessage) { $eventReviewMessageZh } else { $eventReviewMessageEn }
 $eventReviewLowDisturbMessage = if ($useChineseDispatchMessage) { $eventReviewLowDisturbMessageZh } else { $eventReviewLowDisturbMessageEn }
 $scriptFixRecoveryMessage = if ($useChineseDispatchMessage) { $scriptFixRecoveryMessageZh } else { $scriptFixRecoveryMessageEn }
+$scriptDiagnoseOnlyMessage = if ($useChineseDispatchMessage) { $scriptDiagnoseOnlyMessageZh } else { $scriptDiagnoseOnlyMessageEn }
 $codeFixRecoveryMessage = if ($useChineseDispatchMessage) { $codeFixRecoveryMessageZh } else { $codeFixRecoveryMessageEn }
 $nonCodeRecoveryMessage = if ($useChineseDispatchMessage) { $nonCodeRecoveryMessageZh } else { $nonCodeRecoveryMessageEn }
 $noticeManualWaitMessage = if ($useChineseDispatchMessage) { $noticeManualWaitMessageZh } else { $noticeManualWaitMessageEn }
@@ -4355,6 +4371,7 @@ elseif ($eventNormalized -eq 'task-definition-fix-required') {
 }
 else {
     switch ($routeGuardExpected) {
+        'incident-script-diagnose-only' { $firstMessage = $scriptDiagnoseOnlyMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-auto-resume-script-fix' { $firstMessage = $scriptFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-manual-script-fix' { $firstMessage = $scriptFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-auto-resume-code-fix' { $firstMessage = $codeFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }

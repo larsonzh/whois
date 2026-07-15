@@ -1905,6 +1905,10 @@ function New-TakeoverBrief {
         $policyWorkMode = 'normal'
     }
     $lowDisturbModeEnabled = ($policyWorkMode -eq 'low-disturb')
+    $scriptSelfHealEnabled = $false
+    if ($Settings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
+        $scriptSelfHealEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
+    }
     $fallbackIncidentAutoResumeEligible = (
         -not $ticketSelfHealable -and
         -not $ticketNonRecoverableEnv -and
@@ -1950,6 +1954,9 @@ function New-TakeoverBrief {
     elseif ($eventNameNormalized -eq 'known-infra-transient-stop') {
         $routeGuardExpected = 'notice-known-infra-transient'
     }
+    elseif ($incidentLikeEvents.ContainsKey($eventNameNormalized) -and $incidentLane -eq 'script-fix' -and -not $scriptSelfHealEnabled) {
+        $routeGuardExpected = 'incident-script-diagnose-only'
+    }
     elseif ($incidentLikeEvents.ContainsKey($eventNameNormalized)) {
         if (($ticketSelfHealable -or $fallbackIncidentAutoResumeEligible) -and -not $ticketNonRecoverableEnv -and [string]$resumePlan.stage -ne 'none') {
             $routeGuardExpected = ('incident-auto-resume-{0}' -f $incidentLane)
@@ -1963,6 +1970,7 @@ function New-TakeoverBrief {
     }
 
     $selfHealScope = switch ($routeGuardExpected) {
+        'incident-script-diagnose-only' { 'script-diagnose-only: read evidence, identify root cause, and report a remediation proposal; no edits, process control, restart, or resume'; break }
         'incident-auto-resume-script-fix' { 'script-fix: repair guard/trigger/dispatch/poll scripts only'; break }
         'incident-manual-script-fix' { 'script-fix: repair guard/trigger/dispatch/poll scripts only'; break }
         'incident-auto-resume-code-fix' {
@@ -1988,6 +1996,7 @@ function New-TakeoverBrief {
 
     $includeLaunchReadyBeforeResume = (
         -not [string]::IsNullOrWhiteSpace($resumeCommand) -and
+        $routeGuardExpected -ne 'incident-script-diagnose-only' -and
         $eventNameNormalized -ne 'running-status-report' -and
         $eventNameNormalized -ne 'chat-session-final-status' -and
         $routeGuardExpected.StartsWith('incident-', [System.StringComparison]::OrdinalIgnoreCase)
@@ -2003,6 +2012,10 @@ function New-TakeoverBrief {
     $nextCommandPolicy = 'default-route-then-watch'
     if ($routeGuardExpected -eq 'status-health-check-only') {
         $nextCommandPolicy = 'status-report-only-readonly'
+        if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+    }
+    elseif ($routeGuardExpected -eq 'incident-script-diagnose-only') {
+        $nextCommandPolicy = 'script-diagnose-only'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
     }
     elseif ($routeGuardExpected -like 'notice-*') {
@@ -2057,6 +2070,7 @@ function New-TakeoverBrief {
 
     $expectedNextCommandPolicy = switch -Wildcard ($routeGuardExpected) {
         'status-health-check-only' { 'status-report-only-readonly'; break }
+        'incident-script-diagnose-only' { 'script-diagnose-only'; break }
         'notice-*' { 'notice-stabilize-then-watch'; break }
         'incident-auto-resume-*' { 'incident-auto-resume'; break }
         'incident-manual-*' { 'incident-manual-gated'; break }
@@ -2111,6 +2125,8 @@ function New-TakeoverBrief {
         ('queue_path={0}' -f (Convert-ToRepoRelativePath -Path $QueueFilePath)),
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
+        ('script_self_heal_enabled={0}' -f [bool]$scriptSelfHealEnabled),
+        ('script_fault_action_policy={0}' -f $(if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' })),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
         ('event_only_wording_hard_rule={0}' -f 'event-only scheduling must not be interpreted or described as low-disturb execution flow'),
