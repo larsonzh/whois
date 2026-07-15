@@ -2112,6 +2112,7 @@ function New-TakeoverBrief {
         $finalStatusCloseoutApplyAckCommandForBrief = $finalStatusCloseoutApplyAckCommand
     }
     $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
+    $scriptFaultActionPolicy = if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' }
 
     $lines = @(
         '# AB Takeover Brief',
@@ -2126,7 +2127,7 @@ function New-TakeoverBrief {
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
         ('script_self_heal_enabled={0}' -f [bool]$scriptSelfHealEnabled),
-        ('script_fault_action_policy={0}' -f $(if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' })),
+        ('script_fault_action_policy={0}' -f $scriptFaultActionPolicy),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
         ('event_only_wording_hard_rule={0}' -f 'event-only scheduling must not be interpreted or described as low-disturb execution flow'),
