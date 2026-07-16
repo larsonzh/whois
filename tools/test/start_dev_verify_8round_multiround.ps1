@@ -406,6 +406,12 @@ $RoundTaskStaticGateOperationIndex = Resolve-IntSettingFromEnv -EnvName 'AUTO_RO
 if ($RoundTaskStaticGateStartRound -gt $RoundTaskStaticGateEndRound) {
     throw "RoundTaskStaticGateStartRound must be less than or equal to RoundTaskStaticGateEndRound"
 }
+if (-not $EnableRoundTaskStaticGate) {
+    throw "RoundTaskStaticGate cannot be disabled because code-step requires a validated artifact"
+}
+if ($RoundTaskStaticGateOperationIndex -ne 0) {
+    throw "RoundTaskStaticGateOperationIndex must be 0 because code-step requires a complete-round validated artifact"
+}
 
 function Format-ElapsedString {
     param([TimeSpan]$Elapsed)
@@ -718,12 +724,22 @@ function Invoke-CodeStepRound {
         [string]$RoundTag,
         [string]$ScriptPath,
         [string]$OutDir,
-        [AllowEmptyString()][string]$TaskDefinitionFile = ""
+        [AllowEmptyString()][string]$TaskDefinitionFile = "",
+        [AllowEmptyString()][string]$ValidatedEffectiveSourceFile = "",
+        [AllowEmptyString()][string]$ValidatedManifestFile = ""
     )
 
     $null = $ScriptPath
 
-    if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+    if (-not [string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -and
+        -not [string]::IsNullOrWhiteSpace($ValidatedManifestFile)) {
+        $invokeResult = Invoke-StreamingCapture -Action {
+            & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile `
+                -ValidatedEffectiveSourceFile $ValidatedEffectiveSourceFile `
+                -ValidatedManifestFile $ValidatedManifestFile
+        }
+    }
+    elseif ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
         $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath }
     }
     else {
@@ -737,10 +753,17 @@ function Invoke-CodeStepRound {
     $lines | Out-File -FilePath $logFile -Encoding utf8
 
     $action = ""
+    $faultCode = ""
+    $failureKind = ""
+    $failureCategory = ""
     foreach ($line in $lines) {
         if ($line -match '^\[CODE-STEP\] round=[^ ]+ action=([a-zA-Z0-9-]+)\b') {
             $action = $Matches[1]
-            break
+        }
+        if ($line -match '^\[CODE-STEP\] fault_code=([^ ]+) failure_kind=([^ ]+) failure_category=([^ ]+)$') {
+            $faultCode = $Matches[1]
+            $failureKind = $Matches[2]
+            $failureCategory = $Matches[3]
         }
     }
 
@@ -748,6 +771,9 @@ function Invoke-CodeStepRound {
         Pass = ($exitCode -eq 0)
         ExitCode = $exitCode
         Action = $action
+        FaultCode = $faultCode
+        FailureKind = $failureKind
+        FailureCategory = $failureCategory
         LogFile = $logFile
         Lines = $lines
     }
@@ -1315,7 +1341,8 @@ function Invoke-RoundTaskStaticGate {
         [string]$Stage,
         [int]$RoundIndex,
         [string]$RoundTag,
-        [string]$SessionOutDir
+        [string]$SessionOutDir,
+        [string]$TargetFile
     )
 
     $result = [ordered]@{
@@ -1324,6 +1351,8 @@ function Invoke-RoundTaskStaticGate {
         ExitCode = 0
         Reason = ''
         Scope = ''
+        EffectiveSourceFile = ''
+        ManifestFile = ''
         Lines = @()
     }
 
@@ -1338,12 +1367,16 @@ function Invoke-RoundTaskStaticGate {
     $result.Applied = $true
     $scopeText = if ($OperationIndex -gt 0) { "{0}:op{1}" -f $RoundTag, $OperationIndex } else { $RoundTag }
     $result.Scope = $scopeText
+    $effectiveSourceFile = Join-Path $SessionOutDir ("{0}_validated_effective.c" -f $RoundTag)
+    $manifestFile = Join-Path $SessionOutDir ("{0}_validated_effective.json" -f $RoundTag)
 
     $staticCheckArgs = @{
         TaskDefinitionFile = $TaskDefinitionFile
         RepoRoot = $RepoRoot
         Policy = $Policy
         RoundTag = $RoundTag
+        BaselineTargetFile = $TargetFile
+        OutputEffectiveTargetFile = $effectiveSourceFile
     }
     if ($OperationIndex -gt 0) {
         $staticCheckArgs.OperationIndex = $OperationIndex
@@ -1379,6 +1412,28 @@ function Invoke-RoundTaskStaticGate {
 
     if (-not $result.Pass) {
         Write-Information ('[DEV-VERIFY-MULTI] task_static_repair_ticket=deferred_until_main_exit stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile) -InformationAction Continue
+    }
+    elseif (-not (Test-Path -LiteralPath $effectiveSourceFile -PathType Leaf)) {
+        $result.Pass = $false
+        $result.ExitCode = 2
+        $result.Reason = 'validated-effective-source-missing'
+    }
+    else {
+        $manifest = [ordered]@{
+            schema = 'TASK_STATIC_VALIDATED_ARTIFACT_V1'
+            stage = $Stage
+            round = $RoundTag
+            task_definition_path = [System.IO.Path]::GetFullPath($TaskDefinitionFile)
+            task_definition_sha256 = (Get-FileHash -LiteralPath $TaskDefinitionFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            target_path = [System.IO.Path]::GetFullPath($TargetFile)
+            baseline_source_sha256 = (Get-FileHash -LiteralPath $TargetFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            effective_source_sha256 = (Get-FileHash -LiteralPath $effectiveSourceFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            checker_policy = $Policy
+            created_at = (Get-Date).ToString('o')
+        }
+        $manifest | ConvertTo-Json -Depth 8 | Out-File -LiteralPath $manifestFile -Encoding utf8
+        $result.EffectiveSourceFile = $effectiveSourceFile
+        $result.ManifestFile = $manifestFile
     }
 
     return [pscustomobject]$result
@@ -1750,6 +1805,9 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     $codeStepExit = 0
     $codeStepAction = ""
+    $codeStepFaultCode = ""
+    $codeStepFailureKind = ""
+    $codeStepFailureCategory = ""
     $codeStepLog = ""
     $sourceDeltaAfterCodeStep = "not-applicable"
     $noOpClass = "none"
@@ -1767,10 +1825,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundTaskStaticGateReason = ''
     $lines = @()
 
-    $roundTaskStaticGateReason = 'owned-by-code-step-progressive'
-    $taskGateSkipLine = "[DEV-VERIFY-MULTI] task_static_runtime_gate_result=SKIP stage=$Stage round=$roundTag reason=$roundTaskStaticGateReason"
-    Write-Output $taskGateSkipLine
-    $lines += $taskGateSkipLine
+    $validatedEffectiveSourceFile = ''
+    $validatedManifestFile = ''
 
     $roundGate = Invoke-RoundRuntimeGate `
         -RoundTag $roundTag `
@@ -1820,6 +1876,52 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $gateWarnLine = "[DEV-VERIFY-MULTI] round_gate_optional=$roundTag optional_failures=$roundGateOptionalFailures"
         Write-Output $gateWarnLine
         $lines += $gateWarnLine
+    }
+
+    if (-not $skipRound -and $phase -eq 'DEV') {
+        $taskTargetPath = if ([System.IO.Path]::IsPathRooted($taskTargetRelativePath)) {
+            $taskTargetRelativePath
+        }
+        else {
+            Join-Path $repoRoot $taskTargetRelativePath
+        }
+        $roundTaskStaticGate = Invoke-RoundTaskStaticGate `
+            -RepoRoot $repoRoot `
+            -ScriptPath $taskStaticCheckScript `
+            -TaskDefinitionFile $resolvedTaskDefinitionFile `
+            -Policy $TaskStaticPrecheckPolicy `
+            -FailOnWarnings $TaskStaticPrecheckFailOnWarnings `
+            -Enabled $EnableRoundTaskStaticGate `
+            -StartRound $RoundTaskStaticGateStartRound `
+            -EndRound $RoundTaskStaticGateEndRound `
+            -OperationIndex $RoundTaskStaticGateOperationIndex `
+            -Stage $Stage `
+            -RoundIndex $phaseRound `
+            -RoundTag $roundTag `
+            -SessionOutDir $sessionOutDir `
+            -TargetFile $taskTargetPath
+
+        $roundTaskStaticGateApplied = [bool]$roundTaskStaticGate.Applied
+        $roundTaskStaticGatePass = [bool]$roundTaskStaticGate.Pass
+        $roundTaskStaticGateExit = [int]$roundTaskStaticGate.ExitCode
+        $roundTaskStaticGateScope = [string]$roundTaskStaticGate.Scope
+        $roundTaskStaticGateReason = [string]$roundTaskStaticGate.Reason
+        foreach ($staticLine in @($roundTaskStaticGate.Lines)) {
+            Write-Output $staticLine
+            $lines += $staticLine
+        }
+        if ($roundTaskStaticGateApplied -and -not $roundTaskStaticGatePass) {
+            $skipRound = $true
+            $roundDecision = 'TASK-STATIC-FAIL'
+            $skipReason = if ([string]::IsNullOrWhiteSpace($roundTaskStaticGateReason)) { 'round-task-static-gate-failed' } else { $roundTaskStaticGateReason }
+        }
+        elseif ($roundTaskStaticGateApplied) {
+            $validatedEffectiveSourceFile = [string]$roundTaskStaticGate.EffectiveSourceFile
+            $validatedManifestFile = [string]$roundTaskStaticGate.ManifestFile
+            $passLine = "[DEV-VERIFY-MULTI] task_static_runtime_gate_result=PASS stage=$Stage round=$roundTag manifest=$validatedManifestFile"
+            Write-Output $passLine
+            $lines += $passLine
+        }
     }
 
     $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
@@ -1886,9 +1988,12 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     if (-not $skipRound -and $phase -eq "DEV") {
         Write-Output ("[DEV-VERIFY-MULTI] code_step_start={0}" -f $roundTag)
-        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir -TaskDefinitionFile $resolvedTaskDefinitionFile
+        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir -TaskDefinitionFile $resolvedTaskDefinitionFile -ValidatedEffectiveSourceFile $validatedEffectiveSourceFile -ValidatedManifestFile $validatedManifestFile
         $codeStepExit = $codeStep.ExitCode
         $codeStepAction = if ([string]::IsNullOrWhiteSpace($codeStep.Action)) { "unknown" } else { $codeStep.Action }
+        $codeStepFaultCode = [string]$codeStep.FaultCode
+        $codeStepFailureKind = [string]$codeStep.FailureKind
+        $codeStepFailureCategory = [string]$codeStep.FailureCategory
         $codeStepLog = $codeStep.LogFile
         $lines += $codeStep.Lines
 
@@ -2222,6 +2327,42 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
     $roundLog = Join-Path $sessionOutDir ("{0}.log" -f $roundTag)
     $lines | Out-File -FilePath $roundLog -Encoding utf8
 
+    $failurePhase = ''
+    $failureKind = ''
+    $failureCategory = ''
+    $failureSourceLog = ''
+    if (-not $roundPass) {
+        $failureSourceLog = $roundLog
+        switch ($roundDecision) {
+            'TASK-STATIC-FAIL' {
+                $failurePhase = 'task-static'
+                $failureKind = 'task-definition-mismatch'
+            }
+            'CODE-STEP-FAIL' {
+                $failurePhase = 'code-step'
+                $failureKind = if ([string]::IsNullOrWhiteSpace($codeStepFailureKind)) { 'environment-transient' } else { $codeStepFailureKind }
+                $failureCategory = if ([string]::IsNullOrWhiteSpace($codeStepFailureCategory)) { 'noncode-transient' } else { $codeStepFailureCategory }
+                if (-not [string]::IsNullOrWhiteSpace($codeStepLog)) {
+                    $failureSourceLog = $codeStepLog
+                }
+            }
+            'ROUND-GATE-FAIL' {
+                $failurePhase = 'round-gate'
+                $failureKind = 'environment-transient'
+            }
+            default {
+                if ($phase -eq 'VERIFY') {
+                    $failurePhase = 'verify'
+                    $failureKind = 'verify-failure'
+                }
+                else {
+                    $failurePhase = 'compile-or-test'
+                    $failureKind = 'compile-or-test-failure'
+                }
+            }
+        }
+    }
+
     $dNoOpCountAfterRound = Get-D1ToD3NoOpCount -Decisions $devRoundDecisions
     $dSafeNoOpCountAfterRound = Get-D1ToD3SafeNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
     $dUnknownNoOpCountAfterRound = Get-D1ToD3UnknownNoOpCount -Decisions $devRoundDecisions -NoOpClasses $devRoundNoOpClasses
@@ -2285,10 +2426,15 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         ExitCode = $exitCode
         Result = $result
         RoundPass = $roundPass
+        FailurePhase = $failurePhase
+        FailureKind = $failureKind
+        FailureCategory = $failureCategory
+        FailureSourceLog = $failureSourceLog
         AutopilotExecuted = $autopilotExecuted
         AutopilotOutDir = $outDir
         CodeStepAction = if ($codeStepAction) { $codeStepAction } else { "(none)" }
         CodeStepExit = $codeStepExit
+        CodeStepFaultCode = $codeStepFaultCode
         CodeStepLog = if ($codeStepLog) { $codeStepLog } else { "" }
         RoundStartedAt = $roundStartTime.ToString("yyyy-MM-dd HH:mm:ss")
         RoundFinishedAt = $roundEndTime.ToString("yyyy-MM-dd HH:mm:ss")
@@ -2405,6 +2551,10 @@ $finalStatus = [ordered]@{
     FailedRoundDecision = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.RoundDecision } else { "" }
     FailedRoundReason = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.SkipReason } else { "" }
     FailedRoundGateReason = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.RoundGateReason } else { "" }
+    FailurePhase = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.FailurePhase } else { "" }
+    FailureKind = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.FailureKind } else { "" }
+    FailureCategory = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.FailureCategory } else { "" }
+    FailureSourceLog = if ($null -ne $firstFailedRow) { [string]$firstFailedRow.FailureSourceLog } else { "" }
     OutDir = $sessionOutDir
     SummaryCsv = $summaryCsv
     SummaryTxt = $summaryTxt

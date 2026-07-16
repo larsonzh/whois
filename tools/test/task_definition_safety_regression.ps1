@@ -85,7 +85,8 @@ function Invoke-CodeStepCase {
         [object]$Case,
         [int]$ExpectedExitCode,
         [string]$ExpectedSourceText,
-        [string]$ExpectedOutputFragment
+        [string]$ExpectedOutputFragment,
+        [int]$ExpectedCheckerExitCode = 0
     )
 
     $task = (Get-Content -LiteralPath $Case.TaskPath -Raw) | ConvertFrom-Json
@@ -93,9 +94,49 @@ function Invoke-CodeStepCase {
     Write-Utf8NoBom -Path $Case.TaskPath -Text ($task | ConvertTo-Json -Depth 16)
 
     $stateDir = Join-Path $Case.Directory 'code-step-state'
+    $effectivePath = Join-Path $Case.Directory 'D1_code_step_effective.c'
+    $manifestPath = Join-Path $Case.Directory 'D1_code_step_effective.json'
+    $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 `
+        -BaselineTargetFile $Case.SourcePath -OutputEffectiveTargetFile $effectivePath 2>&1 | `
+        ForEach-Object { [string]$_ })
+    $checkerExitCode = $LASTEXITCODE
+    if ($checkerExitCode -ne $ExpectedCheckerExitCode) {
+        throw "case=$($Case.Name)-code-step expected_checker_exit=$ExpectedCheckerExitCode actual_checker_exit=$checkerExitCode output=$($checkerOutput -join ' | ')"
+    }
+    if ($checkerExitCode -ne 0) {
+        $actualSourceText = Get-Content -LiteralPath $Case.SourcePath -Raw
+        if ($actualSourceText -ne $ExpectedSourceText) {
+            throw "case=$($Case.Name)-checker-block source mismatch expected=$ExpectedSourceText actual=$actualSourceText"
+        }
+        if (-not ($checkerOutput -match [regex]::Escape($ExpectedOutputFragment))) {
+            throw "case=$($Case.Name)-checker-block missing_fragment=$ExpectedOutputFragment output=$($checkerOutput -join ' | ')"
+        }
+        Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name)-checker-block status=pass exit=$checkerExitCode"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $effectivePath -PathType Leaf)) {
+        throw "case=$($Case.Name)-code-step checker failed output=$($checkerOutput -join ' | ')"
+    }
+
+    $manifest = [ordered]@{
+        schema = 'TASK_STATIC_VALIDATED_ARTIFACT_V1'
+        stage = 'A'
+        round = 'D1'
+        task_definition_path = [System.IO.Path]::GetFullPath($Case.TaskPath)
+        task_definition_sha256 = (Get-FileHash -LiteralPath $Case.TaskPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        target_path = [System.IO.Path]::GetFullPath($Case.SourcePath)
+        baseline_source_sha256 = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        effective_source_sha256 = (Get-FileHash -LiteralPath $effectivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        checker_policy = 'enforce'
+        created_at = (Get-Date).ToString('o')
+    }
+    Write-Utf8NoBom -Path $manifestPath -Text ($manifest | ConvertTo-Json -Depth 8)
+
     $codeStep = Join-Path $PSScriptRoot 'autopilot_code_step_rounds.ps1'
     $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $codeStep `
-        -TaskDefinitionFile $Case.TaskPath -TargetFile $Case.SourcePath -StateDir $stateDir 2>&1 | `
+        -TaskDefinitionFile $Case.TaskPath -TargetFile $Case.SourcePath -StateDir $stateDir `
+        -ValidatedEffectiveSourceFile $effectivePath -ValidatedManifestFile $manifestPath 2>&1 | `
         ForEach-Object { [string]$_ })
     $exitCode = $LASTEXITCODE
     $actualSourceText = Get-Content -LiteralPath $Case.SourcePath -Raw
@@ -111,6 +152,88 @@ function Invoke-CodeStepCase {
     }
 
     Write-Output "[TASK-SAFETY-REGRESSION] case=$($Case.Name)-code-step status=pass exit=$exitCode"
+}
+
+function Invoke-ValidatedArtifactCase {
+    param(
+        [object]$Case,
+        [ValidateSet('pass', 'source-stale', 'task-stale', 'artifact-stale')][string]$Mode
+    )
+
+    $effectivePath = Join-Path $Case.Directory 'D1_validated_effective.c'
+    $manifestPath = Join-Path $Case.Directory 'D1_validated_effective.json'
+    $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 `
+        -BaselineTargetFile $Case.SourcePath -OutputEffectiveTargetFile $effectivePath 2>&1 | `
+        ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $effectivePath -PathType Leaf)) {
+        throw "case=validated-artifact-$Mode checker failed output=$($checkerOutput -join ' | ')"
+    }
+
+    $manifest = [ordered]@{
+        schema = 'TASK_STATIC_VALIDATED_ARTIFACT_V1'
+        stage = 'A'
+        round = 'D1'
+        task_definition_path = [System.IO.Path]::GetFullPath($Case.TaskPath)
+        task_definition_sha256 = (Get-FileHash -LiteralPath $Case.TaskPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        target_path = [System.IO.Path]::GetFullPath($Case.SourcePath)
+        baseline_source_sha256 = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        effective_source_sha256 = (Get-FileHash -LiteralPath $effectivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        checker_policy = 'enforce'
+        created_at = (Get-Date).ToString('o')
+    }
+    Write-Utf8NoBom -Path $manifestPath -Text ($manifest | ConvertTo-Json -Depth 8)
+
+    switch ($Mode) {
+        'source-stale' { Add-Content -LiteralPath $Case.SourcePath -Value '/* stale */' -Encoding ascii }
+        'task-stale' { Add-Content -LiteralPath $Case.TaskPath -Value ' ' -Encoding ascii }
+        'artifact-stale' { Add-Content -LiteralPath $effectivePath -Value '/* stale */' -Encoding ascii }
+    }
+
+    $beforeHash = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash
+    $stateDir = Join-Path $Case.Directory 'validated-state'
+    $codeStep = Join-Path $PSScriptRoot 'autopilot_code_step_rounds.ps1'
+    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $codeStep `
+        -TaskDefinitionFile $Case.TaskPath -TargetFile $Case.SourcePath -StateDir $stateDir `
+        -ValidatedEffectiveSourceFile $effectivePath -ValidatedManifestFile $manifestPath 2>&1 | `
+        ForEach-Object { [string]$_ })
+    $exitCode = $LASTEXITCODE
+
+    if ($Mode -eq 'pass') {
+        $expected = "static int target(void)`n{`n`treturn 2;`n}`n"
+        $actual = Get-Content -LiteralPath $Case.SourcePath -Raw
+        if ($exitCode -ne 0 -or $actual -ne $expected -or -not ($output -match 'validated_artifact=accepted')) {
+            throw "case=validated-artifact-pass failed exit=$exitCode output=$($output -join ' | ')"
+        }
+    }
+    else {
+        $afterHash = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash
+        if ($exitCode -ne 1 -or -not ($output -match 'validated artifact hash binding mismatch') -or
+            -not ($output -match 'fault_code=validated-artifact-stale failure_kind=environment-transient failure_category=noncode-transient') -or
+            $beforeHash -ne $afterHash) {
+            throw "case=validated-artifact-$Mode fail-close mismatch exit=$exitCode output=$($output -join ' | ')"
+        }
+    }
+    Write-Output "[TASK-SAFETY-REGRESSION] case=validated-artifact-$Mode status=pass exit=$exitCode"
+}
+
+function Invoke-ValidatedArtifactRequiredCase {
+    param([object]$Case)
+
+    $beforeHash = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash
+    $stateDir = Join-Path $Case.Directory 'required-state'
+    $codeStep = Join-Path $PSScriptRoot 'autopilot_code_step_rounds.ps1'
+    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $codeStep `
+        -TaskDefinitionFile $Case.TaskPath -TargetFile $Case.SourcePath -StateDir $stateDir 2>&1 | `
+        ForEach-Object { [string]$_ })
+    $exitCode = $LASTEXITCODE
+    $afterHash = (Get-FileHash -LiteralPath $Case.SourcePath -Algorithm SHA256).Hash
+    if ($exitCode -ne 1 -or
+        -not ($output -match 'fault_code=validated-artifact-required failure_kind=environment-transient failure_category=noncode-transient') -or
+        $beforeHash -ne $afterHash) {
+        throw "case=validated-artifact-required fail-close mismatch exit=$exitCode output=$($output -join ' | ')"
+    }
+    Write-Output "[TASK-SAFETY-REGRESSION] case=validated-artifact-required status=pass exit=$exitCode"
 }
 
 function Invoke-ResetByteFidelityCase {
@@ -278,7 +401,8 @@ try {
     Invoke-Case -Case $assertionCase -ExpectedExitCode 2 -ExpectedFragments @('postApplyAssertion failed name=required-helper-call')
     Invoke-CodeStepCase -Case $assertionCase -ExpectedExitCode 1 `
         -ExpectedSourceText "static int target(void)`n{`n`treturn 1;`n}`n" `
-        -ExpectedOutputFragment 'postApplyAssertion failed name=required-helper-call'
+        -ExpectedOutputFragment 'postApplyAssertion failed name=required-helper-call' `
+        -ExpectedCheckerExitCode 2
 
     $codeStepPassCase = New-TaskCase -Name 'pass-code-step-complete-contract' -Operations @(
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
@@ -289,6 +413,21 @@ try {
     Invoke-CodeStepCase -Case $codeStepPassCase -ExpectedExitCode 0 `
         -ExpectedSourceText "static int target(void)`n{`n`treturn 2;`n}`n" `
         -ExpectedOutputFragment 'round=D1 action=applied'
+
+    foreach ($artifactMode in @('pass', 'source-stale', 'task-stale', 'artifact-stale')) {
+        $artifactCase = New-TaskCase -Name ("validated-artifact-{0}" -f $artifactMode) -Operations @(
+            [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
+        ) -Assertions @(
+            [ordered]@{ name = 'updated-return'; pattern = 'return 2;'; expectedCount = 1 },
+            [ordered]@{ name = 'old-return-removed'; pattern = 'return 1;'; expectedCount = 0 }
+        )
+        Invoke-ValidatedArtifactCase -Case $artifactCase -Mode $artifactMode
+    }
+
+    $artifactRequiredCase = New-TaskCase -Name 'validated-artifact-required' -Operations @(
+        [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
+    ) -Assertions @()
+    Invoke-ValidatedArtifactRequiredCase -Case $artifactRequiredCase
 
     Invoke-ResetByteFidelityCase
 

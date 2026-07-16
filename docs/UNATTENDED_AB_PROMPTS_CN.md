@@ -13,6 +13,7 @@
 
 模式补充：
 - 所有 `running-status-report` 均为只读状态汇报票：只读取运行状态并回传 `handled_at`，禁止自愈修复、故障处理、主进程/guard 重启、`business_resume`、文件修改、环境稳定化或任何恢复动作。异常只汇报并等待独立事故票。
+- `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
 - 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票最终只执行一次 `atomic_closeout_command`，仅在其机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
@@ -36,7 +37,7 @@
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
 
 执行规则：
-1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。格式化器仅可做不改变 JSON 值、数组顺序或 operation 结构的机械格式化。编辑后依次执行 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查；不得预演后续轮阻断当前轮恢复。
+1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。格式化器仅可做不改变 JSON 值、数组顺序或 operation 结构的机械格式化。编辑后依次执行 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查；后续轮检查范围服从 start-file 的 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED`，默认关闭时不得预演后续轮，开启时当前轮通过后按顺序逐轮检查到 D4。
 2. 准备阶段可直接运行统一检查脚本 tools/test/check_unattended_ab_launch_ready.ps1；不要为每个检查子项逐项申请授权。
 3. 只有当统一检查整体 PASS 后，才向用户提一次最终授权；只有用户明确下达“启动 A（带 -StartMonitors）”或等价命令后，才允许真正启动。
 4. 标准启动入口只能是 tools/test/open_unattended_ab_stage_window.ps1，并且命令必须显式带 -StartMonitors。
@@ -48,7 +49,7 @@
 10. running-status-report 只汇报观测状态，禁止输出或执行修复路径；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B，异常等待独立事故票。
 11. 运行期静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按票据 `next_command_order` 执行其中所有无需用户确认的预授权操作，不得遗漏。事件票最终只执行一次 `atomic_closeout_command`，仅当其退出码和全部 JSON 机器事实门禁通过后才继续静默等待；旧分步回执字段不得逐条执行。不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`，不得创建任何定时巡检监控脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁；无法完成则立即如实报告阻塞，不得转为主动巡检。
 12. 若收到的工单指出 strict、heartbeat/poll/dispatch 链路异常，按该工单允许边界处理；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
-13. 不允许直接手改源码做自愈；只能修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。code-step 内部复用 checker 的完整整轮结果并仅在通过后一次性写回；checker 首错即停，不检查后续 op/轮。工单内可根据首错诊断反复调用 checker，不消耗默认 3 次的相同指纹主进程重启预算。只有当前故障轮通过才允许同阶段重启或 resume；`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
+13. 只有 task-static 故障，以及编译/验证阶段经证据分类确认为代码故障的事故，才允许进入代码自愈；编译/验证阶段的权限、磁盘、网络、远程锁、工具链不可用或测试基础设施故障必须进入 noncode。code-step 仅执行“读绑定产物 -> 验证 -> 原子写 -> 写后验证”，任何 code-step 故障均属于 noncode，禁止修改源码或任务定义。不允许直接手改源码做自愈；只能在被允许的代码修复票中修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。独立 task-static checker 首错即停，全部通过后生成哈希绑定产物；code-step 不重复 checker，只校验并原子应用该产物。工单内可根据首错诊断反复调用 checker，不消耗默认 3 次的相同指纹主进程重启预算。只有当前故障轮通过才允许同阶段重启或 resume；`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。

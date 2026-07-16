@@ -214,7 +214,8 @@ $briefSuppressesStatusActions = $takeoverTriggerText.Contains("`$nextCommandPoli
 $pollDisablesStatusSelfHeal = $pollText.Contains("`$statusReportEnableMainProcessAutoHeal = `$false") -and -not $pollText.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL')
 $dispatchHasReadOnlyStatusContract = $dispatchText.Contains('STATUS-REPORT-ONLY') -and $dispatchText.Contains('不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、源码/脚本/任务定义修改、环境稳定化或任何恢复动作')
 $templateHasReadOnlyStatusContract = $startTemplateText.Contains('AI_CHAT_DISPATCH_MESSAGE_RUNNING_STATUS_FULL=[FULL-RUNBOOK][STATUS-REPORT-ONLY]') -and $startTemplateText.Contains('LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL=false')
-$statusReportOnlyPass = ($guardStatusIsReportOnly -and $briefSuppressesStatusActions -and $pollDisablesStatusSelfHeal -and $dispatchHasReadOnlyStatusContract -and $templateHasReadOnlyStatusContract)
+$briefOmitsLegacyMonitorLogs = -not $takeoverTriggerText.Contains("('supervisor_log={0}' -f `$supervisorLog)") -and -not $takeoverTriggerText.Contains("('companion_log={0}' -f `$companionLog)")
+$statusReportOnlyPass = ($guardStatusIsReportOnly -and $briefSuppressesStatusActions -and $pollDisablesStatusSelfHeal -and $dispatchHasReadOnlyStatusContract -and $templateHasReadOnlyStatusContract -and $briefOmitsLegacyMonitorLogs)
 $statusReportOnlyReason = if ($statusReportOnlyPass) { 'scheduled-status-report-only-contract-present' } else { 'missing-scheduled-status-report-only-contract' }
 [void]$results.Add((Get-CaseResult -Name 'scheduled-status-report-only' -Pass $statusReportOnlyPass -Reason $statusReportOnlyReason))
 
@@ -247,20 +248,25 @@ $promptRequiresApplyPatch = ([regex]::Matches($promptDocText, '任务定义 JSON
 $operationFlowRequiresApplyPatch = $operationFlowText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
 $startTemplateRequiresApplyPatch = $startTemplateText.Contains('只能使用 VS Code `apply_patch` 修改当前阶段任务定义 JSON')
 $dispatchRequiresApplyPatch = $dispatchText.Contains('Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool') -and $dispatchText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
-$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only allowed task-definition operations') -and $takeoverTriggerText.Contains('validate SyntaxOnly, target-op when locatable, then the current failing round progressively')
+$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only allowed task-definition operations') -and $takeoverTriggerText.Contains('validate SyntaxOnly and target-op when locatable')
 $taskDefinitionApplyPatchPass = ($copilotRequiresApplyPatch -and $promptRequiresApplyPatch -and $operationFlowRequiresApplyPatch -and $startTemplateRequiresApplyPatch -and $dispatchRequiresApplyPatch -and $takeoverRequiresApplyPatch)
 $taskDefinitionApplyPatchReason = if ($taskDefinitionApplyPatchPass) { 'task-definition-apply-patch-contract-present' } else { 'missing-task-definition-apply-patch-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-apply-patch-contract' -Pass $taskDefinitionApplyPatchPass -Reason $taskDefinitionApplyPatchReason))
 
-# Startup validates loadable structure only; code-step invokes the checker as the shared operation engine.
+# Startup validates loadable structure only; each DEV round validates and binds an effective source before code-step.
 $stageWindowUsesSyntaxOnly = $stageWindowText.Contains("'-SyntaxOnly'") -and -not $stageWindowText.Contains('DEFERRED_TO_RUNTIME_GATE ticket=deferred_until_main_exit')
 $stageWindowDoesNotPrecheckD1Op = -not $stageWindowText.Contains("`$precheckScopeRoundTag = 'D1'") -and -not $stageWindowText.Contains("'-OperationIndex'")
-$multiRoundDelegatesToCodeStep = $multiRoundText.Contains('task_static_runtime_gate_result=SKIP') -and $multiRoundText.Contains('owned-by-code-step-progressive') -and $codeStepText.Contains('Invoke-ValidatedTaskDefinitionRound') -and $codeStepText.Contains('-OutputEffectiveTargetFile $effectiveTargetPath')
+$staticGateIndex = $multiRoundText.IndexOf('Invoke-RoundTaskStaticGate')
+$codeStepStartIndex = $multiRoundText.IndexOf('code_step_start=')
+$multiRoundRunsStaticBeforeCodeStep = $staticGateIndex -ge 0 -and $codeStepStartIndex -gt $staticGateIndex -and $multiRoundText.Contains("`$roundDecision = 'TASK-STATIC-FAIL'") -and $multiRoundText.Contains('TASK_STATIC_VALIDATED_ARTIFACT_V1') -and $multiRoundText.Contains('RoundTaskStaticGate cannot be disabled') -and $multiRoundText.Contains('RoundTaskStaticGateOperationIndex must be 0')
+$codeStepConsumesBoundArtifact = $codeStepText.Contains('Get-ValidatedEffectiveSource') -and $codeStepText.Contains('validated artifact hash binding mismatch') -and $codeStepText.Contains('validated_artifact=accepted') -and $codeStepText.Contains('validated artifact required') -and $codeStepText.Contains('failure_kind={1} failure_category={2}')
+$runnerPersistsCodeStepCategory = $multiRoundText.Contains('FailureCategory = $failureCategory') -and $multiRoundText.Contains('FailureCategory = if ($null -ne $firstFailedRow)')
+$guardPrefersStructuredCategory = $sessionGuardText.Contains('StructuredFailureCategory') -and $sessionGuardText.Contains('$failureCategory = $structuredFailureCategory')
 $multiRoundDoesNotQueueStaticTicket = -not $multiRoundText.Contains('function Add-RoundTaskStaticGateTicket') -and -not $multiRoundText.Contains("event = 'task-definition-fix-required'")
 $guardWaitsForMainExit = $sessionGuardText.Contains('task_definition_repair_wait reason=main-process-still-running') -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'A' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains("Get-StageBusinessProcessSnapshot -Stage 'B' -ExpectedProcessId `$repairProcessId") -and $sessionGuardText.Contains('task_definition_repair_ready reason=main-process-stopped')
-$staticRepairWaitPass = ($stageWindowUsesSyntaxOnly -and $stageWindowDoesNotPrecheckD1Op -and $multiRoundDelegatesToCodeStep -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit)
-$staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-progressive-entry-contract-present' } else { 'missing-task-static-progressive-entry-contract' }
-[void]$results.Add((Get-CaseResult -Name 'task-static-progressive-entry-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
+$staticRepairWaitPass = ($stageWindowUsesSyntaxOnly -and $stageWindowDoesNotPrecheckD1Op -and $multiRoundRunsStaticBeforeCodeStep -and $codeStepConsumesBoundArtifact -and $runnerPersistsCodeStepCategory -and $guardPrefersStructuredCategory -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit)
+$staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-bound-artifact-contract-present' } else { 'missing-task-static-bound-artifact-contract' }
+[void]$results.Add((Get-CaseResult -Name 'task-static-bound-artifact-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
 
 # Every fault-handling or self-heal ticket must wait until all A/B business processes stop.
 $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')
@@ -312,32 +318,32 @@ $staleReason = if ($stalePass) { 'stale-latest-b-exit-signal-present' } else { '
 [void]$results.Add((Get-CaseResult -Name 'stale-latest-b-exit' -Pass $stalePass -Reason $staleReason))
 
 # Case 3: low-disturb response must enforce two-line healthy reply contract.
-$lowDisturbEnTwoLine = $dispatchText.Contains('reply with only two lines: "Running normal" and "handled_at: YYYY-MM-DD HH:mm:ss"')
+$lowDisturbEnTwoLine = $dispatchText.Contains('Report observed runtime status in two lines using read-only checks: "Running normal" or a concise anomaly summary, then "handled_at: YYYY-MM-DD HH:mm:ss"')
 $lowDisturbHasHandledAtToken = $dispatchText.Contains('handled_at: YYYY-MM-DD HH:mm:ss')
-$lowDisturbHasLowDisturbToken = $dispatchText.Contains('[LOW-DISTURB]')
+$lowDisturbHasLowDisturbToken = $dispatchText.Contains('[LOW-DISTURB][STATUS-REPORT-ONLY]')
 $lowDisturbPass = ($lowDisturbEnTwoLine -and $lowDisturbHasHandledAtToken -and $lowDisturbHasLowDisturbToken)
 $lowDisturbReason = if ($lowDisturbPass) { 'low-disturb-two-line-contract-present' } else { 'missing-low-disturb-two-line-contract' }
 [void]$results.Add((Get-CaseResult -Name 'low-disturb-two-line-reply' -Pass $lowDisturbPass -Reason $lowDisturbReason))
 
-# Case 4: do-not-create-non-tmp-script guardrail must be present in runtime prompt channels.
-$dispatchNoNonTmp = $dispatchText.Contains('do not create new scripts outside tmp')
+# Case 4: status tickets must forbid file edits, including creation of non-tmp scripts.
+$dispatchNoNonTmp = $dispatchText.Contains('Never self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover from this status ticket.')
 $promptNoNonTmp = [regex]::IsMatch($promptDocText, 'chat_heartbeat\*\.jsonl.*handled.*tmp', [System.Text.RegularExpressions.RegexOptions]::Singleline)
 $noNonTmpPass = ($dispatchNoNonTmp -and $promptNoNonTmp)
 $noNonTmpReason = if ($noNonTmpPass) { 'no-non-tmp-script-guardrail-present' } else { 'missing-no-non-tmp-script-guardrail' }
 [void]$results.Add((Get-CaseResult -Name 'no-non-tmp-script-creation' -Pass $noNonTmpPass -Reason $noNonTmpReason))
 
-# Case 5: repair prompts must require current-round progressive checks and reject later-round preflight.
+# Case 5: repair prompts must keep per-round fail-fast checks and honor the explicit cross-round switch.
 $taskSafetyHasFocusedLimitEn = $dispatchText.Contains('optionally a focused -OperationIndex check')
 $taskSafetyHasFocusedLimitZh = $dispatchText.Contains('可定位时运行 -OperationIndex 快检')
-$taskSafetyHasFullRoundEn = $dispatchText.Contains('then the current failing D round without -OperationIndex')
-$taskSafetyHasFullRoundZh = $dispatchText.Contains('再对当前故障 D 轮运行不带 -OperationIndex 的递进严格检查')
-$taskSafetyHasFailFast = $dispatchText.Contains('stop at the first failure; do not preflight later rounds') -and $dispatchText.Contains('首错即停，不预演后续轮')
+$taskSafetyHasSwitchDefault = $startTemplateText.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false') -and $resetStartFileText.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED')
+$taskSafetyBriefProjectsSwitch = $takeoverTriggerText.Contains('task_static_cross_round_repair_enabled={0}') -and $takeoverTriggerText.Contains('check only the current failing D round before restart; later rounds remain runtime-gated') -and $takeoverTriggerText.Contains('check and repair each later D round through D4 in order before restart')
+$taskSafetyDispatchBranches = $dispatchText.Contains('[Cross-round repair enabled]') -and $dispatchText.Contains('[Cross-round repair disabled]') -and $dispatchText.Contains('[跨轮次修复已开启]') -and $dispatchText.Contains('[跨轮次修复已关闭]') -and $dispatchText.Contains('$taskStaticCrossRoundRepairEnabled -and $briefTaskStaticCrossRoundRepairEnabled')
+$taskSafetyHasFailFast = $dispatchText.Contains('stops at the first failure') -and $dispatchText.Contains('首错即停') -and $dispatchText.Contains('validates one round at a time') -and $dispatchText.Contains('每次只验证一轮')
 $taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结果变化时同步更新同轮 postApplyAssertions')
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
-$taskSafetyHasSharedEngine = $dispatchText.Contains('Code-step uses checker as the shared full-round engine') -and $dispatchText.Contains('code-step 复用 checker 作为完整整轮执行引擎') -and $takeoverTriggerText.Contains('code-step invokes checker as the shared full-round engine')
+$taskSafetyHasPhaseBoundary = $dispatchText.Contains('every code-step failure is noncode') -and $dispatchText.Contains('任何 code-step 故障均属于 noncode') -and $dispatchText.Contains('independent task-static checker') -and $dispatchText.Contains('独立 task-static checker') -and $takeoverTriggerText.Contains("if (`$ticketFailurePhase -eq 'code-step')") -and $takeoverTriggerText.Contains("`$ticketFailureCategory = 'noncode-transient'")
 $taskSafetyHasRetryScope = $dispatchText.Contains('local checker calls do not consume the identical-fingerprint main-process relaunch budget') -and $dispatchText.Contains('本地检查不消耗相同指纹主进程重启预算') -and $takeoverTriggerText.Contains('checker reruns within one repair ticket are not limited') -and $sessionGuardText.Contains('Checker reruns inside this ticket are unlimited') -and $startTemplateText.Contains('工单内可按首错诊断反复调用 checker')
-$taskSafetyRejectsAffectedRoundPreflight = -not $startTemplateText.Contains('再做全部受影响 D 轮整轮检查') -and -not $startTemplateText.Contains('再对全部受影响 D 轮分别运行')
-$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasFullRoundEn -and $taskSafetyHasFullRoundZh -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached -and $taskSafetyHasSharedEngine -and $taskSafetyHasRetryScope -and $taskSafetyRejectsAffectedRoundPreflight)
+$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasSwitchDefault -and $taskSafetyBriefProjectsSwitch -and $taskSafetyDispatchBranches -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached -and $taskSafetyHasPhaseBoundary -and $taskSafetyHasRetryScope)
 $taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
 
@@ -442,7 +448,8 @@ $sessionGuardHasGraceWaitLegacy = $sessionGuardText.Contains('main_process_exit_
 $sessionGuardHasGraceWaitHelper = $sessionGuardText.Contains("Write-GraceWaitLog -Prefix 'main_process_exit_grace_wait'")
 $sessionGuardHasGraceWait = ($sessionGuardHasGraceWaitLegacy -or $sessionGuardHasGraceWaitHelper)
 $sessionGuardHasGraceClear = $sessionGuardText.Contains('main_process_exit_grace_cleared stage={0}')
-$sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear)
+$graceDefaultIsSixty = $startTemplateText.Contains('MONITOR_CHAIN_GRACE_MINUTES=60') -and $takeoverTriggerText.Contains('$monitorChainGraceMinutes = 60') -and $sessionGuardText.Contains('$mainProcessExitMonitorGraceMinutes = 60')
+$sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear -and $graceDefaultIsSixty)
 $sessionGuardGraceReason = if ($sessionGuardGracePass) { 'session-guard-main-exit-grace-present' } else { 'missing-session-guard-main-exit-grace' }
 [void]$results.Add((Get-CaseResult -Name 'session-guard-main-exit-grace' -Pass $sessionGuardGracePass -Reason $sessionGuardGraceReason))
 
@@ -623,13 +630,12 @@ $pollNoticeTarget = if ($pollNoticeRow.Count -gt 0) { $pollNoticeRow[0] } else {
 $pollNoticeHasOrder = ($null -ne $pollNoticeTarget -and ($pollNoticeTarget.PSObject.Properties.Name -contains 'next_command_order'))
 $pollNoticeNames = if ($pollNoticeHasOrder) { @($pollNoticeTarget.next_command_order) } else { @() }
 $pollNoticeLegacySteps = @($pollNoticeNames | Where-Object { $_ -in @('handled_receipt_command', 'validate_receipt_command', 'mark_processed_command', 'post_check_command', 'ticket_closure_check_command', 'event_dedup_health_check_command', 'final_status_closeout_command', 'final_status_closeout_apply_ack_command') })
-$pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -ge 3 -and $pollNoticeNames[0] -eq 'route_guard_command' -and $pollNoticeNames[1] -eq 'business_command' -and $pollNoticeNames[$pollNoticeNames.Count - 1] -eq 'atomic_closeout_command' -and $pollNoticeLegacySteps.Count -eq 0)
+$pollNoticePass = ($pollNoticeHasOrder -and $pollNoticeNames.Count -eq 2 -and $pollNoticeNames[0] -eq 'route_guard_command' -and $pollNoticeNames[1] -eq 'atomic_closeout_command' -and $pollNoticeLegacySteps.Count -eq 0)
 $pollNoticeReason = if ($pollNoticePass) { 'poll-notice-command-order-runtime-present' } else { 'missing-poll-notice-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-notice-command-order-runtime' -Pass $pollNoticePass -Reason $pollNoticeReason))
 
-# Case 9: manual-wait (drain-safe event) should map to route guard first and
-# keep continue-watch in order list.  For drain-safe events, business_command
-# is empty (not emitted) so we only check route_guard_command + continue_watch.
+# Case 9: manual-wait is a decision-only notice and must close out without
+# business, continue-watch, or legacy split-receipt commands.
 $pollManualQueue = Join-Path $outDir 'poll_manual_command_order_queue.jsonl'
 $pollManualState = Join-Path $outDir 'poll_manual_command_order_state.json'
 $pollManualLedger = Join-Path $outDir 'poll_manual_command_order_ledger.json'
@@ -669,9 +675,8 @@ $pollManualRow = @($pollManualRows | Where-Object { [string]$_.event -eq 'manual
 $pollManualTarget = if ($pollManualRow.Count -gt 0) { $pollManualRow[0] } else { $null }
 $pollManualHasOrder = ($null -ne $pollManualTarget -and ($pollManualTarget.PSObject.Properties.Name -contains 'next_command_order'))
 $pollManualNames = if ($pollManualHasOrder) { @($pollManualTarget.next_command_order) } else { @() }
-$pollManualHasContinueWatch = ($pollManualNames -contains 'continue_watch_command')
 $pollManualLegacySteps = @($pollManualNames | Where-Object { $_ -in @('handled_receipt_command', 'validate_receipt_command', 'mark_processed_command', 'post_check_command', 'ticket_closure_check_command', 'event_dedup_health_check_command', 'final_status_closeout_command', 'final_status_closeout_apply_ack_command') })
-$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -ge 3 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualHasContinueWatch -and $pollManualNames[$pollManualNames.Count - 1] -eq 'atomic_closeout_command' -and $pollManualLegacySteps.Count -eq 0)
+$pollManualPass = ($pollManualHasOrder -and $pollManualNames.Count -eq 2 -and $pollManualNames[0] -eq 'route_guard_command' -and $pollManualNames[1] -eq 'atomic_closeout_command' -and $pollManualLegacySteps.Count -eq 0)
 $pollManualReason = if ($pollManualPass) { 'poll-manual-command-order-runtime-present' } else { 'missing-poll-manual-command-order-runtime' }
 [void]$results.Add((Get-CaseResult -Name 'poll-manual-command-order-runtime' -Pass $pollManualPass -Reason $pollManualReason))
 
@@ -821,12 +826,20 @@ $dispatchRuntimeTicket = [ordered]@{
     event = 'incident-captured'
     start_file = $dispatchRuntimeStartFile
     queue_path = $dispatchRuntimeQueue
+    failure_phase = 'task-static'
+    failure_kind = 'task-definition-mismatch'
+    failure_category = 'task-definition-mismatch'
+    main_round = 'D1'
 }
 Set-Content -LiteralPath $dispatchRuntimeQueue -Encoding utf8 -Value (($dispatchRuntimeTicket | ConvertTo-Json -Compress -Depth 6))
 Write-Utf8BomText -Path $dispatchRuntimeBrief -Text @"
 ticket_id=$dispatchRuntimeTicketId
 event=incident-captured
 route_guard_expected=incident-manual-code-fix
+failure_phase=task-static
+failure_kind=task-definition-mismatch
+failure_category=task-definition-mismatch
+main_round=D1
 atomic_closeout_command=$dispatchRuntimeAtomicMarker
 "@
 $dispatchRuntimeState = $null
@@ -841,7 +854,9 @@ catch {
 }
 $dispatchRuntimeMessage = if ($null -ne $dispatchRuntimeState) { [string]$dispatchRuntimeState.dispatch_message } else { '' }
 $dispatchRuntimeMarkerCount = ([regex]::Matches($dispatchRuntimeMessage, [regex]::Escape($dispatchRuntimeAtomicMarker))).Count
-$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 SyntaxOnly 装载检查'))
+$mandatoryReceiptSuffix = "强制回执`nhandled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）"
+$dispatchRuntimeNormalized = $dispatchRuntimeMessage.Replace("`r`n", "`n")
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 SyntaxOnly 装载检查') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
 $dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
 
@@ -851,6 +866,10 @@ Write-Utf8BomText -Path $dispatchMissingBrief -Text @"
 ticket_id=$dispatchRuntimeTicketId
 event=incident-captured
 route_guard_expected=incident-manual-code-fix
+failure_phase=task-static
+failure_kind=task-definition-mismatch
+failure_category=task-definition-mismatch
+main_round=D1
 "@
 $dispatchMissingState = $null
 try {
@@ -863,9 +882,49 @@ catch {
     $dispatchMissingState = $null
 }
 $dispatchMissingMessage = if ($null -ne $dispatchMissingState) { [string]$dispatchMissingState.dispatch_message } else { '' }
-$dispatchMissingAtomicPass = ($dispatchMissingMessage.Contains('缺少 atomic_closeout_command') -and $dispatchMissingMessage.Contains('必须 fail-close') -and $dispatchMissingMessage.Contains('不得自行生成 handled_at'))
+$dispatchMissingNormalized = $dispatchMissingMessage.Replace("`r`n", "`n")
+$dispatchMissingAtomicPass = ($dispatchMissingMessage.Contains('缺少 atomic_closeout_command') -and $dispatchMissingMessage.Contains('必须 fail-close') -and $dispatchMissingMessage.Contains('不得自行生成 handled_at') -and $dispatchMissingNormalized.EndsWith($mandatoryReceiptSuffix))
 $dispatchMissingAtomicReason = if ($dispatchMissingAtomicPass) { 'atomic-dispatch-missing-command-fail-closed-runtime-present' } else { 'atomic-dispatch-missing-command-fail-closed-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-missing-command-fail-closed-runtime' -Pass $dispatchMissingAtomicPass -Reason $dispatchMissingAtomicReason))
+
+# A real scheduled status dispatch must end with the same receipt rule without authorizing atomic closeout.
+$dispatchStatusTicketId = 'T-MINI-STATUS-DISPATCH-' + $stamp
+$dispatchStatusTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = $dispatchStatusTicketId
+    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    event = 'running-status-report'
+    start_file = $dispatchRuntimeStartFile
+    queue_path = $dispatchRuntimeQueue
+    session_final_status = 'RUNNING'
+    a_final_status = 'RUNNING'
+    b_final_status = 'PENDING'
+}
+Set-Content -LiteralPath $dispatchRuntimeQueue -Encoding utf8 -Value (($dispatchStatusTicket | ConvertTo-Json -Compress -Depth 6))
+$dispatchStatusBrief = Join-Path $dispatchRuntimeRoot 'brief_status.md'
+Write-Utf8BomText -Path $dispatchStatusBrief -Text @"
+ticket_id=$dispatchStatusTicketId
+event=running-status-report
+route_guard_expected=status-health-check-only
+session_final_status=RUNNING
+a_final_status=RUNNING
+b_final_status=PENDING
+"@
+$dispatchStatusState = $null
+try {
+    $null = & $dispatchPath -TicketId $dispatchStatusTicketId -TicketEvent 'running-status-report' -StartFile $dispatchRuntimeStartFile -QueuePath $dispatchRuntimeQueue -BriefPath $dispatchStatusBrief -NoOpenEditor -SkipClipboard
+    $dispatchStatusToken = Get-StableStartFileToken -StartFilePath $dispatchRuntimeStartFile
+    $dispatchStatusStatePath = Join-Path (Get-UnattendedRepoRoot) ("out\artifacts\ab_agent_queue\chat_dispatch\latest_relay_{0}.json" -f $dispatchStatusToken)
+    $dispatchStatusState = Get-Content -LiteralPath $dispatchStatusStatePath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $dispatchStatusState = $null
+}
+$dispatchStatusMessage = if ($null -ne $dispatchStatusState) { [string]$dispatchStatusState.dispatch_message } else { '' }
+$dispatchStatusNormalized = $dispatchStatusMessage.Replace("`r`n", "`n")
+$dispatchStatusPass = ($dispatchStatusNormalized.EndsWith($mandatoryReceiptSuffix) -and -not $dispatchStatusMessage.Contains('机器事实闭环门禁') -and -not $dispatchStatusMessage.Contains('最终回复前必须执行以下唯一原子收尾命令'))
+$dispatchStatusReason = if ($dispatchStatusPass) { 'status-dispatch-mandatory-receipt-last-runtime-present' } else { 'status-dispatch-mandatory-receipt-last-runtime-failed' }
+[void]$results.Add((Get-CaseResult -Name 'status-dispatch-mandatory-receipt-last-runtime' -Pass $dispatchStatusPass -Reason $dispatchStatusReason))
 
 # Fingerprint normalization must collapse the same issue with different line numbers to one token.
 $fingerprintProbeA = 'src/core/net.c:42: conflicting types for wc_retry_connect'

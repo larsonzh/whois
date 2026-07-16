@@ -233,7 +233,67 @@ function New-TaskRegex {
 function Test-UnsafeNestedQuantifier {
     param([string]$Pattern)
 
-    return [regex]::IsMatch($Pattern, '\((?:\\.|[^()]){0,512}[+*](?:\\.|[^()]){0,512}\)\s*(?:[+*]|\{\d+(?:,\d*)?\})')
+    $detectorPattern = '\((?>\\.|[^()]){0,512}[+*](?>\\.|[^()]){0,512}\)\s*(?:[+*]|\{\d+(?:,\d*)?\})'
+    $detector = [regex]::new(
+        $detectorPattern,
+        [System.Text.RegularExpressions.RegexOptions]::None,
+        [TimeSpan]::FromMilliseconds($RegexTimeoutMs))
+    return $detector.IsMatch($Pattern)
+}
+
+function Test-EffectiveCSourceSyntax {
+    param(
+        [string]$SourceText,
+        [string]$TargetPath
+    )
+
+    $compiler = $null
+    foreach ($compilerName in @('clang', 'gcc', 'cc')) {
+        $candidate = Get-Command $compilerName -ErrorAction SilentlyContinue
+        if ($null -ne $candidate) {
+            $compiler = $candidate
+            break
+        }
+    }
+    if ($null -eq $compiler) {
+        Add-ErrorIssue 'effective-source syntax gate compiler not found candidates=clang,gcc,cc'
+        return
+    }
+
+    $targetDirectory = Split-Path -Parent $TargetPath
+    $temporarySource = Join-Path $targetDirectory ('.task-static-{0}.c' -f ([guid]::NewGuid().ToString('N')))
+    try {
+        [System.IO.File]::WriteAllText($temporarySource, $SourceText, [System.Text.UTF8Encoding]::new($false))
+        $includeDirectory = Join-Path $RepoRoot 'include'
+        $sourceDirectory = Join-Path $RepoRoot 'src'
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $compilerOutput = @(
+                & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                    ForEach-Object { [string]$_ }
+            )
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $compilerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($compilerExitCode -ne 0) {
+            $diagnostic = @($compilerOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
+            Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $compilerExitCode, $diagnostic)
+            return
+        }
+
+        Add-InfoIssue ("effective-source syntax gate pass compiler={0}" -f $compiler.Name)
+    }
+    catch {
+        Add-ErrorIssue ("effective-source syntax gate exception detail={0}" -f $_.Exception.Message)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporarySource) {
+            Remove-Item -LiteralPath $temporarySource -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Read-KeyValuePairs {
@@ -1190,6 +1250,13 @@ if ($EnableFingerprintCheck.IsPresent) {
             }
         }
     }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and
+    $RequestedOperationIndex -eq 0 -and
+    $errors.Count -eq 0 -and
+    [System.IO.Path]::GetExtension($targetFileResolved).ToLowerInvariant() -eq '.c') {
+    Test-EffectiveCSourceSyntax -SourceText $workingText -TargetPath $targetFileResolved
 }
 
 $scopeText = if ([string]::IsNullOrWhiteSpace($effectiveRoundTag)) {

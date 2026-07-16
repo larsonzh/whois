@@ -1728,22 +1728,36 @@ function Get-CauseBucket {
     param(
         [AllowNull()][string]$FailureKind,
         [AllowNull()][string]$FailureCategory,
+        [AllowNull()][string]$FailurePhase,
         [AllowNull()][string]$EventName
     )
 
     $kind = (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()
     $category = (Convert-ToSingleLineText -Text $FailureCategory).ToLowerInvariant()
+    $phase = (Convert-ToSingleLineText -Text $FailurePhase).ToLowerInvariant()
     $eventNameNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
 
     if ($eventNameNormalized -eq 'running-status-report') {
         return 'status'
     }
 
+    if ($phase -eq 'code-step') {
+        return 'infra'
+    }
+
+    if ($kind -eq 'code-edit-failure') {
+        return 'infra'
+    }
+
+    if ($phase -eq 'task-static') {
+        return 'code'
+    }
+
     if ($category -in @('script-fault')) {
         return 'script'
     }
 
-    if ($category -in @('code-or-unknown') -or $category -match '^task-definition(?:-|$)' -or $kind -in @('compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure')) {
+    if ($category -in @('code-or-unknown') -or $category -match '^task-definition(?:-|$)' -or $kind -eq 'task-definition-mismatch') {
         return 'code'
     }
 
@@ -1886,11 +1900,12 @@ function New-TakeoverBrief {
     $ticketNonRecoverableEnv = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'non_recoverable_env')).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
     $ticketFailureKind = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind')).ToLowerInvariant()
     $ticketFailureCategory = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category')).ToLowerInvariant()
+    $ticketFailurePhase = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_phase')).ToLowerInvariant()
     $ticketFailureSource = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source')).ToLowerInvariant()
     $ticketFailureEvidence = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence')).ToLowerInvariant()
     $ticketCauseBucket = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'cause_bucket')).ToLowerInvariant()
     if ([string]::IsNullOrWhiteSpace($ticketCauseBucket)) {
-        $ticketCauseBucket = Get-CauseBucket -FailureKind $ticketFailureKind -FailureCategory $ticketFailureCategory -EventName $eventName
+        $ticketCauseBucket = Get-CauseBucket -FailureKind $ticketFailureKind -FailureCategory $ticketFailureCategory -FailurePhase $ticketFailurePhase -EventName $eventName
     }
     $ticketFailureFingerprint = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_fingerprint')
     if ([string]::IsNullOrWhiteSpace($ticketFailureFingerprint)) {
@@ -1909,6 +1924,10 @@ function New-TakeoverBrief {
     if ($Settings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
         $scriptSelfHealEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
     }
+    $taskStaticCrossRoundRepairEnabled = $false
+    if ($Settings.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED')) {
+        $taskStaticCrossRoundRepairEnabled = Convert-ToBooleanSetting -Value ([string]$Settings.TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED) -Default $false
+    }
     $fallbackIncidentAutoResumeEligible = (
         -not $ticketSelfHealable -and
         -not $ticketNonRecoverableEnv -and
@@ -1922,10 +1941,28 @@ function New-TakeoverBrief {
     )
 
     $incidentLane = 'noncode'
-    if ($ticketFailureCategory -eq 'script-fault' -and $ticketFailureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
+    if ($ticketFailurePhase -eq 'code-step') {
+        $ticketFailureKind = 'environment-transient'
+        $ticketFailureCategory = 'noncode-transient'
+    }
+    elseif ($ticketFailureKind -eq 'code-edit-failure') {
+        $ticketFailureKind = 'environment-transient'
+        $ticketFailureCategory = 'noncode-transient'
+    }
+    elseif ($ticketFailurePhase -eq 'task-static') {
+        $ticketFailureKind = 'task-definition-mismatch'
+        $ticketFailureCategory = 'task-definition-mismatch'
+    }
+    elseif ($ticketFailureCategory -eq 'script-fault' -and $ticketFailureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
         $ticketFailureCategory = 'code-or-unknown'
     }
-    if ($ticketFailureCategory -eq 'script-fault') {
+    if ($ticketFailurePhase -eq 'code-step') {
+        $incidentLane = 'noncode'
+    }
+    elseif ($ticketFailurePhase -eq 'task-static') {
+        $incidentLane = 'code-fix'
+    }
+    elseif ($ticketFailureCategory -eq 'script-fault') {
         $incidentLane = 'script-fix'
     }
     elseif ($ticketFailureCategory -eq 'code-or-unknown') {
@@ -1934,7 +1971,7 @@ function New-TakeoverBrief {
     elseif ($ticketFailureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
         $incidentLane = 'noncode'
     }
-    elseif ($ticketFailureCategory -match '^task-definition(?:-|$)' -or $ticketFailureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+    elseif ($ticketFailureCategory -match '^task-definition(?:-|$)' -or $ticketFailureKind -eq 'task-definition-mismatch') {
         $incidentLane = 'code-fix'
     }
     elseif ($ticketFailureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
@@ -1976,13 +2013,15 @@ function New-TakeoverBrief {
         'incident-auto-resume-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly, target-op when locatable, then the current failing round progressively; do not preflight later rounds or edit business source directly' -f $stageText, $roundText
+            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
+            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly and target-op when locatable; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
         'incident-manual-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly, target-op when locatable, then the current failing round progressively; do not preflight later rounds or edit business source directly' -f $stageText, $roundText
+            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
+            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly and target-op when locatable; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
         'incident-auto-resume-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
@@ -2019,9 +2058,8 @@ function New-TakeoverBrief {
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
     }
     elseif ($routeGuardExpected -like 'notice-*') {
-        $nextCommandPolicy = 'notice-stabilize-then-watch'
+        $nextCommandPolicy = 'notice-report-and-closeout'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
-        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
     elseif ($routeGuardExpected -like 'incident-auto-resume-*') {
         $nextCommandPolicy = 'incident-auto-resume'
@@ -2059,10 +2097,6 @@ function New-TakeoverBrief {
         if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutCommand)) { [void]$nextCommands.Add($finalStatusCloseoutCommand); [void]$nextCommandNames.Add('final_status_closeout_command') }
         if (-not [string]::IsNullOrWhiteSpace($finalStatusCloseoutApplyAckCommand)) { [void]$nextCommands.Add($finalStatusCloseoutApplyAckCommand); [void]$nextCommandNames.Add('final_status_closeout_apply_ack_command') }
     }
-    elseif ($routeGuardExpected -like 'notice-*') {
-        if (-not [string]::IsNullOrWhiteSpace($ticketClosureCheckCommand)) { [void]$nextCommands.Add($ticketClosureCheckCommand); [void]$nextCommandNames.Add('ticket_closure_check_command') }
-        if (-not [string]::IsNullOrWhiteSpace($eventDedupHealthCheckCommand)) { [void]$nextCommands.Add($eventDedupHealthCheckCommand); [void]$nextCommandNames.Add('event_dedup_health_check_command') }
-    }
     if ($nextCommands.Count -lt 1) {
         [void]$nextCommands.Add('# no next command')
         [void]$nextCommandNames.Add('no_next_command')
@@ -2071,7 +2105,7 @@ function New-TakeoverBrief {
     $expectedNextCommandPolicy = switch -Wildcard ($routeGuardExpected) {
         'status-health-check-only' { 'status-report-only-readonly'; break }
         'incident-script-diagnose-only' { 'script-diagnose-only'; break }
-        'notice-*' { 'notice-stabilize-then-watch'; break }
+        'notice-*' { 'notice-report-and-closeout'; break }
         'incident-auto-resume-*' { 'incident-auto-resume'; break }
         'incident-manual-*' { 'incident-manual-gated'; break }
         'event-review*' { 'event-review'; break }
@@ -2096,8 +2130,6 @@ function New-TakeoverBrief {
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDir = Resolve-RunDirAnchorFromNoteLog -Notes $notes
-    $supervisorLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'supervisor_log'
-    $companionLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'companion_log'
     $guardLog = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'guard_log'
     $guardState = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'guard_state'
     $liveStatus = Get-LatestAnchorValueFromNoteLog -Notes $notes -Key 'live_status'
@@ -2127,6 +2159,7 @@ function New-TakeoverBrief {
         ('route_guard_command={0}' -f $routeGuardCommand),
         ('route_guard_expected={0}' -f $routeGuardExpected),
         ('script_self_heal_enabled={0}' -f [bool]$scriptSelfHealEnabled),
+        ('task_static_cross_round_repair_enabled={0}' -f [bool]$taskStaticCrossRoundRepairEnabled),
         ('script_fault_action_policy={0}' -f $scriptFaultActionPolicy),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
@@ -2134,8 +2167,8 @@ function New-TakeoverBrief {
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),
-        ('task_definition_check_order={0}' -f 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart'),
-        ('task_definition_execution_engine={0}' -f 'code-step invokes checker as the shared full-round engine and writes target source only after ops, replay, and postApplyAssertions pass'),
+        ('task_definition_check_order={0}' -f $(if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' })),
+        ('task_definition_execution_engine={0}' -f 'independent task-static checker validates ops, replay, and postApplyAssertions and produces a hash-bound artifact; code-step only validates and atomically applies it'),
         ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
         ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
@@ -2150,6 +2183,7 @@ function New-TakeoverBrief {
         ('b_final_status={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'b_final_status'))),
         ('preferred_stage={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage'))),
         ('main_round={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round'))),
+        ('failure_phase={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_phase'))),
         ('failure_kind={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_kind'))),
         ('failure_category={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_category'))),
         ('failure_source={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source'))),
@@ -2167,8 +2201,6 @@ function New-TakeoverBrief {
         ('next_command_policy={0}' -f $nextCommandPolicy),
         ('next_command_order={0}' -f $nextCommandOrderJoined),
         ('run_dir={0}' -f $runDir),
-        ('supervisor_log={0}' -f $supervisorLog),
-        ('companion_log={0}' -f $companionLog),
         ('live_status={0}' -f $liveStatus),
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
@@ -2372,7 +2404,7 @@ while ($true) {
         $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
             ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
         if ($bothTerminal) {
-            $monitorChainGraceMinutes = 40
+            $monitorChainGraceMinutes = 60
             if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {
                 $parsedGrace = 0
                 if ([int]::TryParse(([string]$settings.MONITOR_CHAIN_GRACE_MINUTES), [ref]$parsedGrace)) {

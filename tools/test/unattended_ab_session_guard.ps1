@@ -236,12 +236,7 @@ function Write-GuardLog {
     $safeMessage = Convert-ToSingleLineText -Text ([string]$Message)
     $line = "[AB-SESSION-GUARD] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $safeMessage
     Write-Output $line
-    try {
-        Add-Content -LiteralPath $script:GuardLogPath -Value $line -Encoding utf8
-    }
-    catch {
-        Write-Warning ("[AB-SESSION-GUARD] log_write_failed path={0}" -f $script:GuardLogPath)
-    }
+    Write-GuardLogLineWithRetry -Line $line
 }
 
 function Write-GuardRawLine {
@@ -253,11 +248,46 @@ function Write-GuardRawLine {
 
     $safeMessage = Convert-ToSingleLineText -Text ([string]$Message)
     Write-Output $safeMessage
-    try {
-        Add-Content -LiteralPath $script:GuardLogPath -Value $safeMessage -Encoding utf8
+    Write-GuardLogLineWithRetry -Line $safeMessage
+}
+
+function Write-GuardLogLineWithRetry {
+    param(
+        [string]$Line,
+        [ValidateRange(1, 8)][int]$MaxAttempts = 5
+    )
+
+    $lastError = ''
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            $stream = [System.IO.File]::Open($script:GuardLogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            try {
+                $writer = New-Object System.IO.StreamWriter($stream, [System.Text.UTF8Encoding]::new($false))
+                try {
+                    $writer.WriteLine($Line)
+                    $writer.Flush()
+                    return
+                }
+                finally {
+                    $writer.Dispose()
+                }
+            }
+            finally {
+                $stream.Dispose()
+            }
+        }
+        catch {
+            $lastError = Convert-ToSingleLineText -Text $_.Exception.Message
+            if ($attempt -lt $MaxAttempts) {
+                Start-Sleep -Milliseconds (40 * $attempt)
+            }
+        }
     }
-    catch {
-        Write-Warning ("[AB-SESSION-GUARD] log_write_failed path={0}" -f $script:GuardLogPath)
+
+    $now = Get-Date
+    if ($null -eq $script:GuardLogWriteFailureLastReportAt -or (($now - $script:GuardLogWriteFailureLastReportAt).TotalSeconds -ge 60)) {
+        $script:GuardLogWriteFailureLastReportAt = $now
+        Write-Warning ("[AB-SESSION-GUARD] log_write_failed path={0} attempts={1} detail={2}" -f $script:GuardLogPath, $MaxAttempts, $lastError)
     }
 }
 
@@ -416,6 +446,7 @@ function Add-AgentTicket {
         [AllowEmptyString()][string]$RecommendedAction,
         [AllowEmptyString()][string]$PreferredStage = '',
         [AllowEmptyString()][string]$MainRound = '',
+        [AllowEmptyString()][string]$FailurePhase = '',
         [AllowEmptyString()][string]$FailureKind = '',
         [AllowEmptyString()][string]$FailureCategory = '',
         [AllowEmptyString()][string]$FailureSource = '',
@@ -499,6 +530,20 @@ function Add-AgentTicket {
     }
     $eventCompact = Convert-ToSingleLineText -Text $EventName
     $recommendedActionMaxChars = if ($eventCompact.ToLowerInvariant() -eq 'running-status-report') { 2000 } else { 280 }
+    $failurePhaseCompact = (Convert-ToSingleLineText -Text $FailurePhase).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($failurePhaseCompact)) {
+        $failurePhaseCompact = switch ((Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()) {
+            'task-definition-mismatch' { 'task-static' }
+            'code-edit-failure' { 'code-step' }
+            'compile-failure' { 'compile' }
+            'compile-warning' { 'compile' }
+            'verify-failure' { 'verify' }
+            'environment-transient' { 'environment' }
+            'script-edit-failure' { 'script' }
+            'script-failure' { 'script' }
+            default { 'unknown' }
+        }
+    }
 
     $signature = "{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}" -f
         $eventCompact,
@@ -540,6 +585,7 @@ function Add-AgentTicket {
         recommended_action = (Convert-ToBoundedSingleLineText -Text $RecommendedAction -MaxChars $recommendedActionMaxChars)
         preferred_stage = (Convert-ToSingleLineText -Text $PreferredStage).ToUpperInvariant()
         main_round = (Convert-ToSingleLineText -Text $MainRound).ToUpperInvariant()
+        failure_phase = $failurePhaseCompact
         failure_kind = (Convert-ToSingleLineText -Text $FailureKind).ToLowerInvariant()
         failure_category = (Convert-ToSingleLineText -Text $FailureCategory).ToLowerInvariant()
         failure_source = (Convert-ToSingleLineText -Text $FailureSource)
@@ -824,8 +870,10 @@ function Get-BStageExitReasonEvidence {
         RuntimeLogPath = ''
         TaskDefinitionPath = ''
         SourceScript = ''
+        LaunchToken = ''
         StartFileMatch = $false
         ProcessIdMatch = $false
+        LaunchTokenMatch = $false
         ParseError = ''
     }
 
@@ -897,6 +945,10 @@ function Get-BStageExitReasonEvidence {
         $result.SourceScript = Convert-ToSingleLineText -Text ([string]$payload.source_script)
     }
 
+    if ($payload.PSObject.Properties.Name -contains 'launch_token') {
+        $result.LaunchToken = Convert-ToSingleLineText -Text ([string]$payload.launch_token)
+    }
+
     if ([string]::IsNullOrWhiteSpace($artifactStartFilePath)) {
         $result.StartFileMatch = $true
     }
@@ -911,7 +963,28 @@ function Get-BStageExitReasonEvidence {
         }
     }
 
-    $result.ProcessIdMatch = ($ExpectedProcessId -gt 0 -and [int]$result.ProcessId -eq $ExpectedProcessId)
+    $expectedLaunchToken = ''
+    try {
+        $currentSettings = Read-KeyValueFile -Path $script:StartFilePath
+        if ($currentSettings.Contains('B_LAUNCH_TOKEN')) {
+            $expectedLaunchToken = Convert-ToSingleLineText -Text ([string]$currentSettings.B_LAUNCH_TOKEN)
+        }
+    }
+    catch {
+        $expectedLaunchToken = ''
+    }
+    $result.LaunchTokenMatch = if ([string]::IsNullOrWhiteSpace($expectedLaunchToken)) {
+        $true
+    }
+    else {
+        -not [string]::IsNullOrWhiteSpace([string]$result.LaunchToken) -and
+        [string]$result.LaunchToken -eq $expectedLaunchToken
+    }
+    $result.ProcessIdMatch = (
+        $ExpectedProcessId -gt 0 -and
+        [int]$result.ProcessId -eq $ExpectedProcessId -and
+        [bool]$result.LaunchTokenMatch
+    )
     return [pscustomobject]$result
 }
 
@@ -2055,6 +2128,15 @@ function Get-RoundFailureCategoryFromLogText {
 
             break
         }
+
+        $strictLogs = @(
+            Get-ChildItem -LiteralPath $AutopilotOutDir -Recurse -File -Filter 'round*_strict.log' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 24
+        )
+        foreach ($strictLog in $strictLogs) {
+            [void]$logCandidates.Add([pscustomobject]@{ Path = $strictLog.FullName; Label = 'strict-compile-log' })
+        }
     }
 
     $taskDefinitionFaultRegex = '(?im)(\[DEV-VERIFY-MULTI\]\s+round_task_static_gate_fail=|\[TASK-STATIC-CHECK\]\s+severity=(?:error|warn)\s+detail=)'
@@ -2205,6 +2287,10 @@ function Get-FailureTicketPolicy {
     $result = [ordered]@{
         Mode = 'default'
         FailedRoundTag = ''
+        FailurePhase = ''
+        StructuredFailureKind = ''
+        StructuredFailureCategory = ''
+        StructuredFailureSourceLog = ''
         IsVerifyRound = $false
         IsDevRound = $false
         RunDir = ''
@@ -2280,6 +2366,27 @@ function Get-FailureTicketPolicy {
                 $failedRoundRow = $row
                 break
             }
+        }
+    }
+
+    if ($null -ne $failedRoundRow) {
+        $result.FailurePhase = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $failedRoundRow -PropertyName 'FailurePhase'))).ToLowerInvariant()
+        $result.StructuredFailureKind = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $failedRoundRow -PropertyName 'FailureKind'))).ToLowerInvariant()
+        $result.StructuredFailureCategory = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $failedRoundRow -PropertyName 'FailureCategory'))).ToLowerInvariant()
+        $result.StructuredFailureSourceLog = Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $failedRoundRow -PropertyName 'FailureSourceLog'))
+    }
+    if ($null -ne $finalStatus) {
+        if ([string]::IsNullOrWhiteSpace([string]$result.FailurePhase)) {
+            $result.FailurePhase = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $finalStatus -PropertyName 'FailurePhase'))).ToLowerInvariant()
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$result.StructuredFailureKind)) {
+            $result.StructuredFailureKind = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $finalStatus -PropertyName 'FailureKind'))).ToLowerInvariant()
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$result.StructuredFailureCategory)) {
+            $result.StructuredFailureCategory = (Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $finalStatus -PropertyName 'FailureCategory'))).ToLowerInvariant()
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$result.StructuredFailureSourceLog)) {
+            $result.StructuredFailureSourceLog = Convert-ToSingleLineText -Text ([string](Get-PropertyValueOrEmpty -Object $finalStatus -PropertyName 'FailureSourceLog'))
         }
     }
 
@@ -2370,6 +2477,7 @@ function Get-FailureTicketMeta {
     $result = [ordered]@{
         MainRound = ''
         PreferredStage = ''
+        FailurePhase = 'unknown'
         FailureKind = 'unknown-failure'
         FailureCategory = 'unknown'
         FailureSource = ''
@@ -2401,6 +2509,16 @@ function Get-FailureTicketMeta {
 
     $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureEvidence)
     $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
+    $structuredFailurePhase = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailurePhase)).ToLowerInvariant()
+    $structuredFailureKind = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureKind)).ToLowerInvariant()
+    $structuredFailureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureCategory)).ToLowerInvariant()
+    $structuredFailureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureSourceLog)
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailurePhase)) {
+        $result.FailurePhase = $structuredFailurePhase
+    }
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureSource)) {
+        $failureSource = $structuredFailureSource
+    }
 
     $taskDefinitionMismatchRegex = '(?im)(task[- ]definition|regex[- ]patch|expected\s+exactly\s+one\s+match,\s*actual\s*=\s*0|replacement\s+likely\s+double-escaped|double-escaped|failonwarnings|check_task_definition_static|static\s+precheck|auto-inject\s+failed|forward\s+declarations?\s+needed)'
     $compileErrorRegex = '(?im)(error:|compilation\s+terminated|failed\s+to\s+build|build\s+failed|undefined\s+reference|fatal\s+error)'
@@ -2445,6 +2563,10 @@ function Get-FailureTicketMeta {
             $failureCategory = 'code-or-unknown'
         }
 
+        if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory)) {
+            $failureCategory = $structuredFailureCategory
+        }
+
         if ($failureCategory -match '^task-definition(?:-|$)') {
             $result.FailureKind = 'task-definition-mismatch'
         }
@@ -2487,12 +2609,33 @@ function Get-FailureTicketMeta {
         $result.FailureKind = 'environment-transient'
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory)) {
+        $failureCategory = $structuredFailureCategory
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureKind)) {
+        $result.FailureKind = $structuredFailureKind
+    }
+
+    if ($structuredFailurePhase -eq 'code-step') {
+        $result.FailureKind = 'environment-transient'
+        $failureCategory = 'noncode-transient'
+    }
+    elseif ($result.FailureKind -eq 'code-edit-failure') {
+        $result.FailureKind = 'environment-transient'
+        $failureCategory = 'noncode-transient'
+    }
+    elseif ($structuredFailurePhase -eq 'task-static') {
+        $result.FailureKind = 'task-definition-mismatch'
+        $failureCategory = 'task-definition-mismatch'
+    }
+
     $result.FailureCategory = $failureCategory
     $result.FailureSource = $failureSource
     $result.FailureEvidence = $failureEvidence
 
     $selfHealable = $false
-    if ($result.FailureKind -in @('script-failure', 'script-edit-failure', 'environment-transient', 'compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'code-edit-failure', 'main-process-exit')) {
+    if ($result.FailureKind -in @('script-failure', 'script-edit-failure', 'environment-transient', 'compile-failure', 'compile-warning', 'verify-failure', 'task-definition-mismatch', 'main-process-exit')) {
         $selfHealable = $true
     }
     # Keep B-stage recovery eligibility mode-agnostic: work mode should not
@@ -4106,7 +4249,7 @@ function Add-BudgetExhaustedStopTicket {
         [bool]$NonRecoverableEnv
     )
 
-    return Add-AgentTicket -Enabled $Enabled -QueuePath $QueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $SessionStatus -AStatus $AStatus -BStatus $BStatus -RunDirAnchor $RunDirAnchor -IncidentDir '' -Detail $Detail -DedupSuffix $DedupSuffix -RecommendedAction 'Use resume workflow and incident evidence to decide rerun scope or scripted fix before next restart.' -PreferredStage 'B' -MainRound $MainRound -FailureKind 'budget-exhausted' -FailureCategory $FailureCategory -FailureSource $FailureSource -FailureEvidence $FailureEvidence -SelfHealable $false -NonRecoverableEnv $NonRecoverableEnv
+    return Add-AgentTicket -Enabled $Enabled -QueuePath $QueuePath -EventName 'budget-exhausted-stop' -Severity 'high' -RequiresConfirmation $false -SessionStatus $SessionStatus -AStatus $AStatus -BStatus $BStatus -RunDirAnchor $RunDirAnchor -IncidentDir '' -Detail $Detail -DedupSuffix $DedupSuffix -RecommendedAction 'Report the budget/cooldown constraint and decide rerun scope only; this notice grants no new repair, resume, or restart authority.' -PreferredStage 'B' -MainRound $MainRound -FailureKind 'budget-exhausted' -FailureCategory $FailureCategory -FailureSource $FailureSource -FailureEvidence $FailureEvidence -SelfHealable $false -NonRecoverableEnv $NonRecoverableEnv
 }
 
 function Get-AutoFixAwaitRecommendedAction {
@@ -5191,7 +5334,7 @@ try {
                 }
             }
 
-            $mainProcessExitMonitorGraceMinutes = 40
+            $mainProcessExitMonitorGraceMinutes = 60
             if ($settings.Contains('LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES')) {
                 $parsedMainExitGrace = 0
                 if ([int]::TryParse(([string]$settings.LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES), [ref]$parsedMainExitGrace)) {
@@ -5953,7 +6096,11 @@ try {
 
                         if (-not $reasonMatched) {
                             $artifactRuntimeLogPath = ''
-                            if ($null -ne $lastBMissingExitReasonEvidence) {
+                            if ($null -ne $lastBMissingExitReasonEvidence -and
+                                    [bool]$lastBMissingExitReasonEvidence.Available -and
+                                    ([string]$lastBMissingExitReasonEvidence.Stage -eq 'B') -and
+                                    [bool]$lastBMissingExitReasonEvidence.StartFileMatch -and
+                                    [bool]$lastBMissingExitReasonEvidence.ProcessIdMatch) {
                                 $artifactRuntimeLogPath = [string]$lastBMissingExitReasonEvidence.RuntimeLogPath
                             }
 
@@ -6084,6 +6231,10 @@ try {
                         # types (runner-fail = runner script detected non-zero exit, etc.).
                         # Fallback: scan D1-D4 round logs for code-step fatal errors.
                         $skipMainExitReviewForCodeFault = $false
+                        $bFailurePolicyForExitReview = Get-FailureTicketPolicy -RunDirAnchor $runDirAnchor
+                        if (-not [string]::IsNullOrWhiteSpace([string]$bFailurePolicyForExitReview.FailedRoundTag)) {
+                            $skipMainExitReviewForCodeFault = $true
+                        }
                         if (-not $skipMainExitReviewForCodeFault -and $reasonMatchedForNotes) {
                             $exitFailCategory = [string]$lastBMissingExitReasonEvidence.FailCategory
                             if (Test-IsRoundFailureCategory -Category $exitFailCategory) { $skipMainExitReviewForCodeFault = $true }
@@ -6094,7 +6245,7 @@ try {
                                 foreach ($roundTag in @('D1', 'D2', 'D3', 'D4')) {
                                     $roundLog = Join-Path $resolvedRunDir "${roundTag}.log"
                                     if ((Test-Path -LiteralPath $roundLog)) {
-                                        $hasFatal = Select-String -LiteralPath $roundLog -Pattern '\[CODE-STEP\] fatal_error=' -SimpleMatch -Quiet
+                                        $hasFatal = Select-String -LiteralPath $roundLog -Pattern '\[CODE-STEP\]\s+fatal_error=' -Quiet
                                         if ($hasFatal) {
                                             $skipMainExitReviewForCodeFault = $true
                                             break
@@ -6262,12 +6413,14 @@ try {
                 if ($guardStartupElapsed -lt $startupFailStaleSec -and $guardStartupSessionStatus -eq $sessionStatus -and $guardStartupAStatus -eq $aStatus) {
                     $staleRemainingSec = [math]::Max(0, [math]::Round($startupFailStaleSec - $guardStartupElapsed, 0))
                     Write-StartupSuppressLog -EventName 'startup_stale_fail_suppress' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Reason 'pre-existing-fail-at-startup' -RemainingLabel 'remaining_sec' -RemainingValue $staleRemainingSec
+                    Start-Sleep -Seconds $PollSec
                     continue
                 }
                 $inWarmupWindow = ($null -ne $graceClearedAt -and ((Get-Date) - $graceClearedAt).TotalMinutes -lt $startupWarmupMin)
                 if ($inWarmupWindow) {
                     $warmupRemainingMin = [math]::Max(0, [math]::Round($startupWarmupMin - ((Get-Date) - $graceClearedAt).TotalMinutes, 1))
                     Write-StartupSuppressLog -EventName 'startup_warmup_suppress' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Reason 'grace-cleared-too-recent' -RemainingLabel 'remaining_min' -RemainingValue $warmupRemainingMin
+                    Start-Sleep -Seconds $PollSec
                     continue
                 }
                 $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
@@ -6319,8 +6472,8 @@ try {
                             $manualWaitRecommendedAction = ('Verify-round non-code transient ({0}) evidence={1}. Allow guarded restart retries within quota/cooldown; no code-fix instructions in V rounds.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureEvidence)
                         }
                         default {
-                            $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=code-or-unknown. Investigate and report root cause only; do not issue code-fix instructions. Stop and wait for manual code handling.' -f [string]$failurePolicy.FailedRoundTag)
-                            $manualWaitRecommendedAction = ('Verify-round code-or-unknown failure ({0}). Keep evidence, stop automated recovery, and wait for manual code handling.' -f [string]$failurePolicy.FailedRoundTag)
+                            $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=code-or-unknown. Run code-fix workflow by appending the minimal patch only after existing D4 operations, then validate D4 progressively before same-stage restart.' -f [string]$failurePolicy.FailedRoundTag)
+                            $manualWaitRecommendedAction = ('Verify-round code failure ({0}). Preserve D1-D3 and existing D4 content; append the minimal repair operation at the end of D4 and pass the D4 checker before restart.' -f [string]$failurePolicy.FailedRoundTag)
                         }
                     }
                 }
@@ -6418,7 +6571,9 @@ try {
                                 $failureTicketMeta.SelfHealable = $true
                             }
                             elseif ($startFileFailCategory -match 'code-step') {
-                                $failureTicketMeta.FailureKind = 'code-edit-failure'
+                                $failureTicketMeta.FailurePhase = 'code-step'
+                                $failureTicketMeta.FailureKind = 'environment-transient'
+                                $failureTicketMeta.FailureCategory = 'noncode-transient'
                                 $failureTicketMeta.SelfHealable = $true
                             }
                             elseif ($startFileFailCategory -match 'runner-fail') {
@@ -6443,7 +6598,7 @@ try {
                             # Fallback reminder for compile-related failures without specific pattern
                             $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
                         }
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailurePhase ([string]$failureTicketMeta.FailurePhase) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
 
                         # Roll failure fingerprint for anti-infinite-loop detection.
                         # Include task-definition hash and round source-output hash so
@@ -6452,8 +6607,8 @@ try {
                         $fpStage = [string]$failureTicketMeta.PreferredStage
                         $fpPhase = 'unknown'
                         $fpFailureKind = (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailureKind)).ToLowerInvariant()
-                        if ($fpFailureKind -in @('task-definition-mismatch', 'code-edit-failure')) {
-                            $fpPhase = 'code-step'
+                        if ($fpFailureKind -eq 'task-definition-mismatch') {
+                            $fpPhase = 'task-static'
                         }
                         elseif ($fpFailureKind -in @('compile-failure', 'compile-warning')) {
                             $fpPhase = 'compile'
@@ -7072,7 +7227,8 @@ try {
                             Write-PausedSessionState -EventName 'manual-wait-paused' -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -ExtraValues (Get-RecoveryFlagsWithManualNoticeExtraValues -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB -ManualNoticeRepeat $manualPauseNoticeRepeat)
                             $manualWaitDetail = Get-LoopRecoveryStatusDetail @loopRecoveryArgs
                             Write-RecoveryStatusLog -Prefix 'manual_wait_paused' @loopRecoveryArgs -StatusDetail $manualWaitDetail
-                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
+                            $manualWaitNoticeAction = 'Report blockers and provide a recovery decision only; this notice grants no file edit, environment change, resume, continue-watch, or restart authority.'
+                            $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'manual-wait-paused' -Severity 'medium' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $manualWaitDetail -DedupSuffix $manualWaitSignature -RecommendedAction $manualWaitNoticeAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable $false -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv)
                         }
 
                         Start-Sleep -Seconds $PollSec

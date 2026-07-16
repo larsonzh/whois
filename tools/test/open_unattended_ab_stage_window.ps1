@@ -2492,6 +2492,8 @@ else {
 }
 
 Set-Item -Path 'Env:AUTO_START_FILE_PATH' -Value $startFilePath
+$stageLaunchToken = [guid]::NewGuid().ToString('N')
+Set-Item -Path 'Env:AUTO_STAGE_LAUNCH_TOKEN' -Value $stageLaunchToken
 
 $autoStartMonitorsPlanned = $false
 if ($Stage -eq 'A') {
@@ -2660,6 +2662,7 @@ if (-not $stageAliveAfterProbe) {
     else {
         $failUpdates['B_FINAL_STATUS'] = 'FAIL'
         $failUpdates['B_LAUNCH_PID'] = '0'
+        $failUpdates['B_LAUNCH_TOKEN'] = ''
     }
 
     if ($settings.Contains('SESSION_FINAL_NOTES') -and -not [string]::IsNullOrWhiteSpace([string]$settings.SESSION_FINAL_NOTES)) {
@@ -2692,6 +2695,7 @@ if ($Stage -eq 'A') {
 else {
     $statusUpdates['B_FINAL_STATUS'] = 'RUNNING'
     $statusUpdates['B_LAUNCH_PID'] = [string]$processInfo.Id
+    $statusUpdates['B_LAUNCH_TOKEN'] = $stageLaunchToken
     $statusUpdates['AB_HANDOVER_STATE'] = 'A_TO_B_COMPLETE'
     $statusUpdates['AB_HANDOVER_COMPLETED_AT'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     $statusUpdates['AB_HANDOVER_COMPLETED_BY'] = 'open_unattended_ab_stage_window.ps1'

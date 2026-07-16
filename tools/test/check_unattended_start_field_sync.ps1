@@ -9,6 +9,10 @@
         'LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL',
         'LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK',
         'LOCAL_GUARD_POLL_EVENT_POLICY_STRICT'
+        'TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED'
+    ),
+    [string[]]$BackwardCompatibleOptionalFields = @(
+        'TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED'
     ),
     [string]$TemplatePath = 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md',
     [string]$StartFile = '',
@@ -168,6 +172,11 @@ function Get-EffectiveTemplateMatchFieldNameList {
 }
 
 $effectiveFieldNames = Get-EffectiveFieldNameList -SingleFieldName $FieldName -MultipleFieldNames $FieldNames
+$effectiveBackwardCompatibleOptionalFields = Get-EffectiveNonEmptyFieldNameList -Names $BackwardCompatibleOptionalFields
+$backwardCompatibleOptionalFieldSet = @{}
+foreach ($name in @($effectiveBackwardCompatibleOptionalFields)) {
+    $backwardCompatibleOptionalFieldSet[$name] = $true
+}
 $effectiveNonEmptyFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredNonEmptyFields
 $effectiveRequiredPresenceFieldNames = Get-EffectiveNonEmptyFieldNameList -Names $RequiredPresenceFields
 $effectiveTemplateMatchFieldNames = Get-EffectiveTemplateMatchFieldNameList -Names $TemplateMatchFields
@@ -241,15 +250,16 @@ foreach ($effectiveFieldName in @($effectiveFieldNames)) {
     $missingFieldFiles = New-Object 'System.Collections.Generic.List[string]'
     $missingResetFiles = New-Object 'System.Collections.Generic.List[string]'
 
+    $allowMissingInDirectoryScan = ($checkScope -eq 'directories' -and $backwardCompatibleOptionalFieldSet.ContainsKey($effectiveFieldName))
     foreach ($file in @($startFiles.ToArray())) {
         $text = [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8)
 
-        if (-not (Test-FieldLinePresent -Text $text -Name $effectiveFieldName)) {
+        if (-not $allowMissingInDirectoryScan -and -not (Test-FieldLinePresent -Text $text -Name $effectiveFieldName)) {
             [void]$missingFieldFiles.Add($file)
             [void]$missingFieldFilesAll.Add(('{0}:{1}' -f $effectiveFieldName, $file))
         }
 
-        if ($text -match '(?m)^RERUN_FROM_A_STARTFILE_RESET_FIELDS=' -and -not (Test-ResetFieldHasValue -Text $text -Name $effectiveFieldName)) {
+        if (-not $allowMissingInDirectoryScan -and $text -match '(?m)^RERUN_FROM_A_STARTFILE_RESET_FIELDS=' -and -not (Test-ResetFieldHasValue -Text $text -Name $effectiveFieldName)) {
             [void]$missingResetFiles.Add($file)
             [void]$missingResetFilesAll.Add(('{0}:{1}' -f $effectiveFieldName, $file))
         }

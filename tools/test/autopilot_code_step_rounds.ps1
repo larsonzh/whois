@@ -4,7 +4,8 @@
     [string]$StateDir = "",
     [string]$TargetFile = "",
     [string]$TaskDefinitionFile = "",
-    [ValidateRange(100, 30000)][int]$RegexTimeoutMs = 2000
+    [string]$ValidatedEffectiveSourceFile = "",
+    [string]$ValidatedManifestFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -153,62 +154,86 @@ function Invoke-FileUtf8NoBomWrite {
     )
 
     $enc = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, $Text, $enc)
-}
-
-function Invoke-ValidatedTaskDefinitionRound {
-    param(
-        [string]$TaskDefinitionPath,
-        [string]$TargetPath,
-        [string]$RoundTag,
-        [string]$RepositoryRoot,
-        [int]$RegexTimeoutMs
-    )
-
-    $checkerPath = Join-Path $PSScriptRoot 'check_task_definition_static.ps1'
-    if (-not (Test-Path -LiteralPath $checkerPath)) {
-        throw "[CODE-STEP] task static checker not found: $checkerPath"
-    }
-
-    $effectiveTargetPath = Join-Path ([System.IO.Path]::GetTempPath()) ('whois-code-step-effective-{0}.tmp' -f ([guid]::NewGuid().ToString('N')))
+    $directory = Split-Path -Parent $Path
+    $temporaryPath = Join-Path $directory ('.code-step-{0}.tmp' -f ([guid]::NewGuid().ToString('N')))
+    $backupPath = Join-Path $directory ('.code-step-{0}.bak' -f ([guid]::NewGuid().ToString('N')))
     try {
-        $previousErrorActionPreference = $ErrorActionPreference
-        try {
-            $ErrorActionPreference = 'Continue'
-            $checkerOutput = @(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $checkerPath `
-                -TaskDefinitionFile $TaskDefinitionPath `
-                -RepoRoot $RepositoryRoot `
-                -Policy enforce `
-                -RoundTag $RoundTag `
-                -BaselineTargetFile $TargetPath `
-                -OutputEffectiveTargetFile $effectiveTargetPath `
-                -RegexTimeoutMs $RegexTimeoutMs 2>&1 | ForEach-Object { [string]$_ })
+        [System.IO.File]::WriteAllText($temporaryPath, $Text, $enc)
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            [System.IO.File]::Replace($temporaryPath, $Path, $backupPath, $true)
         }
-        finally {
-            $ErrorActionPreference = $previousErrorActionPreference
+        else {
+            [System.IO.File]::Move($temporaryPath, $Path)
         }
-        $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-
-        foreach ($line in $checkerOutput) {
-            Write-Information ("[CODE-STEP-STATIC] {0}" -f $line) -InformationAction Continue
-        }
-
-        if ($checkerExitCode -ne 0 -or -not (Test-Path -LiteralPath $effectiveTargetPath -PathType Leaf)) {
-            $failureDetail = @($checkerOutput | Where-Object { $_ -match '^\[TASK-STATIC-CHECK\] severity=(?:error|warn) detail=' } | Select-Object -First 1)
-            if ($failureDetail.Count -eq 0) {
-                $failureDetail = @($checkerOutput | Select-Object -Last 1)
-            }
-            $detail = if ($failureDetail.Count -gt 0) { [string]$failureDetail[0] } else { 'effective target was not produced' }
-            throw "[CODE-STEP] round=$RoundTag static validation failed exit=$checkerExitCode detail=$detail"
-        }
-
-        return Get-Content -LiteralPath $effectiveTargetPath -Raw
     }
     finally {
-        if (Test-Path -LiteralPath $effectiveTargetPath) {
-            Remove-Item -LiteralPath $effectiveTargetPath -Force -ErrorAction SilentlyContinue
-        }
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Get-FileSha256 {
+    param([string]$Path)
+
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-CodeStepFaultClassification {
+    param([System.Exception]$Exception)
+
+    $message = [string]$Exception.Message
+    if ($message -match 'validated artifact hash binding mismatch') {
+        return [pscustomobject]@{ Code = 'validated-artifact-stale'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($message -match 'validated artifact or manifest not found') {
+        return [pscustomobject]@{ Code = 'validated-artifact-missing'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($message -match 'validated artifact requires both source and manifest') {
+        return [pscustomobject]@{ Code = 'validated-artifact-incomplete'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($message -match 'validated artifact manifest mismatch') {
+        return [pscustomobject]@{ Code = 'validated-artifact-contract-mismatch'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($message -match 'validated artifact path binding mismatch') {
+        return [pscustomobject]@{ Code = 'validated-artifact-path-mismatch'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($message -match 'validated artifact required') {
+        return [pscustomobject]@{ Code = 'validated-artifact-required'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    if ($Exception -is [System.IO.IOException] -or $Exception -is [System.UnauthorizedAccessException]) {
+        return [pscustomobject]@{ Code = 'code-step-io-failure'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+    }
+    return [pscustomobject]@{ Code = 'code-step-contract-failure'; Kind = 'environment-transient'; Category = 'noncode-transient' }
+}
+
+function Get-ValidatedEffectiveSource {
+    param(
+        [string]$ManifestPath,
+        [string]$EffectiveSourcePath,
+        [string]$ExpectedRound,
+        [string]$ExpectedTaskDefinitionPath,
+        [string]$ExpectedTargetPath
+    )
+
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $EffectiveSourcePath -PathType Leaf)) {
+        throw '[CODE-STEP] validated artifact or manifest not found'
+    }
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    if ([string]$manifest.schema -ne 'TASK_STATIC_VALIDATED_ARTIFACT_V1' -or
+        [string]$manifest.round -ne $ExpectedRound) {
+        throw "[CODE-STEP] validated artifact manifest mismatch round=$ExpectedRound"
+    }
+    if ([System.IO.Path]::GetFullPath([string]$manifest.task_definition_path) -ne [System.IO.Path]::GetFullPath($ExpectedTaskDefinitionPath) -or
+        [System.IO.Path]::GetFullPath([string]$manifest.target_path) -ne [System.IO.Path]::GetFullPath($ExpectedTargetPath)) {
+        throw "[CODE-STEP] validated artifact path binding mismatch round=$ExpectedRound"
+    }
+    if ((Get-FileSha256 -Path $ExpectedTaskDefinitionPath) -ne [string]$manifest.task_definition_sha256 -or
+        (Get-FileSha256 -Path $ExpectedTargetPath) -ne [string]$manifest.baseline_source_sha256 -or
+        (Get-FileSha256 -Path $EffectiveSourcePath) -ne [string]$manifest.effective_source_sha256) {
+        throw "[CODE-STEP] validated artifact hash binding mismatch round=$ExpectedRound"
+    }
+    return Get-Content -LiteralPath $EffectiveSourcePath -Raw -Encoding utf8
 }
 
 function Read-GitHeadBlobBytes {
@@ -333,579 +358,6 @@ function Restore-TargetFromHead {
     }
 }
 
-function Invoke-RegexReplaceSingle {
-    param(
-        [string]$Text,
-        [string]$Pattern,
-        [string]$Replacement,
-        [string]$StepName,
-        [string[]]$IdempotentMarkers = @()
-    )
-
-    if ([regex]::IsMatch($Pattern, '\((?:\\.|[^()]){0,512}[+*](?:\\.|[^()]){0,512}\)\s*(?:[+*]|\{\d+(?:,\d*)?\})')) {
-        throw "[CODE-STEP] step=$StepName unsafe_nested_quantifier=true"
-    }
-
-    $rx = [regex]::new(
-        $Pattern,
-        [System.Text.RegularExpressions.RegexOptions]::Singleline,
-        [TimeSpan]::FromMilliseconds($RegexTimeoutMs)
-    )
-    try {
-        $matchCount = $rx.Matches($Text).Count
-    }
-    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
-        throw "[CODE-STEP] step=$StepName regex timeout phase=match timeout_ms=$RegexTimeoutMs"
-    }
-    Write-Information "[CODE-STEP-STATIC] step=$StepName match_count=$matchCount" -InformationAction Continue
-    if ($matchCount -ne 1) {
-        if ($matchCount -eq 0) {
-            $operationAlreadyApplied = ($IdempotentMarkers.Count -gt 0)
-            foreach ($marker in $IdempotentMarkers) {
-                if ([string]::IsNullOrWhiteSpace($marker) -or -not $Text.Contains($marker.Trim())) {
-                    $operationAlreadyApplied = $false
-                    break
-                }
-            }
-            if ($operationAlreadyApplied) {
-                Write-Information "[CODE-STEP] step=$StepName action=skip-idempotent-operation" -InformationAction Continue
-                return $Text
-            }
-            $replacementLiteralHits = Get-LiteralOccurrenceCount -Text $Text -Literal $Replacement
-            if ($replacementLiteralHits -gt 0) {
-                throw "[CODE-STEP] step=$StepName expected exactly one match, actual=0 replacement_literal_hits=$replacementLiteralHits classification=ambiguous-already-present review-required"
-            }
-        }
-        throw "[CODE-STEP] step=$StepName expected exactly one match, actual=$matchCount"
-    }
-
-    try {
-        return $rx.Replace($Text, $Replacement, 1)
-    }
-    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
-        throw "[CODE-STEP] step=$StepName regex timeout phase=replace timeout_ms=$RegexTimeoutMs"
-    }
-}
-
-function Test-LiteralReplacementPresent {
-    param(
-        [string]$Text,
-        [string]$Replacement
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Replacement)) {
-        return $false
-    }
-
-    $normalizedText = (($Text -replace "`r`n", "`n") -replace "`r", "`n")
-    $normalizedReplacement = (($Replacement -replace "`r`n", "`n") -replace "`r", "`n")
-    return $normalizedText.Contains($normalizedReplacement)
-}
-
-function Get-LiteralOccurrenceCount {
-    param(
-        [string]$Text,
-        [string]$Literal
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Literal)) {
-        return 0
-    }
-
-    $normalizedText = (($Text -replace "`r`n", "`n") -replace "`r", "`n")
-    $normalizedLiteral = (($Literal -replace "`r`n", "`n") -replace "`r", "`n")
-    if ([string]::IsNullOrEmpty($normalizedLiteral)) {
-        return 0
-    }
-
-    $count = 0
-    $offset = 0
-    while ($true) {
-        $idx = $normalizedText.IndexOf($normalizedLiteral, $offset, [System.StringComparison]::Ordinal)
-        if ($idx -lt 0) {
-            break
-        }
-
-        $count++
-        $offset = $idx + $normalizedLiteral.Length
-        if ($offset -ge $normalizedText.Length) {
-            break
-        }
-    }
-
-    return $count
-}
-
-function Invoke-D1 {
-    param([string]$Text)
-
-    if ($Text.Contains('const char* input_label = "non-ip";')) {
-        return $Text
-    }
-    if ($Text.Contains('wc_preclass_resolve_decision_fields(') -and
-        $Text.Contains('decision_fields.input_label')) {
-        return $Text
-    }
-
-    $step = "D1-input-label-stability"
-    $text1 = Invoke-RegexReplaceSingle -Text $Text -Pattern 'if \(normalized && wc_client_is_valid_ip_address\(normalized\)\)\r?\n\t\tmatch_layer = query_is_cidr \? "cidr" : "ip";\r?\n' -Replacement @"
-if (normalized && wc_client_is_valid_ip_address(normalized))
-		match_layer = query_is_cidr ? "cidr" : "ip";
-
-	const char* input_label = "non-ip";
-	if (strcmp(match_layer, "cidr") == 0)
-		input_label = "cidr";
-	else if (strcmp(match_layer, "ip") == 0)
-		input_label = "ip";
-"@ -StepName $step
-
-    return Invoke-RegexReplaceSingle -Text $text1 -Pattern '\t\tquery_is_cidr \? "cidr" : "ip",' -Replacement "`t`tinput_label," -StepName $step
-}
-
-function Invoke-D2 {
-    param([string]$Text)
-
-    if ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s') -and
-        ($Text.Contains('[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled') -or
-         $Text.Contains('decision_fields.action_source'))) {
-        return $Text
-    }
-
-    $step = "D2-decision-input-and-assert-friendly-fields"
-    $text1 = Invoke-RegexReplaceSingle -Text $Text -Pattern '"\[PRECLASS-DECISION\] query=%s start=%s action=hint-disabled' -Replacement '"[PRECLASS-DECISION] query=%s input=%s start=%s action=hint-disabled' -StepName $step
-    $text2 = Invoke-RegexReplaceSingle -Text $text1 -Pattern 'query,\r?\n[ \t]*effective_start,\r?\n[ \t]*action_source,' -Replacement @"
-query,
-			input_label,
-			effective_start,
-			action_source,
-"@ -StepName $step
-    $text3 = Invoke-RegexReplaceSingle -Text $text2 -Pattern '"\[PRECLASS-DECISION\] query=%s start=%s action=%s action_src=%s' -Replacement '"[PRECLASS-DECISION] query=%s input=%s start=%s action=%s action_src=%s' -StepName $step
-
-    return Invoke-RegexReplaceSingle -Text $text3 -Pattern 'query,\r?\n[ \t]*effective_start,\r?\n[ \t]*action,' -Replacement @"
-query,
-		input_label,
-		effective_start,
-		action,
-"@ -StepName $step
-}
-
-function Invoke-D3 {
-    param([string]$Text)
-
-    if ($Text.Contains('fallback=%s\\n",')) {
-        $Text = $Text.Replace('fallback=%s\\n",', 'fallback=%s\n",')
-    }
-
-    if ($Text.Contains('host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s')) {
-        return $Text
-    }
-
-    $step = "D3-unify-preclass-observation-fields"
-    $text1 = Invoke-RegexReplaceSingle -Text $Text -Pattern '"\[PRECLASS\] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s\\n",' -Replacement '"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",' -StepName $step
-
-    return Invoke-RegexReplaceSingle -Text $text1 -Pattern '\t\tdict_version,\r?\n\t\thost_mode\);' -Replacement @"
-		dict_version,
-		host_mode,
-		action,
-		action_source,
-		route_change,
-		match_layer,
-		fallback_reason);
-"@ -StepName $step
-}
-
-function Invoke-D4 {
-    param([string]$Text)
-
-    if ($Text.Contains('route-change-normalized')) {
-        return $Text
-    }
-    if ($Text.Contains('wc_preclass_resolve_decision_fields(')) {
-        return $Text
-    }
-
-    $step = "D4-route-change-normalization-guard"
-    return Invoke-RegexReplaceSingle -Text $Text -Pattern 'if \(route_change != 0\)\r?\n\t\troute_change = 1;' -Replacement @"
-if (route_change != 0)
-		route_change = 1;
-	if (route_change != 0 &&
-		strcmp(action, "hint-applied") != 0 &&
-		strcmp(action, "preclass-short-circuit-unknown") != 0 &&
-		strcmp(action, "step47-short-circuit-unknown") != 0) {
-		route_change = 0;
-		if (strcmp(fallback_reason, "none") == 0)
-			fallback_reason = "route-change-normalized";
-	}
-"@ -StepName $step
-}
-
-function Get-LegacyBuiltinName {
-    param([string]$RoundTag)
-
-    switch ($RoundTag) {
-        "D1" { return "D1-input-label-stability" }
-        "D2" { return "D2-decision-input-and-assert-friendly-fields" }
-        "D3" { return "D3-unify-preclass-observation-fields" }
-        "D4" { return "D4-route-change-normalization-guard" }
-        default { return "" }
-    }
-}
-
-function Invoke-BuiltinRoundTask {
-    param(
-        [string]$BuiltinName,
-        [string]$Text
-    )
-
-    switch ($BuiltinName) {
-        "D1-input-label-stability" { return (Invoke-D1 -Text $Text) }
-        "D2-decision-input-and-assert-friendly-fields" { return (Invoke-D2 -Text $Text) }
-        "D3-unify-preclass-observation-fields" { return (Invoke-D3 -Text $Text) }
-        "D4-route-change-normalization-guard" { return (Invoke-D4 -Text $Text) }
-        default {
-            throw "[CODE-STEP] unknown builtin task: $BuiltinName"
-        }
-    }
-}
-
-function Get-RoundTaskDefinition {
-    param(
-        [object]$TaskDefinition,
-        [string]$RoundTag
-    )
-
-    if (-not $TaskDefinition -or -not $TaskDefinition.rounds) {
-        return $null
-    }
-
-    foreach ($prop in $TaskDefinition.rounds.PSObject.Properties) {
-        if ($prop.Name -eq $RoundTag) {
-            return $prop.Value
-        }
-    }
-
-    return $null
-}
-
-function Invoke-TaskDefinitionRound {
-    param(
-        [object]$RoundTask,
-        [string]$RoundTag,
-        [string]$Text
-    )
-
-    if (-not $RoundTask) {
-        $fallbackBuiltin = Get-LegacyBuiltinName -RoundTag $RoundTag
-        if ([string]::IsNullOrWhiteSpace($fallbackBuiltin)) {
-            return $Text
-        }
-        return Invoke-BuiltinRoundTask -BuiltinName $fallbackBuiltin -Text $Text
-    }
-
-    $taskType = "builtin"
-    if ($RoundTask.PSObject.Properties.Name -contains "type") {
-        $candidateType = [string]$RoundTask.type
-        if (-not [string]::IsNullOrWhiteSpace($candidateType)) {
-            $taskType = $candidateType.Trim().ToLowerInvariant()
-        }
-    }
-
-    switch ($taskType) {
-        "noop" {
-            return $Text
-        }
-        "builtin" {
-            $builtinName = ""
-            if ($RoundTask.PSObject.Properties.Name -contains "builtin") {
-                $builtinName = [string]$RoundTask.builtin
-            }
-            if ([string]::IsNullOrWhiteSpace($builtinName)) {
-                $builtinName = Get-LegacyBuiltinName -RoundTag $RoundTag
-            }
-            if ([string]::IsNullOrWhiteSpace($builtinName)) {
-                throw "[CODE-STEP] builtin task missing name for round=$RoundTag"
-            }
-            return Invoke-BuiltinRoundTask -BuiltinName $builtinName -Text $Text
-        }
-        "regex-patch" {
-            $operations = @()
-            if ($RoundTask.PSObject.Properties.Name -contains "operations") {
-                $operations = @($RoundTask.operations)
-            }
-            if ($operations.Count -eq 0) {
-                throw "[CODE-STEP] regex-patch task requires operations for round=$RoundTag"
-            }
-
-            $updatedText = $Text
-            $opIndex = 0
-            foreach ($op in $operations) {
-                $opIndex++
-                $pattern = [string]$op.pattern
-                if ([string]::IsNullOrWhiteSpace($pattern)) {
-                    throw "[CODE-STEP] regex-patch operation missing pattern round=$RoundTag index=$opIndex"
-                }
-                $replacement = [string]$op.replacement
-                $hasLiteralEscapedNewline = $replacement.Contains('\n')
-                $hasActualNewline = $replacement.Contains("`n")
-                if ($hasLiteralEscapedNewline -and -not $hasActualNewline) {
-                    $likelyMultilineReplacement = (
-                        $replacement.Contains('\n{') -or
-                        $replacement.Contains('\n\t') -or
-                        $replacement.Contains('}\n') -or
-                        $replacement.Contains(';\n') -or
-                        $replacement.Contains(')\n')
-                    )
-                    if ($likelyMultilineReplacement) {
-                        $replacement = $replacement.Replace('\r\n', "`r`n")
-                        $replacement = $replacement.Replace('\n', "`n")
-                        $replacement = $replacement.Replace('\t', "`t")
-                        Write-Information "[CODE-STEP-AUTOHEAL] rule=taskdef-replacement-double-escape round=$RoundTag index=$opIndex status=applied" -InformationAction Continue
-
-                        $stillHasLiteralEscapedNewline = $replacement.Contains('\n')
-                        $stillHasActualNewline = $replacement.Contains("`n")
-                        if ($stillHasLiteralEscapedNewline -and -not $stillHasActualNewline) {
-                            throw "[CODE-STEP] regex-patch replacement appears double-escaped after autoheal (literal \\n/\\t without actual newlines) round=$RoundTag index=$opIndex"
-                        }
-                    }
-                }
-                $stepName = "$RoundTag-regex-patch-$opIndex"
-                $operationIdempotentMarkers = @()
-                if ($op.PSObject.Properties.Name -contains 'idempotentContains') {
-                    $rawOperationMarkers = $op.idempotentContains
-                    if ($rawOperationMarkers -is [string]) {
-                        $operationIdempotentMarkers = @($rawOperationMarkers)
-                    }
-                    else {
-                        $operationIdempotentMarkers = @($rawOperationMarkers)
-                    }
-                }
-                $updatedText = Invoke-RegexReplaceSingle -Text $updatedText -Pattern $pattern -Replacement $replacement -StepName $stepName -IdempotentMarkers $operationIdempotentMarkers
-            }
-
-            return $updatedText
-        }
-        default {
-            throw "[CODE-STEP] unsupported task type '$taskType' for round=$RoundTag"
-        }
-    }
-}
-
-function Invoke-AutoInjectForwardDecl {
-    param(
-        [string]$TargetFile,
-        [object]$TaskDefinition,
-        [string]$RoundTag,
-        [string]$UpdatedText
-    )
-
-    $result = [pscustomobject]@{ Injected = $false; Needed = $false; Text = $UpdatedText; Ops = @(); Count = 0; Diagnostics = '' }
-
-    if ([string]::IsNullOrWhiteSpace($TargetFile)) { return $result }
-    if (-not (Test-Path -LiteralPath $TargetFile)) { return $result }
-    if ([string]::IsNullOrWhiteSpace($UpdatedText)) { return $result }
-
-    # 1. Build maps of static function definitions and existing prototypes.
-    $sourceLines = $UpdatedText -split '\r?\n'
-    $defMap = @{}
-    $prototypeMap = @{}
-    for ($i = 0; $i -lt $sourceLines.Count; $i++) {
-        $line = $sourceLines[$i]
-        if ($line -match '^\s*static\s+(const\s+)?\w[\w\s\*]*\s+(\w+)\s*\([^;{}]*\)\s*;\s*$') {
-            $prototypeName = $matches[2]
-            if (-not [string]::IsNullOrWhiteSpace($prototypeName)) {
-                if (-not $prototypeMap.ContainsKey($prototypeName)) {
-                    $prototypeMap[$prototypeName] = @()
-                }
-                $prototypeMap[$prototypeName] += $i
-            }
-            continue
-        }
-
-        if ($line -match '^\s*static\s+(const\s+)?\w[\w\s\*]*\s+(\w+)\s*\(') {
-            $funcName = $matches[2]
-            $bodyStarts = $line.Contains('{')
-            if (-not $bodyStarts) {
-                for ($lookAhead = $i + 1; $lookAhead -lt $sourceLines.Count; $lookAhead++) {
-                    $nextLine = $sourceLines[$lookAhead].Trim()
-                    if ([string]::IsNullOrWhiteSpace($nextLine)) { continue }
-                    $bodyStarts = ($nextLine -eq '{')
-                    break
-                }
-            }
-            if ($bodyStarts -and -not [string]::IsNullOrWhiteSpace($funcName) -and -not $defMap.ContainsKey($funcName)) {
-                $defMap[$funcName] = $i
-            }
-        }
-    }
-
-    # 2. For each function, check if genuinely called before definition.
-    $needsFwd = @()
-    foreach ($defName in $defMap.Keys) {
-        $defLine = $defMap[$defName]
-        if ($defLine -le 50) { continue }
-
-        $firstCallLine = -1
-        $prototypeLines = if ($prototypeMap.ContainsKey($defName)) { @($prototypeMap[$defName]) } else { @() }
-        $callPattern = [regex]::new([regex]::Escape($defName) + '\s*\(', 'Compiled')
-        for ($lineIndex = 0; $lineIndex -lt $defLine; $lineIndex++) {
-            if ($prototypeLines -contains $lineIndex) { continue }
-            if ($callPattern.IsMatch($sourceLines[$lineIndex])) {
-                $firstCallLine = $lineIndex
-                break
-            }
-        }
-
-        if ($firstCallLine -ge 0) {
-            $prototypesBeforeCall = @($prototypeLines | Where-Object { $_ -lt $firstCallLine } | Sort-Object)
-            $keepPrototypeLine = if ($prototypesBeforeCall.Count -gt 0) { [int]$prototypesBeforeCall[0] } else { -1 }
-            $prototypeLinesToRemove = @($prototypeLines | Where-Object { $_ -ne $keepPrototypeLine } | Sort-Object -Descending)
-            if ($keepPrototypeLine -lt 0 -or $prototypeLinesToRemove.Count -gt 0) {
-                $needsFwd += [pscustomobject]@{
-                    Name = $defName
-                    DefLine = $defLine
-                    FirstCallLine = $firstCallLine
-                    KeepPrototypeLine = $keepPrototypeLine
-                    PrototypeLinesToRemove = $prototypeLinesToRemove
-                }
-            }
-        }
-    }
-
-    if ($needsFwd.Count -eq 0) { return $result }
-
-    # 3. Filter to only functions introduced by this round's ops
-    $roundTask = Get-RoundTaskDefinition -TaskDefinition $TaskDefinition -RoundTag $RoundTag
-    if ($null -eq $roundTask) { return $result }
-
-    $roundCallNames = @{}
-    foreach ($op in $roundTask.operations) {
-        $rep = [string]$op.replacement
-        foreach ($item in $needsFwd) {
-            if ($rep.Contains($item.Name + '(') -and -not $roundCallNames.ContainsKey($item.Name)) {
-                $roundCallNames[$item.Name] = $item
-            }
-        }
-    }
-
-    if ($roundCallNames.Count -eq 0) { return $result }
-    $result.Needed = $true
-    $result.Diagnostics = ("required_functions={0}" -f ((@($roundCallNames.Keys | Sort-Object) -join ',')))
-
-    # 4. Normalize each function to one prototype before its first call.
-    $injectedOps = @()
-    $text = $UpdatedText
-    $injectCount = 0
-    $normalizationFailed = $false
-    foreach ($funcName in $roundCallNames.Keys) {
-        $info = $roundCallNames[$funcName]
-        foreach ($prototypeLineIndex in @($info.PrototypeLinesToRemove)) {
-            $prototypeLineText = $sourceLines[[int]$prototypeLineIndex]
-            $escapedPrototype = [regex]::Escape($prototypeLineText)
-            $removePattern = "(?m)^$escapedPrototype\r?\n"
-            $removeRegex = [regex]::new($removePattern)
-            if ($removeRegex.Matches($text).Count -ne 1) {
-                $nextLineIndex = [int]$prototypeLineIndex + 1
-                if ($nextLineIndex -lt $sourceLines.Count) {
-                    $escapedNextLine = [regex]::Escape($sourceLines[$nextLineIndex])
-                    $removePattern = "(?m)^$escapedPrototype\r?\n(?=$escapedNextLine(?:\r?$|\r?\n))"
-                    $removeRegex = [regex]::new($removePattern)
-                }
-            }
-            $removeMatchCount = $removeRegex.Matches($text).Count
-            if ($removeMatchCount -ne 1) {
-                $diagMessage = "function={0} prototype_line={1} remove_match_count={2}" -f $funcName, $prototypeLineIndex, $removeMatchCount
-                $result.Diagnostics = if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) { $diagMessage } else { "{0}; {1}" -f $result.Diagnostics, $diagMessage }
-                $normalizationFailed = $true
-                continue
-            }
-
-            $text = $removeRegex.Replace($text, '', 1)
-            $injectedOps += [ordered]@{ pattern = $removePattern; replacement = '' }
-            $injectCount++
-            Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName prototype_dedup=removed line=$prototypeLineIndex" -InformationAction Continue
-        }
-
-        if ([int]$info.KeepPrototypeLine -ge 0) {
-            continue
-        }
-
-        $anchorLineIndex = -1
-        for ($searchLine = $info.FirstCallLine; $searchLine -ge 0; $searchLine--) {
-            $candidateLine = $sourceLines[$searchLine]
-            if ($candidateLine -notmatch '^\s*(?:return|if|for|while|switch)\b' -and
-                $candidateLine -match '^\s*(?:static\s+)?(?:const\s+)?\w[\w\s\*]*\s+\w+\s*\(') {
-                $anchorLineIndex = $searchLine
-                break
-            }
-        }
-        if ($anchorLineIndex -lt 0) {
-            $normalizationFailed = $true
-            continue
-        }
-
-        # Determine return type from definition
-        $defLineIndex = $info.DefLine
-        $defLineText = $sourceLines[$defLineIndex]
-        $returnType = 'static const char*'
-        if ($defLineText -match '^\s*(static\s+(const\s+)?[\w\s\*]+)\s+\w+\s*\(') {
-            $returnType = $matches[1]
-        }
-
-        $fwdDecl = "$returnType $funcName(void);"
-
-        # Insert the sole prototype at file scope before the first caller.
-        $anchorLineText = $sourceLines[$anchorLineIndex]
-        $escapedLine = [regex]::Escape($anchorLineText)
-        $fwdPattern = "^$escapedLine\r?$"
-        $fwdReplacement = "$fwdDecl`r`n$anchorLineText"
-
-        try {
-            $rx = [regex]::new($fwdPattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
-            $matchCount = $rx.Matches($text).Count
-            if ($matchCount -ge 1) {
-                $text = $rx.Replace($text, $fwdReplacement, 1)
-                $newOp = [ordered]@{ pattern = $fwdPattern; replacement = $fwdReplacement }
-                $injectedOps += $newOp
-                $injectCount++
-                Write-Information "[CODE-STEP-AUTOINJECT] round=$RoundTag function=$funcName fwd_decl=$fwdDecl anchor_line=$anchorLineIndex call_line=$($info.FirstCallLine) match_count=$matchCount" -InformationAction Continue
-            }
-            else {
-                $diagMessage = "function={0} first_call_line={1} anchor={2}" -f $funcName, $info.FirstCallLine, $escapedLine
-                if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) {
-                    $result.Diagnostics = $diagMessage
-                }
-                else {
-                    $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
-                }
-                $normalizationFailed = $true
-                Write-Warning "[CODE-STEP-AUTOINJECT] no_match for $funcName at line $($info.FirstCallLine); anchor=$escapedLine"
-            }
-        }
-        catch {
-            $diagMessage = "function={0} error={1}" -f $funcName, $_.Exception.Message
-            if ([string]::IsNullOrWhiteSpace($result.Diagnostics)) {
-                $result.Diagnostics = $diagMessage
-            }
-            else {
-                $result.Diagnostics = "{0}; {1}" -f $result.Diagnostics, $diagMessage
-            }
-            $normalizationFailed = $true
-            Write-Warning "[CODE-STEP-AUTOINJECT] error for $funcName : $($_.Exception.Message)"
-        }
-    }
-
-    if ($normalizationFailed) { return $result }
-    if ($injectCount -eq 0) { return $result }
-
-    Write-Warning "[CODE-STEP-AUTOINJECT] task_definition_unchanged=true reason=avoid-non-atomic-json-rewrite round=$RoundTag"
-
-    $result.Injected = $true
-    $result.Text = $text
-    $result.Ops = $injectedOps
-    $result.Count = $injectCount
-    return $result
-}
-
 if ($Reset) {
     $restored = $false
     $restoredFromHead = $false
@@ -1000,17 +452,23 @@ try {
     if ($next -le 4) {
         Write-Output "[CODE-STEP] task_definition=$TaskDefinitionFile round=$roundTag"
         $text = Get-Content -LiteralPath $TargetFile -Raw
-        $updatedOutputs = @(Invoke-ValidatedTaskDefinitionRound `
-            -TaskDefinitionPath $TaskDefinitionFile `
-            -TargetPath $TargetFile `
-            -RoundTag $roundTag `
-            -RepositoryRoot $repoRoot `
-            -RegexTimeoutMs $RegexTimeoutMs)
-        if ($updatedOutputs.Count -ne 1 -or -not ($updatedOutputs[0] -is [string])) {
-            throw "[CODE-STEP] task round produced unexpected output count=$($updatedOutputs.Count) round=$roundTag; refusing to write target file"
+        if (-not [string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -or
+            -not [string]::IsNullOrWhiteSpace($ValidatedManifestFile)) {
+            if ([string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -or
+                [string]::IsNullOrWhiteSpace($ValidatedManifestFile)) {
+                throw "[CODE-STEP] validated artifact requires both source and manifest round=$roundTag"
+            }
+            $updated = Get-ValidatedEffectiveSource `
+                -ManifestPath $ValidatedManifestFile `
+                -EffectiveSourcePath $ValidatedEffectiveSourceFile `
+                -ExpectedRound $roundTag `
+                -ExpectedTaskDefinitionPath $TaskDefinitionFile `
+                -ExpectedTargetPath $TargetFile
+            Write-Output "[CODE-STEP] round=$roundTag validated_artifact=accepted manifest=$ValidatedManifestFile"
         }
-
-        $updated = [string]$updatedOutputs[0]
+        else {
+            throw "[CODE-STEP] validated artifact required round=$roundTag"
+        }
 
         if ($updated -ne $text) {
             Invoke-FileUtf8NoBomWrite -Path $TargetFile -Text $updated
@@ -1033,6 +491,8 @@ try {
     $stateOut | ConvertTo-Json | Out-File -FilePath $stateFile -Encoding utf8
 }
 catch {
+    $fault = Get-CodeStepFaultClassification -Exception $_.Exception
+    Write-Output ("[CODE-STEP] fault_code={0} failure_kind={1} failure_category={2}" -f $fault.Code, $fault.Kind, $fault.Category)
     Write-Output "[CODE-STEP] fatal_error=$($_.Exception.Message.Replace("`r",'').Replace("`n",' '))"
     Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("code-step fatal error: {0}" -f $_.Exception.Message) -ExitCode 1
 }

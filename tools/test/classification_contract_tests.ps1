@@ -283,6 +283,7 @@ $cases = @(
             business_command_stage = 'b'
             self_healable = 'true'
             non_recoverable_env = 'false'
+            failure_phase = 'compile'
             failure_kind = 'compile-failure'
             failure_category = 'script-fault'
             failure_evidence = 'src/core/net.c:42: conflicting types for wc_retry_connect'
@@ -326,6 +327,7 @@ $cases = @(
             business_command_stage = 'b'
             self_healable = 'false'
             non_recoverable_env = 'true'
+            failure_phase = 'task-static'
             failure_kind = 'unknown-failure'
             failure_category = 'task-definition-mismatch'
             failure_evidence = 'round=D2 op=5 pattern_unmatched=0 but only round-level idempotent marker exists'
@@ -354,6 +356,182 @@ $cases = @(
             decision_factors = @('incident_like=true', 'incident_lane=code-fix', 'auto_resume_eligible=false')
             allowed_actions = @('root-cause-report', 'code-fix-manual-decision', 'handled_at')
             must_trigger_business_resume = $false
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'incident-code-step-forces-noncode'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-CODE-STEP-NONCODE'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:25'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_phase = 'code-step'
+            failure_kind = 'compile-failure'
+            failure_category = 'code-or-unknown'
+            failure_evidence = 'conflicting legacy fields must not authorize code repair'
+            preferred_stage = 'B'
+            recommended_action = 'noncode-recovery'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-CODE-STEP-NONCODE'
+            created_at = '2026-06-14 02:00:25'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-noncode'
+            recommended_action = 'trigger-noncode-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=noncode', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'noncode-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'incident-compile-noncode-category'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-COMPILE-NONCODE'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:27'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_phase = 'compile-or-test'
+            failure_kind = 'compile-failure'
+            failure_category = 'noncode-transient'
+            failure_evidence = 'compiler executable temporarily unavailable'
+            preferred_stage = 'B'
+            recommended_action = 'noncode-recovery'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-COMPILE-NONCODE'
+            created_at = '2026-06-14 02:00:27'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-noncode'
+            recommended_action = 'trigger-noncode-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=noncode', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'noncode-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'incident-legacy-code-edit-failure-forces-noncode'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-LEGACY-CODE-EDIT-NONCODE'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:28'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_phase = ''
+            failure_kind = 'code-edit-failure'
+            failure_category = 'code-or-unknown'
+            failure_evidence = 'legacy code-step classification must not authorize code repair'
+            preferred_stage = 'B'
+            recommended_action = 'noncode-recovery'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-LEGACY-CODE-EDIT-NONCODE'
+            created_at = '2026-06-14 02:00:28'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-noncode'
+            recommended_action = 'trigger-noncode-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=noncode', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'noncode-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+    [pscustomobject]@{
+        Name = 'incident-compile-kind-without-code-category-forces-noncode'
+        Brief = [ordered]@{
+            ticket_id = 'T-CLASS-COMPILE-UNCLASSIFIED-NONCODE'
+            event = 'incident-captured'
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:00:29'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_phase = 'compile'
+            failure_kind = 'compile-failure'
+            failure_category = 'unknown'
+            failure_evidence = 'compile kind alone is insufficient evidence for code repair'
+            preferred_stage = 'B'
+            recommended_action = 'noncode-recovery'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = 'T-CLASS-COMPILE-UNCLASSIFIED-NONCODE'
+            created_at = '2026-06-14 02:00:29'
+            event = 'incident-captured'
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-noncode'
+            recommended_action = 'trigger-noncode-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=noncode', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'noncode-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
         }
         StartFileValues = @{}
         AdditionalQueueTickets = @()
@@ -486,6 +664,7 @@ $cases = @(
             decision_confidence = 0.95
             decision_factors = @('notice_event=budget-exhausted-stop', 'decision_gate=budget')
             allowed_actions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
+            blocked_actions = @('business_resume', 'continue_watch_command', 'unbounded-retry', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
         }
         StartFileValues = @{}
         AdditionalQueueTickets = @()
@@ -528,6 +707,7 @@ $cases = @(
             decision_confidence = 0.94
             decision_factors = @('notice_event=known-infra-transient-stop', 'decision_gate=infra_stabilization')
             allowed_actions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
+            blocked_actions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
         }
         StartFileValues = @{}
         AdditionalQueueTickets = @()
@@ -578,6 +758,104 @@ $cases = @(
         AdditionalQueueTickets = @()
     }
 )
+
+$cases += [pscustomobject]@{
+    Name = 'notice-manual-wait'
+    Brief = [ordered]@{
+        ticket_id = 'T-CLASS-MANUAL-WAIT'
+        event = 'manual-wait-paused'
+        start_file = ''
+        run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+        generated_at = '2026-06-14 02:00:45'
+        business_command_stage = 'b'
+        self_healable = 'false'
+        non_recoverable_env = 'false'
+        failure_kind = 'manual-wait'
+        failure_category = 'noncode-transient'
+        failure_evidence = ''
+        preferred_stage = 'B'
+        recommended_action = 'manual-wait-receipt'
+    }
+    QueueTicket = [ordered]@{
+        schema = 'AB_AGENT_TICKET_V1'
+        ticket_id = 'T-CLASS-MANUAL-WAIT'
+        created_at = '2026-06-14 02:00:45'
+        event = 'manual-wait-paused'
+        start_file = ''
+        queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+        session_final_status = 'BLOCKED'
+        a_final_status = 'PASS'
+        b_final_status = 'FAIL'
+        severity = 'high'
+        requires_confirmation = $false
+        self_healable = $false
+        non_recoverable_env = $false
+    }
+    Expect = [ordered]@{
+        classification = 'notice-manual-wait'
+        recommended_action = 'manual-recovery-gated-decision'
+        decision_confidence = 0.94
+        decision_factors = @('notice_event=manual-wait-paused', 'decision_gate=manual')
+        allowed_actions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
+        blocked_actions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
+    }
+    StartFileValues = @{}
+    AdditionalQueueTickets = @()
+}
+
+$compatibilityIncidentEvents = @(
+    'task-definition-fix-required',
+    'recovery-await-confirmation',
+    'auto-fix-await-confirmation',
+    'main-process-exit-review'
+)
+foreach ($compatibilityEvent in $compatibilityIncidentEvents) {
+    $caseToken = $compatibilityEvent.ToUpperInvariant().Replace('-', '_')
+    $cases += [pscustomobject]@{
+        Name = ('compatibility-event-task-static-{0}' -f $compatibilityEvent)
+        Brief = [ordered]@{
+            ticket_id = ('T-CLASS-COMPAT-{0}' -f $caseToken)
+            event = $compatibilityEvent
+            start_file = ''
+            run_dir = 'out/artifacts/dev_verify_multiround/20260609-195321'
+            generated_at = '2026-06-14 02:01:00'
+            business_command_stage = 'b'
+            self_healable = 'true'
+            non_recoverable_env = 'false'
+            failure_phase = 'task-static'
+            failure_kind = 'task-definition-mismatch'
+            failure_category = 'task-definition-mismatch'
+            failure_evidence = 'task-static checker rejected the current round'
+            preferred_stage = 'B'
+            recommended_action = 'code-fix'
+        }
+        QueueTicket = [ordered]@{
+            schema = 'AB_AGENT_TICKET_V1'
+            ticket_id = ('T-CLASS-COMPAT-{0}' -f $caseToken)
+            created_at = '2026-06-14 02:01:00'
+            event = $compatibilityEvent
+            start_file = ''
+            queue_path = 'out/artifacts/classification_contract_tests/queue.jsonl'
+            session_final_status = 'BLOCKED'
+            a_final_status = 'PASS'
+            b_final_status = 'FAIL'
+            severity = 'high'
+            requires_confirmation = $false
+            self_healable = $true
+            non_recoverable_env = $false
+        }
+        Expect = [ordered]@{
+            classification = 'incident-auto-resume-code-fix'
+            recommended_action = 'trigger-code-fix-business-resume-now'
+            decision_confidence = 0.90
+            decision_factors = @('incident_like=true', 'incident_lane=code-fix', 'auto_resume_eligible=true')
+            allowed_actions = @('root-cause-report', 'code-fix-workflow', 'business_resume', 'continue_watch_command', 'handled_at')
+            must_trigger_business_resume = $true
+        }
+        StartFileValues = @{}
+        AdditionalQueueTickets = @()
+    }
+}
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 foreach ($case in $cases) {

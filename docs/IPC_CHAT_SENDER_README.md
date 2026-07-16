@@ -131,12 +131,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/test/install_ipc_chat
 | `-Model` | 否 | 指定 LM API 使用的模型名称或 ID（Silent/Auto 模式），如 `DeepSeek V4 Flash`、`GPT-5.5`、`auto`。留空使用默认选择逻辑 |
 | `-ModelOptions` | 否 | 模型特定选项哈希表，原样传给 LM API 的 modelOptions。用于配置思考模式、Thinking Effort、上下文大小等。示例：`@{ thinking_effort = "high" }` |
 | `-DiscoverModels` | 否 | 列出所有可用 LM 模型及其元数据（name/vendor/id/family/version/maxInputTokens），不发送消息。默认表格输出，配合 `-JsonOutput` 可供脚本解析 |
-| `-TimeoutSec` | 否 | 等待扩展响应的最大秒数（1-300，默认 30）。长任务（>5 分钟）见[长耗时回复处理](#长耗时回复处理） |
+| `-TimeoutSec` | 否 | 等待扩展响应的最大秒数（1-5400，默认 30）。长任务（>90 分钟）见[长耗时回复处理](#长耗时回复处理） |
 | `-LmResponseTimeoutMs` | 否 | 按请求覆盖 LM API 响应超时毫秒数（1000-3600000，0=使用环境变量或默认 60000）。无需重启 VS Code，仅对本次 IPC 消息生效。见[长耗时回复处理](#长耗时回复处理） |
 | `-PollIntervalMs` | 否 | 轮询间隔毫秒数（50-2000，默认 200） |
 | `-JsonOutput` | 否 | 以 JSON 格式打印结果 |
 | `-KeepTempFiles` | 否 | 发送后保留结果文件（默认自动删除），用于事后诊断 |
 | `-TargetPid` | 否 | 目标 VS Code 主窗口 PID，0=自动检测（默认值）。若指定的 PID 不存在或不属于 Code.exe 进程，自动回退到自动检测模式 |
+
+
+**JSON 输出管道转换（PowerShell 5.1 兼容）**
+
+`-JsonOutput` 输出的 JSON 字符串可通过管道直接反序列化为普通文本显示，供人阅读：
+
+```powershell
+# 最简：仅提取 AI 回复文本
+.\Send-IpcChatMessage.ps1" -Message "你的消息" -Mode Silent -TimeoutSec 4200 -LmResponseTimeoutMs 3600000 -JsonOutput | ConvertFrom-Json | Select-Object -ExpandProperty ai_response
+
+# 完整展示所有字段（适合调试）
+.\Send-IpcChatMessage.ps1" -Message "你的消息" -Mode Silent -TimeoutSec 4200 -LmResponseTimeoutMs 3600000 -JsonOutput | ConvertFrom-Json | Format-List
+
+# 带成功/失败判断
+.\Send-IpcChatMessage.ps1" -Message "你的消息" -Mode Silent -TimeoutSec 4200 -LmResponseTimeoutMs 3600000 -JsonOutput | ConvertFrom-Json | ForEach-Object {
+    if ($_.success) { "✓ $($_.ai_response)" } else { "✗ $($_.reason)" }
+}
+```
+
+说明：
+- `ConvertFrom-Json` 将 JSON 字符串反序列化为 PowerShell 对象（PS 5.1 原生支持）
+- `Select-Object -ExpandProperty ai_response` 提取 `ai_response` 字段的值作为纯文本输出
+- `Format-List` 以 `key: value` 格式展示所有字段
+- `ForEach-Object` 可自定义格式化逻辑
+
 
 **`Priority` 行为说明：**
 
@@ -334,10 +359,10 @@ python ipc_chat_sender.py --message "hello" --mode silent --model "DeepSeek V4 F
 
 | 关卡 | 位置 | 默认值 | 当前上限 |
 |------|------|--------|---------|
-| PowerShell 侧 `-TimeoutSec` | `Send-IpcChatMessage.ps1` 轮询超时 | 30s | **300s**（`[ValidateRange(1,300)]` 硬限制） |
+| PowerShell 侧 `-TimeoutSec` | `Send-IpcChatMessage.ps1` 轮询超时 | 30s | **5400s**（`[ValidateRange(1,5400)]` 硬限制） |
 | 扩展侧 `VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS` | `extension.js` 收集 `response.text` 超时 | 60000ms | 无代码硬限制（环境变量可设任意正数） |
 
-**关键约束**：PowerShell 脚本的 `-TimeoutSec` 参数上限为 **300 秒（5 分钟）**，由 `[ValidateRange(1, 300)]` 特性强制限制。要支持超过 5 分钟的长任务，需修改此上限或改用其他调用方式。
+**关键约束**：PowerShell 脚本的 `-TimeoutSec` 参数上限为 **5400 秒（90 分钟）**，由 `[ValidateRange(1, 5400)]` 特性强制限制。要支持超过 90 分钟的长任务，需修改此上限或改用其他调用方式。
 
 > 扩展侧的 `LM_RESPONSE_TIMEOUT_MS` 现在支持通过命令文件字段 `lm_response_timeout_ms` 按请求覆盖，**无需重启 VS Code**，仅对本次 IPC 消息生效。这是处理长耗时任务的首选方式。
 
@@ -353,8 +378,8 @@ VS Code
 ```
 
 因此 `VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS` 只能通过以下方式设置：
-- **用户/系统环境变量**（推荐，一直生效）：`setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 300000`，然后**重启 VS Code**。
-- **启动前设置**（仅当次生效）：在外部终端（非集成终端）执行 `set VAR=300000 && code .`。
+- **用户/系统环境变量**（推荐，一直生效）：`setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 5400000`，然后**重启 VS Code**。
+- **启动前设置**（仅当次生效）：在外部终端（非集成终端）执行 `set VAR=5400000 && code .`。
 - **按请求覆盖**（推荐，无需重启）：通过 `-LmResponseTimeoutMs` 参数（PowerShell）或 `--lm-response-timeout-ms`（Python）或命令文件字段 `lm_response_timeout_ms`，**仅对本次 IPC 消息生效**，不依赖环境变量。
 
 > `Send-IpcChatMessage.ps1` 的 `-TimeoutSec` 是 PowerShell 脚本自己的轮询超时，与扩展无关，可以在每次调用时自由调整。
@@ -382,30 +407,30 @@ VS Code
 
 `-LmResponseTimeoutMs` 取值范围 1000–3600000（1 秒–1 小时），0=使用环境变量或默认值（60000ms）。
 
-#### 方案 B：调大两个超时（≤5 分钟，通过系统环境变量）
+#### 方案 B：调大两个超时（≤90 分钟，通过系统环境变量）
 
 如果不想每次指定 `-LmResponseTimeoutMs`，也可以设系统环境变量一次生效：
 
 ```powershell
 # 1. 设置系统环境变量（仅需一次，然后重启 VS Code）
-setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 300000
+setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 5400000
 
 # 2. 重启 VS Code 后，调用时仅需设 PowerShell 侧超时（可每次调整）
-& "path\to\Send-IpcChatMessage.ps1" -Message "指令" -Mode Silent -TimeoutSec 300 -JsonOutput
+& "path\to\Send-IpcChatMessage.ps1" -Message "指令" -Mode Silent -TimeoutSec 5400 -JsonOutput
 ```
 
-5 分钟以内的任务够用。注意 `-TimeoutSec 300` 已是当前脚本上限。
+90 分钟以内的任务够用。注意 `-TimeoutSec 5400` 已是当前脚本上限。
 
-#### 方案 C：修改脚本上限后调用（>5 分钟，系统环境变量）
+#### 方案 C：修改脚本上限后调用（>90 分钟，系统环境变量）
 
-如需支持更长时间（如 20–30 分钟），需要先修改 `Send-IpcChatMessage.ps1` 中的 `[ValidateRange(1, 300)]`，将 300 放宽到目标值（如 1800），然后：
+如需支持更长时间（如 100–120 分钟），需要先修改 `Send-IpcChatMessage.ps1` 中的 `[ValidateRange(1, 5400)]`，将 5400 放宽到目标值（如 9000），然后：
 
 ```powershell
 # 1. 设置系统环境变量（仅需一次，然后重启 VS Code）
-setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 1800000
+setx VSCODE_CHAT_SENDER_LM_RESPONSE_TIMEOUT_MS 9000000
 
 # 2. 重启 VS Code 后，调用时仅设 PowerShell 侧超时
-& "path\to\Send-IpcChatMessage.ps1" -Message "长任务指令" -Mode Silent -TimeoutSec 1800 -JsonOutput
+& "path\to\Send-IpcChatMessage.ps1" -Message "长任务指令" -Mode Silent -TimeoutSec 7200 -JsonOutput
 ```
 
 #### 方案 D：Visible 模式仅投递（无需 AI 回复）

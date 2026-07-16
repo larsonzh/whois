@@ -139,6 +139,10 @@ $selfHealable = (Convert-ToSingleLineText -Text ([string]$brief.self_healable)).
 $nonRecoverableEnv = (Convert-ToSingleLineText -Text ([string]$brief.non_recoverable_env)).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
 $failureKind = (Convert-ToSingleLineText -Text ([string]$brief.failure_kind)).ToLowerInvariant()
 $failureCategory = (Convert-ToSingleLineText -Text ([string]$brief.failure_category)).ToLowerInvariant()
+$failurePhase = ''
+if ($brief.Contains('failure_phase')) {
+    $failurePhase = (Convert-ToSingleLineText -Text ([string]$brief.failure_phase)).ToLowerInvariant()
+}
 $failureEvidence = (Convert-ToSingleLineText -Text ([string]$brief.failure_evidence)).ToLowerInvariant()
 $preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
 $briefRecommendedAction = Convert-ToSingleLineText -Text ([string]$brief.recommended_action)
@@ -317,11 +321,29 @@ $fallbackAutoResumeEligible = (
 $canAutoResume = (($selfHealable -or $fallbackAutoResumeEligible) -and -not $nonRecoverableEnv -and -not $budgetExhausted -and -not $cooldownExhausted -and -not [string]::IsNullOrWhiteSpace($businessStage) -and $businessStage -ne 'none')
 
 $incidentLane = 'noncode'
-if ($failureCategory -eq 'script-fault' -and $failureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
+if ($failurePhase -eq 'code-step') {
+    $failureKind = 'environment-transient'
+    $failureCategory = 'noncode-transient'
+}
+elseif ($failureKind -eq 'code-edit-failure') {
+    $failureKind = 'environment-transient'
+    $failureCategory = 'noncode-transient'
+}
+elseif ($failurePhase -eq 'task-static') {
+    $failureKind = 'task-definition-mismatch'
+    $failureCategory = 'task-definition-mismatch'
+}
+elseif ($failureCategory -eq 'script-fault' -and $failureEvidence -match '(?im)(conflicting\s+types\s+for|undefined\s+reference|compilation\s+terminated|fatal\s+error|error\s+c\d{4}|src[\\/].*\.(c|h):\d+)') {
     # Defensive correction for known compile-failure incidents mis-tagged as script-fault.
     $failureCategory = 'code-or-unknown'
 }
-if ($failureCategory -eq 'script-fault') {
+if ($failurePhase -eq 'code-step') {
+    $incidentLane = 'noncode'
+}
+elseif ($failurePhase -eq 'task-static') {
+    $incidentLane = 'code-fix'
+}
+elseif ($failureCategory -eq 'script-fault') {
     $incidentLane = 'script-fix'
 }
 elseif ($failureCategory -eq 'code-or-unknown') {
@@ -330,7 +352,7 @@ elseif ($failureCategory -eq 'code-or-unknown') {
 elseif ($failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
     $incidentLane = 'noncode'
 }
-elseif ($failureCategory -match '^task-definition(?:-|$)' -or $failureKind -in @('task-definition-mismatch', 'compile-failure', 'compile-warning', 'verify-failure', 'code-edit-failure')) {
+elseif ($failureCategory -match '^task-definition(?:-|$)' -or $failureKind -eq 'task-definition-mismatch') {
     $incidentLane = 'code-fix'
 }
 elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-process-exit')) {
@@ -392,8 +414,8 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-manual-wait'
             $recommendedAction = 'manual-recovery-gated-decision'
             $allowedActions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
-            $blockedActions = @('blind-business-resume', 'stage_restart', 'source_edit', 'new_non_tmp_script')
-            $reason = 'Manual-wait notice requires explicit recovery decision before any restart/resume action.'
+            $blockedActions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation', 'new_non_tmp_script')
+            $reason = 'Manual-wait notice authorizes reporting and a recovery decision only; any recovery action requires a separate authorized incident ticket or explicit user authorization.'
             [void]$decisionFactors.Add('notice_event=manual-wait-paused')
             [void]$decisionFactors.Add('decision_gate=manual')
             $decisionConfidence = 0.94
@@ -403,8 +425,8 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-budget-exhausted'
             $recommendedAction = 'budget-aware-rerun-scope-decision'
             $allowedActions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
-            $blockedActions = @('blind-business-resume', 'unbounded-retry', 'stage_restart')
-            $reason = 'Recovery budget is exhausted; decide rerun scope and mitigation before any restart.'
+            $blockedActions = @('business_resume', 'continue_watch_command', 'unbounded-retry', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
+            $reason = 'Budget notice authorizes reporting and rerun-scope decision only. An already-authorized pending repair ticket keeps its own priority and permissions; this notice grants no new repair or restart authority.'
             [void]$decisionFactors.Add('notice_event=budget-exhausted-stop')
             [void]$decisionFactors.Add('decision_gate=budget')
             $decisionConfidence = 0.95
@@ -414,8 +436,8 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-known-infra-transient'
             $recommendedAction = 'environment-stabilization-first'
             $allowedActions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
-            $blockedActions = @('business_resume', 'stage_restart', 'source_edit')
-            $reason = 'Known infrastructure transient stop requires stabilization workflow before resume.'
+            $blockedActions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
+            $reason = 'Infrastructure notice authorizes reporting and a stabilization decision only; environment changes and recovery require a separate authorized noncode incident ticket or explicit user authorization.'
             [void]$decisionFactors.Add('notice_event=known-infra-transient-stop')
             [void]$decisionFactors.Add('decision_gate=infra_stabilization')
             $decisionConfidence = 0.94

@@ -106,6 +106,11 @@ $script:EventSetRestartSensitive = @{
     'main-process-exit-review' = $true
 }
 $script:EventSetContractGate = @{ 'task-definition-fix-required' = $true }
+$script:EventSetNotice = @{
+    'manual-wait-paused' = $true
+    'budget-exhausted-stop' = $true
+    'known-infra-transient-stop' = $true
+}
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -2546,6 +2551,7 @@ foreach ($ticket in $tickets) {
     }
 
     $ticketMainRound = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'main_round')
+    $ticketFailurePhase = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_phase')
     $ticketFailureKind = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_kind')
     $ticketFailureCategory = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_category')
     $ticketFailureSource = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'failure_source')
@@ -2699,6 +2705,7 @@ foreach ($ticket in $tickets) {
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
                 main_round = $ticketMainRound
+                failure_phase = $ticketFailurePhase
                 failure_kind = $ticketFailureKind
                 failure_category = $ticketFailureCategory
                 failure_source = $ticketFailureSource
@@ -2721,7 +2728,7 @@ foreach ($ticket in $tickets) {
                 event_dedup_health_check_command = $eventDedupHealthCheckCommand
                 final_status_closeout_command = $finalStatusCloseoutCommand
                 final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand $continueWatchCommand -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -BusinessCommand '' -ContinueWatchCommand '' -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2815,6 +2822,7 @@ foreach ($ticket in $tickets) {
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
                 main_round = $ticketMainRound
+                failure_phase = $ticketFailurePhase
                 failure_kind = $ticketFailureKind
                 failure_category = $ticketFailureCategory
                 failure_source = $ticketFailureSource
@@ -2872,6 +2880,11 @@ foreach ($ticket in $tickets) {
 
     Remove-RowByTicketId -Rows $rows -TicketId $ticketId
 
+    if ($script:EventSetNotice.ContainsKey($eventName)) {
+        $selectedBusinessCommand = ''
+        $selectedContinueWatchCommand = ''
+    }
+
     $rows.Add([pscustomobject]@{
             ticket_id = $ticketId
             event = $eventName
@@ -2884,6 +2897,7 @@ foreach ($ticket in $tickets) {
             recommended_action = $recommendedAction
             queue_path = $queueRel
             main_round = $ticketMainRound
+            failure_phase = $ticketFailurePhase
             failure_kind = $ticketFailureKind
             failure_category = $ticketFailureCategory
             failure_source = $ticketFailureSource

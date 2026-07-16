@@ -131,7 +131,7 @@ param(
 
     [switch]$AutoEscalate,
 
-    [ValidateRange(1, 300)]
+    [ValidateRange(1, 5400)]
     [int]$TimeoutSec = 30,
 
     [ValidateRange(50, 2000)]

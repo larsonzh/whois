@@ -715,6 +715,7 @@ function Write-StageExitReasonArtifact {
             task_definition = (Convert-ToSingleLineText -Text $TaskDefinitionFile)
             source_script = if ([string]::IsNullOrWhiteSpace($SourceScriptName)) { (Split-Path -Leaf $PSCommandPath) } else { (Convert-ToSingleLineText -Text $SourceScriptName) }
             start_file_path = $startFilePath
+            launch_token = (Convert-ToSingleLineText -Text ([string]$env:AUTO_STAGE_LAUNCH_TOKEN))
         }
 
         if ($IncludeRuntimeLogPath.IsPresent) {

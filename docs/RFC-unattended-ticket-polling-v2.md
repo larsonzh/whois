@@ -41,7 +41,7 @@
 边界定义：
 - AI 会话本身不是操作系统后台定时器；会话侧职责是保持在线并被动接收 guard/trigger/dispatch 投送的事件票或状态票。
 - 定时节拍由常驻监控脚本提供（例如 guard/supervisor 的循环 + sleep），并通过工单队列向会话暴露待执行动作。
-- `poll_agent_tickets.ps1` 为单次轮询消费器：每次执行读取当前队列快照。事件票输出 `business_command`、`continue_watch_command` 与唯一的 `atomic_closeout_command`；业务动作成功后只执行一次原子收尾。`mark_processed_command` 等旧分步字段仅作审计兼容，不进入事件票 `next_command_order`，不得逐条执行。
+- `poll_agent_tickets.ps1` 为单次轮询消费器：每次执行读取当前队列快照。需要恢复的事故票可输出 `business_command`、`continue_watch_command` 与唯一的 `atomic_closeout_command`；业务动作成功后只执行一次原子收尾。三类阻断/通告票不输出业务或继续监控命令，只输出 `route_guard_command -> atomic_closeout_command`。`mark_processed_command` 等旧分步字段仅作审计兼容，不进入事件票 `next_command_order`，不得逐条执行。
 - 默认推荐闭环是“guard 产票 + trigger/dispatch 投送 + 会话内 AI 串行执行已投送工单”。Agent 不得自行创建定时巡检、轮询循环或周期性调用 poll/heartbeat。
 - 若会话终止，已投送工单不会由 AI 完成；guard 可以继续监控和产票，但不会自动完成业务动作闭环。
 - 如需完全脱离会话的人值守，可在外层增加独立调度器；该模式不属于本文默认路径。
@@ -126,8 +126,9 @@ Drain 行为：
 - `known-infra-transient-stop`
 
 白名单事件在 drain/recovery-drain 中建议按“信息类工单”处理：
-- 允许被认领并输出继续盯盘动作。
-- 不触发业务恢复命令（`business_command` 留空）。
+- 允许被认领并输出对应报告/决策动作。
+- `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 的 `business_command` 与 `continue_watch_command` 均留空，`next_command_order` 固定为 `route_guard_command -> atomic_closeout_command`。
+- 当前通告票不授权修改文件或环境、恢复业务、重启 guard/stage；实际修复等待独立的已授权事故票或用户明确授权。
 
 建议支持 start-file 可选配置键（逗号/分号分隔）：
 - `LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS`
