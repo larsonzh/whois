@@ -18,6 +18,7 @@
 - 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票最终只执行一次 `atomic_closeout_command`，仅在其机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
 - 脚本故障必须先读取 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED`。字段缺失、非法或为 `false` 时进入 `incident-script-diagnose-only`：只读排查并在聊天中输出根因、证据、影响、最小修复建议、验证命令、风险与回滚方案；禁止改文件、创建脚本、控制或重启进程、resume、改变环境。仅显式为 `true` 时才允许脚本自愈。
+- 在代码修复、非代码恢复、事件评审或其他非脚本工单中发现新的 guard/trigger/dispatch/poll 脚本故障时，必须停止原流程并按 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED` 重新路由；不得在原工单车道内直接修脚本。
 - 如需新建 start-file，`tools/test/create_unattended_ab_start_file.ps1` 默认生成 `normal`；可显式用 `-Mode normal|anti-missent|low-disturb|event-only|all-modes` 生成对应模式文件。
 
 使用指引（先选模板，再替换 `<START_FILE>` 后整段复制发送）：

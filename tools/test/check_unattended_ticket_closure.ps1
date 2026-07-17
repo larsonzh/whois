@@ -214,8 +214,8 @@ foreach ($ticketId in @($queueById.Keys | Sort-Object)) {
     $ledgerStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'status')
     $handledAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'handled_at')
     if ($ledgerStatus -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded') -and [string]::IsNullOrWhiteSpace($handledAt)) {
-        $ackCommand = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last 20 -AsJson' -f (Convert-ToRepoRelativePath -Path $startFilePath), $ticketId)
-        [void]$issues.Add((New-IssueRecord -Type 'terminal-ledger-missing-handled-at' -Severity 'high' -TicketId $ticketId -Detail ('ledger terminal status={0} but handled_at is empty' -f $ledgerStatus) -SuggestedCommand $ackCommand -LedgerStatus $ledgerStatus))
+        $closeoutCommand = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_agent_ticket_closeout.ps1 -StartFile "{0}" -TicketId "{1}" -QueuePath "{2}" -LedgerPath "{3}" -TakeoverRoot "{4}" -Last 20 -AsJson' -f (Convert-ToRepoRelativePath -Path $startFilePath), $ticketId, (Convert-ToRepoRelativePath -Path $queueFilePath), (Convert-ToRepoRelativePath -Path $ledgerFilePath), (Convert-ToRepoRelativePath -Path $takeoverRootResolved))
+        [void]$issues.Add((New-IssueRecord -Type 'terminal-ledger-missing-handled-at' -Severity 'high' -TicketId $ticketId -Detail ('ledger terminal status={0} but handled_at is empty; use the atomic closeout command instead of split acknowledgement' -f $ledgerStatus) -SuggestedCommand $closeoutCommand -LedgerStatus $ledgerStatus))
     }
 }
 

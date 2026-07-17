@@ -2077,6 +2077,33 @@ function Get-PropertyValueOrEmpty {
     return ''
 }
 
+function Get-NormalizedStageRestartResult {
+    param([AllowNull()][object]$InputObject)
+
+    $candidates = @($InputObject)
+    for ($index = $candidates.Count - 1; $index -ge 0; $index--) {
+        $candidate = $candidates[$index]
+        if ($null -eq $candidate) {
+            continue
+        }
+
+        $propertyNames = @($candidate.PSObject.Properties.Name)
+        if ($propertyNames -contains 'Succeeded' -or $propertyNames -contains 'ExitCode') {
+            $succeeded = if ($propertyNames -contains 'Succeeded') { [bool]$candidate.Succeeded } else { $false }
+            $exitCode = if ($propertyNames -contains 'ExitCode') { [int]$candidate.ExitCode } elseif ($succeeded) { 0 } else { 1 }
+            return [pscustomobject]@{
+                Succeeded = $succeeded
+                ExitCode = $exitCode
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Succeeded = $false
+        ExitCode = 1
+    }
+}
+
 function Get-RoundFailureCategoryFromLogText {
     param(
         [AllowEmptyString()][string]$RunDir,
@@ -3227,7 +3254,7 @@ function Invoke-StageVerifyRoundRecovery {
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag
+    $restartResult = Get-NormalizedStageRestartResult -InputObject @(Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag)
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
@@ -3320,7 +3347,7 @@ function Invoke-StageDevRoundTransientRecovery {
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag
+    $restartResult = Get-NormalizedStageRestartResult -InputObject @(Invoke-StageRestartByPolicy -Stage $Stage -Attempt $attempt -RoundTag $roundTag)
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
@@ -3448,7 +3475,7 @@ function Invoke-StageCompileAutoFixRecovery {
         return [pscustomobject]$result
     }
 
-    $restartResult = Invoke-StageRestartByPolicy -Stage $stageToken -Attempt $attempt -RoundTag ([string]$context.RoundTag)
+    $restartResult = Get-NormalizedStageRestartResult -InputObject @(Invoke-StageRestartByPolicy -Stage $stageToken -Attempt $attempt -RoundTag ([string]$context.RoundTag))
     if ([bool]$restartResult.Succeeded) {
         $result.Restarted = $true
         $result.Reason = 'restart-triggered'
@@ -6511,8 +6538,8 @@ try {
                 $manualWaitRecommendedAction = Convert-ToBoundedSingleLineText -Text ($manualWaitRecommendedAction + $eventTicketPolicySuffix) -MaxChars 600
 
                 $guardRestartAllowedForFailure = (
-                    [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch' -and
-                    -not ($failureCategory -eq 'script-fault' -and -not $scriptSelfHealEnabled)
+                    $failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient') -and
+                    [string]$failureTicketMeta.FailureKind -ne 'task-definition-mismatch'
                 )
 
                 $suppressDuplicateAExitIncident = $false
@@ -6944,7 +6971,7 @@ try {
 
                 $autoFixStage = Resolve-RecoveryStageByStatus -AStatus $aStatus -BStatus $bStatus -AllowBRecovery $true -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB -GuardRestartAllowedForFailure $guardRestartAllowedForFailure
 
-                if ($autoFixCompileEnabled -and -not [string]::IsNullOrWhiteSpace($autoFixStage) -and -not [bool]$failurePolicy.IsVerifyRound -and -not $skipAutoFixForDevTransient) {
+                if ($autoFixCompileEnabled -and $guardRestartAllowedForFailure -and -not [string]::IsNullOrWhiteSpace($autoFixStage) -and -not [bool]$failurePolicy.IsVerifyRound -and -not $skipAutoFixForDevTransient) {
                     $autoFixResult = Invoke-StageCompileAutoFixRecovery -Stage $autoFixStage -Settings $settings -RunDirAnchor $runDirAnchor -MaxAttemptsPerRound $autoFixMaxPerDRound -CooldownMinutes $autoFixCooldownMinutes -RestartAllowed $restartApproved
                     $autoFixLogFields = Get-AutoFixResultLogCompactFields -Detail ([string]$autoFixResult.Detail)
                     $autoFixStatusSignature = "{0}|{1}|{2}|{3}" -f [string]$autoFixResult.Reason, [string]$autoFixResult.RoundTag, $runDirAnchor, [int]$autoFixResult.Attempt
@@ -7100,7 +7127,7 @@ try {
                     else {
                         $lastBudgetExhaustedSignature = ''
                         $attempt = $bRecoveryAttempts + 1
-                        $restartResult = Invoke-StageRestartByPolicy -Stage 'B' -Attempt $attempt
+                        $restartResult = Get-NormalizedStageRestartResult -InputObject @(Invoke-StageRestartByPolicy -Stage 'B' -Attempt $attempt)
                         if ($restartResult.Succeeded) {
                             $bRecoveryAttempts = $attempt
                             $lastRecoveryAt = Get-Date

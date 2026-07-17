@@ -2146,6 +2146,7 @@ function New-TakeoverBrief {
     $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
     $scriptFaultActionPolicy = if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' }
     $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' }
+    $atomicCloseoutExecutionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'not-applicable-readonly-status-ticket' } else { 'exactly-once-per-event-ticket-after-handling-no-retry' }
 
     $lines = @(
         '# AB Takeover Brief',
@@ -2212,6 +2213,7 @@ function New-TakeoverBrief {
         ('validate_receipt_command={0}' -f $validateReceiptCommand),
         ('mark_processed_command={0}' -f $markProcessedCommand),
         ('post_check_command={0}' -f $postCheckCommand),
+        ('atomic_closeout_execution_policy={0}' -f $atomicCloseoutExecutionPolicy),
         ('atomic_closeout_command={0}' -f $atomicCloseoutCommand),
         ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),
         ('event_dedup_health_check_command={0}' -f $eventDedupHealthCheckCommand),

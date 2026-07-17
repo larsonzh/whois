@@ -172,6 +172,7 @@ $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
+$ticketClosureText = Get-Content -LiteralPath $ticketClosurePath -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
@@ -187,6 +188,8 @@ $createStartFileText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/t
 $resetStartFileText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/reset_unattended_ab_start_file.ps1') -Raw -Encoding utf8
 $launchReadyText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_unattended_ab_launch_ready.ps1') -Raw -Encoding utf8
 $startFieldSyncText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_unattended_start_field_sync.ps1') -Raw -Encoding utf8
+$ps51FormatGuardPath = Resolve-RepoPath -Path 'tools/test/check_ps51_format_inline_if_guard.ps1'
+$ps51FormatGuardText = Get-Content -LiteralPath $ps51FormatGuardPath -Raw -Encoding utf8
 
 $results = New-Object 'System.Collections.Generic.List[object]'
 
@@ -233,12 +236,29 @@ $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-co
 
 # Event tickets close through one machine-verified command; missing command data must fail closed.
 $atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false')
-$takeoverProjectsAtomicCloseout = $takeoverTriggerText.Contains("`$nextCommandNames.Add('atomic_closeout_command')") -and $takeoverTriggerText.Contains("('atomic_closeout_command={0}' -f `$atomicCloseoutCommand)") -and $takeoverTriggerText.Contains('-QueuePath "{2}" -Last 20 -AsJson') -and ([regex]::Matches($takeoverTriggerText, "nextCommandNames\.Add\('atomic_closeout_command'\)")).Count -eq 1
-$pollProjectsAtomicCloseout = $pollText.Contains('function Get-AtomicCloseoutCommand') -and $pollText.Contains("`$order.Add('atomic_closeout_command')") -and ([regex]::Matches($pollText, 'atomic_closeout_command = \(Get-AtomicCloseoutCommand')).Count -eq 2 -and $statusOnlyAutoflowText.Contains("'atomic_closeout_command' { return @('handled_at', 'mark-handled') }") -and $statusOnlyAutoflowText.Contains("atomic_closeout_command = Get-ObjectPropertyString -InputObject `$selectedTicket -Name 'atomic_closeout_command'")
+$ps51FormatGuardUsesAst = $ps51FormatGuardText.Contains('[System.Management.Automation.Language.Parser]::ParseFile') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.BinaryExpressionAst]') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.TokenKind]::Format') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.IfStatementAst]')
+$ps51FormatGuardProbeRoot = Join-Path $outDir 'ps51_format_guard_runtime'
+$ps51FormatGuardBadRoot = Join-Path $ps51FormatGuardProbeRoot 'bad'
+$ps51FormatGuardLiteralRoot = Join-Path $ps51FormatGuardProbeRoot 'literal'
+New-Item -ItemType Directory -Path $ps51FormatGuardBadRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $ps51FormatGuardLiteralRoot -Force | Out-Null
+Write-Utf8BomText -Path (Join-Path $ps51FormatGuardBadRoot 'probe.ps1') -Text "'value={0}' -f `$(if (`$true) { 'yes' } else { 'no' })"
+Write-Utf8BomText -Path (Join-Path $ps51FormatGuardLiteralRoot 'probe.ps1') -Text "`$sample = '-f `$(if (`$true) { yes } else { no })'"
+$ps51FormatGuardBadOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $ps51FormatGuardPath -RepoRoot $ps51FormatGuardBadRoot -Scope all 2>&1)
+$ps51FormatGuardBadExitCode = $LASTEXITCODE
+$ps51FormatGuardLiteralOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $ps51FormatGuardPath -RepoRoot $ps51FormatGuardLiteralRoot -Scope all 2>&1)
+$ps51FormatGuardLiteralExitCode = $LASTEXITCODE
+$ps51FormatGuardRuntimePass = ($ps51FormatGuardBadExitCode -ne 0 -and ($ps51FormatGuardBadOutput -join "`n").Contains('violations=1') -and $ps51FormatGuardLiteralExitCode -eq 0 -and ($ps51FormatGuardLiteralOutput -join "`n").Contains('violations=0'))
+$takeoverProjectsAtomicCloseout = $ps51FormatGuardUsesAst -and $ps51FormatGuardRuntimePass -and $takeoverTriggerText.Contains("`$nextCommandNames.Add('atomic_closeout_command')") -and $takeoverTriggerText.Contains("`$atomicCloseoutExecutionPolicy = if (`$eventNameNormalized -eq 'running-status-report')") -and $takeoverTriggerText.Contains("('atomic_closeout_execution_policy={0}' -f `$atomicCloseoutExecutionPolicy)") -and $takeoverTriggerText.Contains('exactly-once-per-event-ticket-after-handling-no-retry') -and $takeoverTriggerText.Contains("('atomic_closeout_command={0}' -f `$atomicCloseoutCommand)") -and $takeoverTriggerText.Contains('-QueuePath "{2}" -Last 20 -AsJson') -and ([regex]::Matches($takeoverTriggerText, "nextCommandNames\.Add\('atomic_closeout_command'\)")).Count -eq 1
+$pollProjectsAtomicCloseout = $pollText.Contains('function Get-AtomicCloseoutCommand') -and $pollText.Contains("`$order.Add('atomic_closeout_command')") -and ([regex]::Matches($pollText, 'atomic_closeout_command = \(Get-AtomicCloseoutCommand')).Count -eq 2 -and $pollText.Contains("-not `$ledgerRecords.ContainsKey(`$ticketId) -and `$ticketById.ContainsKey(`$ticketId)") -and $pollText.Contains('Initialize-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId') -and $statusOnlyAutoflowText.Contains("'atomic_closeout_command' { return @('handled_at', 'mark-handled') }") -and $statusOnlyAutoflowText.Contains("atomic_closeout_command = Get-ObjectPropertyString -InputObject `$selectedTicket -Name 'atomic_closeout_command'")
+$closureCheckerProjectsAtomicCloseout = $ticketClosureText.Contains('tools/test/complete_agent_ticket_closeout.ps1') -and $ticketClosureText.Contains('use the atomic closeout command instead of split acknowledgement') -and -not $ticketClosureText.Contains('-AcknowledgeTicketIds')
 $promptRejectsSplitCloseout = $promptDocText.Contains('其职责已由 atomic_closeout_command 统一覆盖') -and -not $promptDocText.Contains('也必须按 next_command_order 继续执行')
-$dispatchRequiresMachineFacts = $dispatchText.Contains('机器事实闭环门禁') -and $dispatchText.Contains('atomic_closeout_command is missing from the brief') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
+$dispatchRequiresMachineFacts = $dispatchText.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchText.Contains('Machine-fact closeout gate: at the end of each event ticket, execute atomic_closeout_command exactly once; do not execute it again after either success or failure') -and $dispatchText.Contains('atomic_closeout_command is missing from the brief') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
+$dispatchRoutesDiscoveredScriptFault = $dispatchText.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchText.Contains('If a script fault is discovered while handling this code-fix ticket, stop the code-fix flow and reclassify it through the script policy')
+$dispatchRecognizesCompileOrTestFailure = $dispatchText.Contains("'compile-or-test-failure'") -and $dispatchText.Contains("'compile-or-test'")
+$guardDelegatesCodeFaultRecovery = $sessionGuardText.Contains("`$failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')") -and $sessionGuardText.Contains('if ($autoFixCompileEnabled -and $guardRestartAllowedForFailure') -and $sessionGuardText.Contains('function Get-NormalizedStageRestartResult')
 $copilotForbidsInlineEditing = $copilotInstructionsText.Contains('**Agent 工具与机器回执门禁（硬规则）**') -and $copilotInstructionsText.Contains('禁止使用终端内联 Python') -and $copilotInstructionsText.Contains('事件票收尾必须执行 brief 的 `atomic_closeout_command`')
-$atomicCloseoutContractPass = ($atomicCloseoutVerifiesFacts -and $takeoverProjectsAtomicCloseout -and $pollProjectsAtomicCloseout -and $promptRejectsSplitCloseout -and $dispatchRequiresMachineFacts -and $copilotForbidsInlineEditing)
+$atomicCloseoutContractPass = ($atomicCloseoutVerifiesFacts -and $takeoverProjectsAtomicCloseout -and $pollProjectsAtomicCloseout -and $closureCheckerProjectsAtomicCloseout -and $promptRejectsSplitCloseout -and $dispatchRequiresMachineFacts -and $dispatchRoutesDiscoveredScriptFault -and $dispatchRecognizesCompileOrTestFailure -and $guardDelegatesCodeFaultRecovery -and $copilotForbidsInlineEditing)
 $atomicCloseoutContractReason = if ($atomicCloseoutContractPass) { 'atomic-ticket-closeout-contract-present' } else { 'missing-atomic-ticket-closeout-contract' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-contract' -Pass $atomicCloseoutContractPass -Reason $atomicCloseoutContractReason))
 
@@ -707,7 +727,7 @@ $closeoutTicket = [ordered]@{
     non_recoverable_env = $false
 }
 Set-Content -LiteralPath $closeoutQueue -Encoding utf8 -Value (($closeoutTicket | ConvertTo-Json -Compress -Depth 10))
-$null = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $closeoutQueue -StatePath $closeoutState -LedgerPath $closeoutLedger -Last 20 -AsJson
+$closeoutLedgerAbsentBeforeFirstCall = -not (Test-Path -LiteralPath $closeoutLedger)
 
 $unrelatedBriefPath = Join-Path $closeoutTakeover 'unrelated-orphan.md'
 $unrelatedBriefLines = @(
@@ -735,7 +755,7 @@ catch {
 }
 $closeoutFirstPass = ($null -ne $closeoutFirst -and [bool]$closeoutFirst.success -and [bool]$closeoutFirst.processed -and [string]$closeoutFirst.ledger_status -eq 'done' -and [bool]$closeoutFirst.receipt_valid -and [bool]$closeoutFirst.closure_pass)
 $closeoutReplayPass = ($null -ne $closeoutReplay -and [bool]$closeoutReplay.success -and [bool]$closeoutReplay.processed -and [string]$closeoutReplay.ledger_status -eq 'done' -and [bool]$closeoutReplay.receipt_valid -and [bool]$closeoutReplay.closure_pass)
-$atomicCloseoutRuntimePass = ($globalClosureDetectsUnrelatedBrief -and $closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
+$atomicCloseoutRuntimePass = ($globalClosureDetectsUnrelatedBrief -and $closeoutLedgerAbsentBeforeFirstCall -and $closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
 $atomicCloseoutRuntimeReason = if ($atomicCloseoutRuntimePass) { 'atomic-ticket-closeout-runtime-present' } else { 'atomic-ticket-closeout-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-runtime' -Pass $atomicCloseoutRuntimePass -Reason $atomicCloseoutRuntimeReason))
 
@@ -826,20 +846,20 @@ $dispatchRuntimeTicket = [ordered]@{
     event = 'incident-captured'
     start_file = $dispatchRuntimeStartFile
     queue_path = $dispatchRuntimeQueue
-    failure_phase = 'task-static'
-    failure_kind = 'task-definition-mismatch'
-    failure_category = 'task-definition-mismatch'
-    main_round = 'D1'
+    failure_phase = 'compile-or-test'
+    failure_kind = 'compile-or-test-failure'
+    failure_category = 'code-or-unknown'
+    main_round = 'D3'
 }
 Set-Content -LiteralPath $dispatchRuntimeQueue -Encoding utf8 -Value (($dispatchRuntimeTicket | ConvertTo-Json -Compress -Depth 6))
 Write-Utf8BomText -Path $dispatchRuntimeBrief -Text @"
 ticket_id=$dispatchRuntimeTicketId
 event=incident-captured
 route_guard_expected=incident-manual-code-fix
-failure_phase=task-static
-failure_kind=task-definition-mismatch
-failure_category=task-definition-mismatch
-main_round=D1
+failure_phase=compile-or-test
+failure_kind=compile-or-test-failure
+failure_category=code-or-unknown
+main_round=D3
 atomic_closeout_command=$dispatchRuntimeAtomicMarker
 "@
 $dispatchRuntimeState = $null
@@ -856,7 +876,7 @@ $dispatchRuntimeMessage = if ($null -ne $dispatchRuntimeState) { [string]$dispat
 $dispatchRuntimeMarkerCount = ([regex]::Matches($dispatchRuntimeMessage, [regex]::Escape($dispatchRuntimeAtomicMarker))).Count
 $mandatoryReceiptSuffix = "强制回执`nhandled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）"
 $dispatchRuntimeNormalized = $dispatchRuntimeMessage.Replace("`r`n", "`n")
-$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('验证顺序固定为 SyntaxOnly 装载检查') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('只能在 D3 operations 数组末尾连续追加') -and -not $dispatchRuntimeMessage.Contains('缺少被允许的 task-static 或编译/验证代码故障阶段') -and $dispatchRuntimeMessage.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
 $dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
 
@@ -866,10 +886,10 @@ Write-Utf8BomText -Path $dispatchMissingBrief -Text @"
 ticket_id=$dispatchRuntimeTicketId
 event=incident-captured
 route_guard_expected=incident-manual-code-fix
-failure_phase=task-static
-failure_kind=task-definition-mismatch
-failure_category=task-definition-mismatch
-main_round=D1
+failure_phase=compile-or-test
+failure_kind=compile-or-test-failure
+failure_category=code-or-unknown
+main_round=D3
 "@
 $dispatchMissingState = $null
 try {

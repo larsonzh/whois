@@ -152,6 +152,7 @@ AI：
 - 关闭时脚本故障必须路由到 `incident-script-diagnose-only`。AI 只允许读取事故包、日志、start-file、相关脚本和近期相关变更，并使用无副作用的语法解析、静态检查或 dry-run 定位根因；禁止修改文件、创建脚本、停止/重启进程、执行 `business_resume`/`continue_watch_command`、改变环境或实施恢复。
 - 排查报告必须在聊天中列出故障现象、首次错误、调用链、根因与证据路径、影响、置信度、最小修改建议、验证命令、风险和回滚方法，并声明未修改文件、未停止或重启进程。随后只执行一次 `atomic_closeout_command`，等待用户决定。
 - 仅当该字段显式为 `true` 时，脚本故障才沿用 `incident-auto-resume-script-fix` / `incident-manual-script-fix`。
+- 处理代码修复、非代码恢复、事件评审或其他非脚本工单时若新发现 guard/trigger/dispatch/poll 脚本故障，必须立即停止原工单的修复或恢复动作并按上述开关重新分类；不得在原车道内顺手修改脚本。开关显式为 `true` 时转入脚本自愈专用流程，否则转入脚本故障排查专用流程。
 - 代码自愈修复不允许直接手改源码；必须修改当前阶段任务定义文件中对应轮次的代码改动内容。
 - 修改任务定义文件后，必须先通过 `-SyntaxOnly`，再通过故障目标 op 快检（可定位时）及当前故障 D 轮递进严格检查，才允许重启本阶段主进程；后续轮在实际 code-step 到达时检查。
 - 新任务定义默认设置 `qualityPolicy.operationSafetyPolicy=enforce`。每个 op 必须声明由自身 replacement 唯一产生的 `idempotentContains`；replacement 后 pattern 必须收敛为零命中，整轮二次应用不得改变文本。

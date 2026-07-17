@@ -2424,6 +2424,19 @@ $doneThisPoll = 0
 $handledReceipts = New-Object 'System.Collections.Generic.List[object]'
 if ($acknowledgeTicketSet.Count -gt 0) {
     foreach ($ticketId in @($acknowledgeTicketSet.Keys)) {
+        if (-not $ledgerRecords.ContainsKey($ticketId) -and $ticketById.ContainsKey($ticketId)) {
+            $ticket = $ticketById[$ticketId]
+            $eventName = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')
+            $severity = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'severity')
+            $createdAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'created_at')
+            $batchId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'batch_id')
+            if ([string]::IsNullOrWhiteSpace($batchId)) {
+                $batchId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'dedup_suffix')
+            }
+            $restartGeneration = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'restart_generation')
+            Initialize-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId -EventName $eventName -Severity $severity -CreatedAt $createdAt -BatchId $batchId -RestartGeneration $restartGeneration
+        }
+
         if (-not $ledgerRecords.ContainsKey($ticketId)) {
             continue
         }

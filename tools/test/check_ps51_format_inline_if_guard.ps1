@@ -61,47 +61,35 @@ if ($targetFiles.Count -lt 1) {
 
 $violations = New-Object 'System.Collections.Generic.List[object]'
 
-# Detect inline conditional subexpressions used as format arguments.
-# Use line-based checks to avoid heavy regex backtracking in large files.
-$linePattern = [regex]'(?i)-f.*\$\(\s*if\s*\('
-$continuationPattern = [regex]'(?i)^\s*\$\(\s*if\s*\('
-
 foreach ($file in $targetFiles) {
-    $content = ''
-    try {
-        $content = Get-Content -LiteralPath $file -Raw -Encoding utf8 -ErrorAction Stop
-    }
-    catch {
-        continue
-    }
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors)
+    $formatExpressions = @($ast.FindAll({
+        param($node)
+        return (
+            $node -is [System.Management.Automation.Language.BinaryExpressionAst] -and
+            $node.Operator -eq [System.Management.Automation.Language.TokenKind]::Format
+        )
+    }, $true))
 
-    $lines = @($content -split "`r?`n")
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $lineText = [string]$lines[$i]
-        $hit = $false
-
-        if ($linePattern.IsMatch($lineText)) {
-            $hit = $true
-        }
-        elseif ($i -gt 0) {
-            $prev = [string]$lines[$i - 1]
-            if ($prev -match '(?i)-f\s*$' -and $continuationPattern.IsMatch($lineText)) {
-                $hit = $true
-            }
-        }
-
-        if (-not $hit) {
+    foreach ($formatExpression in $formatExpressions) {
+        $inlineIfNodes = @($formatExpression.Right.FindAll({
+            param($node)
+            return $node -is [System.Management.Automation.Language.IfStatementAst]
+        }, $true))
+        if ($inlineIfNodes.Count -lt 1) {
             continue
         }
 
-        $snippet = $lineText.Trim()
+        $snippet = $formatExpression.Extent.Text.Trim()
         if ($snippet.Length -gt 180) {
             $snippet = $snippet.Substring(0, 180) + '...'
         }
 
         [void]$violations.Add([pscustomobject]@{
             file = (Get-RepoRelativePath -Root $RepoRoot -Path $file)
-            line = ($i + 1)
+            line = [int]$formatExpression.Extent.StartLineNumber
             snippet = $snippet
         })
     }

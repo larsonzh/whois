@@ -573,6 +573,7 @@ function Format-DispatchMessage {
     param(
         [AllowEmptyString()][string]$Message,
         [bool]$AppendAdvisory = $true,
+        [bool]$UseChinese = $false,
         [ValidateRange(20, 1000)][int]$MaxLines = 120,
         [ValidateRange(200, 20000)][int]$MaxChars = 4000
     )
@@ -792,7 +793,12 @@ function Format-DispatchMessage {
     $result.rule_summary = ($ruleSummaryParts.ToArray() -join ';')
 
     if ([bool]$result.sanitized -and $AppendAdvisory) {
-        $advisory = 'Note: command palette or terminal transcript noise was detected and auto-filtered/truncated; diagnose the root cause before continuing the recovery flow.'
+        $advisory = if ($UseChinese) {
+            '注意：检测到命令面板或终端日志噪声，已自动过滤/截断。不得尝试修复或重试；失败即关闭，按当前结果如实上报。'
+        }
+        else {
+            'Note: command palette or terminal transcript noise was detected and auto-filtered/truncated. Do not attempt recovery or retry; fail-closed and report the outcome as-is.'
+        }
         if ([string]::IsNullOrWhiteSpace($result.message)) {
             $result.message = $advisory
         }
@@ -3974,7 +3980,7 @@ $eventReviewMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW
 $eventReviewLowDisturbMessageEn = 'Please take over ticket {0} (event={1}) in EVENT-REVIEW low-disturb text-receipt flow: read {3} first, run route_guard_command, and stop at concise text receipt plus handled_at. Do not run business_command, continue_watch_command, recovery, or restart unless route_guard classification explicitly allows and requires it.'
 $scriptFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on unattended script self-heal path (guard/trigger/dispatch/poll scripts), keep business source unchanged unless explicitly required by route. If eligible, execute business_resume immediately after script fix verification, then continue_watch_command and handled_at. Keep evidence concise and deterministic.'
 $scriptDiagnoseOnlyMessageEn = 'Please take over ticket {0} (event={1}) in SCRIPT-DIAGNOSE-ONLY flow: read {3} first and run route_guard_command. This ticket authorizes investigation and reporting only. Read the incident package, failure logs, start-file, related scripts, and relevant recent changes. Use only read-only inspection, parser/static checks, or side-effect-free dry runs. Do not edit any file, create a script, kill or restart any process, run business_resume or continue_watch_command, mutate the environment, or perform recovery. Report: observed symptom, first error, call chain, root cause with evidence paths, impact, confidence, proposed minimal file changes, validation commands, risks, and rollback approach. Explicitly state that no file or process was changed, then execute atomic_closeout_command exactly once and wait for the user decision.'
-$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code. Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool; never use inline Python/PowerShell, redirection, generic string replacement, or a formatter. Validate in order: SyntaxOnly load check, focused failing-op check when available, then progressive strict check for the current failing D round.
+$codeFixRecoveryMessageEn = 'Please take over ticket {0} (event={1}) in CODE-FIX dedicated flow: read {3} first, run route_guard_command, and execute only route.allowed_actions. Focus on source/task-definition mismatch or compile/verify failures; when the fix belongs to self-heal-generated output, modify the matching task-definition round under testdata (for example, B D4) instead of directly editing business source code. Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool; never use inline Python/PowerShell, redirection, generic string replacement, or a formatter. Validate in order: SyntaxOnly load check, focused failing-op check when available, then progressive strict check for the current failing D round. If a script fault is discovered while handling this code-fix ticket, stop the code-fix flow and reclassify it through the script policy: enter SCRIPT-FIX only when LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED is explicitly true; otherwise enter SCRIPT-DIAGNOSE-ONLY and do not edit files or control processes.
 
 Fix placement rules:
     [D1-D4 task-static phase failed: task-definition-mismatch]
@@ -4012,7 +4018,7 @@ $eventReviewMessageZh = '请接管票据 {0}（event={1}），进入“事件评
 $eventReviewLowDisturbMessageZh = '请接管票据 {0}（event={1}），进入“事件评审-低干扰文本回执流程”：先阅读 {3}，执行 route_guard_command 后即止于“简短文本结论 + handled_at”。除非 route_guard 分类明确允许且要求，否则不得执行 business_command、continue_watch_command、恢复或重启动作。'
 $scriptFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“脚本自愈专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理无人值守脚本链路（guard/trigger/dispatch/poll）问题，除非路由明确允许，不要混入业务源码改动。修复后做有界验证，满足条件立即 business_resume -> continue_watch_command -> handled_at。'
 $scriptDiagnoseOnlyMessageZh = '请接管票据 {0}（event={1}），进入“脚本故障排查专用流程”：先阅读 {3} 并执行 route_guard_command。本票只授权排查与汇报。只读检查事故包、失败日志、start-file、相关脚本及近期相关变更；仅允许无副作用的语法解析、静态检查或 dry-run。禁止修改任何文件、创建脚本、停止或重启任何进程、执行 business_resume/continue_watch_command、改变环境或实施恢复。聊天报告必须包含：故障现象、首次错误、调用链、根因及证据路径、影响范围、置信度、建议修改文件与最小方案、验证命令、风险和回滚方法；并明确声明“本票未修改任何文件，未停止或重启任何进程”。最后只执行一次 atomic_closeout_command，然后等待用户决定下一步。'
-$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改。验证顺序固定为 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查。
+$codeFixRecoveryMessageZh = '请接管票据 {0}（event={1}），进入“代码修复专用流程”：先阅读 {3}，执行 route_guard_command，并严格按 route.allowed_actions 执行。仅处理源码/任务定义不匹配、编译或校验失败，不与脚本修复流程混用；如果这是自愈生成物修复，就修改 testdata 下对应阶段任务定义的对应轮次（例如 B D4），不要直接改业务源码。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改。验证顺序固定为 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查。若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类：仅当 LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED 显式为 true 时进入“脚本自愈专用流程”，否则进入“脚本故障排查专用流程”，不得修改文件或控制进程。
 
 修复位置规则：
     [D1-D4 task-static 阶段失败：task-definition-mismatch]
@@ -4039,7 +4045,10 @@ if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-
     $kindTag = $briefFailureKind.ToLowerInvariant()
     $roundIsD = ($roundTag -match '^D[1-4]$')
     $roundIsV = ($roundTag -match '^V[1-4]$')
-    $isCompileVerifyFault = $kindTag -in @('compile-failure', 'compile-warning', 'verify-failure')
+    $isCompileVerifyFault = (
+        $kindTag -in @('compile-failure', 'compile-warning', 'verify-failure', 'compile-or-test-failure') -or
+        $briefFailurePhase.ToLowerInvariant() -in @('compile', 'compile-or-test', 'verify', 'validation')
+    )
     $isTaskStaticFault = ($briefFailurePhase.ToLowerInvariant() -eq 'task-static' -or $kindTag -eq 'task-definition-mismatch')
 
     if ($roundIsD -and $isCompileVerifyFault) {
@@ -4088,8 +4097,8 @@ Always run static check (tools/test/check_task_definition_static.ps1 -TaskDefini
 
 $gitGuardSuffixEn = ' During unattended execution, do not run git commit or git push unless explicitly authorized by the user in the same turn.'
 $gitGuardSuffixZh = ' 无人值守运行期间禁止执行 git commit / git push；仅在用户同轮明确授权后才可提交或推送。'
-$passiveWaitSuffixEn = ' Follow every ticket step without omission. For an event ticket, execute atomic_closeout_command exactly once and claim closure only from its successful machine facts; split receipt fields are audit-only and must not be run one by one. After this ticket is handled, wait silently for the next event/status ticket delivered by the existing guard/trigger/dispatch chain. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or long-running/cross-round monitoring commands; these can interrupt closure when the next ticket arrives. After restarting a main process, execute atomic closeout and pass all machine-fact gates within 3 minutes, then return to silent passive waiting; this limit is not a monitoring window.'
-$passiveWaitSuffixZh = ' 严格按票据流程执行，不遗漏任何操作；事件票最终只执行一次 atomic_closeout_command，仅凭其成功的机器事实声称闭环，旧分步回执字段只作审计兼容、不得逐条执行。本票闭环后，静默等待现有 guard/trigger/dispatch 链投送下一张事件票或状态票；不得创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，这些命令可能在下一张事件票到达时中断收尾。重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后回到静默被动等待；该时限不是巡检窗口。'
+$passiveWaitSuffixEn = ' Follow every ticket step without omission. At the end of each event ticket, execute atomic_closeout_command exactly once; do not execute it again after either success or failure. Claim closure only from its successful machine facts; split receipt fields are audit-only and must not be run one by one. After this ticket is handled, wait silently for the next event/status ticket delivered by the existing guard/trigger/dispatch chain. Do not create or run scheduled monitoring scripts, polling loops, background jobs, watchers, persistent PowerShell commands, or long-running/cross-round monitoring commands; these can interrupt closure when the next ticket arrives. After restarting a main process, execute atomic closeout and pass all machine-fact gates within 3 minutes, then return to silent passive waiting; this limit is not a monitoring window.'
+$passiveWaitSuffixZh = ' 严格按票据流程执行，不遗漏任何操作；每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行。仅凭其成功的机器事实声称闭环，旧分步回执字段只作审计兼容、不得逐条执行。本票闭环后，静默等待现有 guard/trigger/dispatch 链投送下一张事件票或状态票；不得创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，这些命令可能在下一张事件票到达时中断收尾。重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后回到静默被动等待；该时限不是巡检窗口。'
 
 function Add-GitGuardConstraint {
     param(
@@ -4536,10 +4545,10 @@ if ($eventNormalized -ne 'running-status-report') {
     }
     else {
         $machineFactCloseoutRule = if ($useChineseDispatchMessage) {
-            ('机器事实闭环门禁：最终回复前必须执行以下唯一原子收尾命令：{0}。仅当命令退出码为 0 且 JSON 同时满足 success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true、handled_at 格式有效时，才可从该机器输出原样回传 handled_at 并声称闭环；自然语言声明不能替代此门禁。' -f $atomicCloseoutCommand)
+            ('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行。最终回复前执行以下唯一原子收尾命令：{0}。仅当命令退出码为 0 且 JSON 同时满足 success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true、handled_at 格式有效时，才可从该机器输出原样回传 handled_at 并声称闭环；自然语言声明不能替代此门禁。' -f $atomicCloseoutCommand)
         }
         else {
-            ('Machine-fact closeout gate: before the final reply, execute this single atomic closeout command: {0}. Claim closure and copy handled_at verbatim from machine output only when exit code is 0 and JSON reports success=true, processed=true, ledger_status=done, receipt_valid=true, closure_pass=true, and a valid handled_at; natural-language claims do not satisfy this gate.' -f $atomicCloseoutCommand)
+            ('Machine-fact closeout gate: at the end of each event ticket, execute atomic_closeout_command exactly once; do not execute it again after either success or failure. Before the final reply, execute this single atomic closeout command: {0}. Claim closure and copy handled_at verbatim from machine output only when exit code is 0 and JSON reports success=true, processed=true, ledger_status=done, receipt_valid=true, closure_pass=true, and a valid handled_at; natural-language claims do not satisfy this gate.' -f $atomicCloseoutCommand)
         }
     }
 }
@@ -4556,7 +4565,7 @@ Write-DispatchLog ("dispatch_phase message_ready ticket={0} event={1} route_guar
 $dispatchMessage = $firstMessage
 $dispatchMessageMode = $runningStatusEffectiveMode
 
-$dispatchSanitizeResult = Format-DispatchMessage -Message $dispatchMessage -AppendAdvisory $true
+$dispatchSanitizeResult = Format-DispatchMessage -Message $dispatchMessage -AppendAdvisory $true -UseChinese ([bool]$useChineseDispatchMessage)
 $dispatchMessage = [string]$dispatchSanitizeResult.message
 $mandatoryReceiptPattern = '(?ms)(?:\r?\n){0,2}' + [regex]::Escape($mandatoryReceiptRule) + '\s*$'
 $dispatchMessage = [regex]::Replace($dispatchMessage.Trim(), $mandatoryReceiptPattern, '')
