@@ -2634,14 +2634,15 @@ function Invoke-IpcChatDispatch {
     }
 
     $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
-    $ipcPriority = if ($eventNormalized -eq 'running-status-report') { 'normal' } else { 'high' }
+    $normalPriorityEvents = @('running-status-report', 'a-pass-conclusion-b-started')
+    $ipcPriority = if ($eventNormalized -in $normalPriorityEvents) { 'normal' } else { 'high' }
     if ($null -ne $Settings -and $Settings.Contains('AI_CHAT_DISPATCH_IPC_PRIORITY')) {
         $configuredPriority = (Convert-ToSingleLineText -Text ([string]$Settings.AI_CHAT_DISPATCH_IPC_PRIORITY)).ToLowerInvariant()
-        if ($configuredPriority -in @('normal', 'high') -and $eventNormalized -eq 'running-status-report') {
+        if ($configuredPriority -in @('normal', 'high') -and $eventNormalized -in $normalPriorityEvents) {
             $ipcPriority = $configuredPriority
         }
-        elseif ($configuredPriority -eq 'normal' -and $eventNormalized -ne 'running-status-report') {
-            # Event-driven tickets are always high priority and are never downgraded by mode/settings.
+        elseif ($configuredPriority -eq 'normal' -and $eventNormalized -notin $normalPriorityEvents) {
+            # Actionable recovery tickets stay high priority and are never downgraded by mode/settings.
             $ipcPriority = 'high'
         }
     }

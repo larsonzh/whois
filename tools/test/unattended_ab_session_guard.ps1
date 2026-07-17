@@ -1351,6 +1351,64 @@ function Get-BRuntimeLogHint {
     return ''
 }
 
+function Resolve-RunDirFromRuntimeLog {
+    param([AllowEmptyString()][string]$RuntimeLogPath)
+
+    $resolvedRuntimeLog = Resolve-AnchorPath -Path $RuntimeLogPath
+    if ([string]::IsNullOrWhiteSpace($resolvedRuntimeLog) -or -not (Test-Path -LiteralPath $resolvedRuntimeLog)) {
+        return ''
+    }
+
+    try {
+        $outDirLine = @(Get-Content -LiteralPath $resolvedRuntimeLog -Encoding utf8 -Tail 220 -ErrorAction Stop | Where-Object {
+            [string]$_ -match '^\[DEV-VERIFY-MULTI\]\s+out_dir=(.+)$'
+        } | Select-Object -Last 1)
+        if ($outDirLine.Count -lt 1) {
+            return ''
+        }
+
+        $line = Convert-ToSingleLineText -Text ([string]$outDirLine[0])
+        if ($line -notmatch '^\[DEV-VERIFY-MULTI\]\s+out_dir=(.+)$') {
+            return ''
+        }
+
+        $candidate = Resolve-AnchorPath -Path ($Matches[1].Trim())
+        if ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) {
+            return ''
+        }
+
+        return (Convert-ToRepoRelativePath -Path $candidate)
+    }
+    catch {
+        return ''
+    }
+}
+
+function Resolve-RunDirAnchorForFailurePolicy {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [AllowEmptyString()][string]$CurrentRunDirAnchor,
+        [int]$BLaunchPid
+    )
+
+    $resolvedRunDirAnchor = Convert-ToSingleLineText -Text $CurrentRunDirAnchor
+    if ($BLaunchPid -le 0) {
+        return $resolvedRunDirAnchor
+    }
+
+    $bExitEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $BLaunchPid
+    if ($null -eq $bExitEvidence -or -not [bool]$bExitEvidence.Available -or -not [bool]$bExitEvidence.StartFileMatch -or -not [bool]$bExitEvidence.ProcessIdMatch) {
+        return $resolvedRunDirAnchor
+    }
+
+    $artifactRunDir = Resolve-RunDirFromRuntimeLog -RuntimeLogPath ([string]$bExitEvidence.RuntimeLogPath)
+    if (-not [string]::IsNullOrWhiteSpace($artifactRunDir)) {
+        return $artifactRunDir
+    }
+
+    return $resolvedRunDirAnchor
+}
+
 function Get-BRuntimeTailEvidence {
     param(
         [AllowEmptyString()][string]$RuntimeLogPath,
@@ -1899,7 +1957,7 @@ function Get-StagePolicy {
     $stageLower = $Stage.ToLowerInvariant()
     $taskDefinitionKey = if ($Stage -eq 'B') { 'B_TASK_DEFINITION' } else { 'A_TASK_DEFINITION' }
     $restartEventSuffix = if ($Stage -eq 'B') { 'b' } else { 'a' }
-    $restartLauncherSwitch = if ($Stage -eq 'B') { '-EnableBMonitorRestart' } else { '-StartMonitors' }
+    $restartLauncherSwitch = if ($Stage -eq 'B') { '' } else { '-StartMonitors' }
     $restartIncludeRoundInLog = ($Stage -eq 'A')
     $preferredStage = $Stage
     $guardRecoveryAction = ('restart-{0}' -f $restartEventSuffix)
@@ -5630,12 +5688,9 @@ try {
                     $aSnapshotFinalHint = Convert-ToSingleLineText -Text ([string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
                 }
 
-                $aPassConclusionDedup = ("{0}|{1}|{2}|{3}|{4}|{5}" -f
+                $aPassConclusionDedup = ("{0}|{1}|{2}" -f
                     $sessionStatus,
                     $aStatus,
-                    $bStatus,
-                    $runDirAnchor,
-                    $bLaunchPidForConclusion,
                     $aSnapshotFinalHint)
 
                 # B runs in a different directory from A. The handover ticket requires
@@ -5656,7 +5711,7 @@ try {
                     }
 
                     $aPassConclusionAction = 'Provide an explicit A PASS completion conclusion with a concise A-stage run summary (key checkpoints and final evidence), then report that B-stage has started.'
-                    $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'info' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
+                    $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'normal' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                     if ((Get-TicketResultQueuedFlag -TicketResult $aPassConclusionTicketResult) -or (Get-TicketResultReason -TicketResult $aPassConclusionTicketResult) -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
                     }
@@ -6450,8 +6505,12 @@ try {
                     Start-Sleep -Seconds $PollSec
                     continue
                 }
-                $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor
-                $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $runDirAnchor
+                $failureRunDirAnchor = Resolve-RunDirAnchorForFailurePolicy -Settings $settings -CurrentRunDirAnchor $runDirAnchor -BLaunchPid $bLaunchPid
+                if ($failureRunDirAnchor -ne $runDirAnchor) {
+                    Write-GuardLog ("failure_policy_run_dir_override old={0} new={1} source=b-exit-runtime-log pid={2}" -f $runDirAnchor, $failureRunDirAnchor, $bLaunchPid)
+                }
+                $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $failureRunDirAnchor
+                $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $failureRunDirAnchor
                 $knownInfraTransient = Test-KnownInfraTransientFailurePolicy -FailurePolicy $failurePolicy
                 $knownInfraTicketSuppressed = ([bool]$knownInfraTransient -and [bool]$suppressKnownInfraTickets)
                 $incidentRecommendedAction = 'Review incident evidence, report root cause plus remediation path first, then decide restart approval or agent-driven script/code fix workflow.'

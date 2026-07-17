@@ -451,6 +451,20 @@ $stageWindowRebindPass = ($stageWindowHasForceFlag -and $stageWindowHasRebindPol
 $stageWindowRebindReason = if ($stageWindowRebindPass) { 'stage-window-monitor-rebind-default-present' } else { 'missing-stage-window-monitor-rebind-default' }
 [void]$results.Add((Get-CaseResult -Name 'stage-window-monitor-rebind-default' -Pass $stageWindowRebindPass -Reason $stageWindowRebindReason))
 
+$guardBRestartUsesAutoRebind = $sessionGuardText.Contains("`$restartLauncherSwitch = if (`$Stage -eq 'B') { '' } else { '-StartMonitors' }") -and -not $sessionGuardText.Contains("`$restartLauncherSwitch = if (`$Stage -eq 'B') { '-EnableBMonitorRestart' } else { '-StartMonitors' }")
+$guardBRestartUsesAutoRebindReason = if ($guardBRestartUsesAutoRebind) { 'guard-b-restart-auto-rebind-present' } else { 'missing-guard-b-restart-auto-rebind' }
+[void]$results.Add((Get-CaseResult -Name 'guard-b-restart-auto-rebind' -Pass $guardBRestartUsesAutoRebind -Reason $guardBRestartUsesAutoRebindReason))
+
+$aPassReviewNormalPriority = $dispatchText.Contains("`$normalPriorityEvents = @('running-status-report', 'a-pass-conclusion-b-started')") -and $dispatchText.Contains("`$ipcPriority = if (`$eventNormalized -in `$normalPriorityEvents) { 'normal' } else { 'high' }") -and $dispatchText.Contains('Actionable recovery tickets stay high priority')
+$aPassReviewNormalPriorityReason = if ($aPassReviewNormalPriority) { 'a-pass-review-normal-priority-present' } else { 'missing-a-pass-review-normal-priority' }
+[void]$results.Add((Get-CaseResult -Name 'a-pass-review-normal-priority' -Pass $aPassReviewNormalPriority -Reason $aPassReviewNormalPriorityReason))
+
+$aPassReviewStableDedupNewShape = '$aPassConclusionDedup = ("{0}|{1}|{2}" -f'
+$aPassReviewStableDedupOldShape = '$aPassConclusionDedup = ("{0}|{1}|{2}|{3}|{4}|{5}" -f'
+$aPassReviewStableDedup = $sessionGuardText.Contains('function Resolve-RunDirAnchorForFailurePolicy') -and $sessionGuardText.Contains('failure_policy_run_dir_override') -and $sessionGuardText.Contains($aPassReviewStableDedupNewShape) -and -not $sessionGuardText.Contains($aPassReviewStableDedupOldShape)
+$aPassReviewStableDedupReason = if ($aPassReviewStableDedup) { 'a-pass-review-stable-dedup-present' } else { 'missing-a-pass-review-stable-dedup' }
+[void]$results.Add((Get-CaseResult -Name 'a-pass-review-stable-dedup' -Pass $aPassReviewStableDedup -Reason $aPassReviewStableDedupReason))
+
 # Case 7: stage window must emit monitor continuity timeline artifacts.
 $stageWindowHasTimelinePath = $stageWindowText.Contains('MONITOR_CHAIN_TIMELINE') -and $stageWindowText.Contains('Get-MonitorTimelinePath')
 $stageWindowHasTimelineWriter = $stageWindowText.Contains('function Write-MonitorTimelineEvent')
