@@ -2145,6 +2145,7 @@ function New-TakeoverBrief {
     }
     $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
     $scriptFaultActionPolicy = if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' }
+    $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' }
 
     $lines = @(
         '# AB Takeover Brief',
@@ -2167,7 +2168,7 @@ function New-TakeoverBrief {
         ('event_queue_idempotent_policy={0}' -f 'process earliest unhandled in-session event tickets by created_at; skip pre-start events; if event missing mark done and continue until drained'),
         ('event_queue_scope_rule={0}' -f 'in-session only: do not consume event tickets created before current execution start baseline'),
         ('mode_restore_policy={0}' -f ('after event queue drained, return to previous work mode: {0}' -f $policyWorkMode)),
-        ('task_definition_check_order={0}' -f $(if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' })),
+        ('task_definition_check_order={0}' -f $taskDefinitionCheckOrder),
         ('task_definition_execution_engine={0}' -f 'independent task-static checker validates ops, replay, and postApplyAssertions and produces a hash-bound artifact; code-step only validates and atomically applies it'),
         ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),

@@ -334,38 +334,28 @@ $srcEncodingScript = Resolve-RepoPath -Path 'tools/dev/enforce_utf8_lf_src_chang
 $precheckScript = Resolve-RepoPath -Path 'tools/test/precheck_unattended_ab_start_file.ps1' -MustExist $true
 
 $staticCheckMessages = New-Object 'System.Collections.Generic.List[string]'
-if ($Stage -eq 'A') {
-    $aArgs = @(
-        '-TaskDefinitionFile', $resolvedATask,
-        '-RepoRoot', $repoRoot,
-        '-Policy', $taskStaticPrecheckPolicy,
-        '-RoundTag', 'D1',
-        '-OperationIndex', '1'
-    )
-    if ($taskStaticFailOnWarnings) {
-        $aArgs += '-FailOnWarnings'
+$stageTaskDefinition = if ($Stage -eq 'A') { $resolvedATask } else { $resolvedBTask }
+$syntaxCheckArgs = @(
+    '-TaskDefinitionFile', $stageTaskDefinition,
+    '-RepoRoot', $repoRoot,
+    '-Policy', $taskStaticPrecheckPolicy,
+    '-SyntaxOnly'
+)
+if ($taskStaticFailOnWarnings) {
+    $syntaxCheckArgs += '-FailOnWarnings'
+}
+
+$syntaxCheck = Invoke-PowerShellScriptStep -ScriptPath $staticCheckScript -Arguments $syntaxCheckArgs
+if ($syntaxCheck.ExitCode -ne 0) {
+    $reason = Get-LastMatchingLine -Lines $syntaxCheck.Lines -Pattern 'severity=error|warning_gate=fail|\[TASK-STATIC-CHECK\] invalid|\[TASK-STATIC-CHECK\] task definition|\[TASK-STATIC-CHECK\] target file'
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = Get-FirstMeaningfulLine -Lines $syntaxCheck.Lines
     }
 
-    $aCheck = Invoke-PowerShellScriptStep -ScriptPath $staticCheckScript -Arguments $aArgs
-    if ($aCheck.ExitCode -ne 0) {
-        $reason = Get-LastMatchingLine -Lines $aCheck.Lines -Pattern 'severity=error|warning_gate=fail|\[TASK-STATIC-CHECK\] invalid|\[TASK-STATIC-CHECK\] task definition|\[TASK-STATIC-CHECK\] target file'
-        if ([string]::IsNullOrWhiteSpace($reason)) {
-            $reason = Get-FirstMeaningfulLine -Lines $aCheck.Lines
-        }
-
-        if ($taskStaticPrecheckFailureMode -eq 'runtime-ticket') {
-            [void]$staticCheckMessages.Add(('A baseline static check deferred to runtime repair ticket: {0}' -f $reason))
-        }
-        else {
-            Write-ResultAndExit -Step 'task-static-check-a-baseline' -Status 'FAIL' -Reason $reason -OutputLines $aCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
-        }
-    }
-    else {
-        [void]$staticCheckMessages.Add(('A baseline static check passed: {0} scope=D1:op1' -f $resolvedATask))
-    }
+    Write-ResultAndExit -Step ('task-definition-syntax-check-{0}' -f $Stage.ToLowerInvariant()) -Status 'FAIL' -Reason $reason -OutputLines $syntaxCheck.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 else {
-    [void]$staticCheckMessages.Add('B stage launch-ready static check skipped by stage policy (runtime fail-fast enabled).')
+    [void]$staticCheckMessages.Add(('{0} task-definition SyntaxOnly load check passed: {1}' -f $Stage, $stageTaskDefinition))
 }
 
 $fieldSync = Invoke-PowerShellScriptStep -ScriptPath $fieldSyncScript -Arguments @(

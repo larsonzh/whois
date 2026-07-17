@@ -779,9 +779,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 该脚本内部固定顺序：
 - 检查目标 start-file
 - 读取并验证 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`
-- 按阶段执行静态体检：
-	- `Stage=A`：执行 A 基线静态体检（`A_TASK_DEFINITION` 的 `D1:op1`）
-	- `Stage=B`：跳过启动前静态体检（由运行期 fail-fast 静态门禁兜底）
+- 按阶段对当前任务定义执行 `-SyntaxOnly` 技术装载检查：`Stage=A` 检查 `A_TASK_DEFINITION`，`Stage=B` 检查 `B_TASK_DEFINITION`；不读取目标源码、不检查 D1-op1、不执行 operation 正则
 - 执行启动文件字段同步检查
 - 执行 `tools/test/status_ticket_mini_regression.ps1` 迷你回归门禁
 - 执行 `tools/test/route_guard_smoke_suite.ps1` 门禁
@@ -793,9 +791,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 执行预检并回填 `PRECHECK_*`
 
 返回约定：
-- 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤；唯一例外是 A 基线静态体检失败且显式配置 `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket`，此时记录延迟修复原因并继续完成其余 launch-ready 门禁。
+- 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤；任务定义 SyntaxOnly 装载失败必须硬阻断，不得通过 `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket` 延迟。
 - 全部通过，返回 `step=launch-ready`、`status=PASS`，表示当前 A/B 任务已具备启动条件。
-- `runtime-ticket` 例外下的 `PASS` 仅表示编排与监控链可启动，不表示任务定义静态检查通过。launcher 只打印启动预检失败和 `ticket=deferred_until_main_exit`，不得立即发票；主进程在 D1 整轮静态 gate 打印 `task_static_runtime_gate_begin` / `task_static_runtime_gate_result=FAIL`，于 code-step 前停止错误 operation并故障退出。guard 通过阶段进程快照确认主进程已停止后，才生成 `incident-captured` 自愈票；仍运行时只写 `task_definition_repair_wait`。达到 `TASK_STATIC_PRECHECK_MAX_FAILS` 后仍硬阻断。
+- D 轮 operation 的唯一匹配、替换、marker、收敛、replay 与断言检查由运行期独立 checker 执行。失败时主进程在 code-step 前停止，guard 通过阶段进程快照确认主进程已停止后，才生成 `incident-captured` 自愈票；仍运行时只写 `task_definition_repair_wait`。
 - 默认直接看终端最后一行：`AB_LAUNCH_READY_RESULT=PASS` 或 `AB_LAUNCH_READY_RESULT=FAIL`。
 
 AI 在此阶段的工作方式：
