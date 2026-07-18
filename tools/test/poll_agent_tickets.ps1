@@ -2549,6 +2549,16 @@ if ($acknowledgeTicketSet.Count -gt 0) {
     }
 }
 
+$ackOnlyMode = (
+    $acknowledgeTicketSet.Count -gt 0 -and
+    -not $IncludeStatusReports.IsPresent -and
+    [string]::IsNullOrWhiteSpace($selectedTicketIdFilter) -and
+    -not $markProcessedFlag
+)
+if ($ackOnlyMode) {
+    $tickets = @()
+}
+
 $continueWatchCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f $startFileRel
 
 $rows = New-Object 'System.Collections.Generic.List[object]'
@@ -3160,6 +3170,7 @@ $output = [ordered]@{
     ledger_path = (Convert-ToRepoRelativePath -Path $ledgerFilePath)
     ledger_schema = 'AB_AI_TICKET_LEDGER_V3'
     mark_processed = [bool]$markProcessedFlag
+    ack_only_mode = [bool]$ackOnlyMode
     drain_mode = $drainMode
     drain_reason = $drainReason
     recovery_drain_pending = [bool]$stateRecoveryDrainPending

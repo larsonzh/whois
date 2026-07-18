@@ -6,6 +6,7 @@
     [AllowEmptyString()][string]$LedgerPath = '',
     [AllowEmptyString()][string]$TakeoverRoot = '',
     [AllowEmptyString()][string]$AcknowledgeRetryBudgetUsed = '',
+    [ValidateRange(10, 600)][int]$AcknowledgeTimeoutSec = 120,
     [ValidateRange(1, 200)][int]$Last = 20,
     [switch]$AsJson
 )
@@ -30,6 +31,74 @@ function Convert-CommandOutputToJson {
     }
     catch {
         throw ("{0} returned invalid JSON: {1}" -f $Step, $_.Exception.Message)
+    }
+}
+
+function Convert-ToProcessArgument {
+    param([string]$Argument)
+
+    if ($null -eq $Argument) {
+        return '""'
+    }
+    if ($Argument.Length -eq 0) {
+        return '""'
+    }
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $escaped = $Argument -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+    return ('"{0}"' -f $escaped)
+}
+
+function Join-ProcessArgumentList {
+    param([string[]]$Arguments)
+
+    return [string]::Join(' ', @($Arguments | ForEach-Object { Convert-ToProcessArgument -Argument ([string]$_) }))
+}
+
+function Invoke-PowerShellWithTimeout {
+    param(
+        [string[]]$Arguments,
+        [int]$TimeoutSec
+    )
+
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    $process = $null
+    try {
+        $process = Start-Process -FilePath 'powershell' -ArgumentList (Join-ProcessArgumentList -Arguments $Arguments) -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -NoNewWindow -PassThru
+        $completed = $process.WaitForExit($TimeoutSec * 1000)
+        if (-not $completed) {
+            try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
+            return [pscustomobject]@{
+                output = @()
+                exit_code = 124
+                timed_out = $true
+            }
+        }
+
+        $stdout = @()
+        $stderr = @()
+        if (Test-Path -LiteralPath $stdoutPath) {
+            $stdout = @(Get-Content -LiteralPath $stdoutPath -Encoding utf8 -ErrorAction SilentlyContinue)
+        }
+        if (Test-Path -LiteralPath $stderrPath) {
+            $stderr = @(Get-Content -LiteralPath $stderrPath -Encoding utf8 -ErrorAction SilentlyContinue)
+        }
+
+        return [pscustomobject]@{
+            output = @($stdout + $stderr)
+            exit_code = [int]$process.ExitCode
+            timed_out = $false
+        }
+    }
+    finally {
+        if ($null -ne $process) {
+            try { $process.Dispose() } catch { }
+        }
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -75,6 +144,8 @@ $result = [ordered]@{
     receipt_valid = $false
     closure_pass = $false
     poll_lock_busy = $false
+    acknowledge_timeout_ms = ($AcknowledgeTimeoutSec * 1000)
+    acknowledge_timed_out = $false
 }
 
 try {
@@ -103,8 +174,13 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($StatePath)) { $pollArgs += @('-StatePath', $StatePath) }
         if (-not [string]::IsNullOrWhiteSpace($LedgerPath)) { $pollArgs += @('-LedgerPath', $LedgerPath) }
 
-        $pollOutput = @(& powershell @pollArgs 2>&1)
-        $pollExitCode = $LASTEXITCODE
+        $pollRun = Invoke-PowerShellWithTimeout -Arguments $pollArgs -TimeoutSec $AcknowledgeTimeoutSec
+        $pollOutput = @($pollRun.output)
+        $pollExitCode = [int]$pollRun.exit_code
+        if ([bool]$pollRun.timed_out) {
+            $result.acknowledge_timed_out = $true
+            throw ("acknowledge timed out after {0}ms" -f ($AcknowledgeTimeoutSec * 1000))
+        }
         $poll = Convert-CommandOutputToJson -Output $pollOutput -Step 'acknowledge'
         $pollLockBusy = $false
         if ($poll.PSObject.Properties.Name -contains 'lock_busy') {
