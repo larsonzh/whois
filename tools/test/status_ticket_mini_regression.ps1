@@ -238,7 +238,7 @@ $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-co
 
 # Event tickets close through one machine-verified command; missing command data must fail closed.
 $atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false')
-$recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command')
+$recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command') -and $recoveryTransactionText.Contains('stage_main_process_verified') -and $recoveryTransactionText.Contains('business_command did not start stage-{0} main process within {1}ms') -and $recoveryTransactionText.Contains('latest_{0}_exit.json') -and $recoveryTransactionText.Contains('Test-ProcessFilteredByTerminalExitArtifact')
 $ps51FormatGuardUsesAst = $ps51FormatGuardText.Contains('[System.Management.Automation.Language.Parser]::ParseFile') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.BinaryExpressionAst]') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.TokenKind]::Format') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.IfStatementAst]')
 $ps51FormatGuardProbeRoot = Join-Path $outDir 'ps51_format_guard_runtime'
 $ps51FormatGuardBadRoot = Join-Path $ps51FormatGuardProbeRoot 'bad'
@@ -256,7 +256,7 @@ $takeoverProjectsAtomicCloseout = $ps51FormatGuardUsesAst -and $ps51FormatGuardR
 $pollProjectsAtomicCloseout = $pollText.Contains('function Get-AtomicCloseoutCommand') -and $pollText.Contains('function Get-RecoveryTransactionCommand') -and $pollText.Contains("`$order.Add('recovery_transaction_command')") -and $pollText.Contains("`$order.Add('atomic_closeout_command')") -and ([regex]::Matches($pollText, 'atomic_closeout_command = \(Get-AtomicCloseoutCommand')).Count -eq 2 -and $pollText.Contains("-not `$ledgerRecords.ContainsKey(`$ticketId) -and `$ticketById.ContainsKey(`$ticketId)") -and $pollText.Contains('Initialize-LedgerRecord -LedgerRecords $ledgerRecords -TicketId $ticketId') -and $statusOnlyAutoflowText.Contains("'atomic_closeout_command' { return @('handled_at', 'mark-handled') }") -and $statusOnlyAutoflowText.Contains("atomic_closeout_command = Get-ObjectPropertyString -InputObject `$selectedTicket -Name 'atomic_closeout_command'")
 $closureCheckerProjectsAtomicCloseout = $ticketClosureText.Contains('tools/test/complete_agent_ticket_closeout.ps1') -and $ticketClosureText.Contains('use the atomic closeout command instead of split acknowledgement') -and -not $ticketClosureText.Contains('-AcknowledgeTicketIds')
 $promptRejectsSplitCloseout = $promptDocText.Contains('其职责已由 recovery_transaction_command 或 atomic_closeout_command 统一覆盖') -and -not $promptDocText.Contains('也必须按 next_command_order 继续执行')
-$dispatchRequiresMachineFacts = $dispatchText.Contains('当前 brief 提供 recovery_transaction_command') -and $dispatchText.Contains('this brief provides recovery_transaction_command') -and $dispatchText.Contains('同时缺少 recovery_transaction_command 与 atomic_closeout_command') -and $dispatchText.Contains('both recovery_transaction_command and atomic_closeout_command are missing') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
+$dispatchRequiresMachineFacts = $dispatchText.Contains('当前 brief 提供 recovery_transaction_command') -and $dispatchText.Contains('this brief provides recovery_transaction_command') -and $dispatchText.Contains('本地验证通过后不得停下') -and $dispatchText.Contains('do not stop at local validation') -and $dispatchText.Contains('pre_restart_launch_ready_command') -and $dispatchText.Contains('最终聊天回复必须以独立末行 `handled_at: YYYY-MM-DD HH:mm:ss` 结束') -and $dispatchText.Contains('final chat reply must end with a standalone line `handled_at: YYYY-MM-DD HH:mm:ss`') -and $dispatchText.Contains('同时缺少 recovery_transaction_command 与 atomic_closeout_command') -and $dispatchText.Contains('both recovery_transaction_command and atomic_closeout_command are missing') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
 $dispatchRoutesDiscoveredScriptFault = $dispatchText.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchText.Contains('If a true script fault is discovered while handling this code-fix ticket, stop the code-fix flow') -and $dispatchText.Contains('structured child result or exit_code exists')
 $dispatchRecognizesCompileOrTestFailure = $dispatchText.Contains("'compile-or-test-failure'") -and $dispatchText.Contains("'compile-or-test'")
 $guardClassifiesStructuredValidationBeforeScriptStack = $sessionGuardText.Contains('$markerRegistry = [ordered]@{') -and $sessionGuardText.Contains('StructuredCodeValidation') -and $sessionGuardText.Contains('StructuredChildExit') -and $sessionGuardText.Contains('WrapperStack') -and $sessionGuardText.Contains('PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS') -and $sessionGuardText.Contains("if (-not [string]::IsNullOrWhiteSpace(`$structuredCodeEvidence))") -and $sessionGuardText.Contains("`$result.Evidence = ('validation={0}' -f `$structuredCodeEvidence)") -and -not $sessionGuardText.Contains("`$scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置")
@@ -524,6 +524,74 @@ $pollRuntimeConfidenceOk = ($pollRuntimeHasConfidence -and ([double]$pollRuntime
 $pollRuntimePass = ($pollRuntimeHasTriagedSummary -and $pollRuntimeHasTopCause -and $pollRuntimeHasEvidenceHint -and $pollRuntimeHasActionHint -and $pollRuntimeHasConfidence -and $pollRuntimeConfidenceOk)
 $pollRuntimeReason = if ($pollRuntimePass) { 'poll-triage-runtime-json-present' } else { 'missing-poll-triage-runtime-json' }
 [void]$results.Add((Get-CaseResult -Name 'poll-triage-runtime-json' -Pass $pollRuntimePass -Reason $pollRuntimeReason))
+
+# Recovery transaction needs a targeted poll path: recovery-drain must not hide the explicitly selected incident ticket.
+$pollSelectRoot = Join-Path $outDir 'poll_select_ticket_drain'
+New-Item -ItemType Directory -Path $pollSelectRoot -Force | Out-Null
+$pollSelectTicketId = 'T-MINI-SELECT-DRAIN'
+$pollSelectQueue = Join-Path $pollSelectRoot 'agent_tickets.jsonl'
+$pollSelectState = Join-Path $pollSelectRoot 'poll_state.json'
+$pollSelectLedger = Join-Path $pollSelectRoot 'ledger.json'
+$pollSelectTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = $pollSelectTicketId
+    created_at = '2026-07-18 19:00:00'
+    source = 'status-ticket-mini-regression'
+    event = 'incident-captured'
+    severity = 'high'
+    requires_confirmation = $false
+    start_file = 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
+    queue_path = 'out/artifacts/status_ticket_mini_regression/poll_select_ticket_drain/agent_tickets.jsonl'
+    session_final_status = 'FAIL'
+    a_final_status = 'FAIL'
+    b_final_status = 'NOT_RUN'
+    preferred_stage = 'A'
+    main_round = 'D1'
+    failure_phase = 'task-static'
+    failure_kind = 'task-definition-mismatch'
+    failure_category = 'task-definition-mismatch'
+    failure_source = 'synthetic-D1.log'
+    failure_evidence = '[TASK-STATIC-CHECK] severity=error detail=synthetic'
+    self_healable = $true
+    non_recoverable_env = $false
+    recommended_action = 'synthetic code-fix'
+}
+Write-Utf8BomText -Path $pollSelectQueue -Text (($pollSelectTicket | ConvertTo-Json -Depth 8 -Compress) + "`n")
+Write-Utf8BomText -Path $pollSelectState -Text (([ordered]@{
+            schema = 'AB_AI_TICKET_POLL_STATE_V1'
+            processed_ids = @()
+            recovery_drain_pending = $true
+            last_drain_at = ''
+            last_recovery_drain_at = ''
+            event_queue_floor_at = '2026-01-01 00:00:00'
+            event_queue_floor_source = 'mini-regression'
+            event_queue_skip_existing_on_start = $true
+        } | ConvertTo-Json -Depth 8) + "`n")
+Write-Utf8BomText -Path $pollSelectLedger -Text (([ordered]@{
+            schema = 'AB_AI_TICKET_LEDGER_V3'
+            records = @()
+        } | ConvertTo-Json -Depth 8) + "`n")
+$pollSelectRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollSelectQueue -StatePath $pollSelectState -LedgerPath $pollSelectLedger -SelectTicketId $pollSelectTicketId -Last 20 -AsJson | Out-String
+$pollSelectJson = $null
+try {
+    $pollSelectJson = $pollSelectRaw | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    $pollSelectJson = $null
+}
+$pollSelectRows = @(if ($null -ne $pollSelectJson) { @($pollSelectJson.rows) } else { @() })
+$pollSelectRow = if ($pollSelectRows.Count -gt 0) { $pollSelectRows[0] } else { $null }
+$pollSelectRuntimePass = (
+    $null -ne $pollSelectJson -and
+    [string]$pollSelectJson.drain_mode -eq 'recovery-drain' -and
+    [string]$pollSelectJson.select_ticket_id -eq $pollSelectTicketId -and
+    $null -ne $pollSelectRow -and
+    [string]$pollSelectRow.ticket_id -eq $pollSelectTicketId -and
+    -not [string]::IsNullOrWhiteSpace([string]$pollSelectRow.recovery_transaction_command) -and
+    @($pollSelectRow.next_command_order) -contains 'recovery_transaction_command'
+)
+$pollSelectRuntimeReason = if ($pollSelectRuntimePass) { 'poll-select-ticket-drain-runtime-present' } else { 'poll-select-ticket-drain-runtime-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'poll-select-ticket-drain-runtime' -Pass $pollSelectRuntimePass -Reason $pollSelectRuntimeReason))
 
 # Case 10: runtime poll ordering must place route guard first for status-ticket execution.
 $pollOrderQueue = Join-Path $outDir 'poll_next_command_order_queue.jsonl'

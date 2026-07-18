@@ -87,6 +87,267 @@ function Convert-CommandOutputToJson {
     }
 }
 
+function Read-KeyValueFile {
+    param([string]$Path)
+
+    $values = @{}
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return $values
+    }
+
+    foreach ($line in @(Get-Content -LiteralPath $Path -Encoding utf8)) {
+        $text = [string]$line
+        $index = $text.IndexOf('=')
+        if ($index -le 0) {
+            continue
+        }
+
+        $key = (Convert-ToSingleLineText -Text $text.Substring(0, $index))
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            continue
+        }
+
+        $values[$key] = $text.Substring($index + 1).Trim()
+    }
+
+    return $values
+}
+
+function Resolve-RepoPath {
+    param(
+        [string]$RepoRoot,
+        [AllowEmptyString()][string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        if ([System.IO.Path]::IsPathRooted($Path)) {
+            return [System.IO.Path]::GetFullPath($Path)
+        }
+
+        return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+    }
+    catch {
+        return ''
+    }
+}
+
+function Read-StageExitEvidence {
+    param(
+        [AllowEmptyString()][string]$Stage,
+        [AllowEmptyString()][string]$StartFilePath
+    )
+
+    $stageToken = (Convert-ToSingleLineText -Text $Stage).ToUpperInvariant()
+    $result = [ordered]@{
+        Available = $false
+        Stage = $stageToken
+        ProcessId = 0
+        Result = ''
+        GeneratedAt = ''
+        StartFileMatch = $false
+        ArtifactPath = ''
+    }
+
+    if ($stageToken -notin @('A', 'B')) {
+        return [pscustomobject]$result
+    }
+
+    $artifactPath = Join-Path $repoRoot (Join-Path 'out\artifacts\ab_stage_exit' ('latest_{0}_exit.json' -f $stageToken.ToLowerInvariant()))
+    $result.ArtifactPath = $artifactPath
+    if (-not (Test-Path -LiteralPath $artifactPath)) {
+        return [pscustomobject]$result
+    }
+
+    try {
+        $payload = Get-Content -LiteralPath $artifactPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $result.Available = $true
+        $result.Stage = (Convert-ToSingleLineText -Text ([string]$payload.stage)).ToUpperInvariant()
+        $parsedPid = 0
+        if ([int]::TryParse(([string]$payload.process_id), [ref]$parsedPid)) {
+            $result.ProcessId = [int]$parsedPid
+        }
+        $result.Result = (Convert-ToSingleLineText -Text ([string]$payload.result)).ToLowerInvariant()
+        $result.GeneratedAt = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
+
+        $artifactStartFile = Convert-ToSingleLineText -Text ([string]$payload.start_file_path)
+        if ([string]::IsNullOrWhiteSpace($artifactStartFile) -or [string]::IsNullOrWhiteSpace($StartFilePath)) {
+            $result.StartFileMatch = [string]::IsNullOrWhiteSpace($artifactStartFile)
+        }
+        else {
+            $expectedStartFile = [System.IO.Path]::GetFullPath($StartFilePath)
+            $actualStartFile = [System.IO.Path]::GetFullPath($artifactStartFile)
+            $result.StartFileMatch = $actualStartFile.Equals($expectedStartFile, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+    }
+    catch {
+        $result.Available = $false
+    }
+
+    return [pscustomobject]$result
+}
+
+function Test-ProcessFilteredByTerminalExitArtifact {
+    param(
+        [AllowNull()][object]$Process,
+        [AllowNull()][object]$ExitEvidence
+    )
+
+    if ($null -eq $Process -or $null -eq $ExitEvidence) {
+        return $false
+    }
+
+    if (-not ([bool]$ExitEvidence.Available -and [bool]$ExitEvidence.StartFileMatch)) {
+        return $false
+    }
+
+    if ([string]$ExitEvidence.Result -notin @('pass', 'fail')) {
+        return $false
+    }
+
+    if ([int]$ExitEvidence.ProcessId -le 0 -or [int]$Process.ProcessId -ne [int]$ExitEvidence.ProcessId) {
+        return $false
+    }
+
+    $artifactGeneratedAt = [datetime]::MinValue
+    if (-not [datetime]::TryParse(([string]$ExitEvidence.GeneratedAt), [ref]$artifactGeneratedAt)) {
+        return $true
+    }
+
+    try {
+        $processCreatedAt = [datetime]::MinValue
+        if ($Process.CreationDate -is [datetime]) {
+            $processCreatedAt = [datetime]$Process.CreationDate
+        }
+        elseif (-not [datetime]::TryParse(([string]$Process.CreationDate), [ref]$processCreatedAt)) {
+            $processCreatedAt = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$Process.CreationDate)
+        }
+        return ($artifactGeneratedAt -ge $processCreatedAt.AddSeconds(-5))
+    }
+    catch {
+        return $true
+    }
+}
+
+function Find-TakeoverBriefPath {
+    param([string]$TicketId)
+
+    if ([string]::IsNullOrWhiteSpace($TicketId)) {
+        return ''
+    }
+
+    $takeoverRoot = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\takeover_requests'
+    if (-not (Test-Path -LiteralPath $takeoverRoot)) {
+        return ''
+    }
+
+    $safePattern = ('takeover_{0}_*.md' -f $TicketId)
+    $match = @(Get-ChildItem -LiteralPath $takeoverRoot -Filter $safePattern -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+    if ($match.Count -eq 0) {
+        return ''
+    }
+
+    return [string]$match[0].FullName
+}
+
+function Get-TransactionRowFromBrief {
+    param(
+        [string]$TicketId,
+        [string]$StartFileRel,
+        [AllowEmptyString()][string]$QueuePathRel,
+        [int]$Last
+    )
+
+    $briefPath = Find-TakeoverBriefPath -TicketId $TicketId
+    if ([string]::IsNullOrWhiteSpace($briefPath)) {
+        throw ("ticket {0} was not returned by poll_agent_tickets.ps1 and takeover brief was not found" -f $TicketId)
+    }
+
+    $brief = Read-KeyValueFile -Path $briefPath
+    $briefTicket = Convert-ToSingleLineText -Text ([string]$brief['ticket_id'])
+    if ($briefTicket -ne $TicketId) {
+        throw ("takeover brief ticket mismatch: expected {0}, got {1}" -f $TicketId, $briefTicket)
+    }
+
+    $stage = (Convert-ToSingleLineText -Text ([string]$brief['business_command_stage'])).ToUpperInvariant()
+    if ($stage -notin @('A', 'B')) {
+        $stage = (Convert-ToSingleLineText -Text ([string]$brief['preferred_stage'])).ToUpperInvariant()
+    }
+    if ($stage -notin @('A', 'B')) {
+        $stage = 'A'
+    }
+
+    $queueForCommand = Convert-ToSingleLineText -Text $QueuePathRel
+    if ([string]::IsNullOrWhiteSpace($queueForCommand)) {
+        $queueForCommand = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    }
+
+    return [pscustomobject]@{
+        ticket_id = $TicketId
+        event = [string]$brief['event']
+        route_guard_command = [string]$brief['route_guard_command']
+        business_command = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $stage, $StartFileRel)
+        continue_watch_command = ''
+        atomic_closeout_command = [string]$brief['atomic_closeout_command']
+        handled_receipt_command = [string]$brief['handled_receipt_command']
+        validate_receipt_command = [string]$brief['validate_receipt_command']
+        ticket_closure_check_command = [string]$brief['ticket_closure_check_command']
+        event_dedup_health_check_command = [string]$brief['event_dedup_health_check_command']
+        final_status_closeout_command = [string]$brief['final_status_closeout_command']
+        final_status_closeout_apply_ack_command = [string]$brief['final_status_closeout_apply_ack_command']
+        source = 'takeover-brief-fallback'
+        queue_path = $queueForCommand
+        last = $Last
+    }
+}
+
+function Get-BusinessCommandStage {
+    param([AllowEmptyString()][string]$CommandLine)
+
+    $text = Convert-ToSingleLineText -Text $CommandLine
+    if ($text -match '(?i)(?:^|\s)-Stage\s+([AB])(?:\s|$)') {
+        return $matches[1].ToUpperInvariant()
+    }
+
+    return ''
+}
+
+function Test-StageMainProcessRunning {
+    param([AllowEmptyString()][string]$Stage)
+
+    $processes = @(Get-StageMainProcesses -Stage $Stage)
+    return ($processes.Count -gt 0)
+}
+
+function Get-StageMainProcesses {
+    param([AllowEmptyString()][string]$Stage)
+
+    $stageToken = (Convert-ToSingleLineText -Text $Stage).ToUpperInvariant()
+    if ($stageToken -notin @('A', 'B')) {
+        return @()
+    }
+
+    $pattern = 'start_dev_verify_fastmode_{0}\.ps1' -f $stageToken
+    $startFilePath = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile
+    $exitEvidence = Read-StageExitEvidence -Stage $stageToken -StartFilePath $startFilePath
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { [string]$_.CommandLine -match $pattern })
+    return @($processes | Where-Object { -not (Test-ProcessFilteredByTerminalExitArtifact -Process $_ -ExitEvidence $exitEvidence) })
+}
+
+function Get-StageMainProcessIdText {
+    param([AllowEmptyString()][string]$Stage)
+
+    $processes = @(Get-StageMainProcesses -Stage $Stage)
+    if ($processes.Count -eq 0) {
+        return ''
+    }
+
+    return ([string]::Join(',', @($processes | ForEach-Object { [string]$_.ProcessId })))
+}
+
 function Invoke-TransactionCommand {
     param(
         [string]$Name,
@@ -129,6 +390,43 @@ function Invoke-TransactionCommand {
     }
     if (-not $allowed) {
         throw ("{0} is not authorized by route guard allowed_actions" -f $Name)
+    }
+
+    if ($Name -eq 'business_command') {
+        $stage = Get-BusinessCommandStage -CommandLine $CommandLine
+        if (Test-StageMainProcessRunning -Stage $stage) {
+            $pidText = Get-StageMainProcessIdText -Stage $stage
+            $step.skipped = $true
+            $step.skip_reason = ('stage-{0}-already-running' -f $stage)
+            $step.exit_code = 0
+            $step.output = @($step.skip_reason, ('stage_main_pids={0}' -f $pidText))
+            $step.output_tail = @($step.skip_reason, ('stage_main_pids={0}' -f $pidText))
+            return [pscustomobject]$step
+        }
+
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle Normal -PassThru
+        $verifyTimeoutMs = 30000
+        $verifiedPidText = ''
+        while ($watch.ElapsedMilliseconds -lt $verifyTimeoutMs) {
+            if (Test-StageMainProcessRunning -Stage $stage) {
+                $verifiedPidText = Get-StageMainProcessIdText -Stage $stage
+                break
+            }
+
+            [System.Threading.Thread]::Sleep(500)
+        }
+        $watch.Stop()
+
+        if ([string]::IsNullOrWhiteSpace($verifiedPidText)) {
+            throw ('business_command did not start stage-{0} main process within {1}ms' -f $stage, $verifyTimeoutMs)
+        }
+
+        $step.exit_code = 0
+        $step.elapsed_ms = [int][Math]::Min([int]::MaxValue, $watch.ElapsedMilliseconds)
+        $step.output = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
+        $step.output_tail = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
+        return [pscustomobject]$step
     }
 
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -187,32 +485,53 @@ try {
 
     Push-Location $repoRoot
     try {
-        $pollArgs = @(
+        $row = $null
+        try {
+            $queueForBrief = $QueuePath
+            if ([string]::IsNullOrWhiteSpace($queueForBrief)) {
+                $queueForBrief = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+            }
+            $row = Get-TransactionRowFromBrief -TicketId $ticket -StartFileRel $StartFile -QueuePathRel $queueForBrief -Last $Last
+        }
+        catch {
+            $row = $null
+        }
+
+        if ($null -eq $row) {
+            $pollArgs = @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass',
             '-File', (Join-Path $PSScriptRoot 'poll_agent_tickets.ps1'),
             '-StartFile', $StartFile,
             '-IncludeStatusReports',
+            '-EnableFallbackStatus', 'false',
+            '-SelectTicketId', $ticket,
+            '-AllowSelectedProcessedTicket',
             '-Last', [string]$Last,
             '-AsJson'
-        )
-        if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $pollArgs += @('-QueuePath', $QueuePath) }
-        $pollOutput = @(& powershell @pollArgs 2>&1)
-        $pollExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-        if ($pollExitCode -ne 0) {
-            throw ("poll exited with code {0}" -f $pollExitCode)
-        }
-
-        $poll = Convert-CommandOutputToJson -Output $pollOutput -Step 'poll'
-        $row = $null
-        foreach ($candidate in @($poll.rows)) {
-            $candidateId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $candidate -Name 'ticket_id')
-            if ($candidateId -eq $ticket) {
-                $row = $candidate
-                break
+            )
+            if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $pollArgs += @('-QueuePath', $QueuePath) }
+            $pollOutput = @(& powershell @pollArgs 2>&1)
+            $pollExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            if ($pollExitCode -ne 0) {
+                throw ("poll exited with code {0}" -f $pollExitCode)
             }
-        }
-        if ($null -eq $row) {
-            throw ("ticket {0} was not returned by poll_agent_tickets.ps1" -f $ticket)
+
+            $poll = Convert-CommandOutputToJson -Output $pollOutput -Step 'poll'
+            foreach ($candidate in @($poll.rows)) {
+                $candidateId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $candidate -Name 'ticket_id')
+                if ($candidateId -eq $ticket) {
+                    $row = $candidate
+                    break
+                }
+            }
+
+            if ($null -eq $row) {
+                $queueForFallback = $QueuePath
+                if ([string]::IsNullOrWhiteSpace($queueForFallback)) {
+                    $queueForFallback = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+                }
+                $row = Get-TransactionRowFromBrief -TicketId $ticket -StartFileRel $StartFile -QueuePathRel $queueForFallback -Last $Last
+            }
         }
 
         $result.event = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'event')

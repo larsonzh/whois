@@ -12,6 +12,8 @@
     [AllowNull()][object]$MarkProcessed = $false,
     [AllowNull()][object]$EnableFallbackStatus = $true,
     [AllowNull()][object]$EventPolicyStrict = $null,
+    [AllowEmptyString()][string]$SelectTicketId = '',
+    [switch]$AllowSelectedProcessedTicket,
     [AllowEmptyString()][string]$AcknowledgeTicketIds = '',
     [AllowEmptyString()][string]$AcknowledgeRetryBudgetUsed = '',
     [switch]$AsJson
@@ -2425,6 +2427,7 @@ foreach ($ticketId in @(Get-NormalizedListValue -Value $AcknowledgeTicketIds)) {
 }
 
 $ackRetryBudgetUsed = Convert-ToRetryBudgetUsedValue -Value $AcknowledgeRetryBudgetUsed
+$selectedTicketIdFilter = Convert-ToSingleLineText -Text $SelectTicketId
 
 $tickets = @(Get-TicketsFromQueue -Path $queueFilePath)
 $ticketById = @{}
@@ -2432,6 +2435,11 @@ $expectedRetryBudgetUsedByTicket = @{}
 foreach ($ticket in $tickets) {
     $ticketId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'ticket_id')
     if ([string]::IsNullOrWhiteSpace($ticketId)) {
+        continue
+    }
+
+    $isSelectedTicketFilterMatch = -not [string]::IsNullOrWhiteSpace($selectedTicketIdFilter) -and $ticketId -eq $selectedTicketIdFilter
+    if (-not [string]::IsNullOrWhiteSpace($selectedTicketIdFilter) -and -not $isSelectedTicketFilterMatch) {
         continue
     }
 
@@ -2618,7 +2626,7 @@ foreach ($ticket in $tickets) {
     $ledgerRecord = $ledgerRecords[$ticketId]
     $currentStatus = Convert-ToSingleLineText -Text ([string]$ledgerRecord.status)
 
-    if ($processedSet.Contains($ticketId)) {
+    if ($processedSet.Contains($ticketId) -and -not ($isSelectedTicketFilterMatch -and $AllowSelectedProcessedTicket.IsPresent)) {
         if ([string]$ledgerRecord.status -ne 'done') {
             Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At (Get-NowText) -Note 'legacy-processed-id-skip'
             Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
@@ -2627,7 +2635,7 @@ foreach ($ticket in $tickets) {
         continue
     }
 
-    if ($currentStatus -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')) {
+    if ($currentStatus -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded') -and -not ($isSelectedTicketFilterMatch -and $AllowSelectedProcessedTicket.IsPresent)) {
         continue
     }
 
@@ -2783,7 +2791,7 @@ foreach ($ticket in $tickets) {
         continue
     }
 
-    if ($isDrainMode -and -not $isDrainSafeEvent) {
+    if ($isDrainMode -and -not $isDrainSafeEvent -and -not $isSelectedTicketFilterMatch) {
         $drainDeferReason = if ($drainMode -eq 'recovery-drain') { 'recovery_drain_guard' } else { 'drain_guard' }
         Set-LedgerDeferred -LedgerRecords $ledgerRecords -TicketId $ticketId -NowAt (Get-NowText) -Reason $drainDeferReason
         $deferredThisPoll++
@@ -2903,7 +2911,7 @@ foreach ($ticket in $tickets) {
     }
 
     # Verify the ticket's event still exists before consuming action budget.
-    if (-not (Test-TicketEventExist -StartFileRel $startFileRel -TicketId $ticketId -QueuePath $queueFilePath)) {
+    if (-not $isSelectedTicketFilterMatch -and -not (Test-TicketEventExist -StartFileRel $startFileRel -TicketId $ticketId -QueuePath $queueFilePath)) {
         Update-LedgerStatus -LedgerRecords $ledgerRecords -TicketId $ticketId -Status 'done' -At (Get-NowText) -Note 'event_no_longer_present'
         Clear-LedgerRetrySchedule -LedgerRecords $ledgerRecords -TicketId $ticketId
         Write-TicketHandled -TicketId $ticketId -Action 'skip' -Outcome 'event_no_longer_present' -Notes 'Event not present when selected by poll.'
@@ -3157,6 +3165,8 @@ $output = [ordered]@{
     recovery_drain_pending = [bool]$stateRecoveryDrainPending
     include_status_reports = [bool]$IncludeStatusReports.IsPresent
     skipped_running_status_reports = $skippedStatusReports
+    select_ticket_id = $selectedTicketIdFilter
+    allow_selected_processed_ticket = [bool]$AllowSelectedProcessedTicket.IsPresent
     acknowledged_this_poll = $acknowledgedThisPoll
     claimed_this_poll = $claimedIds.Count
     done_this_poll = $doneThisPoll
