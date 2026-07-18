@@ -4,6 +4,7 @@
     [AllowEmptyString()][string]$QueuePath = '',
     [ValidateRange(1, 200)][int]$Last = 20,
     [ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240,
+    [switch]$ShowBusinessCommandWindow,
     [switch]$AsJson
 )
 
@@ -406,7 +407,8 @@ function Invoke-TransactionCommand {
         }
 
         $watch = [System.Diagnostics.Stopwatch]::StartNew()
-        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle Normal -PassThru
+        $launcherWindowStyle = if ($ShowBusinessCommandWindow.IsPresent) { 'Normal' } else { 'Hidden' }
+        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle $launcherWindowStyle -PassThru
         $verifyTimeoutMs = $BusinessCommandVerifyTimeoutSec * 1000
         $verifiedPidText = ''
         while ($watch.ElapsedMilliseconds -lt $verifyTimeoutMs) {
@@ -425,8 +427,8 @@ function Invoke-TransactionCommand {
 
         $step.exit_code = 0
         $step.elapsed_ms = [int][Math]::Min([int]::MaxValue, $watch.ElapsedMilliseconds)
-        $step.output = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
-        $step.output_tail = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
+        $step.output = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_window_style={0}' -f $launcherWindowStyle), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
+        $step.output_tail = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_window_style={0}' -f $launcherWindowStyle), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
         return [pscustomobject]$step
     }
 
