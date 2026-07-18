@@ -346,11 +346,11 @@ elseif ($failurePhase -eq 'task-static') {
 elseif ($failureCategory -eq 'script-fault') {
     $incidentLane = 'script-fix'
 }
-elseif ($failureCategory -eq 'code-or-unknown') {
-    $incidentLane = 'code-fix'
-}
 elseif ($failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
     $incidentLane = 'noncode'
+}
+elseif ($failureCategory -eq 'code-or-unknown') {
+    $incidentLane = 'code-fix'
 }
 elseif ($failureCategory -match '^task-definition(?:-|$)' -or $failureKind -eq 'task-definition-mismatch') {
     $incidentLane = 'code-fix'
@@ -376,7 +376,7 @@ if ($isPreStart) {
     $classification = 'pre-start-skip'
     $recommendedAction = 'mark-handled-and-continue'
     $allowedActions = @('handled_at')
-    $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'code-fix-workflow', 'business_command', 'continue_watch_command')
+    $blockedActions = @('business_resume', 'stage_restart', 'source_edit', 'code-fix-workflow', 'business_command', 'continue_watch_command', 'recovery_transaction_command')
     $reason = 'Ticket created before the current session initial launch time; skip as pre-start event.'
     [void]$decisionFactors.Add('pre_start_ticket=true')
     [void]$decisionFactors.Add(('session_initial_launch_at={0}' -f $sessionInitialLaunchAt))
@@ -402,7 +402,7 @@ elseif ($isStatusTicket) {
     $recommendedAction = 'report-observed-runtime-status-only'
     $mustAvoidStageRestart = $true
     $allowedActions = @('read-only-status-check', 'status-report', 'handled_at')
-    $blockedActions = @('self_heal', 'fault_handling', 'business_resume', 'stage_restart', 'guard_restart', 'source_edit', 'script_edit', 'new_non_tmp_script', 'business_command', 'continue_watch_command')
+    $blockedActions = @('self_heal', 'fault_handling', 'business_resume', 'stage_restart', 'guard_restart', 'source_edit', 'script_edit', 'new_non_tmp_script', 'business_command', 'continue_watch_command', 'recovery_transaction_command')
     $reason = 'Scheduled running-status tickets are observation-only and must not initiate repair, fault handling, process control, or recovery.'
     [void]$decisionFactors.Add('status_ticket=true')
     [void]$decisionFactors.Add('report_only=true')
@@ -414,7 +414,7 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-manual-wait'
             $recommendedAction = 'manual-recovery-gated-decision'
             $allowedActions = @('root-cause-report', 'manual-recovery-decision', 'handled_at')
-            $blockedActions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation', 'new_non_tmp_script')
+            $blockedActions = @('business_resume', 'continue_watch_command', 'recovery_transaction_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation', 'new_non_tmp_script')
             $reason = 'Manual-wait notice authorizes reporting and a recovery decision only; any recovery action requires a separate authorized incident ticket or explicit user authorization.'
             [void]$decisionFactors.Add('notice_event=manual-wait-paused')
             [void]$decisionFactors.Add('decision_gate=manual')
@@ -425,7 +425,7 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-budget-exhausted'
             $recommendedAction = 'budget-aware-rerun-scope-decision'
             $allowedActions = @('root-cause-report', 'rerun-scope-decision', 'handled_at')
-            $blockedActions = @('business_resume', 'continue_watch_command', 'unbounded-retry', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
+            $blockedActions = @('business_resume', 'continue_watch_command', 'recovery_transaction_command', 'unbounded-retry', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
             $reason = 'Budget notice authorizes reporting and rerun-scope decision only. An already-authorized pending repair ticket keeps its own priority and permissions; this notice grants no new repair or restart authority.'
             [void]$decisionFactors.Add('notice_event=budget-exhausted-stop')
             [void]$decisionFactors.Add('decision_gate=budget')
@@ -436,7 +436,7 @@ elseif ($isNoticeEvent) {
             $classification = 'notice-known-infra-transient'
             $recommendedAction = 'environment-stabilization-first'
             $allowedActions = @('root-cause-report', 'environment-stabilization-decision', 'handled_at')
-            $blockedActions = @('business_resume', 'continue_watch_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
+            $blockedActions = @('business_resume', 'continue_watch_command', 'recovery_transaction_command', 'stage_restart', 'source_edit', 'script_edit', 'task_definition_edit', 'environment_mutation')
             $reason = 'Infrastructure notice authorizes reporting and a stabilization decision only; environment changes and recovery require a separate authorized noncode incident ticket or explicit user authorization.'
             [void]$decisionFactors.Add('notice_event=known-infra-transient-stop')
             [void]$decisionFactors.Add('decision_gate=infra_stabilization')
@@ -451,7 +451,7 @@ elseif ($scriptDiagnoseOnly) {
     $mustTriggerBusinessResume = $false
     $mustAvoidStageRestart = $true
     $allowedActions = @('read-only-evidence', 'root-cause-analysis', 'remediation-proposal', 'chat-report', 'handled_at')
-    $blockedActions = @('script_edit', 'source_edit', 'task_definition_edit', 'self_heal', 'business_resume', 'stage_restart', 'guard_restart', 'process_kill', 'environment_mutation', 'new_script', 'continue_watch_command', 'business_command')
+    $blockedActions = @('script_edit', 'source_edit', 'task_definition_edit', 'self_heal', 'business_resume', 'stage_restart', 'guard_restart', 'process_kill', 'environment_mutation', 'new_script', 'continue_watch_command', 'business_command', 'recovery_transaction_command')
     $reason = 'Script self-heal is disabled by start-file policy; investigate and report only. File edits, process control, restart, resume, and environment mutation are forbidden.'
     [void]$decisionFactors.Add('incident_like=true')
     [void]$decisionFactors.Add('incident_lane=script-diagnose')
@@ -463,7 +463,7 @@ elseif ($isIncidentLike -and $canAutoResume) {
     $classification = ('incident-auto-resume-{0}' -f $incidentLane)
     $recommendedAction = ('trigger-{0}-business-resume-now' -f $incidentLane)
     $mustTriggerBusinessResume = $true
-    $allowedActions = @('root-cause-report', ('{0}-workflow' -f $incidentLane), 'business_resume', 'continue_watch_command', 'handled_at')
+    $allowedActions = @('root-cause-report', ('{0}-workflow' -f $incidentLane), 'business_resume', 'continue_watch_command', 'recovery_transaction_command', 'handled_at')
     $blockedActions = @('unbounded-retry', 'new_non_tmp_script_without_approval')
     $reason = ('Incident ticket uses {0} lane and is self-healable without budget/cooldown/nonrecoverable blockers.' -f $incidentLane)
     [void]$decisionFactors.Add('incident_like=true')

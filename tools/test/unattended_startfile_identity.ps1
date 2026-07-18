@@ -1718,6 +1718,113 @@ function Get-LatestTimestampedDirectory {
     return $candidates[0]
 }
 
+function Get-LatestDevVerifyMultiroundFinalStatus {
+    param(
+        [string]$RepoRoot,
+        [Nullable[datetime]]$After = $null
+    )
+
+    $result = [ordered]@{
+        Available = $false
+        OutDir = ''
+        FinalStatusPath = ''
+        Result = ''
+        ExitCode = -1
+        FailurePhase = ''
+        FailureKind = ''
+        FailureCategory = ''
+        FailureSourceLog = ''
+        FailedRoundTags = ''
+        FailedRoundDecision = ''
+        FailedRoundReason = ''
+        EffectiveFailureCategory = ''
+        EffectiveFailureReason = ''
+        Error = ''
+    }
+
+    $root = Join-Path $RepoRoot 'out\artifacts\dev_verify_multiround'
+    $latestDir = Get-LatestTimestampedDirectory -Root $root -After $After
+    if ($null -eq $latestDir) {
+        $result.Error = 'latest-run-dir-missing'
+        return [pscustomobject]$result
+    }
+
+    $finalStatusPath = Join-Path $latestDir.FullName 'final_status.json'
+    $result.OutDir = Convert-ToRepoRelativePath -Path $latestDir.FullName -RepoRoot $RepoRoot
+    $result.FinalStatusPath = Convert-ToRepoRelativePath -Path $finalStatusPath -RepoRoot $RepoRoot
+    if (-not (Test-Path -LiteralPath $finalStatusPath)) {
+        $result.Error = 'final-status-missing'
+        return [pscustomobject]$result
+    }
+
+    try {
+        $payload = Get-Content -LiteralPath $finalStatusPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $payload) {
+            $result.Error = 'final-status-empty'
+            return [pscustomobject]$result
+        }
+
+        $result.Available = $true
+        $result.Result = (Convert-ToSingleLineText -Text ([string]$payload.Result)).ToLowerInvariant()
+        $exitCode = -1
+        if ([int]::TryParse(([string]$payload.ExitCode), [ref]$exitCode)) {
+            $result.ExitCode = [int]$exitCode
+        }
+        $result.FailurePhase = (Convert-ToSingleLineText -Text ([string]$payload.FailurePhase)).ToLowerInvariant()
+        $result.FailureKind = (Convert-ToSingleLineText -Text ([string]$payload.FailureKind)).ToLowerInvariant()
+        $result.FailureCategory = (Convert-ToSingleLineText -Text ([string]$payload.FailureCategory)).ToLowerInvariant()
+        $result.FailureSourceLog = Convert-ToSingleLineText -Text ([string]$payload.FailureSourceLog)
+        $result.FailedRoundDecision = Convert-ToSingleLineText -Text ([string]$payload.FailedRoundDecision)
+        $result.FailedRoundReason = Convert-ToSingleLineText -Text ([string]$payload.FailedRoundReason)
+
+        $roundTags = @()
+        if ($payload.PSObject.Properties.Name -contains 'FailedRoundTags' -and $null -ne $payload.FailedRoundTags) {
+            $roundTags = @($payload.FailedRoundTags | ForEach-Object { Convert-ToSingleLineText -Text ([string]$_) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        }
+        $result.FailedRoundTags = ($roundTags -join ',')
+
+        $effectiveCategory = [string]$result.FailureCategory
+        if ([string]::IsNullOrWhiteSpace($effectiveCategory)) {
+            switch ([string]$result.FailureKind) {
+                'task-definition-mismatch' { $effectiveCategory = 'task-definition-mismatch' }
+                'environment-transient' { $effectiveCategory = 'noncode-transient' }
+                'verify-failure' { $effectiveCategory = 'code-or-unknown' }
+                'compile-failure' { $effectiveCategory = 'code-or-unknown' }
+                'compile-warning' { $effectiveCategory = 'code-or-unknown' }
+                'compile-or-test-failure' { $effectiveCategory = 'code-or-unknown' }
+                default {
+                    if ([string]$result.FailurePhase -eq 'code-step') {
+                        $effectiveCategory = 'noncode-transient'
+                    }
+                    elseif ([string]$result.FailurePhase -eq 'round-gate') {
+                        $effectiveCategory = 'noncode-transient'
+                    }
+                    else {
+                        $effectiveCategory = 'runner-fail'
+                    }
+                }
+            }
+        }
+        $result.EffectiveFailureCategory = $effectiveCategory
+
+        $reasonParts = New-Object 'System.Collections.Generic.List[string]'
+        [void]$reasonParts.Add(('multiround_result={0}' -f [string]$result.Result))
+        [void]$reasonParts.Add(('multiround_exit={0}' -f [int]$result.ExitCode))
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.FailurePhase)) { [void]$reasonParts.Add(('failure_phase={0}' -f [string]$result.FailurePhase)) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.FailureKind)) { [void]$reasonParts.Add(('failure_kind={0}' -f [string]$result.FailureKind)) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.EffectiveFailureCategory)) { [void]$reasonParts.Add(('failure_category={0}' -f [string]$result.EffectiveFailureCategory)) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.FailedRoundTags)) { [void]$reasonParts.Add(('failed_rounds={0}' -f [string]$result.FailedRoundTags)) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.FailureSourceLog)) { [void]$reasonParts.Add(('source={0}' -f [string]$result.FailureSourceLog)) }
+        [void]$reasonParts.Add(('final_status={0}' -f [string]$result.FinalStatusPath))
+        $result.EffectiveFailureReason = ($reasonParts -join ' ')
+    }
+    catch {
+        $result.Error = Convert-ToSingleLineText -Text $_.Exception.Message
+    }
+
+    return [pscustomobject]$result
+}
+
 function Resolve-TaskDefinitionRelativePath {
     param(
         [AllowEmptyString()][string]$InputName,

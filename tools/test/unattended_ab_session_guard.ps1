@@ -2224,19 +2224,26 @@ function Get-RoundFailureCategoryFromLogText {
         }
     }
 
-    $taskDefinitionFaultRegex = '(?im)(\[DEV-VERIFY-MULTI\]\s+round_task_static_gate_fail=|\[TASK-STATIC-CHECK\]\s+severity=(?:error|warn)\s+detail=)'
-    $scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
-    $networkTransientRegex = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
-    $codeFaultRegex = '(?im)(\[CODE-STEP\]\s+fatal_error=\s*[^\r\n]+|code-step\s+fatal\s+error[^\r\n]*|src[\\/].*\.(c|h):\d+:\d+:\s*error:[^\r\n]*|error\s+C\d{4}\b[^\r\n]*|undefined\s+reference\s+to[^\r\n]*|compilation\s+terminated[^\r\n]*|was\s+not\s+declared\s+in\s+this\s+scope[^\r\n]*|conflicting\s+types\s+for[^\r\n]*|redefinition\s+of[^\r\n]*|no\s+member\s+named[^\r\n]*|fatal\s+error:\s+[^\r\n]*)'
+    $markerRegistry = [ordered]@{
+        TaskDefinition = '(?im)(\[DEV-VERIFY-MULTI\]\s+round_task_static_gate_fail=|\[TASK-STATIC-CHECK\]\s+severity=(?:error|warn)\s+detail=)'
+        StructuredCodeValidation = '(?im)(\[AB-UNATTENDED-RESULT\][^\r\n]*script=[^\r\n]*(?:PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS)[^\r\n]*result=FAIL[^\r\n]*exit_code=\d+|\[[A-Z0-9_-]*(?:PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS)[A-Z0-9_-]*\][^\r\n]*(?:result=fail|FAIL)|\[remote_build\]\[ERROR\][^\r\n]*(?:preflight|golden|selftest|matrix|check|validation|verify|preclass)[^\r\n]*FAIL)'
+        StructuredChildExit = '(?im)(\[AB-UNATTENDED-RESULT\][^\r\n]*exit_code=\d+|\[ONECLICK-DRYRUN-SMOKE\]\s+oneclick_end exit_code=\d+)'
+        StrongScriptFault = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1)'
+        WrapperStack = '(?im)(所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
+        Infrastructure = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
+        SourceCode = '(?im)(\[CODE-STEP\]\s+fatal_error=\s*[^\r\n]+|code-step\s+fatal\s+error[^\r\n]*|src[\\/].*\.(c|h):\d+:\d+:\s*error:[^\r\n]*|error\s+C\d{4}\b[^\r\n]*|undefined\s+reference\s+to[^\r\n]*|compilation\s+terminated[^\r\n]*|was\s+not\s+declared\s+in\s+this\s+scope[^\r\n]*|conflicting\s+types\s+for[^\r\n]*|redefinition\s+of[^\r\n]*|no\s+member\s+named[^\r\n]*|fatal\s+error:\s+[^\r\n]*)'
+    }
 
     $taskDefinitionEvidence = ''
     $taskDefinitionSourceLog = ''
     $scriptEvidence = ''
     $networkEvidence = ''
     $codeEvidence = ''
+    $structuredCodeEvidence = ''
     $scriptSourceLog = ''
     $networkSourceLog = ''
     $codeSourceLog = ''
+    $structuredCodeSourceLog = ''
 
     foreach ($candidate in $logCandidates) {
         $path = [string]$candidate.Path
@@ -2252,22 +2259,34 @@ function Get-RoundFailureCategoryFromLogText {
             continue
         }
 
-        $taskDefinitionMarker = [regex]::Match($text, $taskDefinitionFaultRegex)
+        $taskDefinitionMarker = [regex]::Match($text, [string]$markerRegistry['TaskDefinition'])
         if ($taskDefinitionMarker.Success -and [string]::IsNullOrWhiteSpace($taskDefinitionEvidence)) {
             $taskDefinitionEvidence = Convert-ToBoundedSingleLineText -Text ([string]$taskDefinitionMarker.Value) -MaxChars 120
             $taskDefinitionSourceLog = Convert-ToRepoRelativePath -Path $path
         }
 
-        $scriptMarker = [regex]::Match($text, $scriptFaultRegex)
-        if ($scriptMarker.Success) {
+        $structuredCodeMarker = [regex]::Match($text, [string]$markerRegistry['StructuredCodeValidation'])
+        if ($structuredCodeMarker.Success) {
+            $result.HasCodeFault = $true
+            if ([string]::IsNullOrWhiteSpace($structuredCodeEvidence)) {
+                $structuredCodeEvidence = Convert-ToBoundedSingleLineText -Text ([string]$structuredCodeMarker.Value) -MaxChars 120
+                $structuredCodeSourceLog = Convert-ToRepoRelativePath -Path $path
+            }
+        }
+
+        $scriptMarker = [regex]::Match($text, [string]$markerRegistry['StrongScriptFault'])
+        $scriptStackMarker = [regex]::Match($text, [string]$markerRegistry['WrapperStack'])
+        $structuredChildExitMarker = [regex]::Match($text, [string]$markerRegistry['StructuredChildExit'])
+        if ($scriptMarker.Success -or ($scriptStackMarker.Success -and -not $structuredChildExitMarker.Success)) {
             $result.HasScriptFault = $true
             if ([string]::IsNullOrWhiteSpace($scriptEvidence)) {
-                $scriptEvidence = Convert-ToBoundedSingleLineText -Text ([string]$scriptMarker.Value) -MaxChars 120
+                $scriptEvidenceValue = if ($scriptMarker.Success) { [string]$scriptMarker.Value } else { [string]$scriptStackMarker.Value }
+                $scriptEvidence = Convert-ToBoundedSingleLineText -Text $scriptEvidenceValue -MaxChars 120
                 $scriptSourceLog = Convert-ToRepoRelativePath -Path $path
             }
         }
 
-        $networkMarker = [regex]::Match($text, $networkTransientRegex)
+        $networkMarker = [regex]::Match($text, [string]$markerRegistry['Infrastructure'])
         if ($networkMarker.Success) {
             $result.HasNetworkTransient = $true
             if ([string]::IsNullOrWhiteSpace($networkEvidence)) {
@@ -2276,7 +2295,7 @@ function Get-RoundFailureCategoryFromLogText {
             }
         }
 
-        $codeMarker = [regex]::Match($text, $codeFaultRegex)
+        $codeMarker = [regex]::Match($text, [string]$markerRegistry['SourceCode'])
         if ($codeMarker.Success) {
             $result.HasCodeFault = $true
             if ([string]::IsNullOrWhiteSpace($codeEvidence)) {
@@ -2290,6 +2309,20 @@ function Get-RoundFailureCategoryFromLogText {
         $result.Category = 'task-definition-mismatch'
         $result.Evidence = ('matched={0}' -f $taskDefinitionEvidence)
         $result.SourceLog = $taskDefinitionSourceLog
+        return [pscustomobject]$result
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($structuredCodeEvidence)) {
+        if ([bool]$result.HasNetworkTransient) {
+            $result.Category = 'noncode-transient'
+            $result.Evidence = ('validation={0};infra={1}' -f $structuredCodeEvidence, $networkEvidence)
+            $result.SourceLog = if (-not [string]::IsNullOrWhiteSpace($networkSourceLog)) { $networkSourceLog } else { $structuredCodeSourceLog }
+            return [pscustomobject]$result
+        }
+
+        $result.Category = 'code-or-unknown'
+        $result.Evidence = ('validation={0}' -f $structuredCodeEvidence)
+        $result.SourceLog = $structuredCodeSourceLog
         return [pscustomobject]$result
     }
 
@@ -2678,7 +2711,7 @@ function Get-FailureTicketMeta {
                         $result.FailureKind = 'compile-warning'
                     }
                     elseif ($failureCategory -eq 'code-or-unknown') {
-                        $result.FailureKind = 'code-edit-failure'
+                        $result.FailureKind = 'verify-failure'
                     }
                     else {
                         $result.FailureKind = 'unknown-failure'
@@ -6545,8 +6578,8 @@ try {
                     switch ($verifyCategory) {
                         'script-fault' {
                             if ($failureHasCodeFault) {
-                                $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault with code-marker. Fix guard/trigger/dispatch scripts and restart only; ignore code-fix actions in V rounds.' -f [string]$failurePolicy.FailedRoundTag)
-                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1}. Code markers are present but must be ignored in V rounds; fix scripts then restart guarded flow.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
+                                $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault with code-marker. Re-run route guard and inspect structured child exit_code; if child compile/validation result exists, reclassify to code-fix, otherwise keep script-diagnose/script-fix policy.' -f [string]$failurePolicy.FailedRoundTag)
+                                $manualWaitRecommendedAction = ('Verify-round script fault ({0}) source={1} also has code markers. Treat wrapper stack frames as call-chain evidence only; reclassify by structured child result before any repair.' -f [string]$failurePolicy.FailedRoundTag, [string]$failurePolicy.VerifyFailureSourceLog)
                             }
                             else {
                                 $incidentRecommendedAction = ('Verify-round failure detected ({0}) category=script-fault. Fix guard/trigger/dispatch scripts, then allow guarded restart under existing quota/cooldown. Do not issue code-fix instructions in V rounds.' -f [string]$failurePolicy.FailedRoundTag)

@@ -1757,12 +1757,12 @@ function Get-CauseBucket {
         return 'script'
     }
 
-    if ($category -in @('code-or-unknown') -or $category -match '^task-definition(?:-|$)' -or $kind -eq 'task-definition-mismatch') {
-        return 'code'
-    }
-
     if ($category -in @('monitor-chain', 'environment', 'infra-transient', 'noncode-transient')) {
         return 'infra'
+    }
+
+    if ($category -in @('code-or-unknown') -or $category -match '^task-definition(?:-|$)' -or $kind -eq 'task-definition-mismatch') {
+        return 'code'
     }
 
     if ($eventNameNormalized -in @('manual-wait-paused', 'budget-exhausted-stop', 'known-infra-transient-stop')) {
@@ -1873,6 +1873,7 @@ function New-TakeoverBrief {
     $eventDedupHealthCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $finalStatusCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $finalStatusCloseoutApplyAckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -ApplyAcknowledge -AsJson' -f $startFileRel
+    $recoveryTransactionCommand = ''
     $handledReceiptCommand = ''
     $validateReceiptCommand = ''
     $markProcessedCommand = ''
@@ -1884,6 +1885,7 @@ function New-TakeoverBrief {
         $markProcessedCommand = $handledReceiptCommand
         $postCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -IncludeStatusReports -Last 20 -AsJson' -f $startFileRel
         $atomicCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_agent_ticket_closeout.ps1 -StartFile "{0}" -TicketId "{1}" -QueuePath "{2}" -Last 20 -AsJson' -f $startFileRel, $ticketId, $queueRel
+        $recoveryTransactionCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_recovery_ticket_transaction.ps1 -StartFile "{0}" -TicketId "{1}" -QueuePath "{2}" -Last 20 -AsJson' -f $startFileRel, $ticketId, $queueRel
     }
 
     $incidentLikeEvents = @{
@@ -1965,11 +1967,11 @@ function New-TakeoverBrief {
     elseif ($ticketFailureCategory -eq 'script-fault') {
         $incidentLane = 'script-fix'
     }
-    elseif ($ticketFailureCategory -eq 'code-or-unknown') {
-        $incidentLane = 'code-fix'
-    }
     elseif ($ticketFailureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')) {
         $incidentLane = 'noncode'
+    }
+    elseif ($ticketFailureCategory -eq 'code-or-unknown') {
+        $incidentLane = 'code-fix'
     }
     elseif ($ticketFailureCategory -match '^task-definition(?:-|$)' -or $ticketFailureKind -eq 'task-definition-mismatch') {
         $incidentLane = 'code-fix'
@@ -2065,8 +2067,7 @@ function New-TakeoverBrief {
         $nextCommandPolicy = 'incident-auto-resume'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
         if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
-        if (-not [string]::IsNullOrWhiteSpace($resumeCommand)) { [void]$nextCommands.Add($resumeCommand); [void]$nextCommandNames.Add('resume_command') }
-        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($recoveryTransactionCommand)) { [void]$nextCommands.Add($recoveryTransactionCommand); [void]$nextCommandNames.Add('recovery_transaction_command') }
     }
     elseif ($routeGuardExpected -like 'incident-manual-*') {
         $nextCommandPolicy = 'incident-manual-gated'
@@ -2087,7 +2088,9 @@ function New-TakeoverBrief {
     }
 
     if ($eventNameNormalized -ne 'running-status-report') {
-        if (-not [string]::IsNullOrWhiteSpace($atomicCloseoutCommand)) { [void]$nextCommands.Add($atomicCloseoutCommand); [void]$nextCommandNames.Add('atomic_closeout_command') }
+        if (-not (($nextCommandNames.ToArray()) -contains 'recovery_transaction_command')) {
+            if (-not [string]::IsNullOrWhiteSpace($atomicCloseoutCommand)) { [void]$nextCommands.Add($atomicCloseoutCommand); [void]$nextCommandNames.Add('atomic_closeout_command') }
+        }
     }
 
     # Integrate diagnostic/closeout helper commands into brief suggestions.
@@ -2213,6 +2216,7 @@ function New-TakeoverBrief {
         ('validate_receipt_command={0}' -f $validateReceiptCommand),
         ('mark_processed_command={0}' -f $markProcessedCommand),
         ('post_check_command={0}' -f $postCheckCommand),
+        ('recovery_transaction_command={0}' -f $recoveryTransactionCommand),
         ('atomic_closeout_execution_policy={0}' -f $atomicCloseoutExecutionPolicy),
         ('atomic_closeout_command={0}' -f $atomicCloseoutCommand),
         ('ticket_closure_check_command={0}' -f $ticketClosureCheckCommand),

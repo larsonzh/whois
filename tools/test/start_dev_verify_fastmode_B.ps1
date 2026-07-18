@@ -532,6 +532,7 @@ try {
     Write-Output ("[FASTMODE-B] task_definition={0}" -f $taskDefinitionRelative)
     Write-Output ("[FASTMODE-B] fast_gate_range={0}-{1}" -f $fastGateStartRound, $fastGateEndRound)
 
+    $multiroundStartTime = Get-Date
     & $entryScript `
         -Stage B `
         -ResetCodeStepState `
@@ -564,6 +565,12 @@ try {
     if ($exitCode -ne 0) {
         $failureCategory = 'runner-fail'
         $failureReason = "start_dev_verify_8round_multiround exited with code=$exitCode"
+        $multiroundStatus = Get-LatestDevVerifyMultiroundFinalStatus -RepoRoot $repoRoot -After $multiroundStartTime
+        if ([bool]$multiroundStatus.Available -and -not [string]::IsNullOrWhiteSpace([string]$multiroundStatus.EffectiveFailureCategory)) {
+            $failureCategory = [string]$multiroundStatus.EffectiveFailureCategory
+            $failureReason = Convert-ToSingleLineText -Text ("start_dev_verify_8round_multiround exited with code=$exitCode; {0}" -f [string]$multiroundStatus.EffectiveFailureReason)
+            Write-Output ("[FASTMODE-B] multiround_failure_inherited category={0} reason={1}" -f $failureCategory, $failureReason)
+        }
     }
 }
 catch {

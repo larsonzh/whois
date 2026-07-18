@@ -134,9 +134,9 @@ AI：
 - AI 不应自行发明新的主流程，不应擅自跳过用户确认，也不应在未获启动命令时开跑。
 - 进入无人值守运行期后，事件驱动票中列出的既定动作属于预授权执行项；AI 应按事件票 `next_command_order` 执行。定时状态票是严格例外，只预授权只读状态查询、状态汇报与 `handled_at` 回执，不预授权任何故障处理或进程控制动作。
 - 运行期工单由既有 guard/trigger/dispatch 链负责生成并投送。AI 只需保持在线并静默等待已投送的事件驱动票或状态票；等待期间不执行命令，不主动定时 heartbeat/poll，不创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。此类命令可能在下一张事件票到达时中断任务、收尾与回执写入。
-- 收到工单后，AI 严格按工单指令与 `next_command_order` 执行所有无需用户确认的预授权操作，不得遗漏；事件票只以唯一的 `atomic_closeout_command` 完成 `handled_at`、processed、ledger receipt 与 closure 校验，机器事实门禁全部通过后才算闭环，随后继续静默等待下一张工单。
-- 通过标准 stage window 重启主进程后，AI 必须在 3 分钟内执行事件票唯一的 `atomic_closeout_command` 并通过全部机器事实门禁，然后回到静默被动等待。该时限是票据闭环上限，不是主动巡检窗口；无法按时闭环时立即如实报告阻塞，不得以轮询或长时间观察延长处置。
-- `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command` 与 `final_status_closeout_apply_ack_command` 仅作审计兼容展示；事件票不得逐条执行这些旧分步命令，其校验职责统一由 `atomic_closeout_command` 内部完成。`running-status-report` 不执行事件票原子收尾。
+- 收到工单后，AI 严格按工单指令与 `next_command_order` 执行所有无需用户确认的预授权操作，不得遗漏；若事件票提供 `recovery_transaction_command`，优先将其作为“业务恢复 + 继续监控 + 原子闭环”的单次事务入口执行；未提供事务命令的事件票才执行唯一的 `atomic_closeout_command` 完成 `handled_at`、processed、ledger receipt 与 closure 校验。机器事实门禁全部通过后才算闭环，随后继续静默等待下一张工单。
+- 通过标准 stage window 重启主进程后，AI 必须在 3 分钟内完成事件票的 `recovery_transaction_command` 或唯一的 `atomic_closeout_command`，并通过全部机器事实门禁，然后回到静默被动等待。该时限是票据闭环上限，不是主动巡检窗口；无法按时闭环时立即如实报告阻塞，不得以轮询或长时间观察延长处置。
+- `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command` 与 `final_status_closeout_apply_ack_command` 仅作审计兼容展示；事件票不得逐条执行这些旧分步命令，其校验职责统一由事务命令或 `atomic_closeout_command` 内部完成。`running-status-report` 不执行事件票原子收尾。
 - 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - `event-only` 仅定义“是否触发/发送常规状态票”的调度策略，不得在事件票或故障处置话术中表述为“按 low-disturb 流程执行”。
 - 对 `running-status-report`，只汇报当前观测状态；healthy 时写“运行正常”，异常时只描述异常与待处理事故票，不提供或执行修复路径。不得仅凭旧失败摘要、旧 `latest_b_exit.json` 或历史 exit artifact 推断需要重启 B。
@@ -161,6 +161,31 @@ AI：
 - 自愈发生在 A 阶段：从 A 阶段开始处重启；A 主进程会自动把源码回滚到项目基线后再执行本轮任务定义。
 - 自愈发生在 B 阶段：从 B 阶段开始处重启；B 主进程会自动以 A 结束时的成功快照为基线回滚后再执行本轮任务定义。
 - 故障处理优先顺序固定为：留证 -> 修改本阶段任务定义 -> 静态体检 -> 用 stage window 重启本阶段 -> 恢复监控链。
+
+#### 2.7.1 故障发生分布与通用分类原则
+
+无人值守脚本链中的故障先按“发生位置/阶段”定位，再按“根因性质”分类。阶段只说明故障在哪里被发现，不直接决定它是代码、非代码还是脚本故障；分类必须以结构化 exit code、脚本结果行、首个错误、环境门禁、编译/验证输出和 wrapper 调用链共同判定。
+
+脚本故障的强判据只有一个：主脚本或主脚本进程链路中的子脚本在运行中异常中断，且没有可信的结构化退出结果或退出码可归因到业务子流程。PowerShell wrapper 栈帧（例如 `*.ps1:<line>`、`line: <n> char: <n>`）只能作为调用链证据；若同一日志已经包含 `[AB-UNATTENDED-RESULT] ... exit_code=<n>`、`oneclick_end exit_code=<n>` 或其他子流程结构化失败结果，应继承子流程分类，不得仅凭 wrapper 抛错归为脚本故障。
+
+非代码故障贯穿所有阶段，典型原因包括远程锁、网络、SSH/认证、权限、磁盘、工具链缺失、测试基础设施、脚本互斥锁、进程锚点/监控链状态、产物 stale、I/O 和资源限制。非代码故障优先稳定环境或按同阶段恢复；不得编辑源码或任务定义。
+
+代码故障只存在于主要代码相关业务阶段：task-static 发现任务定义与源码形态不匹配，或 compile/verify 阶段的编译、链接、业务逻辑、输出契约、黄金样例、Step47/preclass/矩阵/自测等验证失败。若无环境扰动证据，所有结构化验证失败都应按代码故障进入 code-fix，而不是按具体验证脚本名称特判。
+
+| 位置/阶段 | 可能分类 | 分类要点 | 默认路由 |
+|---|---|---|---|
+| 入口门禁 / launch-ready / start-file 预检 | 非代码故障 / 脚本故障 | 缺字段、锁、网络、进程冲突、工作区状态等为非代码；预检脚本自身无结构化退出结果异常中断才是脚本故障 | noncode 或 script-diagnose/script-fix |
+| D 轮次环境门禁 | 非代码故障 / 脚本故障 | 远程锁、网络、磁盘、进程冲突、工具链和权限为非代码；门禁脚本链异常无退出码才是脚本故障 | noncode 或 script-diagnose/script-fix |
+| D 轮次 task-static 阶段 | 代码故障 / 非代码故障 / 脚本故障 | op 匹配、替换、marker、replay、断言失败为任务定义代码故障；checker 互斥锁、timeout、worker/环境资源为非代码；checker 脚本内部契约异常且无结构化结果为脚本故障 | code-fix、noncode 或 script-diagnose/script-fix |
+| D 轮次 code-step 阶段 | 非代码故障 / 脚本故障 | code-step 只读取、验证、原子写入和写后验证；绑定产物 stale、I/O、权限、Replace/Move 失败为非代码；脚本状态机或内部契约异常才是脚本故障。code-step 故障不授权编辑源码或任务定义 | noncode 或 script-diagnose/script-fix |
+| D 轮次编译阶段 | 代码故障 / 非代码故障 / 脚本故障 | C 编译/链接/类型错误、警告门禁和由生成源码导致的构建失败为代码故障；编译器缺失、远程环境、权限、磁盘、锁和网络为非代码；编译 wrapper 异常无结构化退出码才是脚本故障。编译阶段内部的 hash、产物、编码、包完整性等验证也按同一规则分类 | code-fix、noncode 或 script-diagnose/script-fix |
+| D 轮次验证阶段 | 代码故障 / 非代码故障 / 脚本故障 | 业务输出契约、黄金样例、Step47/preclass、CIDR/redirect 矩阵、自测、smoke 等结构化验证失败，无环境扰动时为代码故障；测试基础设施或环境扰动为非代码；验证脚本链异常无退出码才是脚本故障 | code-fix、noncode 或 script-diagnose/script-fix |
+| V 轮次编译阶段 | 代码故障 / 非代码故障 / 脚本故障 | 与 D 编译阶段相同；V 轮是验证轮，不是任务定义 JSON 键。代码修复只能按 V 轮边界追加到 D4 末尾 | code-fix、noncode 或 script-diagnose/script-fix |
+| V 轮次验证阶段 | 代码故障 / 非代码故障 / 脚本故障 | 与 D 验证阶段相同；所有验证方式都遵循“结构化验证失败优先继承子流程分类”的规则，不能只为 Step47 特判 | code-fix、noncode 或 script-diagnose/script-fix |
+| A 成功快照生成阶段 | 非代码故障 / 脚本故障 | 快照目录、摘要、源码状态、hash、复制/写入/I/O 为非代码；快照脚本异常无结构化退出结果为脚本故障；不属于代码修复入口 | noncode 或 script-diagnose/script-fix |
+| B 入口 A PASS + A 快照检查阶段 | 非代码故障 / 脚本故障 | A PASS 状态缺失、快照不完整、hash 不一致、回滚失败、I/O/权限为非代码；检查脚本异常无结构化退出结果为脚本故障；不属于代码修复入口 | noncode 或 script-diagnose/script-fix |
+
+分类优先级应固定为：结构化任务定义失败 -> 结构化子流程验证/编译失败 -> 环境/基础设施 marker -> 强脚本故障 marker -> 未知保守分支。wrapper 栈帧只补充 `failure_source` 和调用链，不能覆盖已有结构化失败结果。
 
 ### 2.8 临时脚本约束
 
@@ -1002,25 +1027,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - guard 产票
 - trigger/dispatch 将工单投送到会话
 - AI 被动接收工单；仅在工单指令要求时一次性调用 `poll_agent_tickets.ps1`
-- 执行 `business_command`
-- 执行 `continue_watch_command`
-- 执行唯一的 `atomic_closeout_command`；该单入口命令先通过 poll mutex 原子写入 `handled_at/done/processed_ids`，释放 poll 子事务锁后立即校验当前票的 ledger、receipt 与 closure。当前票 closure 校验使用 `check_unattended_ticket_closure.ps1 -TicketId <ticket-id>` 聚焦模式，不得因其他历史票或孤立 brief 阻断本票闭环；不带 `-TicketId` 的 checker 仍用于独立全局巡检。这里的“原子”指单命令、幂等、任一后置条件失败即整体 fail-close，不表示三项后置校验全程持有同一 mutex
-- 仅当原子命令退出码为 0 且 JSON 同时满足 `success=true`、`processed=true`、`ledger_status=done`、`receipt_valid=true`、`closure_pass=true` 和有效 `handled_at` 时，才可回传机器输出中的时间并声称闭环
+- 自动恢复类事件票优先执行 `recovery_transaction_command`；该事务命令会重新读取当前票据行并复核 route guard，随后按不同工单生成的字段执行授权的 `business_command`、`continue_watch_command` 与 `atomic_closeout_command`，把主进程重启后到闭环的间隙收敛到同一 PowerShell 进程内
+- 未提供 `recovery_transaction_command` 的事件票执行唯一的 `atomic_closeout_command`；该单入口命令先通过 poll mutex 原子写入 `handled_at/done/processed_ids`，释放 poll 子事务锁后立即校验当前票的 ledger、receipt 与 closure。当前票 closure 校验使用 `check_unattended_ticket_closure.ps1 -TicketId <ticket-id>` 聚焦模式，不得因其他历史票或孤立 brief 阻断本票闭环；不带 `-TicketId` 的 checker 仍用于独立全局巡检。这里的“原子”指单命令、幂等、任一后置条件失败即整体 fail-close，不表示三项后置校验全程持有同一 mutex
+- 仅当事务/原子命令退出码为 0 且 JSON 机器事实满足对应门禁（事务命令 `success=true` 且有效 `handled_at`；原子命令还需 `processed=true`、`ledger_status=done`、`receipt_valid=true`、`closure_pass=true`）时，才可回传机器输出中的时间并声称闭环
 
 运行期执行规则：
 - 事件驱动票中的工作内容视为预授权操作，AI 按事件票 `next_command_order` 执行。定时状态票只预授权只读查询、汇报与 handled 回执。
-- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单通过唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息；主进程重启后必须在 3 分钟内执行该命令并通过全部机器事实门禁。
+- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息；主进程重启后必须在 3 分钟内完成该命令并通过全部机器事实门禁。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
 - 对 `running-status-report`，默认处置为只读状态查询、汇报与 handled 回执；不得执行 continue_watch、故障处理或恢复动作。
-- 事件票默认执行顺序为：`business_command -> continue_watch_command -> atomic_closeout_command`；具体以票据 `next_command_order` 为准。状态票不适用该顺序。
+- 自动恢复类事件票默认执行顺序为：`route_guard_command -> pre_restart_launch_ready_command -> recovery_transaction_command`；事务命令内部按当前工单字段执行 `business_command -> continue_watch_command -> atomic_closeout_command`。无事务命令的事件票按 `route_guard_command -> atomic_closeout_command` 或专项 closeout 字段执行；具体以票据 `next_command_order` 为准。状态票不适用该顺序。
 - `handled_receipt_command`、`validate_receipt_command`、`mark_processed_command`、`post_check_command` 继续作为审计与旧消费者兼容字段输出，但 Agent 不得逐条重复执行；原子命令已覆盖写入、校验和 closure。
-- 若 `atomic_closeout_command` 缺失、锁忙、JSON 无法解析或任一机器事实门禁失败，必须 fail-close 并报告阻塞；不得自行生成 `handled_at`，不得用聊天文本替代 ledger 状态。
+- 若 `recovery_transaction_command` / `atomic_closeout_command` 按当前票据应存在却缺失、锁忙、JSON 无法解析或任一机器事实门禁失败，必须 fail-close 并报告阻塞；不得自行生成 `handled_at`，不得用聊天文本替代 ledger 状态。
 - 聊天输出层（relay/转录）校验默认关闭，不作为常态强门禁；该层信号仅作为辅证，不替代 ledger 的强约束状态。
 - 仅在故障排查或专项验收窗口临时启用聊天输出层校验，且建议抽样执行，避免高频轮询带来的额外资源开销与交互抖动。
 - 只有以下情形才需要重新请求用户指令：用户明确下达 `stop monitoring`；需要跨阶段改计划；需要更换 start-file；需要执行超出当前票据既定工作流的高风险动作。
 - 若工单处理过程中确需辅助脚本，优先调用现有脚本；确需临时脚本时，只能放在 tmp，下游动作完成后删除。
-- 不得手工补写 `chat_heartbeat*.jsonl`、`chat_heartbeat_reports_additional_*.jsonl` 或额外 handled 回执文件来“模拟完成”；心跳使用 `tools/test/update_chat_session_heartbeat.ps1`，事件票回执与 closure 只执行 brief 的 `atomic_closeout_command`。其内部调用 `poll_agent_tickets.ps1 -AcknowledgeTicketIds ...`，Agent 不得再单独重复调用旧分步命令。
+- 不得手工补写 `chat_heartbeat*.jsonl`、`chat_heartbeat_reports_additional_*.jsonl` 或额外 handled 回执文件来“模拟完成”；心跳使用 `tools/test/update_chat_session_heartbeat.ps1`，事件票回执与 closure 优先执行 brief 的 `recovery_transaction_command`，无事务命令时只执行 `atomic_closeout_command`。其内部调用 `poll_agent_tickets.ps1 -AcknowledgeTicketIds ...`，Agent 不得再单独重复调用旧分步命令。
 
 一次性工单消费/排障示例（仅在收到工单指令或人工排障时执行，不得包装为定时循环）：
 
@@ -1352,7 +1376,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended
 
 纠偏：
 - 把票据中的既定动作视为预授权执行项
-- AI 按 `next_command_order` 执行业务动作，并以唯一的 `atomic_closeout_command` 完成持久化回执、processed 状态与 closure 校验。
+- AI 按 `next_command_order` 执行业务动作；自动恢复类票据以 `recovery_transaction_command` 事务完成恢复与闭环，无事务命令的事件票以唯一的 `atomic_closeout_command` 完成持久化回执、processed 状态与 closure 校验。
 - 只有原子命令退出码为 0 且 JSON 机器事实全部通过，才回传其中的 `handled_at`；否则 fail-close 并报告阻塞。
 - 对强制收据票立即写 `handled_at`
 

@@ -2337,6 +2337,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             'TASK-STATIC-FAIL' {
                 $failurePhase = 'task-static'
                 $failureKind = 'task-definition-mismatch'
+                $failureCategory = 'task-definition-mismatch'
             }
             'CODE-STEP-FAIL' {
                 $failurePhase = 'code-step'
@@ -2349,15 +2350,18 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
             'ROUND-GATE-FAIL' {
                 $failurePhase = 'round-gate'
                 $failureKind = 'environment-transient'
+                $failureCategory = 'noncode-transient'
             }
             default {
                 if ($phase -eq 'VERIFY') {
                     $failurePhase = 'verify'
                     $failureKind = 'verify-failure'
+                    $failureCategory = 'code-or-unknown'
                 }
                 else {
                     $failurePhase = 'compile-or-test'
                     $failureKind = 'compile-or-test-failure'
+                    $failureCategory = 'code-or-unknown'
                 }
             }
         }

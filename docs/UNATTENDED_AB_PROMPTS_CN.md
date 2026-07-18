@@ -15,7 +15,7 @@
 - 所有 `running-status-report` 均为只读状态汇报票：只读取运行状态并回传 `handled_at`，禁止自愈修复、故障处理、主进程/guard 重启、`business_resume`、文件修改、环境稳定化或任何恢复动作。异常只汇报并等待独立事故票。
 - `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
-- 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票最终只执行一次 `atomic_closeout_command`，仅在其机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
+- 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票若提供 `recovery_transaction_command`，优先只执行一次该“恢复+闭环事务”；否则最终只执行一次 `atomic_closeout_command`。仅在对应机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内完成事务/原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
 - 脚本故障必须先读取 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED`。字段缺失、非法或为 `false` 时进入 `incident-script-diagnose-only`：只读排查并在聊天中输出根因、证据、影响、最小修复建议、验证命令、风险与回滚方案；禁止改文件、创建脚本、控制或重启进程、resume、改变环境。仅显式为 `true` 时才允许脚本自愈。
 - 在代码修复、非代码恢复、事件评审或其他非脚本工单中发现新的 guard/trigger/dispatch/poll 脚本故障时，必须停止原流程并按 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED` 重新路由；不得在原工单车道内直接修脚本。
@@ -31,8 +31,8 @@
 请先完整学习并严格遵守 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 与 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；若有冲突，一律以前者为准。目标 start-file：<START_FILE>。
 
 硬约束补充（必须遵守）：
-- 事件工单按 `next_command_order` 执行业务动作，最终只执行一次 `atomic_closeout_command`；旧的 handled_receipt/validate_receipt/mark_processed/post_check 字段仅作审计兼容，不得逐条重复执行。原子命令必须返回 exit code 0，且 JSON 同时满足 success/processed/receipt_valid/closure_pass=true、ledger_status=done 和有效 handled_at，否则 fail-close。
-- ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command / final_status_closeout_apply_ack_command 仅作审计兼容，不得逐条执行；其职责已由 atomic_closeout_command 统一覆盖。
+- 事件工单按 `next_command_order` 执行业务动作；若提供 `recovery_transaction_command`，只执行一次该事务命令，它会按当前工单字段执行授权的 business/continue/closeout 路径并校验内部原子收尾；否则最终只执行一次 `atomic_closeout_command`。旧的 handled_receipt/validate_receipt/mark_processed/post_check 字段仅作审计兼容，不得逐条重复执行。事务/原子命令必须返回 exit code 0，且 JSON 机器事实满足对应门禁，否则 fail-close。
+- ticket_closure_check_command / event_dedup_health_check_command / final_status_closeout_command / final_status_closeout_apply_ack_command 仅作审计兼容，不得逐条执行；其职责已由 recovery_transaction_command 或 atomic_closeout_command 统一覆盖。
 - 对 running-status-report，只执行只读状态查询并立即回传 handled_at（YYYY-MM-DD HH:mm:ss）；不得执行 continue_watch、恢复或重启命令。
 - 对 running-status-report，不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B；发现任何异常也只汇报并等待独立事故票。
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
@@ -71,7 +71,7 @@
 先读 docs/UNATTENDED_AB_OPERATION_FLOW_CN.md 和 docs/UNATTENDED_AB_START_TEMPLATE_CN.md；冲突以前者为准。目标 start-file：<START_FILE>。
 
 硬约束补充（必须遵守）：
-- 事件工单严格按 next_command_order 执行业务动作，最终只执行一次 atomic_closeout_command；仅在 exit code 0 且 JSON 机器事实全部通过后回传其 handled_at。旧分步回执字段仅作审计兼容。running-status-report 例外，只执行只读状态查询、状态汇报与 handled_at。
+- 事件工单严格按 next_command_order 执行业务动作；若存在 recovery_transaction_command，则只执行一次该事务命令并从其成功 JSON 回传 handled_at；否则最终只执行一次 atomic_closeout_command，并仅在 exit code 0 且 JSON 机器事实全部通过后回传其 handled_at。旧分步回执字段仅作审计兼容。running-status-report 例外，只执行只读状态查询、状态汇报与 handled_at。
 - 旧 closure/dedup/final-status 分步字段仅作审计兼容，不得逐条执行；事件票只执行一次 atomic_closeout_command。
 - 对 running-status-report，只读汇报后立即回传 handled_at（YYYY-MM-DD HH:mm:ss）；禁止 self-heal、fault handling、continue_watch、restart、business_resume、文件修改与环境恢复。
 - running-status-report 发现异常只汇报并等待独立事故票，不得仅凭旧 exit 证据建议重启 B。

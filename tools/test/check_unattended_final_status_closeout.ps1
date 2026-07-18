@@ -243,7 +243,7 @@ New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 $closureScript = Join-Path $repoRoot 'tools\test\check_unattended_ticket_closure.ps1'
 $dedupScript = Join-Path $repoRoot 'tools\test\check_unattended_event_dedup_health.ps1'
-$pollScript = Join-Path $repoRoot 'tools\test\poll_agent_tickets.ps1'
+$atomicCloseoutScript = Join-Path $repoRoot 'tools\test\complete_agent_ticket_closeout.ps1'
 
 Write-CloseoutHeartbeat -Step 'start' -Detail ("start_file={0}" -f $startFilePath)
 
@@ -283,14 +283,14 @@ $ackApplied = $false
 $ackReceipt = $null
 $ackCommand = ''
 if ($pendingFinalTicketIds.Count -gt 0) {
-    $ackIdCsv = (@($pendingFinalTicketIds.ToArray()) -join ',')
-    $ackCommand = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/poll_agent_tickets.ps1 -StartFile "{0}" -AcknowledgeTicketIds "{1}" -Last 20 -AsJson' -f (Convert-ToRepoRelativePath -Path $startFilePath), $ackIdCsv)
+    $firstTicketId = [string]$pendingFinalTicketIds[0]
+    $ackCommand = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/complete_agent_ticket_closeout.ps1 -StartFile "{0}" -TicketId "{1}" -Last 20 -AsJson' -f (Convert-ToRepoRelativePath -Path $startFilePath), $firstTicketId)
     if ($ApplyAcknowledge.IsPresent) {
-        Write-CloseoutHeartbeat -Step 'ack-begin' -Detail ("ticket_count={0}" -f $pendingFinalTicketIds.Count)
-        $ackRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File $pollScript -StartFile $startFilePath -AcknowledgeTicketIds $ackIdCsv -Last 20 -AsJson 2>&1 | Out-String
+        Write-CloseoutHeartbeat -Step 'atomic-closeout-begin' -Detail ("ticket_id={0}" -f $firstTicketId)
+        $ackRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File $atomicCloseoutScript -StartFile $startFilePath -TicketId $firstTicketId -Last 20 -AsJson 2>&1 | Out-String
         $ackReceipt = ConvertFrom-JsonTail -Text $ackRaw
         $ackApplied = $true
-        Write-CloseoutHeartbeat -Step 'ack-end' -Detail ("acknowledge_applied={0}" -f $ackApplied)
+        Write-CloseoutHeartbeat -Step 'atomic-closeout-end' -Detail ("closeout_applied={0}" -f $ackApplied)
     }
 }
 

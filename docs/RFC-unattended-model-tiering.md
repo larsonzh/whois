@@ -56,7 +56,7 @@
 
 典型工作：
 - 轮询 `poll_agent_tickets.ps1` 并读取工单结果。
-- 执行事件票的 `business_command`、`continue_watch_command`，最后只执行一次 `atomic_closeout_command`。
+- 对提供 `recovery_transaction_command` 的自动恢复事件票，只执行一次该事务命令；它内部按当前工单字段执行 `business_command`、`continue_watch_command` 与原子闭环。未提供事务命令的事件票最后只执行一次 `atomic_closeout_command`。
 - 仅从原子收尾成功返回的机器事实回填 `handled_at`；旧分步回执字段仅作审计兼容，不逐条执行。
 - 查看 queue、heartbeat、routine status、日志尾部。
 - 核对文件是否存在、路径是否正确、样例是否在 active/smoke 目录中。
