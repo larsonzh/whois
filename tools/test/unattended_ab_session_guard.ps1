@@ -1384,26 +1384,115 @@ function Resolve-RunDirFromRuntimeLog {
     }
 }
 
+function Resolve-RunDirFromStageExitReasonText {
+    param([AllowEmptyString()][string]$FailReason)
+
+    $reason = Convert-ToSingleLineText -Text $FailReason
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        return ''
+    }
+
+    $candidatePaths = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($pattern in @('final_status=(\S*final_status\.json)', 'source=(\S+\.(?:log|json|txt))')) {
+        $matches = [regex]::Matches($reason, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        foreach ($match in $matches) {
+            if ($match.Groups.Count -gt 1) {
+                $candidate = Convert-ToSingleLineText -Text ([string]$match.Groups[1].Value)
+                if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                    [void]$candidatePaths.Add($candidate.Trim('"', "'"))
+                }
+            }
+        }
+    }
+
+    foreach ($candidatePath in $candidatePaths) {
+        $resolvedPath = Resolve-AnchorPath -Path $candidatePath
+        if ([string]::IsNullOrWhiteSpace($resolvedPath) -or -not (Test-Path -LiteralPath $resolvedPath)) {
+            continue
+        }
+
+        $runDir = Split-Path -Parent $resolvedPath
+        if ([string]::IsNullOrWhiteSpace($runDir) -or -not (Test-Path -LiteralPath $runDir)) {
+            continue
+        }
+
+        return (Convert-ToRepoRelativePath -Path $runDir)
+    }
+
+    return ''
+}
+
+function Test-StageExitReasonEvidenceUsableForRunDir {
+    param(
+        [object]$ExitReasonEvidence,
+        [int]$ExpectedProcessId
+    )
+
+    if ($null -eq $ExitReasonEvidence) { return $false }
+    if (-not [bool]$ExitReasonEvidence.Available) { return $false }
+    if (-not [bool]$ExitReasonEvidence.StartFileMatch) { return $false }
+    if ([string]$ExitReasonEvidence.Result -notin @('pass', 'fail')) { return $false }
+    if ($ExpectedProcessId -gt 0) { return [bool]$ExitReasonEvidence.ProcessIdMatch }
+
+    $generatedAt = [datetime]::MinValue
+    if (-not [datetime]::TryParse(([string]$ExitReasonEvidence.GeneratedAt), [ref]$generatedAt)) {
+        return $false
+    }
+
+    $ageMinutes = ((Get-Date) - $generatedAt).TotalMinutes
+    return ($ageMinutes -ge -1 -and $ageMinutes -le 30)
+}
+
+function Resolve-RunDirFromStageExitReasonEvidence {
+    param(
+        [object]$ExitReasonEvidence,
+        [int]$ExpectedProcessId
+    )
+
+    if (-not (Test-StageExitReasonEvidenceUsableForRunDir -ExitReasonEvidence $ExitReasonEvidence -ExpectedProcessId $ExpectedProcessId)) {
+        return ''
+    }
+
+    $artifactRunDir = Resolve-RunDirFromRuntimeLog -RuntimeLogPath ([string]$ExitReasonEvidence.RuntimeLogPath)
+    if (-not [string]::IsNullOrWhiteSpace($artifactRunDir)) {
+        return $artifactRunDir
+    }
+
+    return (Resolve-RunDirFromStageExitReasonText -FailReason ([string]$ExitReasonEvidence.FailReason))
+}
+
 function Resolve-RunDirAnchorForFailurePolicy {
     param(
         [System.Collections.IDictionary]$Settings,
         [AllowEmptyString()][string]$CurrentRunDirAnchor,
+        [AllowEmptyString()][string]$AStatus = '',
+        [AllowEmptyString()][string]$BStatus = '',
+        [int]$ALaunchPid = 0,
         [int]$BLaunchPid
     )
 
     $resolvedRunDirAnchor = Convert-ToSingleLineText -Text $CurrentRunDirAnchor
-    if ($BLaunchPid -le 0) {
+    if (-not [string]::IsNullOrWhiteSpace($resolvedRunDirAnchor)) {
         return $resolvedRunDirAnchor
     }
 
-    $bExitEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $BLaunchPid
-    if ($null -eq $bExitEvidence -or -not [bool]$bExitEvidence.Available -or -not [bool]$bExitEvidence.StartFileMatch -or -not [bool]$bExitEvidence.ProcessIdMatch) {
-        return $resolvedRunDirAnchor
+    $normalizedA = Get-StatusValue -Value $AStatus
+    $normalizedB = Get-StatusValue -Value $BStatus
+
+    if ($normalizedA -in @('FAIL', 'BLOCKED') -and $normalizedB -ne 'RUNNING') {
+        $aExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $ALaunchPid
+        $aArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence -ExitReasonEvidence $aExitEvidence -ExpectedProcessId $ALaunchPid
+        if (-not [string]::IsNullOrWhiteSpace($aArtifactRunDir)) {
+            return $aArtifactRunDir
+        }
     }
 
-    $artifactRunDir = Resolve-RunDirFromRuntimeLog -RuntimeLogPath ([string]$bExitEvidence.RuntimeLogPath)
-    if (-not [string]::IsNullOrWhiteSpace($artifactRunDir)) {
-        return $artifactRunDir
+    if ($normalizedB -in @('FAIL', 'BLOCKED') -or $BLaunchPid -gt 0) {
+        $bExitEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $BLaunchPid
+        $bArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence -ExitReasonEvidence $bExitEvidence -ExpectedProcessId $BLaunchPid
+        if (-not [string]::IsNullOrWhiteSpace($bArtifactRunDir)) {
+            return $bArtifactRunDir
+        }
     }
 
     return $resolvedRunDirAnchor
@@ -1633,7 +1722,8 @@ function Save-IncidentPackage {
         [System.Collections.IDictionary]$Settings,
         [string]$SessionStatus,
         [string]$AStatus,
-        [string]$BStatus
+        [string]$BStatus,
+        [AllowEmptyString()][string]$RunDirAnchorOverride = ''
     )
 
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -1642,6 +1732,9 @@ function Save-IncidentPackage {
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
     $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+    if (-not [string]::IsNullOrWhiteSpace($RunDirAnchorOverride)) {
+        $runDirAnchor = Convert-ToSingleLineText -Text $RunDirAnchorOverride
+    }
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
 
     $runDir = Resolve-AnchorPath -Path $runDirAnchor
@@ -6538,9 +6631,9 @@ try {
                     Start-Sleep -Seconds $PollSec
                     continue
                 }
-                $failureRunDirAnchor = Resolve-RunDirAnchorForFailurePolicy -Settings $settings -CurrentRunDirAnchor $runDirAnchor -BLaunchPid $bLaunchPid
+                $failureRunDirAnchor = Resolve-RunDirAnchorForFailurePolicy -Settings $settings -CurrentRunDirAnchor $runDirAnchor -AStatus $aStatus -BStatus $bStatus -ALaunchPid $aLaunchPid -BLaunchPid $bLaunchPid
                 if ($failureRunDirAnchor -ne $runDirAnchor) {
-                    Write-GuardLog ("failure_policy_run_dir_override old={0} new={1} source=b-exit-runtime-log pid={2}" -f $runDirAnchor, $failureRunDirAnchor, $bLaunchPid)
+                    Write-GuardLog ("failure_policy_run_dir_override old={0} new={1} source=stage-exit-artifact a_pid={2} b_pid={3}" -f $runDirAnchor, $failureRunDirAnchor, $aLaunchPid, $bLaunchPid)
                 }
                 $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $failureRunDirAnchor
                 $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $failureRunDirAnchor
@@ -6650,7 +6743,7 @@ try {
                     Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-runtime-fail-covered-by-main-process-exit-review artifact={0}' -f [string]$aExitEvidenceForIncident.ArtifactPath)
                 }
                 elseif ($statusSignature -ne $lastIncidentSignature) {
-                    $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                    $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchorOverride $failureRunDirAnchor
                     $incidentRel = Convert-ToRepoRelativePath -Path $incidentDir
                     $lastIncidentSignature = $statusSignature
                     $statusEvidenceDetail = Get-StatusEvidenceDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Evidence $incidentRel
@@ -6717,7 +6810,7 @@ try {
                             # Fallback reminder for compile-related failures without specific pattern
                             $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
                         }
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailurePhase ([string]$failureTicketMeta.FailurePhase) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
+                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $failureRunDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailurePhase ([string]$failureTicketMeta.FailurePhase) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
 
                         # Roll failure fingerprint for anti-infinite-loop detection.
                         # Include task-definition hash and round source-output hash so

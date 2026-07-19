@@ -478,6 +478,20 @@ $aPassReviewStableDedup = $sessionGuardText.Contains('function Resolve-RunDirAnc
 $aPassReviewStableDedupReason = if ($aPassReviewStableDedup) { 'a-pass-review-stable-dedup-present' } else { 'missing-a-pass-review-stable-dedup' }
 [void]$results.Add((Get-CaseResult -Name 'a-pass-review-stable-dedup' -Pass $aPassReviewStableDedup -Reason $aPassReviewStableDedupReason))
 
+$guardStageExitRunDirFallback = (
+    $sessionGuardText.Contains('function Resolve-RunDirFromStageExitReasonText') -and
+    $sessionGuardText.Contains('final_status=(\S*final_status\.json)') -and
+    $sessionGuardText.Contains('source=(\S+\.(?:log|json|txt))') -and
+    $sessionGuardText.Contains('[AllowEmptyString()][string]$AStatus =') -and
+    $sessionGuardText.Contains('[int]$ALaunchPid = 0') -and
+    $sessionGuardText.Contains('Get-AStageExitReasonEvidence -ExpectedProcessId $ALaunchPid') -and
+    $sessionGuardText.Contains('Resolve-RunDirAnchorForFailurePolicy -Settings $settings -CurrentRunDirAnchor $runDirAnchor -AStatus $aStatus -BStatus $bStatus -ALaunchPid $aLaunchPid -BLaunchPid $bLaunchPid') -and
+    $sessionGuardText.Contains('Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchorOverride $failureRunDirAnchor') -and
+    $sessionGuardText.Contains('-RunDirAnchor $failureRunDirAnchor -IncidentDir $incidentDir')
+)
+$guardStageExitRunDirFallbackReason = if ($guardStageExitRunDirFallback) { 'stage-exit-run-dir-fallback-present' } else { 'missing-stage-exit-run-dir-fallback' }
+[void]$results.Add((Get-CaseResult -Name 'stage-exit-run-dir-fallback' -Pass $guardStageExitRunDirFallback -Reason $guardStageExitRunDirFallbackReason))
+
 # Case 7: stage window must emit monitor continuity timeline artifacts.
 $stageWindowHasTimelinePath = $stageWindowText.Contains('MONITOR_CHAIN_TIMELINE') -and $stageWindowText.Contains('Get-MonitorTimelinePath')
 $stageWindowHasTimelineWriter = $stageWindowText.Contains('function Write-MonitorTimelineEvent')
