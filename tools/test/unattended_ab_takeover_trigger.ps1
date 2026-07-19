@@ -1008,6 +1008,7 @@ function Get-PendingRecoveryTicketState {
     $recoveryEvents = @('incident-captured', 'recovery-await-confirmation', 'auto-fix-await-confirmation', 'main-process-exit-review')
     $startFileRel = Convert-ToRepoRelativePath -Path $StartFilePath
     $pendingIds = New-Object 'System.Collections.Generic.List[string]'
+    $terminalStatuses = @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')
     foreach ($ticket in $queueTickets) {
         $eventName = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'event')).ToLowerInvariant()
         $ticketStartFile = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ticket -Name 'start_file')
@@ -1018,7 +1019,7 @@ function Get-PendingRecoveryTicketState {
         $ledgerEntry = $ledgerById[$ticketId]
         $ledgerStatus = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'status')).ToLowerInvariant()
         $handledAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $ledgerEntry -Name 'handled_at')
-        if ($ledgerStatus -notin @('done', 'failed', 'stale_by_restart', 'stale_status_superseded') -or [string]::IsNullOrWhiteSpace($handledAt)) {
+        if ($ledgerStatus -notin $terminalStatuses -and [string]::IsNullOrWhiteSpace($handledAt)) {
             [void]$pendingIds.Add($ticketId)
         }
     }

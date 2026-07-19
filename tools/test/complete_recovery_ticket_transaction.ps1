@@ -115,6 +115,117 @@ function Read-KeyValueFile {
     return $values
 }
 
+function Convert-ToRecoveryRepoRelativePath {
+    param(
+        [string]$RepoRoot,
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    try {
+        $rootFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+        $pathFull = [System.IO.Path]::GetFullPath($Path)
+        if ($pathFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return ($pathFull.Substring($rootFull.Length) -replace '\\', '/')
+        }
+
+        return $pathFull
+    }
+    catch {
+        return $Path
+    }
+}
+
+function Write-RecoveryFailureLedger {
+    param(
+        [string]$RepoRoot,
+        [string]$StartFilePath,
+        [string]$QueuePathRel,
+        [string]$TicketId,
+        [string]$EventName,
+        [string]$Reason
+    )
+
+    $ticket = Convert-ToSingleLineText -Text $TicketId
+    if ([string]::IsNullOrWhiteSpace($ticket)) {
+        return $false
+    }
+
+    try {
+        $stableToken = Get-StableStartFileToken -StartFilePath $StartFilePath
+        $ledgerPath = Join-Path $RepoRoot ("out\artifacts\ab_agent_queue\ai_ticket_ledger_{0}.json" -f $stableToken)
+        $ledgerDir = Split-Path -Parent $ledgerPath
+        if (-not (Test-Path -LiteralPath $ledgerDir)) {
+            New-Item -ItemType Directory -Path $ledgerDir -Force | Out-Null
+        }
+
+        $ledger = $null
+        if (Test-Path -LiteralPath $ledgerPath) {
+            try {
+                $ledger = (Get-Content -LiteralPath $ledgerPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop)
+            }
+            catch {
+                $ledger = $null
+            }
+        }
+
+        if ($null -eq $ledger) {
+            $ledger = [pscustomobject]@{
+                schema = 'AB_AI_TICKET_LEDGER_V1'
+                updated_at = ''
+                start_file = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $StartFilePath)
+                queue_path = $QueuePathRel
+                records = @()
+            }
+        }
+
+        $records = @($ledger.records)
+        $record = $null
+        foreach ($candidate in $records) {
+            $candidateId = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $candidate -Name 'ticket_id')
+            if ($candidateId -eq $ticket) {
+                $record = $candidate
+                break
+            }
+        }
+
+        $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        $reasonText = Convert-ToSingleLineText -Text $Reason
+        if ($null -eq $record) {
+            $record = [pscustomobject]@{
+                ticket_id = $ticket
+                event = (Convert-ToSingleLineText -Text $EventName)
+                status = 'failed'
+                claimed_at = ''
+                executed_at = ''
+                watch_resumed_at = ''
+                handled_at = ''
+                failed_at = $nowText
+                note = 'recovery-transaction-failed'
+                failure_reason = $reasonText
+            }
+            $records = @($records + $record)
+        }
+        else {
+            $record | Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
+            $record | Add-Member -NotePropertyName 'failed_at' -NotePropertyValue $nowText -Force
+            $record | Add-Member -NotePropertyName 'note' -NotePropertyValue 'recovery-transaction-failed' -Force
+            $record | Add-Member -NotePropertyName 'failure_reason' -NotePropertyValue $reasonText -Force
+        }
+
+        $ledger | Add-Member -NotePropertyName 'updated_at' -NotePropertyValue $nowText -Force
+        $ledger | Add-Member -NotePropertyName 'records' -NotePropertyValue @($records) -Force
+        $ledger | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ledgerPath -Encoding utf8
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Resolve-RepoPath {
     param(
         [string]$RepoRoot,
@@ -466,6 +577,8 @@ function Write-TransactionResult {
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $ticket = (Convert-ToSingleLineText -Text $TicketId)
+$startFilePathForLedger = ''
+$queuePathForLedger = ''
 $result = [ordered]@{
     schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'
     generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -488,6 +601,8 @@ try {
 
     Push-Location $repoRoot
     try {
+        $startFilePathForLedger = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile
+        $queuePathForLedger = if ([string]::IsNullOrWhiteSpace($QueuePath)) { 'out\artifacts\ab_agent_queue\agent_tickets.jsonl' } else { $QueuePath }
         $row = $null
         try {
             $queueForBrief = $QueuePath
@@ -601,6 +716,9 @@ try {
 }
 catch {
     $result.reason = $_.Exception.Message
+    if (-not [string]::IsNullOrWhiteSpace($startFilePathForLedger)) {
+        $result.failure_ledger_recorded = [bool](Write-RecoveryFailureLedger -RepoRoot $repoRoot -StartFilePath $startFilePathForLedger -QueuePathRel $queuePathForLedger -TicketId $ticket -EventName ([string]$result.event) -Reason ([string]$result.reason))
+    }
 }
 finally {
     $totalWatch.Stop()

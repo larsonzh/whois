@@ -7243,6 +7243,13 @@ try {
                     Reset-GuardLoopSignatures -BudgetExhaustedSignature ([ref]$lastBudgetExhaustedSignature) -RestartApprovalWaitSignature ([ref]$lastRestartApprovalWaitSignature)
 
                     if ($null -ne $mainProcessExitGraceStartedAt) {
+                        if ($canRecoverB) {
+                            Write-GuardLog ("main_process_exit_no_autofix_deferred reason=b-recoverable-ticket session={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
+                            Write-WaitingMainExitGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $mainProcessExitGraceStage -RemainingGraceMinutes $mainProcessExitMonitorGraceMinutes
+                            Start-Sleep -Seconds $PollSec
+                            continue
+                        }
+
                         $graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes
                         if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
                             $shutdownDetail = $mainProcessExitGraceShutdownDetail
