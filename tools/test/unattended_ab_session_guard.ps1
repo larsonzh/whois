@@ -139,8 +139,78 @@ function Resolve-RunDirAnchorFromNotes {
     if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
         $runDirAnchor = Get-LatestAnchorValueFromNoteText -Notes $Notes -Key 'a_run_dir'
     }
+    if ([string]::IsNullOrWhiteSpace($runDirAnchor)) {
+        $pathMatches = [regex]::Matches($Notes, '(?i)(?:^|[;\s])(?:final_status|source)=([^;\s]+)')
+        for ($i = $pathMatches.Count - 1; $i -ge 0; $i--) {
+            $candidatePath = ([string]$pathMatches[$i].Groups[1].Value).Trim('"', "'")
+            if ([string]::IsNullOrWhiteSpace($candidatePath)) {
+                continue
+            }
+
+            if ($candidatePath -match '(?i)[/\\]final_status\.json$' -or $candidatePath -match '(?i)[/\\][DV][0-9]+\.log$') {
+                $runDirAnchor = Split-Path -Parent $candidatePath
+                break
+            }
+        }
+    }
 
     return (Convert-ToSingleLineText -Text $runDirAnchor)
+}
+
+function Get-ExplicitRunDirAnchorFromSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Key
+    )
+
+    if ($null -eq $Settings -or [string]::IsNullOrWhiteSpace($Key) -or -not $Settings.Contains($Key)) {
+        return ''
+    }
+
+    $value = Convert-ToSingleLineText -Text ([string]$Settings[$Key])
+    if ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'unknown') {
+        return ''
+    }
+
+    return $value
+}
+
+function Test-StageHasRunDirAnchorPriority {
+    param([AllowEmptyString()][string]$Status)
+
+    $normalized = (Convert-ToSingleLineText -Text $Status).ToUpperInvariant()
+    return ($normalized -eq 'RUNNING' -or $normalized -eq 'PASS' -or $normalized -eq 'FAIL')
+}
+
+function Resolve-RunDirAnchorFromSettings {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [AllowEmptyString()][string]$AStatus = '',
+        [AllowEmptyString()][string]$BStatus = ''
+    )
+
+    $notes = ''
+    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
+        $notes = [string]$Settings.SESSION_FINAL_NOTES
+    }
+
+    $bRunDir = Get-ExplicitRunDirAnchorFromSettings -Settings $Settings -Key 'B_RUN_DIR'
+    $aRunDir = Get-ExplicitRunDirAnchorFromSettings -Settings $Settings -Key 'A_RUN_DIR'
+
+    if ((Test-StageHasRunDirAnchorPriority -Status $BStatus) -and -not [string]::IsNullOrWhiteSpace($bRunDir)) {
+        return $bRunDir
+    }
+    if ((Test-StageHasRunDirAnchorPriority -Status $AStatus) -and -not [string]::IsNullOrWhiteSpace($aRunDir)) {
+        return $aRunDir
+    }
+    if (-not [string]::IsNullOrWhiteSpace($bRunDir)) {
+        return $bRunDir
+    }
+    if (-not [string]::IsNullOrWhiteSpace($aRunDir)) {
+        return $aRunDir
+    }
+
+    return (Resolve-RunDirAnchorFromNotes -Notes $notes)
 }
 
 function Resolve-AnchorPath {
@@ -1273,12 +1343,7 @@ function Get-BPassFailConflictEvidence {
         return [pscustomobject]$result
     }
 
-    $notes = ''
-    if ($null -ne $Settings -and $Settings.Contains('SESSION_FINAL_NOTES')) {
-        $notes = [string]$Settings.SESSION_FINAL_NOTES
-    }
-
-    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+    $runDirAnchor = Resolve-RunDirAnchorFromSettings -Settings $Settings
     $runDirResolved = Resolve-AnchorPath -Path $runDirAnchor
 
     $result.generated_at = Convert-ToSingleLineText -Text ([string]$payload.generated_at)
@@ -1394,8 +1459,8 @@ function Resolve-RunDirFromStageExitReasonText {
 
     $candidatePaths = New-Object 'System.Collections.Generic.List[string]'
     foreach ($pattern in @('final_status=(\S*final_status\.json)', 'source=(\S+\.(?:log|json|txt))')) {
-        $matches = [regex]::Matches($reason, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-        foreach ($match in $matches) {
+        $regexMatches = [regex]::Matches($reason, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        foreach ($match in $regexMatches) {
             if ($match.Groups.Count -gt 1) {
                 $candidate = Convert-ToSingleLineText -Text ([string]$match.Groups[1].Value)
                 if (-not [string]::IsNullOrWhiteSpace($candidate)) {
@@ -1687,7 +1752,7 @@ function Get-BudgetExhaustedLivenessEvidence {
 
     $guardLogAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'guard_log'
     $liveStatusAnchor = Get-LatestAnchorValueFromNoteText -Notes $notes -Key 'live_status'
-    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+    $runDirAnchor = Resolve-RunDirAnchorFromSettings -Settings $Settings -BStatus 'RUNNING'
     $runtimeLogHint = Get-BRuntimeLogHint -Settings $Settings -ArtifactRuntimeLogPath ''
 
     $pidAlive = Test-ProcessAlive -ProcessId $bLaunchPid
@@ -1731,7 +1796,7 @@ function Save-IncidentPackage {
     New-Item -ItemType Directory -Path $incidentDir -Force | Out-Null
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+    $runDirAnchor = Resolve-RunDirAnchorFromSettings -Settings $Settings -AStatus $AStatus -BStatus $BStatus
     if (-not [string]::IsNullOrWhiteSpace($RunDirAnchorOverride)) {
         $runDirAnchor = Convert-ToSingleLineText -Text $RunDirAnchorOverride
     }
@@ -3788,6 +3853,30 @@ $script:AgentTicketLastSignature = ''
 $script:AgentTicketLastId = ''
 $script:AgentTicketLastEvent = ''
 
+function Get-APassConclusionPersistedSignature {
+    param([System.Collections.IDictionary]$Settings)
+
+    if ($null -eq $Settings -or -not $Settings.Contains('A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE')) {
+        return ''
+    }
+
+    return (Convert-ToSingleLineText -Text ([string]$Settings.A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE))
+}
+
+function Set-APassConclusionPersistedSignature {
+    param([AllowEmptyString()][string]$Signature)
+
+    $signatureCompact = Convert-ToSingleLineText -Text $Signature
+    if ([string]::IsNullOrWhiteSpace($signatureCompact)) {
+        return
+    }
+
+    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
+        A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE = $signatureCompact
+        A_PASS_CONCLUSION_B_STARTED_TICKET_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    }
+}
+
 Write-GuardState -Values @{}
 $MaxRecoveryAttempts = [int]$MaxBRecoveryAttempts
 Write-GuardLog ("startup start_file={0} poll_sec={1} max_recovery_attempts={2} max_b_recovery_attempts={3} recovery_cooldown_minutes={4} stop_on_budget_exhausted={5} guard_log={6} guard_state={7}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxRecoveryAttempts, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
@@ -4008,7 +4097,7 @@ function Get-SessionStatusSnapshot {
     }
 
     $notes = if ($Settings.Contains('SESSION_FINAL_NOTES')) { [string]$Settings.SESSION_FINAL_NOTES } else { '' }
-    $runDirAnchor = Resolve-RunDirAnchorFromNotes -Notes $notes
+    $runDirAnchor = Resolve-RunDirAnchorFromSettings -Settings $Settings -AStatus $aStatus -BStatus $bStatus
 
     return [pscustomobject]@{
         SessionStatusRaw = $sessionStatusRaw
@@ -5832,6 +5921,7 @@ try {
                     $sessionStatus,
                     $aStatus,
                     $aSnapshotFinalHint)
+                $aPassConclusionPersistedSignature = Get-APassConclusionPersistedSignature -Settings $settings
 
                 # B runs in a different directory from A. The handover ticket requires
                 # settled A snapshot evidence, not equality with B's current run directory.
@@ -5844,7 +5934,10 @@ try {
                     }
                 }
 
-                if ($aPassConclusionDedup -ne $lastAPassConclusionSignature -and $aSnapshotSettled) {
+                if ($aSnapshotSettled -and $aPassConclusionDedup -eq $aPassConclusionPersistedSignature) {
+                    $lastAPassConclusionSignature = $aPassConclusionDedup
+                }
+                elseif ($aPassConclusionDedup -ne $lastAPassConclusionSignature -and $aSnapshotSettled) {
                     $aPassConclusionDetail = ("A stage PASS confirmed; B stage launch observed (b_status={0}, b_launch_pid={1}); run_dir={2}" -f $bStatus, $bLaunchPidForConclusion, $runDirAnchor)
                     if (-not [string]::IsNullOrWhiteSpace($aSnapshotFinalHint)) {
                         $aPassConclusionDetail = ("{0}; a_snapshot_final={1}" -f $aPassConclusionDetail, $aSnapshotFinalHint)
@@ -5854,6 +5947,7 @@ try {
                     $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'normal' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                     if ((Get-TicketResultQueuedFlag -TicketResult $aPassConclusionTicketResult) -or (Get-TicketResultReason -TicketResult $aPassConclusionTicketResult) -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
+                        Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup
                     }
                 }
             }

@@ -576,6 +576,7 @@ function Write-MonitorTimelineEvent {
 function Invoke-SessionAnchorUpdateInStartFile {
     param(
         [string]$Path,
+        [ValidateSet('A', 'B')][string]$Stage,
         [System.Collections.IDictionary]$Anchors
     )
 
@@ -590,19 +591,28 @@ function Invoke-SessionAnchorUpdateInStartFile {
         }
 
         $trimmed = $segment.Trim()
-        if ($trimmed -match '^(run_dir|guard_log|live_status|b_runtime_log)=') {
+        if ($trimmed -match '^(a_run_dir|b_run_dir|run_dir|guard_log|live_status|b_runtime_log)=') {
             continue
         }
 
         [void]$segments.Add($trimmed)
     }
 
-    foreach ($anchorKey in @('run_dir', 'guard_log', 'live_status', 'b_runtime_log')) {
-        if (-not $Anchors.ContainsKey($anchorKey)) {
+    $effectiveAnchors = @{}
+    foreach ($anchorKey in $Anchors.Keys) {
+        $effectiveAnchors[$anchorKey] = $Anchors[$anchorKey]
+    }
+    if ($effectiveAnchors.ContainsKey('run_dir')) {
+        $stageRunDirKey = if ($Stage -eq 'A') { 'a_run_dir' } else { 'b_run_dir' }
+        $effectiveAnchors[$stageRunDirKey] = $effectiveAnchors['run_dir']
+    }
+
+    foreach ($anchorKey in @('a_run_dir', 'b_run_dir', 'run_dir', 'guard_log', 'live_status', 'b_runtime_log')) {
+        if (-not $effectiveAnchors.ContainsKey($anchorKey)) {
             continue
         }
 
-        $value = [string]$Anchors[$anchorKey]
+        $value = [string]$effectiveAnchors[$anchorKey]
         if ([string]::IsNullOrWhiteSpace($value)) {
             continue
         }
@@ -611,7 +621,15 @@ function Invoke-SessionAnchorUpdateInStartFile {
     }
 
     $newNotes = ($segments -join '; ')
-    Invoke-KeyValueFileValueUpdateCore -Path $Path -Values @{ SESSION_FINAL_NOTES = $newNotes }
+    $updates = @{ SESSION_FINAL_NOTES = $newNotes }
+    if ($effectiveAnchors.ContainsKey('run_dir')) {
+        $stageRunDirValue = [string]$effectiveAnchors['run_dir']
+        if (-not [string]::IsNullOrWhiteSpace($stageRunDirValue) -and $stageRunDirValue -ne 'unknown') {
+            $stageRunDirSettingKey = if ($Stage -eq 'A') { 'A_RUN_DIR' } else { 'B_RUN_DIR' }
+            $updates[$stageRunDirSettingKey] = $stageRunDirValue
+        }
+    }
+    Invoke-KeyValueFileValueUpdateCore -Path $Path -Values $updates
     return $newNotes
 }
 
@@ -2743,13 +2761,13 @@ if (-not $autoStartMonitors) {
 $sessionOutDirRoot = Join-Path $repoRoot 'out\artifacts\dev_verify_multiround'
 $currentStageRunDir = Resolve-CurrentStageRunDir -LaunchTime $stageLaunchTime -Settings $settings -SessionOutDirRoot $sessionOutDirRoot -StageProcessId ([int]$processInfo.Id)
 if (-not [string]::IsNullOrWhiteSpace($currentStageRunDir)) {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Stage $Stage -Anchors @{ run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
     Write-Output ("[OPEN-AB-STAGE] anchor_update run_dir={0}" -f (Convert-ToAnchorPath -Path $currentStageRunDir))
     Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = (Convert-ToAnchorPath -Path $currentStageRunDir) }
     $settings = Read-KeyValueFile -Path $startFilePath
 }
 else {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors @{ run_dir = 'unknown' }
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Stage $Stage -Anchors @{ run_dir = 'unknown' }
     Write-Output '[OPEN-AB-STAGE] anchor_update run_dir=unknown'
     Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'run_dir_anchor_update' -Fields @{ stage = $Stage; run_dir = 'unknown' }
     $settings = Read-KeyValueFile -Path $startFilePath
@@ -3413,7 +3431,7 @@ if ($Stage -eq 'B' -and -not [string]::IsNullOrWhiteSpace($stageRuntimeLogPath))
 }
 
 if ($anchorUpdates.Count -gt 0) {
-    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Anchors $anchorUpdates
+    $updatedNotes = Invoke-SessionAnchorUpdateInStartFile -Path $startFilePath -Stage $Stage -Anchors $anchorUpdates
     Write-Output ("[OPEN-AB-STAGE] anchor_update notes={0}" -f $updatedNotes)
     Write-MonitorTimelineEvent -TimelinePath $monitorTimelinePath -EventName 'anchor_update' -Fields @{ stage = $Stage; anchors = $anchorUpdates; notes = $updatedNotes }
 }
