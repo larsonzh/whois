@@ -1606,6 +1606,18 @@ function Get-RunningStartFileProcessIdList {
             Select-Object -ExpandProperty ProcessId -Unique
     )
 
+    if ($ScriptLeaf -eq 'unattended_ab_session_guard.ps1' -and -not [string]::IsNullOrWhiteSpace([string]$env:AUTO_PARENT_GUARD_PID)) {
+        $envParentPid = 0
+        if ([int]::TryParse([string]$env:AUTO_PARENT_GUARD_PID, [ref]$envParentPid) -and $envParentPid -gt 0) {
+            $envStartFileIdentity = Get-NormalizedPathIdentity -Path ([string]$env:AUTO_PARENT_GUARD_START_FILE) -RepoRoot $RepoRoot
+            if (([string]::IsNullOrWhiteSpace($StartFileIdentity) -or $envStartFileIdentity -eq $StartFileIdentity) -and
+                    $null -ne (Get-Process -Id $envParentPid -ErrorAction SilentlyContinue) -and
+                    ($ids -notcontains $envParentPid)) {
+                $ids += $envParentPid
+            }
+        }
+    }
+
     return @($ids)
 }
 

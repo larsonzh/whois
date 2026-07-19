@@ -5776,7 +5776,21 @@ try {
                 $powershellPath = Join-Path $PSHOME 'powershell.exe'
                 if (-not (Test-Path -LiteralPath $powershellPath)) { $powershellPath = 'powershell.exe' }
                 Write-GuardLog ("b_auto_launch_start launcher={0}" -f (Convert-ToRepoRelativePath -Path $bLauncher))
-                $bLaunchOutput = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $bLauncher -Stage B -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
+                $parentGuardEnv = @{}
+                foreach ($envName in @('AUTO_PARENT_GUARD_PID', 'AUTO_PARENT_GUARD_START_FILE', 'AUTO_PARENT_GUARD_LOG')) {
+                    $parentGuardEnv[$envName] = [System.Environment]::GetEnvironmentVariable($envName, 'Process')
+                }
+                try {
+                    [System.Environment]::SetEnvironmentVariable('AUTO_PARENT_GUARD_PID', [string]$PID, 'Process')
+                    [System.Environment]::SetEnvironmentVariable('AUTO_PARENT_GUARD_START_FILE', [string]$script:StartFilePath, 'Process')
+                    [System.Environment]::SetEnvironmentVariable('AUTO_PARENT_GUARD_LOG', [string](Convert-ToRepoRelativePath -Path $script:GuardLogPath), 'Process')
+                    $bLaunchOutput = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $bLauncher -Stage B -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
+                }
+                finally {
+                    foreach ($envName in @('AUTO_PARENT_GUARD_PID', 'AUTO_PARENT_GUARD_START_FILE', 'AUTO_PARENT_GUARD_LOG')) {
+                        [System.Environment]::SetEnvironmentVariable($envName, $parentGuardEnv[$envName], 'Process')
+                    }
+                }
                 $bLaunchLines = @($bLaunchOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                 if ($bLaunchLines.Count -gt 0) {
                     foreach ($bLine in $bLaunchLines) { Write-GuardLog ("b_auto_launch_output {0}" -f $bLine) }

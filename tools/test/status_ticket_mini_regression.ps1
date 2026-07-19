@@ -460,6 +460,10 @@ $guardBRestartUsesAutoRebind = $sessionGuardText.Contains("`$restartLauncherSwit
 $guardBRestartUsesAutoRebindReason = if ($guardBRestartUsesAutoRebind) { 'guard-b-restart-auto-rebind-present' } else { 'missing-guard-b-restart-auto-rebind' }
 [void]$results.Add((Get-CaseResult -Name 'guard-b-restart-auto-rebind' -Pass $guardBRestartUsesAutoRebind -Reason $guardBRestartUsesAutoRebindReason))
 
+$guardBLaunchPassesParentEvidence = $sessionGuardText.Contains('AUTO_PARENT_GUARD_PID') -and $sessionGuardText.Contains('AUTO_PARENT_GUARD_START_FILE') -and $sessionGuardText.Contains('AUTO_PARENT_GUARD_LOG') -and $stageWindowText.Contains('AUTO_PARENT_GUARD_PID') -and $stageWindowText.Contains('AUTO_PARENT_GUARD_START_FILE') -and $stageWindowText.Contains('monitor_parent_reuse role=guard stage=B')
+$guardBLaunchPassesParentEvidenceReason = if ($guardBLaunchPassesParentEvidence) { 'guard-b-launch-parent-evidence-present' } else { 'missing-guard-b-launch-parent-evidence' }
+[void]$results.Add((Get-CaseResult -Name 'guard-b-launch-parent-evidence' -Pass $guardBLaunchPassesParentEvidence -Reason $guardBLaunchPassesParentEvidenceReason))
+
 $guardKeepsRecoverableBMonitoring = $sessionGuardText.Contains('main_process_exit_no_autofix_deferred reason=b-recoverable-ticket') -and $sessionGuardText.Contains('if ($canRecoverB) {')
 $guardKeepsRecoverableBMonitoringReason = if ($guardKeepsRecoverableBMonitoring) { 'recoverable-b-main-exit-keeps-monitor-chain' } else { 'missing-recoverable-b-monitor-chain-deferral' }
 [void]$results.Add((Get-CaseResult -Name 'recoverable-b-monitor-chain-deferral' -Pass $guardKeepsRecoverableBMonitoring -Reason $guardKeepsRecoverableBMonitoringReason))

@@ -1536,6 +1536,18 @@ function Get-MonitorBindingState {
         }
     }
 
+    if ($ScriptLeaf -eq 'unattended_ab_session_guard.ps1' -and -not [string]::IsNullOrWhiteSpace([string]$env:AUTO_PARENT_GUARD_PID)) {
+        $envParentPid = 0
+        if ([int]::TryParse([string]$env:AUTO_PARENT_GUARD_PID, [ref]$envParentPid) -and $envParentPid -gt 0) {
+            $envStartFileIdentity = Get-NormalizedPathIdentity -Path ([string]$env:AUTO_PARENT_GUARD_START_FILE) -RepoRoot $RepoRoot
+            if (-not [string]::IsNullOrWhiteSpace($startFileIdentity) -and $envStartFileIdentity -eq $startFileIdentity -and
+                    $null -ne (Get-Process -Id $envParentPid -ErrorAction SilentlyContinue) -and
+                    ($matchPids -notcontains $envParentPid)) {
+                [void]$matchPids.Add($envParentPid)
+            }
+        }
+    }
+
     return [pscustomobject]@{
         ScriptLeaf = $ScriptLeaf
         RunningForStartFile = ($matchPids.Count -gt 0)
@@ -1561,6 +1573,22 @@ function Get-ParentMonitorBindingEvidence {
         ProcessId = 0
     }
 
+    $expectedStartFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
+    if ($ScriptLeaf -eq 'unattended_ab_session_guard.ps1' -and -not [string]::IsNullOrWhiteSpace([string]$env:AUTO_PARENT_GUARD_PID)) {
+        $envParentPid = 0
+        if ([int]::TryParse([string]$env:AUTO_PARENT_GUARD_PID, [ref]$envParentPid) -and $envParentPid -gt 0) {
+            $envStartFileIdentity = Get-NormalizedPathIdentity -Path ([string]$env:AUTO_PARENT_GUARD_START_FILE) -RepoRoot $RepoRoot
+            if (-not [string]::IsNullOrWhiteSpace($expectedStartFileIdentity) -and $envStartFileIdentity -eq $expectedStartFileIdentity) {
+                $envParentProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $envParentPid) -ErrorAction SilentlyContinue
+                if ($null -ne $envParentProcess) {
+                    $result.Matches = $true
+                    $result.ProcessId = $envParentPid
+                    return [pscustomobject]$result
+                }
+            }
+        }
+    }
+
     try {
         $currentProcess = Get-CimInstance Win32_Process -Filter ("ProcessId={0}" -f $PID) -ErrorAction Stop
         $parentProcessId = [int]$currentProcess.ParentProcessId
@@ -1574,7 +1602,6 @@ function Get-ParentMonitorBindingEvidence {
             return [pscustomobject]$result
         }
 
-        $expectedStartFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
         $parentStartFileIdentity = Get-StartFilePathFromCommandLine -CommandLine $commandLine -RepoRoot $RepoRoot
         if (-not [string]::IsNullOrWhiteSpace($expectedStartFileIdentity) -and $parentStartFileIdentity -eq $expectedStartFileIdentity) {
             $result.Matches = $true
