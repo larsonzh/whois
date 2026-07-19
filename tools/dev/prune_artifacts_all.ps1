@@ -3,7 +3,10 @@
     [switch]$SkipAgentTicketStatusView,
     [ValidateRange(1, 200)][int]$AgentTicketViewKeepRecentStatus = 5,
     [ValidateRange(1, 720)][int]$AgentTicketViewKeepStatusHours = 24,
-    [ValidateRange(1, 200)][int]$AgentTicketViewStartFileLimit = 40
+    [ValidateRange(1, 200)][int]$AgentTicketViewStartFileLimit = 40,
+    [ValidateRange(1, 365)][int]$AgentTicketRetentionDays = 14,
+    [ValidateRange(1, 365)][int]$AgentTicketArchiveRetentionDays = 14,
+    [switch]$SkipAgentTicketRetentionPrune
 )
 
 Set-StrictMode -Version Latest
@@ -105,6 +108,233 @@ function Invoke-AgentTicketStatusViewRefresh {
         }
         catch {
             Write-Output ("[PRUNE-ALL][STATUS-VIEW] failed start={0} error={1}" -f $startFileRel, $_.Exception.Message)
+        }
+    }
+}
+
+function Convert-ToTicketDateUtc {
+    param(
+        [AllowNull()][object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    $formats = @(
+        'yyyy-MM-dd HH:mm:ss',
+        'yyyy-MM-ddTHH:mm:ss',
+        'yyyyMMdd-HHmmss',
+        'yyyyMMdd-HHmmssfff'
+    )
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $styles = [System.Globalization.DateTimeStyles]::AssumeLocal
+    $parsed = [datetime]::MinValue
+
+    foreach ($format in $formats) {
+        if ([datetime]::TryParseExact($text, $format, $culture, $styles, [ref]$parsed)) {
+            return $parsed.ToUniversalTime()
+        }
+    }
+
+    if ([datetime]::TryParse($text, $culture, $styles, [ref]$parsed)) {
+        return $parsed.ToUniversalTime()
+    }
+
+    return $null
+}
+
+function Get-AgentTicketRecordDateUtc {
+    param(
+        [object]$Record
+    )
+
+    foreach ($name in @('created_at', 'generated_at', 'updated_at', 'handled_at')) {
+        if ($null -eq $Record -or -not ($Record.PSObject.Properties.Name -contains $name)) {
+            continue
+        }
+
+        $dateUtc = Convert-ToTicketDateUtc -Value $Record.$name
+        if ($null -ne $dateUtc) {
+            return $dateUtc
+        }
+    }
+
+    if ($null -ne $Record -and $Record.PSObject.Properties.Name -contains 'detail') {
+        $detail = [string]$Record.detail
+        $match = [regex]::Match($detail, 'updated_at=(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
+        if ($match.Success) {
+            $dateUtc = Convert-ToTicketDateUtc -Value $match.Groups[1].Value
+            if ($null -ne $dateUtc) {
+                return $dateUtc
+            }
+        }
+    }
+
+    if ($null -ne $Record -and $Record.PSObject.Properties.Name -contains 'ticket_id') {
+        $ticketId = [string]$Record.ticket_id
+        $match = [regex]::Match($ticketId, '(\d{8}-\d{6})')
+        if ($match.Success) {
+            $dateUtc = Convert-ToTicketDateUtc -Value $match.Groups[1].Value
+            if ($null -ne $dateUtc) {
+                return $dateUtc
+            }
+        }
+    }
+
+    return $null
+}
+
+function Write-Utf8BomTextAtomic {
+    param(
+        [string]$Path,
+        [string]$Text
+    )
+
+    $tempPath = ('{0}.tmp.{1}' -f $Path, [guid]::NewGuid().ToString('N'))
+    $encoding = New-Object System.Text.UTF8Encoding($true)
+    [System.IO.File]::WriteAllText($tempPath, $Text, $encoding)
+    Move-Item -LiteralPath $tempPath -Destination $Path -Force
+}
+
+function Add-ArchiveLines {
+    param(
+        [string]$ArchivePath,
+        [string[]]$Lines
+    )
+
+    if ($Lines.Count -eq 0) {
+        return
+    }
+
+    $archiveDir = Split-Path -Parent $ArchivePath
+    if (-not (Test-Path -LiteralPath $archiveDir)) {
+        New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+    }
+
+    $text = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
+    $encoding = New-Object System.Text.UTF8Encoding($true)
+    [System.IO.File]::AppendAllText($ArchivePath, $text, $encoding)
+}
+
+function Get-FileRetentionTimeUtc {
+    param(
+        [System.IO.FileInfo]$File
+    )
+
+    return [datetime]$File.LastWriteTimeUtc
+}
+
+function Invoke-AgentTicketQueueRetentionPrune {
+    if ($SkipAgentTicketRetentionPrune.IsPresent) {
+        Write-Output '[PRUNE-ALL][TICKET-QUEUE] skipped by switch'
+        return
+    }
+
+    $queuePath = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
+    Write-Output ("[PRUNE-ALL][TICKET-QUEUE] keep_days={0} queue={1}" -f $AgentTicketRetentionDays, $queuePath)
+
+    if (-not (Test-Path -LiteralPath $queuePath)) {
+        Write-Output ("[PRUNE-ALL][TICKET-QUEUE] skip_missing queue={0}" -f $queuePath)
+        return
+    }
+
+    $cutoffUtc = (Get-Date).ToUniversalTime().AddDays(-1 * [double]$AgentTicketRetentionDays)
+    $lines = @([System.IO.File]::ReadAllLines($queuePath))
+    $kept = New-Object 'System.Collections.Generic.List[string]'
+    $removed = New-Object 'System.Collections.Generic.List[string]'
+    $parseFailed = 0
+    $missingDate = 0
+
+    foreach ($line in $lines) {
+        $rawLine = [string]$line
+        if ([string]::IsNullOrWhiteSpace($rawLine)) {
+            continue
+        }
+
+        $jsonText = $rawLine.TrimStart([char]0xFEFF)
+        $record = $null
+        try {
+            $record = $jsonText | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            $parseFailed++
+            [void]$kept.Add($rawLine)
+            continue
+        }
+
+        $recordDateUtc = Get-AgentTicketRecordDateUtc -Record $record
+        if ($null -eq $recordDateUtc) {
+            $missingDate++
+            [void]$kept.Add($rawLine)
+            continue
+        }
+
+        if ($recordDateUtc -lt $cutoffUtc) {
+            [void]$removed.Add($jsonText)
+        }
+        else {
+            [void]$kept.Add($jsonText)
+        }
+    }
+
+    Write-Output ("[PRUNE-ALL][TICKET-QUEUE] total={0} keep={1} prune={2} parse_failed={3} missing_date={4}" -f $lines.Count, $kept.Count, $removed.Count, $parseFailed, $missingDate)
+
+    if ($removed.Count -eq 0) {
+        return
+    }
+
+    $archiveDir = Join-Path $repoRoot 'out\artifacts\ab_agent_queue\archive'
+    $archivePath = Join-Path $archiveDir ("agent_tickets_archive_{0}.jsonl" -f (Get-Date).ToString('yyyyMMdd'))
+    if ($DryRun.IsPresent) {
+        Write-Output ("[PRUNE-ALL][TICKET-QUEUE] DryRun archive={0} prune={1}" -f $archivePath, $removed.Count)
+        return
+    }
+
+    Add-ArchiveLines -ArchivePath $archivePath -Lines @($removed.ToArray())
+    $newText = ''
+    if ($kept.Count -gt 0) {
+        $newText = ($kept.ToArray() -join [Environment]::NewLine) + [Environment]::NewLine
+    }
+
+    Write-Utf8BomTextAtomic -Path $queuePath -Text $newText
+    Write-Output ("[PRUNE-ALL][TICKET-QUEUE] archived={0} archive={1}" -f $removed.Count, $archivePath)
+}
+
+function Invoke-AgentTicketAgeFilePrunePlan {
+    param(
+        [int]$KeepDays,
+        [string]$RelativePath,
+        [string]$Filter
+    )
+
+    $dirPath = Join-Path $repoRoot $RelativePath
+    Write-Output ("[PRUNE-ALL][AGE-FILE] keep_days={0} dir={1} filter={2}" -f $KeepDays, $dirPath, $Filter)
+
+    if (-not (Test-Path -LiteralPath $dirPath)) {
+        Write-Output ("[PRUNE-ALL][AGE-FILE] skip_missing dir={0}" -f $dirPath)
+        return
+    }
+
+    $cutoffUtc = (Get-Date).ToUniversalTime().AddDays(-1 * [double]$KeepDays)
+    $files = @(Get-ChildItem -LiteralPath $dirPath -File -Filter $Filter -ErrorAction SilentlyContinue | Where-Object { (Get-FileRetentionTimeUtc -File $_) -lt $cutoffUtc })
+    if ($files.Count -eq 0) {
+        Write-Output ("[PRUNE-ALL][AGE-FILE] nothing_to_prune dir={0} filter={1}" -f $dirPath, $Filter)
+        return
+    }
+
+    Write-Output ("[PRUNE-ALL][AGE-FILE] prune_count={0} dir={1} filter={2}" -f $files.Count, $dirPath, $Filter)
+    foreach ($entry in $files) {
+        if ($DryRun.IsPresent) {
+            Write-Output ("[PRUNE-ALL][AGE-FILE] DryRun remove={0}" -f $entry.FullName)
+        }
+        elseif (Test-Path -LiteralPath $entry.FullName) {
+            Remove-Item -LiteralPath $entry.FullName -Force
         }
     }
 }
@@ -230,6 +460,20 @@ $directoryPlans = @(
     @{ Keep = 8; RelativePath = "out/artifacts/ab_companion" },
     @{ Keep = 8; RelativePath = "out/artifacts/ab_supervisor" },
     @{ Keep = 8; RelativePath = "out/artifacts/ab_session_guard" },
+    @{ Keep = 8; RelativePath = "out/artifacts/ab_remote_lock_scene" },
+    @{ Keep = 8; RelativePath = "out/artifacts/classification_contract_tests" },
+    @{ Keep = 8; RelativePath = "out/artifacts/dispatch_route_guard_live_override_smoke" },
+    @{ Keep = 8; RelativePath = "out/artifacts/event_dedup_health" },
+    @{ Keep = 8; RelativePath = "out/artifacts/event_queue_idempotent_regression" },
+    @{ Keep = 8; RelativePath = "out/artifacts/final_status_closeout" },
+    @{ Keep = 8; RelativePath = "out/artifacts/poll_lock_contention" },
+    @{ Keep = 8; RelativePath = "out/artifacts/rollback_prebaseline" },
+    @{ Keep = 8; RelativePath = "out/artifacts/route_guard_smoke_suite" },
+    @{ Keep = 8; RelativePath = "out/artifacts/status_only_autoflow_token_guard_smoke" },
+    @{ Keep = 8; RelativePath = "out/artifacts/status_ticket_mini_regression" },
+    @{ Keep = 8; RelativePath = "out/artifacts/ticket_closure_check" },
+    @{ Keep = 8; RelativePath = "out/artifacts/trigger_route_guard_gate_smoke" },
+    @{ Keep = 8; RelativePath = "out/artifacts/watch_ab_light_smoke" },
     @{ Keep = 8; RelativePath = "out/artifacts/step47_ab" },
     @{ Keep = 8; RelativePath = "out/artifacts/step47_matrix" },
     @{ Keep = 8; RelativePath = "out/artifacts/step47_preclass_preflight" },
@@ -238,20 +482,27 @@ $directoryPlans = @(
 )
 
 $timestampFilePlans = @(
+    @{ Keep = 20; RelativePath = 'out/artifacts'; Filter = 'process_candidate_list*.json' },
     @{ Keep = 40; RelativePath = 'out/artifacts/ab_stage_runtime/A'; Filter = 'a_runtime_*.log' },
     @{ Keep = 40; RelativePath = 'out/artifacts/ab_stage_runtime/B'; Filter = 'b_runtime_*.log' },
     @{ Keep = 40; RelativePath = 'out/artifacts/ab_stage_exit'; Filter = '*_a_pid*.json' },
     @{ Keep = 40; RelativePath = 'out/artifacts/ab_stage_exit'; Filter = '*_b_pid*.json' },
+    @{ Keep = 20; RelativePath = 'out/artifacts/process_snapshots'; Filter = 'process_snapshot_*.json' },
     @{ Keep = 30; RelativePath = 'out/artifacts/cidr_bundle'; Filter = 'cidr_bundle_summary_*.txt' },
-    @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'takeover_trigger_*.log' },
-    @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'chat_session_heartbeat_*.json' },
-    @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_poll_state_*.json' },
-    @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_ledger_*.json' },
-    @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl' },
-    @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl.summary.json' },
-    @{ Keep = 60; RelativePath = 'out/artifacts/ab_agent_queue/archive'; Filter = 'ai_ticket_ledger_archive_*.jsonl' },
-    @{ Keep = 40; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'dispatch_*.log' },
-    @{ Keep = 120; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'relay_*.md' }
+    @{ Keep = 30; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_ledger_*.json' }
+)
+
+$agentTicketAgeFilePlans = @(
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue/takeover_requests'; Filter = 'takeover_*.md' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'takeover_trigger_*.log' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'chat_session_heartbeat_*.json' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'ai_ticket_poll_state_*.json' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue'; Filter = 'agent_tickets_view_*.jsonl.summary.json' },
+    @{ KeepDays = $AgentTicketArchiveRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue/archive'; Filter = 'agent_tickets_archive_*.jsonl' },
+    @{ KeepDays = $AgentTicketArchiveRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue/archive'; Filter = 'ai_ticket_ledger_archive_*.jsonl' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'dispatch_*.log' },
+    @{ KeepDays = $AgentTicketRetentionDays; RelativePath = 'out/artifacts/ab_agent_queue/chat_dispatch'; Filter = 'relay_*.md' }
 )
 
 foreach ($plan in $timestampDirectoryPlans) {
@@ -263,6 +514,12 @@ foreach ($plan in $directoryPlans) {
 }
 
 Invoke-AgentTicketStatusViewRefresh
+
+Invoke-AgentTicketQueueRetentionPrune
+
+foreach ($plan in $agentTicketAgeFilePlans) {
+    Invoke-AgentTicketAgeFilePrunePlan -KeepDays ([int]$plan.KeepDays) -RelativePath ([string]$plan.RelativePath) -Filter ([string]$plan.Filter)
+}
 
 foreach ($plan in $timestampFilePlans) {
     Invoke-TimestampFilePrunePlan -Keep ([int]$plan.Keep) -RelativePath ([string]$plan.RelativePath) -Filter ([string]$plan.Filter)
