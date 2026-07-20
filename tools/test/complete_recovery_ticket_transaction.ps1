@@ -5,6 +5,7 @@
     [ValidateRange(1, 200)][int]$Last = 20,
     [ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240,
     [switch]$ShowBusinessCommandWindow,
+    [switch]$DescribeTransactionRow,
     [switch]$AsJson
 )
 
@@ -68,6 +69,40 @@ function Test-ListContainsToken {
 
     return $false
 }
+
+function Test-AutoResumeRouteClassification {
+    param([AllowEmptyString()][string]$Classification)
+
+    $normalized = (Convert-ToSingleLineText -Text $Classification).ToLowerInvariant()
+    return ($normalized -in @(
+            'incident-auto-resume-code-fix',
+            'incident-auto-resume-script-fix',
+            'incident-auto-resume-noncode'
+        ))
+}
+
+    function Test-KnownRouteClassification {
+        param([AllowEmptyString()][string]$Classification)
+
+        $normalized = (Convert-ToSingleLineText -Text $Classification).ToLowerInvariant()
+        return ($normalized -in @(
+            'pre-start-skip',
+            'superseded-status-ticket',
+            'status-health-check-only',
+            'notice-manual-wait',
+            'notice-budget-exhausted',
+            'notice-known-infra-transient',
+            'incident-script-diagnose-only',
+            'incident-auto-resume-code-fix',
+            'incident-auto-resume-script-fix',
+            'incident-auto-resume-noncode',
+            'incident-manual-code-fix',
+            'incident-manual-script-fix',
+            'incident-manual-noncode',
+            'event-review',
+            'event-review-low-disturb-text-only'
+        ))
+    }
 
 function Convert-CommandOutputToJson {
     param(
@@ -389,9 +424,6 @@ function Get-TransactionRowFromBrief {
     if ($stage -notin @('A', 'B')) {
         $stage = (Convert-ToSingleLineText -Text ([string]$brief['preferred_stage'])).ToUpperInvariant()
     }
-    if ($stage -notin @('A', 'B')) {
-        $stage = 'A'
-    }
 
     $nextCommandOrderText = Convert-ToSingleLineText -Text ([string]$brief['next_command_order'])
     $nextCommandOrder = @(
@@ -399,12 +431,20 @@ function Get-TransactionRowFromBrief {
             ForEach-Object { (Convert-ToSingleLineText -Text ([string]$_)).ToLowerInvariant() } |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     )
-    $eventName = (Convert-ToSingleLineText -Text ([string]$brief['event'])).ToLowerInvariant()
-    $businessCommandRequested = if ($nextCommandOrder.Count -gt 0) {
-        $nextCommandOrder -contains 'business_command'
+    $routeGuardExpected = (Convert-ToSingleLineText -Text ([string]$brief['route_guard_expected'])).ToLowerInvariant()
+    if (-not (Test-KnownRouteClassification -Classification $routeGuardExpected)) {
+        throw ("takeover brief has missing or unknown route_guard_expected: {0}" -f $routeGuardExpected)
     }
-    else {
-        $eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')
+    $autoResumeRoute = Test-AutoResumeRouteClassification -Classification $routeGuardExpected
+    $businessCommandRequested = (
+        $autoResumeRoute -and
+        (($nextCommandOrder -contains 'recovery_transaction_command') -or ($nextCommandOrder -contains 'business_command'))
+    )
+    if ($autoResumeRoute -and -not $businessCommandRequested) {
+        throw ("auto-resume route {0} is missing recovery_transaction_command in next_command_order" -f $routeGuardExpected)
+    }
+    if ($businessCommandRequested -and $stage -notin @('A', 'B')) {
+        throw ("auto-resume route {0} has invalid business command stage" -f $routeGuardExpected)
     }
     $businessCommand = ''
     if ($businessCommandRequested) {
@@ -609,6 +649,7 @@ $result = [ordered]@{
     elapsed_ms = 0
     steps = @()
     closeout = $null
+    transaction_row = $null
 }
 
 $totalWatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -671,8 +712,13 @@ try {
         }
 
         $result.event = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'event')
-
-        $routeCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'route_guard_command')
+        if ($DescribeTransactionRow.IsPresent) {
+            $result.transaction_row = $row
+            $result.success = $true
+            $result.reason = 'transaction-row-described'
+        }
+        else {
+            $routeCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'route_guard_command')
         if ([string]::IsNullOrWhiteSpace($routeCommand)) {
             throw 'route_guard_command is empty'
         }
@@ -687,6 +733,16 @@ try {
         $blockedActions = @($route.route.blocked_actions)
         $result.route_classification = Convert-ToSingleLineText -Text ([string]$route.route.classification)
 
+        $briefPath = Find-TakeoverBriefPath -TicketId $TicketId
+        $briefForRoute = Read-KeyValueFile -Path $briefPath
+        $briefRouteClassification = (Convert-ToSingleLineText -Text ([string]$briefForRoute['route_guard_expected'])).ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($briefRouteClassification)) {
+            throw 'route_guard_expected is missing from takeover brief'
+        }
+        if ($result.route_classification.ToLowerInvariant() -ne $briefRouteClassification) {
+            throw ("route guard classification mismatch: brief={0}, live={1}" -f $briefRouteClassification, $result.route_classification)
+        }
+
         $businessCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'business_command')
         $continueWatchCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'continue_watch_command')
         $atomicCloseoutCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'atomic_closeout_command')
@@ -696,6 +752,15 @@ try {
         $eventDedupHealthCheckCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'event_dedup_health_check_command')
         $finalStatusCloseoutCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'final_status_closeout_command')
         $finalStatusCloseoutApplyAckCommand = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $row -Name 'final_status_closeout_apply_ack_command')
+
+        if (-not [string]::IsNullOrWhiteSpace($businessCommand)) {
+            if (-not (Test-AutoResumeRouteClassification -Classification $result.route_classification)) {
+                throw ("business_command requires an explicit incident-auto-resume route, got {0}" -f $result.route_classification)
+            }
+            if (-not [bool]$route.route.must_trigger_business_resume -or [bool]$route.route.must_avoid_stage_restart) {
+                throw 'route guard restart flags do not authorize business_command'
+            }
+        }
 
         $steps = New-Object 'System.Collections.Generic.List[object]'
         [void]$steps.Add((Invoke-TransactionCommand -Name 'business_command' -CommandLine $businessCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('business_command', 'business_resume') -BlockedTokens @('business_command', 'business_resume', 'stage_restart')))
@@ -727,6 +792,7 @@ try {
         $result.steps = @($steps.ToArray())
         $result.success = $true
         $result.reason = 'transaction-complete'
+        }
     }
     finally {
         Pop-Location

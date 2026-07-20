@@ -475,7 +475,7 @@ elseif ($isIncidentLike) {
     $classification = ('incident-manual-{0}' -f $incidentLane)
     $recommendedAction = ('report-root-cause-and-{0}-blockers' -f $incidentLane)
     $allowedActions = @('root-cause-report', ('{0}-manual-decision' -f $incidentLane), 'handled_at')
-    $blockedActions = @('blind-business-resume')
+    $blockedActions = @('blind-business-resume', 'business_resume', 'stage_restart', 'business_command', 'continue_watch_command', 'recovery_transaction_command')
 
     $blockers = New-Object 'System.Collections.Generic.List[string]'
     if (-not $selfHealable) { [void]$blockers.Add('self_healable=false') }
@@ -497,7 +497,7 @@ else {
         $classification = 'event-review-low-disturb-text-only'
         $recommendedAction = 'text-receipt-only'
         $allowedActions = @('text-receipt', 'handled_at')
-        $blockedActions = @('contract-review', 'file-artifact-write', 'unsafe-restart', 'source_edit', 'new_non_tmp_script')
+        $blockedActions = @('contract-review', 'file-artifact-write', 'unsafe-restart', 'business_resume', 'stage_restart', 'business_command', 'continue_watch_command', 'recovery_transaction_command', 'source_edit', 'new_non_tmp_script')
         $reason = 'Low-disturb mode enforces event-review downgrade: text receipt only, no contract-review file artifacts.'
         $lowDisturbEventReviewDowngraded = $true
         [void]$decisionFactors.Add('event_review=true')
@@ -509,7 +509,7 @@ else {
         $classification = 'event-review'
         $recommendedAction = $eventReviewRecommendedAction
         $allowedActions = @('contract-review', 'handled_at')
-        $blockedActions = @('unsafe-restart', 'source_edit')
+        $blockedActions = @('unsafe-restart', 'business_resume', 'stage_restart', 'business_command', 'continue_watch_command', 'recovery_transaction_command', 'source_edit')
         $reason = 'Event type is outside predefined status/incident routing profile.'
         [void]$decisionFactors.Add('event_review=true')
         [void]$decisionFactors.Add('low_disturb=false')

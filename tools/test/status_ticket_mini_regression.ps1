@@ -297,7 +297,7 @@ $staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-bound-artifa
 $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')
 $guardHasTicketWriteGate = $sessionGuardText.Contains('fault_action_ticket_wait event=') -and $sessionGuardText.Contains('fault_action_ticket_ready event=') -and $sessionGuardText.Contains("`$faultActionTicket = `$eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')")
 $guardHasBShellPassTerminalConvergence = $sessionGuardText.Contains("B_FINAL_STATUS = 'PASS'") -and $sessionGuardText.Contains("SESSION_CLOSED_REASON = 'b-pass-shell-exit'") -and $sessionGuardText.Contains("Reset-BMissingProcessTracking -RunningNoProcessSince ([ref]`$bRunningNoProcessSince) -LastMissingProcessReportAt ([ref]`$lastMissingBProcessReportAt) -LastMissingExitReasonEvidence ([ref]`$lastBMissingExitReasonEvidence) -LastMissingRuntimeTailEvidence ([ref]`$lastBMissingRuntimeTailEvidence)`n                            Start-Sleep -Seconds `$PollSec`n                            continue")
-$recoveryTransactionHonorsBriefCommandOrder = $recoveryTransactionText.Contains("`$nextCommandOrder -contains 'business_command'") -and $recoveryTransactionText.Contains("`$eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')") -and $recoveryTransactionText.Contains('business_command = $businessCommand')
+$recoveryTransactionHonorsBriefCommandOrder = $recoveryTransactionText.Contains('function Test-AutoResumeRouteClassification') -and $recoveryTransactionText.Contains('function Test-KnownRouteClassification') -and $recoveryTransactionText.Contains("`$nextCommandOrder -contains 'recovery_transaction_command'") -and $recoveryTransactionText.Contains('route guard classification mismatch') -and $recoveryTransactionText.Contains('route guard restart flags do not authorize business_command') -and -not $recoveryTransactionText.Contains("`$eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')") -and $recoveryTransactionText.Contains('business_command = $businessCommand')
 $guardPersistsAPassConclusionDedup = $sessionGuardText.Contains('function Get-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('function Set-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE = $signatureCompact') -and $sessionGuardText.Contains('$aPassConclusionDedup = ("{0}|{1}|{2}" -f') -and $sessionGuardText.Contains('$aPassConclusionDedup -eq $aPassConclusionPersistedSignature') -and $sessionGuardText.Contains('Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup')
 $bShellPassTerminalConvergenceReason = if ($guardHasBShellPassTerminalConvergence) { 'b-shell-pass-terminal-convergence-present' } else { 'missing-b-shell-pass-terminal-convergence' }
 [void]$results.Add((Get-CaseResult -Name 'b-shell-pass-terminal-convergence' -Pass $guardHasBShellPassTerminalConvergence -Reason $bShellPassTerminalConvergenceReason))
@@ -371,7 +371,7 @@ $taskSafetyHasFocusedLimitEn = $dispatchText.Contains('optionally a focused -Ope
 $taskSafetyHasFocusedLimitZh = $dispatchText.Contains('可定位时运行 -OperationIndex 快检')
 $taskSafetyHasSwitchDefault = $startTemplateText.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false') -and $resetStartFileText.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED')
 $taskSafetyBriefProjectsSwitch = $takeoverTriggerText.Contains('task_static_cross_round_repair_enabled={0}') -and $takeoverTriggerText.Contains('check only the current failing D round before restart; later rounds remain runtime-gated') -and $takeoverTriggerText.Contains('check and repair each later D round through D4 in order before restart')
-$taskSafetyDispatchBranches = $dispatchText.Contains('[Cross-round repair enabled]') -and $dispatchText.Contains('[Cross-round repair disabled]') -and $dispatchText.Contains('[跨轮次修复已开启]') -and $dispatchText.Contains('[跨轮次修复已关闭]') -and $dispatchText.Contains('$taskStaticCrossRoundRepairEnabled -and $briefTaskStaticCrossRoundRepairEnabled')
+$taskSafetyDispatchBranches = $dispatchText.Contains('[Cross-round repair enabled]') -and $dispatchText.Contains('[Cross-round repair disabled]') -and $dispatchText.Contains('[跨轮次修复已开启]') -and $dispatchText.Contains('[跨轮次修复已关闭]') -and $dispatchText.Contains('$taskStaticCrossRoundRepairEnabled = $briefTaskStaticCrossRoundRepairEnabled') -and $dispatchText.Contains('$crossRoundRepairStatus, $firstMessage.TrimStart()')
 $taskSafetyHasFailFast = $dispatchText.Contains('stops at the first failure') -and $dispatchText.Contains('首错即停') -and $dispatchText.Contains('validates one round at a time') -and $dispatchText.Contains('每次只验证一轮')
 $taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结果变化时同步更新同轮 postApplyAssertions')
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
@@ -925,8 +925,10 @@ Write-Utf8BomText -Path $finalTransactionRouteStub -Text @'
 [pscustomobject]@{
     route = [pscustomobject]@{
         classification = 'event-review'
+        must_trigger_business_resume = $false
+        must_avoid_stage_restart = $true
         allowed_actions = @('contract-review', 'handled_at')
-        blocked_actions = @('unsafe-restart', 'source_edit')
+        blocked_actions = @('unsafe-restart', 'business_resume', 'stage_restart', 'business_command', 'continue_watch_command', 'recovery_transaction_command', 'source_edit')
     }
 } | ConvertTo-Json -Depth 4
 '@
@@ -935,6 +937,7 @@ $finalTransactionRouteCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -
 $finalTransactionBriefText = @"
 ticket_id=$finalTransactionTicketId
 event=chat-session-final-status
+route_guard_expected=event-review
 route_guard_command=$finalTransactionRouteCommand
 business_command_stage=B
 preferred_stage=B
@@ -992,6 +995,200 @@ else {
     'final-summary-transaction-runtime-failed:exit={0};success={1};reason={2};route={3};business_skipped={4};processed={5};ledger={6};receipt={7};closure={8}' -f $finalTransactionExitCode, [bool]$finalTransaction.success, (Convert-ToSingleLineText -Text ([string]$finalTransaction.reason)), (Convert-ToSingleLineText -Text ([string]$finalTransaction.route_classification)), $finalTransactionBusinessSkipped, $finalTransactionProcessed, $finalTransactionLedgerStatus, $finalTransactionReceiptValid, $finalTransactionClosurePass
 }
 [void]$results.Add((Get-CaseResult -Name 'final-summary-transaction-runtime' -Pass $finalSummaryTransactionPass -Reason $finalSummaryTransactionReason))
+
+# An auto-resume incident brief must project the internal stage restart command
+# without executing route guard, business recovery, or closeout.
+$autoResumeRowTicketId = 'T-MINI-AUTO-RESUME-ROW-' + $stamp
+$autoResumeRowBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $autoResumeRowTicketId, $stamp)
+$autoResumeRowBriefText = @"
+ticket_id=$autoResumeRowTicketId
+event=incident-captured
+route_guard_expected=incident-auto-resume-code-fix
+business_command_stage=A
+preferred_stage=A
+next_command_order=route_guard_command|pre_restart_launch_ready_command|recovery_transaction_command
+route_guard_command=unused-in-describe-mode
+atomic_closeout_command=unused-in-describe-mode
+"@
+Write-Utf8BomText -Path $autoResumeRowBrief -Text $autoResumeRowBriefText
+$autoResumeRow = $null
+$autoResumeRowExitCode = 0
+try {
+    $autoResumeRowRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $autoResumeRowTicketId -QueuePath $finalTransactionQueue -DescribeTransactionRow -AsJson 2>&1)
+    $autoResumeRowExitCode = $LASTEXITCODE
+    $autoResumeRowText = [string]::Join("`n", @($autoResumeRowRaw | ForEach-Object { [string]$_ }))
+    $autoResumeRowJsonStart = $autoResumeRowText.IndexOf('{')
+    if ($autoResumeRowJsonStart -lt 0) {
+        throw 'auto-resume transaction row probe did not return JSON'
+    }
+    $autoResumeRow = ($autoResumeRowText.Substring($autoResumeRowJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+}
+catch {
+    $autoResumeRow = $null
+}
+finally {
+    Remove-Item -LiteralPath $autoResumeRowBrief -Force -ErrorAction SilentlyContinue
+}
+$autoResumeBusinessCommand = if ($null -ne $autoResumeRow -and $null -ne $autoResumeRow.transaction_row) { [string]$autoResumeRow.transaction_row.business_command } else { '' }
+$autoResumeRowPass = ($autoResumeRowExitCode -eq 0 -and $null -ne $autoResumeRow -and [bool]$autoResumeRow.success -and [string]$autoResumeRow.reason -eq 'transaction-row-described' -and $autoResumeBusinessCommand -match '(?i)open_unattended_ab_stage_window\.ps1\s+-Stage\s+A\b' -and @($autoResumeRow.steps).Count -eq 0 -and $null -eq $autoResumeRow.closeout)
+$autoResumeRowReason = if ($autoResumeRowPass) { 'auto-resume-transaction-row-projects-stage-command' } else { 'auto-resume-transaction-row-projection-failed' }
+[void]$results.Add((Get-CaseResult -Name 'auto-resume-transaction-row-runtime' -Pass $autoResumeRowPass -Reason $autoResumeRowReason))
+
+# Restart policy is classification-driven: only the three explicit auto-resume
+# routes may project a stage command. Every known non-auto route must not.
+$restartMatrixPass = $autoResumeRowPass
+$restartMatrixFailures = New-Object 'System.Collections.Generic.List[string]'
+$restartMatrix = @(
+    [pscustomobject]@{ classification = 'incident-auto-resume-script-fix'; expect_restart = $true },
+    [pscustomobject]@{ classification = 'incident-auto-resume-noncode'; expect_restart = $true },
+    [pscustomobject]@{ classification = 'pre-start-skip'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'superseded-status-ticket'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'status-health-check-only'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'notice-manual-wait'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'notice-budget-exhausted'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'notice-known-infra-transient'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'incident-script-diagnose-only'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'incident-manual-code-fix'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'incident-manual-script-fix'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'incident-manual-noncode'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'event-review'; expect_restart = $false },
+    [pscustomobject]@{ classification = 'event-review-low-disturb-text-only'; expect_restart = $false }
+)
+foreach ($matrixCase in $restartMatrix) {
+    $matrixRouteToken = ([string]$matrixCase.classification).Replace('-', '_')
+    $matrixTicketId = 'T-MINI-RESTART-MATRIX-{0}-{1}' -f $matrixRouteToken, $stamp
+    $matrixBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $matrixTicketId, $stamp)
+    Write-Utf8BomText -Path $matrixBrief -Text @"
+ticket_id=$matrixTicketId
+event=incident-captured
+route_guard_expected=$($matrixCase.classification)
+business_command_stage=B
+preferred_stage=B
+next_command_order=route_guard_command|recovery_transaction_command
+route_guard_command=unused-in-describe-mode
+atomic_closeout_command=unused-in-describe-mode
+"@
+    $matrixResult = $null
+    $matrixExitCode = 0
+    try {
+        $matrixRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $matrixTicketId -QueuePath $finalTransactionQueue -DescribeTransactionRow -AsJson 2>&1)
+        $matrixExitCode = $LASTEXITCODE
+        $matrixText = [string]::Join("`n", @($matrixRaw | ForEach-Object { [string]$_ }))
+        $matrixJsonStart = $matrixText.IndexOf('{')
+        if ($matrixJsonStart -ge 0) {
+            $matrixResult = ($matrixText.Substring($matrixJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+        }
+    }
+    catch {
+        $matrixResult = $null
+    }
+    finally {
+        Remove-Item -LiteralPath $matrixBrief -Force -ErrorAction SilentlyContinue
+    }
+
+    $matrixBusinessCommand = if ($null -ne $matrixResult -and $null -ne $matrixResult.transaction_row) { [string]$matrixResult.transaction_row.business_command } else { '' }
+    $matrixRestartProjected = ($matrixBusinessCommand -match '(?i)open_unattended_ab_stage_window\.ps1\s+-Stage\s+B\b')
+    $matrixCasePass = ($matrixExitCode -eq 0 -and $null -ne $matrixResult -and [bool]$matrixResult.success -and $matrixRestartProjected -eq [bool]$matrixCase.expect_restart)
+    if (-not $matrixCasePass) {
+        $restartMatrixPass = $false
+        [void]$restartMatrixFailures.Add(('{0}:exit={1};restart={2}' -f $matrixCase.classification, $matrixExitCode, $matrixRestartProjected))
+    }
+}
+
+foreach ($invalidRoute in @('', 'incident-auto-resume-unknown')) {
+    $invalidToken = if ([string]::IsNullOrWhiteSpace($invalidRoute)) { 'missing' } else { 'unknown' }
+    $invalidTicketId = 'T-MINI-RESTART-MATRIX-{0}-{1}' -f $invalidToken, $stamp
+    $invalidBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $invalidTicketId, $stamp)
+    Write-Utf8BomText -Path $invalidBrief -Text @"
+ticket_id=$invalidTicketId
+event=incident-captured
+route_guard_expected=$invalidRoute
+business_command_stage=A
+next_command_order=route_guard_command|recovery_transaction_command
+"@
+    $null = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $invalidTicketId -QueuePath $finalTransactionQueue -DescribeTransactionRow -AsJson 2>&1)
+    $invalidExitCode = $LASTEXITCODE
+    Remove-Item -LiteralPath $invalidBrief -Force -ErrorAction SilentlyContinue
+    if ($invalidExitCode -eq 0) {
+        $restartMatrixPass = $false
+        [void]$restartMatrixFailures.Add(('{0}:unexpected-success' -f $invalidToken))
+    }
+}
+$restartMatrixReason = if ($restartMatrixPass) { 'recovery-restart-policy-matrix-enforced' } else { 'recovery-restart-policy-matrix-failed:' + ([string]::Join(';', @($restartMatrixFailures.ToArray()))) }
+[void]$results.Add((Get-CaseResult -Name 'recovery-restart-policy-matrix-runtime' -Pass $restartMatrixPass -Reason $restartMatrixReason))
+
+# Live route facts must still agree with the brief and explicitly authorize a
+# restart before the synthesized stage command can run.
+$liveRestartGatePass = $true
+$liveRestartGateFailures = New-Object 'System.Collections.Generic.List[string]'
+$liveRestartGateCases = @(
+    [pscustomobject]@{
+        name = 'classification-mismatch'
+        classification = 'event-review'
+        must_trigger = $false
+        must_avoid = $true
+        expected_reason = 'route guard classification mismatch'
+    },
+    [pscustomobject]@{
+        name = 'restart-flags-denied'
+        classification = 'incident-auto-resume-code-fix'
+        must_trigger = $false
+        must_avoid = $true
+        expected_reason = 'route guard restart flags do not authorize business_command'
+    }
+)
+foreach ($liveGateCase in $liveRestartGateCases) {
+    $liveGateTicketId = 'T-MINI-LIVE-RESTART-GATE-{0}-{1}' -f $liveGateCase.name, $stamp
+    $liveGateBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $liveGateTicketId, $stamp)
+    $liveGateRouteStub = Join-Path $finalTransactionRoot ('route_stub_{0}.ps1' -f $liveGateCase.name)
+    Write-Utf8BomText -Path $liveGateRouteStub -Text (@"
+[pscustomobject]@{
+    route = [pscustomobject]@{
+        classification = '$($liveGateCase.classification)'
+        must_trigger_business_resume = `$$([bool]$liveGateCase.must_trigger)
+        must_avoid_stage_restart = `$$([bool]$liveGateCase.must_avoid)
+        allowed_actions = @('business_resume', 'handled_at')
+        blocked_actions = @()
+    }
+} | ConvertTo-Json -Depth 4
+"@).Replace('$True', '$true').Replace('$False', '$false')
+    $liveGateRouteCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $liveGateRouteStub
+    Write-Utf8BomText -Path $liveGateBrief -Text @"
+ticket_id=$liveGateTicketId
+event=incident-captured
+route_guard_expected=incident-auto-resume-code-fix
+business_command_stage=A
+preferred_stage=A
+next_command_order=route_guard_command|recovery_transaction_command
+route_guard_command=$liveGateRouteCommand
+atomic_closeout_command=must-not-run
+"@
+    $liveGateResult = $null
+    $liveGateExitCode = 0
+    try {
+        $liveGateRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $liveGateTicketId -QueuePath $finalTransactionQueue -AsJson 2>&1)
+        $liveGateExitCode = $LASTEXITCODE
+        $liveGateText = [string]::Join("`n", @($liveGateRaw | ForEach-Object { [string]$_ }))
+        $liveGateJsonStart = $liveGateText.IndexOf('{')
+        if ($liveGateJsonStart -ge 0) {
+            $liveGateResult = ($liveGateText.Substring($liveGateJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+        }
+    }
+    catch {
+        $liveGateResult = $null
+    }
+    finally {
+        Remove-Item -LiteralPath $liveGateBrief -Force -ErrorAction SilentlyContinue
+    }
+
+    $liveGateCasePass = ($liveGateExitCode -ne 0 -and $null -ne $liveGateResult -and -not [bool]$liveGateResult.success -and [string]::IsNullOrWhiteSpace([string]$liveGateResult.handled_at) -and ([string]$liveGateResult.reason).Contains([string]$liveGateCase.expected_reason))
+    if (-not $liveGateCasePass) {
+        $liveRestartGatePass = $false
+        [void]$liveRestartGateFailures.Add(('{0}:exit={1};reason={2}' -f $liveGateCase.name, $liveGateExitCode, (Convert-ToSingleLineText -Text ([string]$liveGateResult.reason))))
+    }
+}
+$liveRestartGateReason = if ($liveRestartGatePass) { 'recovery-live-route-gates-fail-closed' } else { 'recovery-live-route-gates-failed:' + ([string]::Join(';', @($liveRestartGateFailures.ToArray()))) }
+[void]$results.Add((Get-CaseResult -Name 'recovery-live-route-gates-runtime' -Pass $liveRestartGatePass -Reason $liveRestartGateReason))
 
 # An unknown ticket must fail closed with parseable machine facts and a nonzero exit code.
 $closeoutMissingTicketId = 'T-MINI-CLOSEOUT-MISSING-' + $stamp
@@ -1069,6 +1266,7 @@ AI_CHAT_POLICY_WORK_MODE=event-only
 AI_CHAT_DISPATCH_USE_IPC=false
 AI_CHAT_DISPATCH_USE_PY_SENDER=false
 AI_CHAT_DISPATCH_USE_AHK=false
+TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=true
 SESSION_FINAL_STATUS=RUNNING
 A_FINAL_STATUS=FAIL
 B_FINAL_STATUS=PENDING
@@ -1090,6 +1288,7 @@ Write-Utf8BomText -Path $dispatchRuntimeBrief -Text @"
 ticket_id=$dispatchRuntimeTicketId
 event=incident-captured
 route_guard_expected=incident-manual-code-fix
+task_static_cross_round_repair_enabled=True
 failure_phase=compile-or-test
 failure_kind=compile-or-test-failure
 failure_category=code-or-unknown
@@ -1110,7 +1309,7 @@ $dispatchRuntimeMessage = if ($null -ne $dispatchRuntimeState) { [string]$dispat
 $dispatchRuntimeMarkerCount = ([regex]::Matches($dispatchRuntimeMessage, [regex]::Escape($dispatchRuntimeAtomicMarker))).Count
 $mandatoryReceiptSuffix = "强制回执`nhandled_at: YYYY-MM-DD HH:mm:ss（必填，不得省略）"
 $dispatchRuntimeNormalized = $dispatchRuntimeMessage.Replace("`r`n", "`n")
-$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('只能在 D3 operations 数组末尾连续追加') -and -not $dispatchRuntimeMessage.Contains('缺少被允许的 task-static 或编译/验证代码故障阶段') -and $dispatchRuntimeMessage.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.StartsWith('[跨轮次修复已开启]') -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('只能在 D3 operations 数组末尾连续追加') -and -not $dispatchRuntimeMessage.Contains('缺少被允许的 task-static 或编译/验证代码故障阶段') -and $dispatchRuntimeMessage.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
 $dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
 

@@ -3755,7 +3755,7 @@ if ($startSettings.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED')) {
 }
 if ($briefSettings.Contains('task_static_cross_round_repair_enabled')) {
     $briefTaskStaticCrossRoundRepairEnabled = Convert-ToBooleanSetting -Value ([string]$briefSettings.task_static_cross_round_repair_enabled) -Default $false
-    $taskStaticCrossRoundRepairEnabled = ($taskStaticCrossRoundRepairEnabled -and $briefTaskStaticCrossRoundRepairEnabled)
+    $taskStaticCrossRoundRepairEnabled = $briefTaskStaticCrossRoundRepairEnabled
 }
 else {
     $taskStaticCrossRoundRepairEnabled = $false
@@ -4041,6 +4041,18 @@ $noticeInfraMessageZh = '请接管票据 {0}（event={1}），进入“known-inf
 
 $selfHealRuleSuffixEn = ''
 $selfHealRuleSuffixZh = ''
+$crossRoundRepairStatusEn = if ($taskStaticCrossRoundRepairEnabled) {
+    '[Cross-round repair enabled] For task-static faults, check and repair each later D round in order through D4 after the failing round passes; restart only after all scoped rounds pass.'
+}
+else {
+    '[Cross-round repair disabled] For task-static faults, check and repair only the failing D round; later rounds remain runtime-gated.'
+}
+$crossRoundRepairStatusZh = if ($taskStaticCrossRoundRepairEnabled) {
+    '[跨轮次修复已开启] 对 task-static 故障，当前故障轮通过后按顺序逐轮检查并修复后续 D 轮直到 D4；范围内全部轮次通过后才允许重启或 resume。'
+}
+else {
+    '[跨轮次修复已关闭] 对 task-static 故障，只检查并修复当前故障 D 轮，不得预演后续轮；后续轮仍由运行时门禁处理。'
+}
 $taskDefinitionSafetySuffixEn = "`n`n" + '[Task-definition safety] Change task-definition JSON semantics only with the VS Code `apply_patch` editing tool. After editing a task-static fault, run SyntaxOnly, optionally a focused -OperationIndex check, then follow task_static_cross_round_repair_enabled from the brief: false checks only the failing D round; true checks the failing round and each later D round through D4 in order. The independent task-static checker validates one round at a time, advances in-memory text only after each op passes, stops at the first failure, and validates operations, replay, and postApplyAssertions. Code-step only reads, validates, atomically writes, and validates the current round artifact; every code-step failure is noncode. Rerun checker as needed within one repair ticket; local checker calls do not consume the identical-fingerprint main-process relaunch budget. Keep qualityPolicy.operationSafetyPolicy=enforce. Use minimal type=noop only for a design-time empty round; reject pattern-equals-replacement self-replacement and keep runtime absorbed rounds as regex-patch with absorbed-by-prior-round/idempotent-replay evidence. Every op owns a replacement-produced marker and must converge. Update same-round postApplyAssertions only when operation results change. Preserve helper definitions, prototypes before first callers, and real call sites. Single-instance conflict and regex/worker timeout are hard failures.'
 $taskDefinitionSafetySuffixZh = "`n`n" + '[任务定义安全] 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch` 编辑工具。修复 task-static 故障后先运行 SyntaxOnly，可定位时运行 -OperationIndex 快检，再遵循 brief 中的 task_static_cross_round_repair_enabled：false 时只检查故障 D 轮，true 时从故障轮开始按顺序逐轮检查到 D4。独立 task-static checker 每次只验证一轮，仅在当前 op 通过后推进内存文本，首错即停，并验证 operations、replay 与 postApplyAssertions。code-step 只读取、验证、原子写入并写后验证当前轮绑定产物；任何 code-step 故障均属于 noncode。同一修复工单内可按需反复调用 checker，本地检查不消耗相同指纹主进程重启预算。保持 qualityPolicy.operationSafetyPolicy=enforce。最小 type=noop 仅用于设计时空轮，禁止 pattern 与 replacement 相同的自替换；运行时吸收必须保持 regex-patch，并以 absorbed-by-prior-round/idempotent-replay 证明。每个 op 使用 replacement 自产 marker 并保证收敛；仅当 operation 结果变化时同步更新同轮 postApplyAssertions。保留 helper definition、首次 caller 前 prototype 与真实 call site。单实例冲突、正则或 worker 超时均为硬失败。'
 $boundArtifactCorrectionEn = "`n`n[Authoritative phase contract] Only task-static failures and compile/verify failures classified as code faults may enter code-fix. Structured validation failures from preflight/check/golden/selftest/matrix/verify/smoke/preclass flows inherit the child result; wrapper script stack frames are call-chain evidence, not script-fault by themselves when a child exit_code exists. The independent task-static checker owns operation, replay, assertion, and effective-source validation and produces a hash-bound artifact. Code-step is only read -> validate -> atomic write -> validate; every code-step failure is noncode and must never authorize source or task-definition edits. Compile/verify failures classified as noncode also stay in noncode recovery. This contract overrides any earlier inline-checker or code-step-fix wording."
@@ -4064,12 +4076,12 @@ if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-
         $selfHealRuleSuffixEn = "[Self-Heal Rule] Task-static phase fault in ${roundTag}: edit only this D round and later D rounds (D1 -> D1-D4, D2 -> D2-D4, D3 -> D3-D4, D4 -> D4); never edit an earlier D round. The source has NOT yet been changed by ${roundTag}. In ${roundTag}, ops before the current failing op are read-only; modify, delete, insert, or append only from the failing op onward. After changes, first check that failing op with -RoundTag ${roundTag} -OperationIndex <n>; the checker simulates preceding ops as read-only prerequisites. Preserve helper definitions and keep exactly one prototype before the first caller, removing later/duplicate prototypes. A failure blocks restart/resume: repair within this allowed boundary using the diagnostics and rerun the check until it passes; if it cannot pass compliantly, report the blocker and do not restart."
         $selfHealRuleSuffixZh = "[自愈修复规则] ${roundTag} task-static 阶段故障：仅可修改当前 D 轮及后续 D 轮（D1 -> D1-D4，D2 -> D2-D4，D3 -> D3-D4，D4 -> D4），禁止改前置 D 轮。${roundTag} 源码尚未变更；该轮故障 op 之前的 op 为只读，仅可从故障 op 位置起修改、删除、插入或追加 op。变更后先检查当前故障 op，使用 -RoundTag ${roundTag} -OperationIndex <n>；checker 将前置 op 作为只读前提顺序模拟。必须保留 helper definition，在首次 caller 前仅保留一个 prototype，并删除后置或重复 prototype。检查失败即阻断重启：必须依据诊断在允许边界内继续修复并重新检查，直至通过；若无法合规通过，报告阻塞且不得重启。"
         if ($taskStaticCrossRoundRepairEnabled) {
-            $selfHealRuleSuffixEn += " [Cross-round repair enabled] After ${roundTag} passes, run the checker for each later D round in order through D4. At the first later-round failure, stop, repair only within that later round's allowed boundary, rerun that round, and continue. Restart/resume only after every scoped round passes."
-            $selfHealRuleSuffixZh += " [跨轮次修复已开启] ${roundTag} 通过后，按顺序对后续 D 轮逐轮运行 checker，直到 D4；遇到首个后续轮故障立即停止，只在该后续轮允许边界内修复并重查，通过后再继续。范围内所有轮次全部通过后才允许重启或 resume。"
+            $selfHealRuleSuffixEn += " After ${roundTag} passes, run the checker for each later D round in order through D4. At the first later-round failure, stop, repair only within that later round's allowed boundary, rerun that round, and continue."
+            $selfHealRuleSuffixZh += " ${roundTag} 通过后，按顺序对后续 D 轮逐轮运行 checker，直到 D4；遇到首个后续轮故障立即停止，只在该后续轮允许边界内修复并重查，通过后再继续。"
         }
         else {
-            $selfHealRuleSuffixEn += " [Cross-round repair disabled] Check and repair only ${roundTag}; do not preflight later rounds, which remain runtime-gated."
-            $selfHealRuleSuffixZh += " [跨轮次修复已关闭] 只检查并修复 ${roundTag}，不得预演后续轮；后续轮仍由运行时门禁处理。"
+            $selfHealRuleSuffixEn += " Check and repair only ${roundTag}; do not preflight later rounds, which remain runtime-gated."
+            $selfHealRuleSuffixZh += " 只检查并修复 ${roundTag}，不得预演后续轮；后续轮仍由运行时门禁处理。"
         }
     }
     elseif ($roundIsV) {
@@ -4335,6 +4347,8 @@ elseif ($eventNormalized -eq 'chat-session-final-status') {
 }
 elseif ($eventNormalized -eq 'task-definition-fix-required') {
     $firstMessage = $taskDefinitionFixMessage -f $TicketId, $TicketEvent, $dispatchReadContextText
+    $crossRoundRepairStatus = if ($useChineseDispatchMessage) { $crossRoundRepairStatusZh } else { $crossRoundRepairStatusEn }
+    $firstMessage = ("{0}`n`n{1}" -f $crossRoundRepairStatus, $firstMessage.TrimStart())
 
     $taskDefLocationParts = New-Object 'System.Collections.Generic.List[string]'
     if (-not [string]::IsNullOrWhiteSpace($resumePreferredStage)) {
@@ -4417,6 +4431,9 @@ else {
     }
 
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
+        $crossRoundRepairStatus = if ($useChineseDispatchMessage) { $crossRoundRepairStatusZh } else { $crossRoundRepairStatusEn }
+        $firstMessage = ("{0}`n`n{1}" -f $crossRoundRepairStatus, $firstMessage.TrimStart())
+
         $ruleSuffix = if ($useChineseDispatchMessage) { $selfHealRuleSuffixZh } else { $selfHealRuleSuffixEn }
         if (-not [string]::IsNullOrWhiteSpace($ruleSuffix)) {
             $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $ruleSuffix)

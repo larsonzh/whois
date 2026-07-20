@@ -1031,6 +1031,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 未提供 `recovery_transaction_command` 的事件票执行唯一的 `atomic_closeout_command`；该单入口命令先通过 poll mutex 原子写入 `handled_at/done/processed_ids`，释放 poll 子事务锁后立即校验当前票的 ledger、receipt 与 closure。当前票 closure 校验使用 `check_unattended_ticket_closure.ps1 -TicketId <ticket-id>` 聚焦模式，不得因其他历史票或孤立 brief 阻断本票闭环；不带 `-TicketId` 的 checker 仍用于独立全局巡检。这里的“原子”指单命令、幂等、任一后置条件失败即整体 fail-close，不表示三项后置校验全程持有同一 mutex
 - 仅当事务/原子命令退出码为 0 且 JSON 机器事实满足对应门禁（事务命令 `success=true` 且有效 `handled_at`；原子命令还需 `processed=true`、`ledger_status=done`、`receipt_valid=true`、`closure_pass=true`）时，才可回传机器输出中的时间并声称闭环
 
+票据分类、恢复与重启矩阵：
+
+| 物理事件/条件 | route guard 最终分类 | 允许修复 | 恢复事务内重启 A/B | 标准收尾入口 |
+|---|---|---:|---:|---|
+| 可自愈的 task-static 或已确认代码故障 | `incident-auto-resume-code-fix` | 是，按代码修复边界 | 是 | `recovery_transaction_command` |
+| 可自愈脚本故障，且 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=true` | `incident-auto-resume-script-fix` | 是，按脚本自愈边界 | 是 | `recovery_transaction_command` |
+| 可恢复的环境、监控链或其他非代码故障 | `incident-auto-resume-noncode` | 是，仅限授权的非代码处置 | 是 | `recovery_transaction_command` |
+| 事故存在预算、冷却、不可恢复环境、阶段缺失等阻断 | `incident-manual-code-fix` / `incident-manual-script-fix` / `incident-manual-noncode` | 仅分析并等待人工决策 | 否 | `atomic_closeout_command` |
+| 脚本故障且脚本自愈开关缺失、空值、非法或为 `false` | `incident-script-diagnose-only` | 否，只读取证和给出方案 | 否 | `atomic_closeout_command` |
+| `manual-wait-paused` | `notice-manual-wait` | 否，仅人工恢复决策 | 否 | `atomic_closeout_command` |
+| `budget-exhausted-stop` | `notice-budget-exhausted` | 否，仅重跑范围决策；不削弱更早事故票已有授权 | 否 | `atomic_closeout_command` |
+| `known-infra-transient-stop` | `notice-known-infra-transient` | 否，仅环境稳定化决策 | 否 | `atomic_closeout_command` |
+| `running-status-report` | `status-health-check-only` / `superseded-status-ticket` | 否，只读汇报 | 否 | 状态票专用 handled 回执；不得调用恢复事务 |
+| 当前会话启动前的旧票 | `pre-start-skip` | 否 | 否 | 标记 handled 后继续 |
+| `a-pass-conclusion-b-started`、`chat-session-final-status` 或其他非事故事件 | `event-review` / `event-review-low-disturb-text-only` | 否 | 否 | `atomic_closeout_command` 或对应专项 closeout |
+| 缺失或未知分类、brief 与实时分类不一致 | 无有效授权 | 否 | 否，fail-close | 不收尾、不伪造 `handled_at`，报告阻塞 |
+
+矩阵解释：
+- `incident-captured`、`task-definition-fix-required`、`recovery-await-confirmation`、`auto-fix-await-confirmation`、`main-process-exit-review` 只是物理事件入口，不能单独决定是否修复或重启；必须结合 phase/category/evidence、start-file 开关和实时 route guard 得到最终分类。
+- 只有 `incident-auto-resume-code-fix`、`incident-auto-resume-script-fix`、`incident-auto-resume-noncode` 三个精确分类允许恢复事务生成并执行 stage-window 重启命令。不得用 `incident-auto-resume-*` 的模糊前缀、事件名或历史默认值扩展该集合。
+- 自动恢复还必须同时满足：brief 的 `next_command_order` 包含 `recovery_transaction_command`（兼容行可显式为 `business_command`）、`business_command_stage`/`preferred_stage` 为 A 或 B、实时分类与 `route_guard_expected` 完全一致、`must_trigger_business_resume=true`、`must_avoid_stage_restart=false`，且 `allowed_actions` 授权 `business_resume`。任一条件缺失均 fail-close。
+- trigger/poll 只应为三类 auto-resume 票生成 `recovery_transaction_command`。manual、diagnose-only、notice 和 event-review 正常只生成 `atomic_closeout_command`；旧 brief 即使误把非自动恢复票交给恢复事务，事务也不得生成或执行 `business_command`。
+- `recovery_transaction_command` 表示“复核实时授权后执行允许的业务动作并完成原子收尾”，不等同于“必然重启”。分类在投票后发生漂移时，以实时 route guard 为最终权限来源，但实时分类必须与 brief 快照一致；不一致时停止而不是静默降级或继续收尾。
+
 运行期执行规则：
 - 事件驱动票中的工作内容视为预授权操作，AI 按事件票 `next_command_order` 执行。定时状态票只预授权只读查询、汇报与 handled 回执。
 - AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息；主进程重启后必须在 3 分钟内完成该命令并通过全部机器事实门禁。
