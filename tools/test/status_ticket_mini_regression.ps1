@@ -296,6 +296,15 @@ $staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-bound-artifa
 # Every fault-handling or self-heal ticket must wait until all A/B business processes stop.
 $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')
 $guardHasTicketWriteGate = $sessionGuardText.Contains('fault_action_ticket_wait event=') -and $sessionGuardText.Contains('fault_action_ticket_ready event=') -and $sessionGuardText.Contains("`$faultActionTicket = `$eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')")
+$guardHasBShellPassTerminalConvergence = $sessionGuardText.Contains("B_FINAL_STATUS = 'PASS'") -and $sessionGuardText.Contains("SESSION_CLOSED_REASON = 'b-pass-shell-exit'") -and $sessionGuardText.Contains("Reset-BMissingProcessTracking -RunningNoProcessSince ([ref]`$bRunningNoProcessSince) -LastMissingProcessReportAt ([ref]`$lastMissingBProcessReportAt) -LastMissingExitReasonEvidence ([ref]`$lastBMissingExitReasonEvidence) -LastMissingRuntimeTailEvidence ([ref]`$lastBMissingRuntimeTailEvidence)`n                            Start-Sleep -Seconds `$PollSec`n                            continue")
+$recoveryTransactionHonorsBriefCommandOrder = $recoveryTransactionText.Contains("`$nextCommandOrder -contains 'business_command'") -and $recoveryTransactionText.Contains("`$eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')") -and $recoveryTransactionText.Contains('business_command = $businessCommand')
+$guardPersistsAPassConclusionDedup = $sessionGuardText.Contains('function Get-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('function Set-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE = $signatureCompact') -and $sessionGuardText.Contains('$aPassConclusionDedup = ("{0}|{1}|{2}" -f') -and $sessionGuardText.Contains('$aPassConclusionDedup -eq $aPassConclusionPersistedSignature') -and $sessionGuardText.Contains('Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup')
+$bShellPassTerminalConvergenceReason = if ($guardHasBShellPassTerminalConvergence) { 'b-shell-pass-terminal-convergence-present' } else { 'missing-b-shell-pass-terminal-convergence' }
+[void]$results.Add((Get-CaseResult -Name 'b-shell-pass-terminal-convergence' -Pass $guardHasBShellPassTerminalConvergence -Reason $bShellPassTerminalConvergenceReason))
+$eventReviewTransactionFastPathReason = if ($recoveryTransactionHonorsBriefCommandOrder) { 'event-review-transaction-fast-path-present' } else { 'missing-event-review-transaction-fast-path' }
+[void]$results.Add((Get-CaseResult -Name 'event-review-transaction-fast-path' -Pass $recoveryTransactionHonorsBriefCommandOrder -Reason $eventReviewTransactionFastPathReason))
+$aPassConclusionPersistentDedupReason = if ($guardPersistsAPassConclusionDedup) { 'a-pass-conclusion-persistent-dedup-present' } else { 'missing-a-pass-conclusion-persistent-dedup' }
+[void]$results.Add((Get-CaseResult -Name 'a-pass-conclusion-persistent-dedup' -Pass $guardPersistsAPassConclusionDedup -Reason $aPassConclusionPersistentDedupReason))
 $guardFiltersNoExitHostStrictly = $sessionGuardText.Contains('function Get-StageBusinessProcessSnapshot') -and $sessionGuardText.Contains('[bool]$exitEvidence.StartFileMatch') -and $sessionGuardText.Contains('$artifactFresh -and') -and $sessionGuardText.Contains('([bool]$exitEvidence.ProcessIdMatch -or $artifactMatchesCandidate)') -and $sessionGuardText.Contains("ResolvedSource = if (`$terminalExitConfirmed) { 'terminal-exit-artifact-filtered' }")
 $d1BlockStart = $sessionGuardText.IndexOf('d1_stall_detected detail=')
 $d1BlockEnd = if ($d1BlockStart -ge 0) { $sessionGuardText.IndexOf('# Log periodic stall heartbeat', $d1BlockStart) } else { -1 }
@@ -871,6 +880,118 @@ $closeoutReplayPass = ($null -ne $closeoutReplay -and [bool]$closeoutReplay.succ
 $atomicCloseoutRuntimePass = ($globalClosureDetectsUnrelatedBrief -and $closeoutLedgerAbsentBeforeFirstCall -and $closeoutFirstPass -and $closeoutReplayPass -and [string]$closeoutFirst.handled_at -eq [string]$closeoutReplay.handled_at)
 $atomicCloseoutRuntimeReason = if ($atomicCloseoutRuntimePass) { 'atomic-ticket-closeout-runtime-present' } else { 'atomic-ticket-closeout-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-ticket-closeout-runtime' -Pass $atomicCloseoutRuntimePass -Reason $atomicCloseoutRuntimeReason))
+
+# A final-summary recovery transaction must skip business actions and complete
+# the isolated atomic closeout under event-review authorization.
+$finalTransactionRoot = Join-Path $outDir 'final_summary_transaction_runtime'
+$finalTransactionStartFile = Join-Path $finalTransactionRoot 'start.md'
+$finalTransactionQueue = Join-Path $finalTransactionRoot 'queue.jsonl'
+$finalTransactionState = Join-Path $finalTransactionRoot 'state.json'
+$finalTransactionLedger = Join-Path $finalTransactionRoot 'ledger.json'
+$finalTransactionTakeover = Join-Path $finalTransactionRoot 'takeover'
+$finalTransactionRouteStub = Join-Path $finalTransactionRoot 'route_stub.ps1'
+$finalTransactionTicketId = 'T-MINI-FINAL-TRANSACTION-' + $stamp
+$recoveryTransactionRepoRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $recoveryTransactionPath) '..\..'))
+$globalTakeoverRoot = Join-Path $recoveryTransactionRepoRoot 'out\artifacts\ab_agent_queue\takeover_requests'
+$finalTransactionBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $finalTransactionTicketId, $stamp)
+New-Item -ItemType Directory -Path $finalTransactionTakeover -Force | Out-Null
+New-Item -ItemType Directory -Path $globalTakeoverRoot -Force | Out-Null
+Write-Utf8BomText -Path $finalTransactionStartFile -Text @"
+SESSION_INITIAL_LAUNCH_AT=$((Get-Date).AddMinutes(-1).ToString('yyyy-MM-dd HH:mm:ss'))
+SESSION_FINAL_STATUS=PASS
+A_FINAL_STATUS=PASS
+B_FINAL_STATUS=PASS
+SESSION_CLOSED=true
+AI_CHAT_POLICY_WORK_MODE=normal
+"@
+$finalTransactionTicket = [ordered]@{
+    schema = 'AB_AGENT_TICKET_V1'
+    ticket_id = $finalTransactionTicketId
+    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    source = 'status-ticket-mini-regression'
+    event = 'chat-session-final-status'
+    severity = 'info'
+    requires_confirmation = $false
+    start_file = $finalTransactionStartFile
+    queue_path = $finalTransactionQueue
+    session_final_status = 'PASS'
+    a_final_status = 'PASS'
+    b_final_status = 'PASS'
+    detail = 'final summary transaction runtime probe'
+    recommended_action = 'probe'
+}
+Set-Content -LiteralPath $finalTransactionQueue -Encoding utf8 -Value (($finalTransactionTicket | ConvertTo-Json -Compress -Depth 10))
+Write-Utf8BomText -Path $finalTransactionRouteStub -Text @'
+[pscustomobject]@{
+    route = [pscustomobject]@{
+        classification = 'event-review'
+        allowed_actions = @('contract-review', 'handled_at')
+        blocked_actions = @('unsafe-restart', 'source_edit')
+    }
+} | ConvertTo-Json -Depth 4
+'@
+$finalTransactionAtomicCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" -StartFile "{1}" -TicketId "{2}" -QueuePath "{3}" -StatePath "{4}" -LedgerPath "{5}" -TakeoverRoot "{6}" -Last 20 -AsJson' -f $atomicCloseoutPath, $finalTransactionStartFile, $finalTransactionTicketId, $finalTransactionQueue, $finalTransactionState, $finalTransactionLedger, $finalTransactionTakeover
+$finalTransactionRouteCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $finalTransactionRouteStub
+$finalTransactionBriefText = @"
+ticket_id=$finalTransactionTicketId
+event=chat-session-final-status
+route_guard_command=$finalTransactionRouteCommand
+business_command_stage=B
+preferred_stage=B
+next_command_order=route_guard_command|guard_command|atomic_closeout_command
+atomic_closeout_command=$finalTransactionAtomicCommand
+handled_receipt_command=
+validate_receipt_command=
+ticket_closure_check_command=
+event_dedup_health_check_command=
+final_status_closeout_command=
+final_status_closeout_apply_ack_command=
+"@
+Write-Utf8BomText -Path $finalTransactionBrief -Text $finalTransactionBriefText
+$finalTransaction = $null
+$finalTransactionExitCode = 0
+try {
+    $finalTransactionRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $finalTransactionTicketId -QueuePath $finalTransactionQueue -Last 20 -AsJson 2>&1)
+    $finalTransactionExitCode = $LASTEXITCODE
+    $finalTransactionText = [string]::Join("`n", @($finalTransactionRaw | ForEach-Object { [string]$_ }))
+    $finalTransactionJsonStart = $finalTransactionText.IndexOf('{')
+    if ($finalTransactionJsonStart -lt 0) {
+        throw 'final summary transaction probe did not return JSON'
+    }
+    $finalTransaction = ($finalTransactionText.Substring($finalTransactionJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+}
+catch {
+    $finalTransaction = $null
+}
+finally {
+    Remove-Item -LiteralPath $finalTransactionBrief -Force -ErrorAction SilentlyContinue
+}
+$finalTransactionBusinessStep = @()
+if ($null -ne $finalTransaction) {
+    $finalTransactionBusinessStep = @($finalTransaction.steps | Where-Object { [string]$_.name -eq 'business_command' } | Select-Object -First 1)
+}
+$finalTransactionBusinessSkipped = ($finalTransactionBusinessStep.Count -eq 1 -and [bool]$finalTransactionBusinessStep[0].skipped -and [string]$finalTransactionBusinessStep[0].skip_reason -eq 'empty-command')
+$finalSummaryTransactionPass = ($finalTransactionExitCode -eq 0 -and $null -ne $finalTransaction -and [bool]$finalTransaction.success -and [string]$finalTransaction.route_classification -eq 'event-review' -and $finalTransactionBusinessSkipped -and [bool]$finalTransaction.closeout.processed -and [string]$finalTransaction.closeout.ledger_status -eq 'done' -and [bool]$finalTransaction.closeout.receipt_valid -and [bool]$finalTransaction.closeout.closure_pass -and -not [string]::IsNullOrWhiteSpace([string]$finalTransaction.handled_at))
+$finalSummaryTransactionReason = if ($finalSummaryTransactionPass) {
+    'final-summary-transaction-skips-business-and-closes'
+}
+elseif ($null -eq $finalTransaction) {
+    'final-summary-transaction-runtime-failed:no-json'
+}
+else {
+    $finalTransactionProcessed = $false
+    $finalTransactionLedgerStatus = ''
+    $finalTransactionReceiptValid = $false
+    $finalTransactionClosurePass = $false
+    if ($null -ne $finalTransaction.closeout) {
+        $finalTransactionProcessed = [bool]$finalTransaction.closeout.processed
+        $finalTransactionLedgerStatus = Convert-ToSingleLineText -Text ([string]$finalTransaction.closeout.ledger_status)
+        $finalTransactionReceiptValid = [bool]$finalTransaction.closeout.receipt_valid
+        $finalTransactionClosurePass = [bool]$finalTransaction.closeout.closure_pass
+    }
+    'final-summary-transaction-runtime-failed:exit={0};success={1};reason={2};route={3};business_skipped={4};processed={5};ledger={6};receipt={7};closure={8}' -f $finalTransactionExitCode, [bool]$finalTransaction.success, (Convert-ToSingleLineText -Text ([string]$finalTransaction.reason)), (Convert-ToSingleLineText -Text ([string]$finalTransaction.route_classification)), $finalTransactionBusinessSkipped, $finalTransactionProcessed, $finalTransactionLedgerStatus, $finalTransactionReceiptValid, $finalTransactionClosurePass
+}
+[void]$results.Add((Get-CaseResult -Name 'final-summary-transaction-runtime' -Pass $finalSummaryTransactionPass -Reason $finalSummaryTransactionReason))
 
 # An unknown ticket must fail closed with parseable machine facts and a nonzero exit code.
 $closeoutMissingTicketId = 'T-MINI-CLOSEOUT-MISSING-' + $stamp

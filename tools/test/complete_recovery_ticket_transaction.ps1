@@ -393,6 +393,24 @@ function Get-TransactionRowFromBrief {
         $stage = 'A'
     }
 
+    $nextCommandOrderText = Convert-ToSingleLineText -Text ([string]$brief['next_command_order'])
+    $nextCommandOrder = @(
+        $nextCommandOrderText -split '\|' |
+            ForEach-Object { (Convert-ToSingleLineText -Text ([string]$_)).ToLowerInvariant() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    $eventName = (Convert-ToSingleLineText -Text ([string]$brief['event'])).ToLowerInvariant()
+    $businessCommandRequested = if ($nextCommandOrder.Count -gt 0) {
+        $nextCommandOrder -contains 'business_command'
+    }
+    else {
+        $eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')
+    }
+    $businessCommand = ''
+    if ($businessCommandRequested) {
+        $businessCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $stage, $StartFileRel
+    }
+
     $queueForCommand = Convert-ToSingleLineText -Text $QueuePathRel
     if ([string]::IsNullOrWhiteSpace($queueForCommand)) {
         $queueForCommand = 'out\artifacts\ab_agent_queue\agent_tickets.jsonl'
@@ -402,7 +420,7 @@ function Get-TransactionRowFromBrief {
         ticket_id = $TicketId
         event = [string]$brief['event']
         route_guard_command = [string]$brief['route_guard_command']
-        business_command = ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage {0} -StartFile "{1}" -StartMonitors' -f $stage, $StartFileRel)
+        business_command = $businessCommand
         continue_watch_command = ''
         atomic_closeout_command = [string]$brief['atomic_closeout_command']
         handled_receipt_command = [string]$brief['handled_receipt_command']

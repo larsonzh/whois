@@ -6326,6 +6326,7 @@ try {
                             Write-GuardLog ("b_shell_pass_detected expected_pid={0} a_status={1}" -f $bLaunchPid, $aStatus)
                             if ($aStatus -eq 'PASS') {
                                 Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
+                                    B_FINAL_STATUS = 'PASS'
                                     SESSION_FINAL_STATUS = 'PASS'
                                     SESSION_CLOSED = 'true'
                                     SESSION_CLOSED_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -6333,6 +6334,7 @@ try {
                                 }
                             }
                             Reset-BMissingProcessTracking -RunningNoProcessSince ([ref]$bRunningNoProcessSince) -LastMissingProcessReportAt ([ref]$lastMissingBProcessReportAt) -LastMissingExitReasonEvidence ([ref]$lastBMissingExitReasonEvidence) -LastMissingRuntimeTailEvidence ([ref]$lastBMissingRuntimeTailEvidence)
+                            Start-Sleep -Seconds $PollSec
                             continue
                         }
 
