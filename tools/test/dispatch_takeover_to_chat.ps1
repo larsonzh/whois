@@ -4421,12 +4421,19 @@ elseif ($eventNormalized -eq 'task-definition-fix-required') {
     }
 }
 else {
+    $crossRoundRepairStatus = if ($useChineseDispatchMessage) {
+        $crossRoundRepairStatusZh
+    }
+    else {
+        $crossRoundRepairStatusEn
+    }
+
     switch ($routeGuardExpected) {
         'incident-script-diagnose-only' { $firstMessage = $scriptDiagnoseOnlyMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-auto-resume-script-fix' { $firstMessage = $scriptFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-manual-script-fix' { $firstMessage = $scriptFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
-        'incident-auto-resume-code-fix' { $firstMessage = $codeFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText, $(if ($useChineseDispatchMessage) { $crossRoundRepairStatusZh } else { $crossRoundRepairStatusEn }); break }
-        'incident-manual-code-fix' { $firstMessage = $codeFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText, $(if ($useChineseDispatchMessage) { $crossRoundRepairStatusZh } else { $crossRoundRepairStatusEn }); break }
+        'incident-auto-resume-code-fix' { $firstMessage = $codeFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText, $crossRoundRepairStatus; break }
+        'incident-manual-code-fix' { $firstMessage = $codeFixRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText, $crossRoundRepairStatus; break }
         'incident-auto-resume-noncode' { $firstMessage = $nonCodeRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'incident-manual-noncode' { $firstMessage = $nonCodeRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         'notice-manual-wait' { $firstMessage = $noticeManualWaitMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
