@@ -1752,16 +1752,19 @@ session memory 中的记录应在以下任一条件满足时清除：
       └─ → 正常处理，更新 session memory 中的故障信息
 ```
 
-#### 10.6.6 相同指纹门禁三段化与重试预算（2026-07-08）
+#### 10.6.6 代码修复相同指纹门禁与重试预算（2026-07-21）
 
-为避免“历史首次失败 + AI 接手一次失败”即触发硬阻断，且继续保持防无限循环能力，D 轮次 code-step 的相同指纹门禁采用三段化状态机与条件重试预算。
+相同指纹只有在“代码修复已经实施并重启后，同一代码故障再次出现”时才有阻断意义。因此该门禁只用于编译/验证阶段经结构化证据确认为代码故障的分支。
 
-- 适用范围：仅 `code-step` 相同指纹分支；`compile/verify` 分支保持原有严格门禁。
+- 适用范围：仅 `compile/verify` 且结构化分类明确为代码故障。
+- `task-static` 不适用：修复有效性由 `SyntaxOnly`、可定位时的目标 op 检查和当前轮递进严格检查确定；检查通过后不得再用历史运行指纹阻断恢复。
+- `code-step` 不适用：该阶段只读取、验证、原子写入并写后验证绑定产物，不直接设计代码修改；任何故障均属于 noncode。
+- 脚本、工具链、权限、磁盘、网络、远程锁、测试基础设施及未知分类不适用，按各自 noncode/人工判定流程处理。
 - 状态机：`pending_review -> override_window -> hard_block`。
   - `pending_review`：检测到相同指纹，进入待评审态。
   - `override_window`：满足重试条件后放行一次重启窗口。
   - `hard_block`：预算耗尽或证据不足，转人工处置，禁止自动重启。
-- 默认预算：`CODESTEP_IDENTICAL_FP_MAX_RETRIES=3`（可用 stage 级键覆盖：`A_CODESTEP_IDENTICAL_FP_MAX_RETRIES` / `B_CODESTEP_IDENTICAL_FP_MAX_RETRIES`）。
+- 默认预算：`CODEFIX_IDENTICAL_FP_MAX_RETRIES=3`（可用 stage 级键覆盖：`A_CODEFIX_IDENTICAL_FP_MAX_RETRIES` / `B_CODEFIX_IDENTICAL_FP_MAX_RETRIES`）。
 - 该预算只统计“修复后重启主进程，仍再次产生相同 `main_round + phase + task_start_at + failure_fingerprint`”的恢复尝试，不限制单张自愈工单内调用 checker 的次数。代理可按首错诊断依次修复 op1、op2……并反复运行目标 op 快检和当前轮严格检查，直至本轮通过或确认阻塞；这些未重启主进程的本地检查不消耗相同指纹预算。
 - 第 2/3 次重试必须有“有效修复证据”，否则直接进入 `hard_block`：
   - 任务定义文件哈希变化；或
@@ -1776,9 +1779,9 @@ session memory 中的记录应在以下任一条件满足时清除：
   - `*_FAILURE_SOURCE_HASH` 与 `*_PREVIOUS_FAILURE_SOURCE_HASH`
   - `*_FAILURE_TASKDEF_ROUND_IMPRINT_HASH` 与 `*_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH`
 - 门禁状态字段建议统一：
-  - `*_CODESTEP_IDENTICAL_FP_RETRY_COUNT`
-  - `*_CODESTEP_IDENTICAL_FP_STATE`
-  - `*_CODESTEP_IDENTICAL_FP_STATE_AT`
+  - `*_CODEFIX_IDENTICAL_FP_RETRY_COUNT`
+  - `*_CODEFIX_IDENTICAL_FP_STATE`
+  - `*_CODEFIX_IDENTICAL_FP_STATE_AT`
 
 人工修复后的解锁规则：
 

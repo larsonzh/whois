@@ -2234,19 +2234,20 @@ if ($Stage -eq 'A') {
     $aPreviousFailureSourceHash = if ($settings.Contains('A_PREVIOUS_FAILURE_SOURCE_HASH')) { [string]$settings.A_PREVIOUS_FAILURE_SOURCE_HASH } else { '' }
     $aFailureRoundImprintHash = if ($settings.Contains('A_FAILURE_TASKDEF_ROUND_IMPRINT_HASH')) { [string]$settings.A_FAILURE_TASKDEF_ROUND_IMPRINT_HASH } else { '' }
     $aPreviousFailureRoundImprintHash = if ($settings.Contains('A_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH')) { [string]$settings.A_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH } else { '' }
+    $aFailureCodeFault = if ($settings.Contains('A_FAILURE_CODE_FAULT')) { Convert-ToBooleanSetting -Value ([string]$settings.A_FAILURE_CODE_FAULT) -Default $false } else { $false }
 
-    $aRetryGrantKey = 'A_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR'
-    $aRetryGrantAtKey = 'A_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_AT'
-    $aRetryCountKey = 'A_CODESTEP_IDENTICAL_FP_RETRY_COUNT'
-    $aRetryStateKey = 'A_CODESTEP_IDENTICAL_FP_STATE'
-    $aRetryStateAtKey = 'A_CODESTEP_IDENTICAL_FP_STATE_AT'
+    $aRetryGrantKey = 'A_CODEFIX_IDENTICAL_FP_RETRY_GRANTED_FOR'
+    $aRetryGrantAtKey = 'A_CODEFIX_IDENTICAL_FP_RETRY_GRANTED_AT'
+    $aRetryCountKey = 'A_CODEFIX_IDENTICAL_FP_RETRY_COUNT'
+    $aRetryStateKey = 'A_CODEFIX_IDENTICAL_FP_STATE'
+    $aRetryStateAtKey = 'A_CODEFIX_IDENTICAL_FP_STATE_AT'
     $aRetryMax = 3
-    if ($settings.Contains('CODESTEP_IDENTICAL_FP_MAX_RETRIES')) {
-        $parsedGlobalRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.CODESTEP_IDENTICAL_FP_MAX_RETRIES)
+    if ($settings.Contains('CODEFIX_IDENTICAL_FP_MAX_RETRIES')) {
+        $parsedGlobalRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.CODEFIX_IDENTICAL_FP_MAX_RETRIES)
         if ($parsedGlobalRetryMax -gt 0) { $aRetryMax = $parsedGlobalRetryMax }
     }
-    if ($settings.Contains('A_CODESTEP_IDENTICAL_FP_MAX_RETRIES')) {
-        $parsedStageRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.A_CODESTEP_IDENTICAL_FP_MAX_RETRIES)
+    if ($settings.Contains('A_CODEFIX_IDENTICAL_FP_MAX_RETRIES')) {
+        $parsedStageRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.A_CODEFIX_IDENTICAL_FP_MAX_RETRIES)
         if ($parsedStageRetryMax -gt 0) { $aRetryMax = $parsedStageRetryMax }
     }
 
@@ -2280,7 +2281,9 @@ if ($Stage -eq 'A') {
         $aSameTaskStartWindow -and
         -not [string]::IsNullOrWhiteSpace($aFailureFingerprint) -and
         -not [string]::IsNullOrWhiteSpace($aPreviousFailureFingerprint) -and
-        $aFailureFingerprint -eq $aPreviousFailureFingerprint) {
+        $aFailureFingerprint -eq $aPreviousFailureFingerprint -and
+        $aFailurePhase -in @('compile', 'verify') -and
+        $aFailureCodeFault) {
 
         $aRetryCount = 0
         if ($settings.Contains($aRetryCountKey)) {
@@ -2295,7 +2298,7 @@ if ($Stage -eq 'A') {
         $aHasRepairEvidence = ($aTaskDefChanged -or $aSourceChanged -or $aImprintChanged -or $aCurrentTaskDefChanged -or $aCurrentImprintChanged)
         $aCurrentState = if ($settings.Contains($aRetryStateKey)) { (Convert-ToSingleLineText -Text ([string]$settings[$aRetryStateKey])).ToLowerInvariant() } else { '' }
 
-        if ($aFailurePhase -eq 'code-step' -and $aCurrentState -eq 'hard_block' -and $aHasRepairEvidence) {
+        if ($aCurrentState -eq 'hard_block' -and $aHasRepairEvidence) {
             Write-Output ("[OPEN-AB-STAGE] identical_fp_state_unlock stage=A reason=repair_evidence_detected round={0} task_start_at={1}" -f $aFailureMainRound, $aFailureTaskStartAt)
             $aRetryCount = 0
             $aCurrentState = ''
@@ -2306,7 +2309,7 @@ if ($Stage -eq 'A') {
             }
         }
 
-        if ($aFailurePhase -eq 'code-step' -and $aRetryCount -lt $aRetryMax) {
+        if ($aRetryCount -lt $aRetryMax) {
             $aNextAttempt = $aRetryCount + 1
             if ($aNextAttempt -gt 1 -and -not $aHasRepairEvidence) {
                 Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
@@ -2314,7 +2317,7 @@ if ($Stage -eq 'A') {
                     $aRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
                 }
                 Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $aNextAttempt -MaxFails $aRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_requires_evidence=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $aRetryCount, $aRetryMax, $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint) -RecommendedActionOverride 'Identical fingerprint retried without effective repair evidence. AI must change repair method (not same patch shape), adjust round operations/anchors, and produce evidence-changing edits before relaunch. Stop auto-retry, perform manual task-definition fix, pass static check, then relaunch.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-evidence-missing'
-                throw ("[OPEN-AB-STAGE] infinite-loop-protection: A identical code-step fingerprint detected without repair evidence (round={0}, task_start_at={1}, fingerprint={2}). Manual intervention required." -f $aFailureMainRound, $aFailureTaskStartAt, $aFailureFingerprint)
+                throw ("[OPEN-AB-STAGE] infinite-loop-protection: A identical code-fix fingerprint detected without repair evidence (round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Manual intervention required." -f $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint)
             }
 
             $aRetryGrantedAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
@@ -2326,16 +2329,14 @@ if ($Stage -eq 'A') {
                 $aRetryStateAtKey = $aRetryGrantedAt
             }
             Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $aNextAttempt -MaxFails $aRetryMax -PrecheckExitCode 0 -MainRound $aFailureMainRound -FailurePhase $aFailurePhase -FailureFingerprint $aFailureFingerprint -TaskStartAt $aFailureTaskStartAt -RetryAttempt $aNextAttempt -RetryMax $aRetryMax
-            throw ("[OPEN-AB-STAGE] infinite-loop-protection: A identical code-step fingerprint detected (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry granted {4}/{5}; apply task-definition fix and relaunch." -f $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint, $aNextAttempt, $aRetryMax)
+            throw ("[OPEN-AB-STAGE] infinite-loop-protection: A identical code-fix fingerprint detected (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry granted {4}/{5}; apply code fix and relaunch." -f $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint, $aNextAttempt, $aRetryMax)
         }
 
-        if ($aFailurePhase -eq 'code-step') {
-            Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
-                $aRetryStateKey = 'hard_block'
-                $aRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
-            }
-            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount ($aRetryCount + 1) -MaxFails $aRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $aRetryCount, $aRetryMax, $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint) -RecommendedActionOverride 'Fingerprint duplicate repeated after retry budget exhaustion. AI must switch to a different fix strategy (e.g., rewrite round op anchors/ordering or append-mode patch) instead of repeating prior edits. Stop auto self-heal and transfer to manual intervention only.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-retry-exhausted'
+        Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
+            $aRetryStateKey = 'hard_block'
+            $aRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
         }
+        Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount ($aRetryCount + 1) -MaxFails $aRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $aRetryCount, $aRetryMax, $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint) -RecommendedActionOverride 'Code-fix fingerprint repeated after retry budget exhaustion. Change the repair strategy and produce validated repair evidence before relaunch.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-retry-exhausted'
 
         throw ("[OPEN-AB-STAGE] infinite-loop-protection: A failed repeatedly with identical fingerprint (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry budget exhausted; manual intervention required." -f $aFailureMainRound, $aFailurePhase, $aFailureTaskStartAt, $aFailureFingerprint)
     }
@@ -2406,19 +2407,20 @@ if ($Stage -eq 'B') {
     $bPreviousFailureSourceHash = if ($settings.Contains('B_PREVIOUS_FAILURE_SOURCE_HASH')) { [string]$settings.B_PREVIOUS_FAILURE_SOURCE_HASH } else { '' }
     $bFailureRoundImprintHash = if ($settings.Contains('B_FAILURE_TASKDEF_ROUND_IMPRINT_HASH')) { [string]$settings.B_FAILURE_TASKDEF_ROUND_IMPRINT_HASH } else { '' }
     $bPreviousFailureRoundImprintHash = if ($settings.Contains('B_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH')) { [string]$settings.B_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH } else { '' }
+    $bFailureCodeFault = if ($settings.Contains('B_FAILURE_CODE_FAULT')) { Convert-ToBooleanSetting -Value ([string]$settings.B_FAILURE_CODE_FAULT) -Default $false } else { $false }
 
-    $bRetryGrantKey = 'B_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR'
-    $bRetryGrantAtKey = 'B_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_AT'
-    $bRetryCountKey = 'B_CODESTEP_IDENTICAL_FP_RETRY_COUNT'
-    $bRetryStateKey = 'B_CODESTEP_IDENTICAL_FP_STATE'
-    $bRetryStateAtKey = 'B_CODESTEP_IDENTICAL_FP_STATE_AT'
+    $bRetryGrantKey = 'B_CODEFIX_IDENTICAL_FP_RETRY_GRANTED_FOR'
+    $bRetryGrantAtKey = 'B_CODEFIX_IDENTICAL_FP_RETRY_GRANTED_AT'
+    $bRetryCountKey = 'B_CODEFIX_IDENTICAL_FP_RETRY_COUNT'
+    $bRetryStateKey = 'B_CODEFIX_IDENTICAL_FP_STATE'
+    $bRetryStateAtKey = 'B_CODEFIX_IDENTICAL_FP_STATE_AT'
     $bRetryMax = 3
-    if ($settings.Contains('CODESTEP_IDENTICAL_FP_MAX_RETRIES')) {
-        $parsedGlobalRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.CODESTEP_IDENTICAL_FP_MAX_RETRIES)
+    if ($settings.Contains('CODEFIX_IDENTICAL_FP_MAX_RETRIES')) {
+        $parsedGlobalRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.CODEFIX_IDENTICAL_FP_MAX_RETRIES)
         if ($parsedGlobalRetryMax -gt 0) { $bRetryMax = $parsedGlobalRetryMax }
     }
-    if ($settings.Contains('B_CODESTEP_IDENTICAL_FP_MAX_RETRIES')) {
-        $parsedStageRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.B_CODESTEP_IDENTICAL_FP_MAX_RETRIES)
+    if ($settings.Contains('B_CODEFIX_IDENTICAL_FP_MAX_RETRIES')) {
+        $parsedStageRetryMax = Get-ParsedPositiveInt -Value ([string]$settings.B_CODEFIX_IDENTICAL_FP_MAX_RETRIES)
         if ($parsedStageRetryMax -gt 0) { $bRetryMax = $parsedStageRetryMax }
     }
 
@@ -2453,7 +2455,9 @@ if ($Stage -eq 'B') {
         $bSameTaskStartWindow -and
         -not [string]::IsNullOrWhiteSpace($bFailureFingerprint) -and
         -not [string]::IsNullOrWhiteSpace($bPreviousFailureFingerprint) -and
-        $bFailureFingerprint -eq $bPreviousFailureFingerprint) {
+        $bFailureFingerprint -eq $bPreviousFailureFingerprint -and
+        $bFailurePhase -in @('compile', 'verify') -and
+        $bFailureCodeFault) {
 
         $bRetryCount = 0
         if ($settings.Contains($bRetryCountKey)) {
@@ -2468,7 +2472,7 @@ if ($Stage -eq 'B') {
         $bHasRepairEvidence = ($bTaskDefChanged -or $bSourceChanged -or $bImprintChanged -or $bCurrentTaskDefChanged -or $bCurrentImprintChanged)
         $bCurrentState = if ($settings.Contains($bRetryStateKey)) { (Convert-ToSingleLineText -Text ([string]$settings[$bRetryStateKey])).ToLowerInvariant() } else { '' }
 
-        if ($bFailurePhase -eq 'code-step' -and $bCurrentState -eq 'hard_block' -and $bHasRepairEvidence) {
+        if ($bCurrentState -eq 'hard_block' -and $bHasRepairEvidence) {
             Write-Output ("[OPEN-AB-STAGE] identical_fp_state_unlock stage=B reason=repair_evidence_detected round={0} task_start_at={1}" -f $bFailureMainRound, $bFailureTaskStartAt)
             $bRetryCount = 0
             $bCurrentState = ''
@@ -2479,7 +2483,7 @@ if ($Stage -eq 'B') {
             }
         }
 
-        if ($bFailurePhase -eq 'code-step' -and $bRetryCount -lt $bRetryMax) {
+        if ($bRetryCount -lt $bRetryMax) {
             $bNextAttempt = $bRetryCount + 1
             if ($bNextAttempt -gt 1 -and -not $bHasRepairEvidence) {
                 Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
@@ -2487,7 +2491,7 @@ if ($Stage -eq 'B') {
                     $bRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
                 }
                 Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $bNextAttempt -MaxFails $bRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_requires_evidence=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $bRetryCount, $bRetryMax, $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint) -RecommendedActionOverride 'Identical fingerprint retried without effective repair evidence. AI must change repair method (not same patch shape), adjust round operations/anchors, and produce evidence-changing edits before relaunch. Stop auto-retry, perform manual task-definition fix, pass static check, then relaunch.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-evidence-missing'
-                throw ("[OPEN-AB-STAGE] infinite-loop-protection: B identical code-step fingerprint detected without repair evidence (round={0}, task_start_at={1}, fingerprint={2}). Manual intervention required." -f $bFailureMainRound, $bFailureTaskStartAt, $bFailureFingerprint)
+                throw ("[OPEN-AB-STAGE] infinite-loop-protection: B identical code-fix fingerprint detected without repair evidence (round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Manual intervention required." -f $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint)
             }
 
             $bRetryGrantedAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
@@ -2499,16 +2503,14 @@ if ($Stage -eq 'B') {
                 $bRetryStateAtKey = $bRetryGrantedAt
             }
             Add-StageTaskDefinitionFixTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount $bNextAttempt -MaxFails $bRetryMax -PrecheckExitCode 0 -MainRound $bFailureMainRound -FailurePhase $bFailurePhase -FailureFingerprint $bFailureFingerprint -TaskStartAt $bFailureTaskStartAt -RetryAttempt $bNextAttempt -RetryMax $bRetryMax
-            throw ("[OPEN-AB-STAGE] infinite-loop-protection: B identical code-step fingerprint detected (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry granted {4}/{5}; apply task-definition fix and relaunch." -f $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint, $bNextAttempt, $bRetryMax)
+            throw ("[OPEN-AB-STAGE] infinite-loop-protection: B identical code-fix fingerprint detected (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry granted {4}/{5}; apply code fix and relaunch." -f $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint, $bNextAttempt, $bRetryMax)
         }
 
-        if ($bFailurePhase -eq 'code-step') {
-            Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
-                $bRetryStateKey = 'hard_block'
-                $bRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
-            }
-            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount ($bRetryCount + 1) -MaxFails $bRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $bRetryCount, $bRetryMax, $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint) -RecommendedActionOverride 'Fingerprint duplicate repeated after retry budget exhaustion. AI must switch to a different fix strategy (e.g., rewrite round op anchors/ordering or append-mode patch) instead of repeating prior edits. Stop auto self-heal and transfer to manual intervention only.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-retry-exhausted'
+        Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
+            $bRetryStateKey = 'hard_block'
+            $bRetryStateAtKey = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
         }
+        Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount ($bRetryCount + 1) -MaxFails $bRetryMax -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("fingerprint_duplicate=true retry_budget_exhausted=true retry_count={0} retry_limit={1} round={2} phase={3} task_start_at={4} fingerprint={5}" -f $bRetryCount, $bRetryMax, $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint) -RecommendedActionOverride 'Code-fix fingerprint repeated after retry budget exhaustion. Change the repair strategy and produce validated repair evidence before relaunch.' -FailureCategoryOverride 'fingerprint-duplicate-manual-escalation' -FailureKindOverride 'fingerprint-duplicate-retry-exhausted'
 
         throw ("[OPEN-AB-STAGE] infinite-loop-protection: B failed repeatedly with identical fingerprint (main_round={0}, phase={1}, task_start_at={2}, fingerprint={3}). Retry budget exhausted; manual intervention required." -f $bFailureMainRound, $bFailurePhase, $bFailureTaskStartAt, $bFailureFingerprint)
     }

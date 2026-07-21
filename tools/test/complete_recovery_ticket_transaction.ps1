@@ -577,13 +577,27 @@ function Invoke-TransactionCommand {
 
         $watch = [System.Diagnostics.Stopwatch]::StartNew()
         $launcherWindowStyle = if ($ShowBusinessCommandWindow.IsPresent) { 'Normal' } else { 'Hidden' }
-        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle $launcherWindowStyle -PassThru
+        $launcherOutputBase = Join-Path ([System.IO.Path]::GetTempPath()) ("whois-recovery-launcher-{0}" -f ([System.Guid]::NewGuid().ToString('N')))
+        $launcherStdoutPath = $launcherOutputBase + '.stdout.log'
+        $launcherStderrPath = $launcherOutputBase + '.stderr.log'
+        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle $launcherWindowStyle -RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath -PassThru
         $verifyTimeoutMs = $BusinessCommandVerifyTimeoutSec * 1000
         $verifiedPidText = ''
+        $launcherExitedAtMs = -1
         while ($watch.ElapsedMilliseconds -lt $verifyTimeoutMs) {
             if (Test-StageMainProcessRunning -Stage $stage) {
                 $verifiedPidText = Get-StageMainProcessIdText -Stage $stage
                 break
+            }
+
+            $launcher.Refresh()
+            if ($launcher.HasExited) {
+                if ($launcherExitedAtMs -lt 0) {
+                    $launcherExitedAtMs = $watch.ElapsedMilliseconds
+                }
+                elseif (($watch.ElapsedMilliseconds - $launcherExitedAtMs) -ge 2000) {
+                    break
+                }
             }
 
             [System.Threading.Thread]::Sleep(500)
@@ -591,7 +605,25 @@ function Invoke-TransactionCommand {
         $watch.Stop()
 
         if ([string]::IsNullOrWhiteSpace($verifiedPidText)) {
+            $launcher.Refresh()
+            if ($launcher.HasExited) {
+                $launcherOutput = @()
+                foreach ($launcherLogPath in @($launcherStdoutPath, $launcherStderrPath)) {
+                    if (Test-Path -LiteralPath $launcherLogPath) {
+                        $launcherOutput += @(Get-Content -LiteralPath $launcherLogPath -Encoding utf8 -Tail 12 -ErrorAction SilentlyContinue)
+                    }
+                }
+                $launcherTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($launcherOutput | ForEach-Object { [string]$_ })))
+                if ([string]::IsNullOrWhiteSpace($launcherTail)) {
+                    $launcherTail = 'no-launcher-output'
+                }
+                throw ('business_command launcher exited before stage-{0} main process started; launcher_exit_code={1}; elapsed_ms={2}; output={3}' -f $stage, $launcher.ExitCode, $watch.ElapsedMilliseconds, $launcherTail)
+            }
             throw ('business_command did not start stage-{0} main process within {1}ms' -f $stage, $verifyTimeoutMs)
+        }
+
+        foreach ($launcherLogPath in @($launcherStdoutPath, $launcherStderrPath)) {
+            Remove-Item -LiteralPath $launcherLogPath -Force -ErrorAction SilentlyContinue
         }
 
         $step.exit_code = 0

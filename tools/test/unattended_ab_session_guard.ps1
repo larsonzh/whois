@@ -3917,6 +3917,30 @@ function Set-APassConclusionPersistedSignature {
     }
 }
 
+function Get-IncidentGenerationPersistedSignature {
+    param([System.Collections.IDictionary]$Settings)
+
+    if ($null -eq $Settings -or -not $Settings.Contains('LAST_INCIDENT_GENERATION_SIGNATURE')) {
+        return ''
+    }
+
+    return (Convert-ToSingleLineText -Text ([string]$Settings.LAST_INCIDENT_GENERATION_SIGNATURE))
+}
+
+function Set-IncidentGenerationPersistedSignature {
+    param([AllowEmptyString()][string]$Signature)
+
+    $signatureCompact = Convert-ToSingleLineText -Text $Signature
+    if ([string]::IsNullOrWhiteSpace($signatureCompact)) {
+        return
+    }
+
+    Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
+        LAST_INCIDENT_GENERATION_SIGNATURE = $signatureCompact
+        LAST_INCIDENT_GENERATION_TICKET_AT = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    }
+}
+
 function Test-APassConclusionTicketAlreadyQueued {
     param(
         [AllowEmptyString()][string]$QueuePath,
@@ -5987,10 +6011,13 @@ try {
                     $aSnapshotFinalHint = Convert-ToSingleLineText -Text ([string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
                 }
 
-                $aPassConclusionDedup = ("{0}|{1}|{2}" -f
-                    $sessionStatus,
-                    $aStatus,
-                    $aSnapshotFinalHint)
+                $sessionInitialLaunchAt = if ($settings.Contains('SESSION_INITIAL_LAUNCH_AT')) {
+                    Convert-ToSingleLineText -Text ([string]$settings.SESSION_INITIAL_LAUNCH_AT)
+                }
+                else {
+                    ''
+                }
+                $aPassConclusionDedup = ("session={0}|transition=A-PASS-B-STARTED" -f $sessionInitialLaunchAt)
                 $aPassConclusionPersistedSignature = Get-APassConclusionPersistedSignature -Settings $settings
                 $aPassConclusionAlreadyQueued = Test-APassConclusionTicketAlreadyQueued -QueuePath $agentQueuePath -Signature $aPassConclusionDedup
 
@@ -6923,9 +6950,22 @@ try {
                     )
                 }
 
+                $incidentGenerationSignature = ("start={0}|stage={1}|run={2}|round={3}|phase={4}|source={5}" -f
+                    (Convert-ToRepoRelativePath -Path $script:StartFilePath).Replace('\', '/').ToLowerInvariant(),
+                    (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.PreferredStage)).ToUpperInvariant(),
+                    (Convert-ToSingleLineText -Text $failureRunDirAnchor).Replace('\', '/').ToLowerInvariant(),
+                    (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.MainRound)).ToUpperInvariant(),
+                    (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailurePhase)).ToLowerInvariant(),
+                    (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailureSource)).Replace('\', '/').ToLowerInvariant())
+                $persistedIncidentGeneration = Get-IncidentGenerationPersistedSignature -Settings $settings
+
                 if ($suppressDuplicateAExitIncident) {
                     $lastIncidentSignature = $statusSignature
                     Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-runtime-fail-covered-by-main-process-exit-review artifact={0}' -f [string]$aExitEvidenceForIncident.ArtifactPath)
+                }
+                elseif ($incidentGenerationSignature -eq $persistedIncidentGeneration) {
+                    $lastIncidentSignature = $statusSignature
+                    Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=incident-generation-already-queued generation={0}' -f $incidentGenerationSignature)
                 }
                 elseif ($statusSignature -ne $lastIncidentSignature) {
                     $incidentDir = Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchorOverride $failureRunDirAnchor
@@ -6995,7 +7035,10 @@ try {
                             # Fallback reminder for compile-related failures without specific pattern
                             $selfHealHint = 'forward-declaration-hint: check if static literal functions are defined after their first usage site in preclass.c'
                         }
-                        $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $failureRunDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $statusSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailurePhase ([string]$failureTicketMeta.FailurePhase) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
+                        $incidentTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $restartRequiresConfirmation -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $failureRunDirAnchor -IncidentDir $incidentDir -Detail $incidentDetail -DedupSuffix $incidentGenerationSignature -RecommendedAction $incidentRecommendedAction -PreferredStage ([string]$failureTicketMeta.PreferredStage) -MainRound ([string]$failureTicketMeta.MainRound) -FailurePhase ([string]$failureTicketMeta.FailurePhase) -FailureKind ([string]$failureTicketMeta.FailureKind) -FailureCategory ([string]$failureTicketMeta.FailureCategory) -FailureSource ([string]$failureTicketMeta.FailureSource) -FailureEvidence ([string]$failureTicketMeta.FailureEvidence) -SelfHealable ([bool]$failureTicketMeta.SelfHealable) -NonRecoverableEnv ([bool]$failureTicketMeta.NonRecoverableEnv) -SelfHealHint $selfHealHint
+                        if ((Get-TicketResultQueuedFlag -TicketResult $incidentTicketResult) -or (Get-TicketResultReason -TicketResult $incidentTicketResult) -eq 'duplicate-signature') {
+                            Set-IncidentGenerationPersistedSignature -Signature $incidentGenerationSignature
+                        }
 
                         # Roll failure fingerprint for anti-infinite-loop detection.
                         # Include task-definition hash and round source-output hash so
@@ -7098,6 +7141,7 @@ try {
                         $fpPrevTaskDefHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASKDEF_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASKDEF_HASH"] } else { '' }
                         $fpPrevSourceHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_SOURCE_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_SOURCE_HASH"] } else { '' }
                         $fpPrevRoundImprintHash = if ($settings.Contains("${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH")) { [string]$settings["${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH"] } else { '' }
+                        $fpPrevCodeFault = if ($settings.Contains("${fpKeyPrefix}_FAILURE_CODE_FAULT")) { [string]$settings["${fpKeyPrefix}_FAILURE_CODE_FAULT"] } else { 'false' }
                         Invoke-KeyValueFileValueUpdateCore -Path $script:StartFilePath -Values @{
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_FINGERPRINT" = $fpPrevFp
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_MAIN_ROUND" = $fpPrevRound
@@ -7107,6 +7151,7 @@ try {
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_TASKDEF_HASH" = $fpPrevTaskDefHash
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_SOURCE_HASH" = $fpPrevSourceHash
                             "${fpKeyPrefix}_PREVIOUS_FAILURE_TASKDEF_ROUND_IMPRINT_HASH" = $fpPrevRoundImprintHash
+                            "${fpKeyPrefix}_PREVIOUS_FAILURE_CODE_FAULT" = $fpPrevCodeFault
                             "${fpKeyPrefix}_FAILURE_FINGERPRINT" = $fpHashed
                             "${fpKeyPrefix}_FAILURE_MAIN_ROUND" = $fpMainRound
                             "${fpKeyPrefix}_FAILURE_PHASE" = $fpPhase
@@ -7116,6 +7161,7 @@ try {
                             "${fpKeyPrefix}_FAILURE_TASKDEF_HASH" = $fpTaskDefHash
                             "${fpKeyPrefix}_FAILURE_SOURCE_HASH" = $fpRoundSourceHash
                             "${fpKeyPrefix}_FAILURE_TASKDEF_ROUND_IMPRINT_HASH" = $fpTaskDefRoundImprintHash
+                            "${fpKeyPrefix}_FAILURE_CODE_FAULT" = ([bool]$failureHasCodeFault).ToString().ToLowerInvariant()
                         }
                         Write-GuardLog ("failure_fingerprint_rolled stage={0} round={1} phase={2} origin_round={3} task_start_at={4} taskdef_hash={5} source_hash={6} round_imprint_hash={7}" -f $fpStage, $fpMainRound, $fpPhase, $fpFailureOriginRound, $fpTaskFirstStartAt, $fpTaskDefHash, $fpRoundSourceHash, $fpTaskDefRoundImprintHash)
                     }

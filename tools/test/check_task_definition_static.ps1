@@ -1230,20 +1230,16 @@ if ($EnableFingerprintCheck.IsPresent) {
                 -not [string]::IsNullOrWhiteSpace($prevFp) -and
                 $curFp -eq $prevFp
 
-            if ($isIdentical -and $hasCurrentRepairEvidence) {
+            $codeFaultSetting = if ($settings.ContainsKey("${prefix}_FAILURE_CODE_FAULT")) { [string]$settings["${prefix}_FAILURE_CODE_FAULT"] } else { '' }
+            $fingerprintGateApplicable = ($curPhase -in @('compile', 'verify') -and $codeFaultSetting.Trim().ToLowerInvariant() -eq 'true')
+            if (-not $fingerprintGateApplicable) {
+                Add-InfoIssue ("fingerprint-check stage={0} status=not-applicable phase={1}" -f $Stage, $curPhase)
+            }
+            elseif ($isIdentical -and $hasCurrentRepairEvidence) {
                 Add-InfoIssue ("fingerprint-check stage={0} status=pass reason=repair-evidence-changed round={1}" -f $Stage, $curRound)
             }
             elseif ($isIdentical) {
-                $retryGrantedFingerprint = if ($settings.ContainsKey("${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR")) { [string]$settings["${prefix}_CODESTEP_IDENTICAL_FP_RETRY_GRANTED_FOR"] } else { '' }
-                if ($curPhase -eq 'code-step' -and $retryGrantedFingerprint -ne $curFp) {
-                    Add-WarnIssue ("fingerprint-check stage={0} identical_failure_detected phase=code-step retry_budget=available round={1} task_start_at={2}" -f $Stage, $curRound, $curTaskStartAt)
-                }
-                elseif ($curPhase -eq 'code-step' -and $retryGrantedFingerprint -eq $curFp) {
-                    Add-ErrorIssue ("fingerprint-check stage={0} identical_failure_detected phase=code-step retry_budget=exhausted round={1} task_start_at={2}" -f $Stage, $curRound, $curTaskStartAt)
-                }
-                else {
-                    Add-ErrorIssue ("fingerprint-check stage={0} identical_failure_detected phase={1} round={2} task_start_at={3}" -f $Stage, $curPhase, $curRound, $curTaskStartAt)
-                }
+                Add-ErrorIssue ("fingerprint-check stage={0} identical_code_fix_failure_detected phase={1} round={2} task_start_at={3}" -f $Stage, $curPhase, $curRound, $curTaskStartAt)
             }
             else {
                 Add-InfoIssue ("fingerprint-check stage={0} status=pass" -f $Stage)
