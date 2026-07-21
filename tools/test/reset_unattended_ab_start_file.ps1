@@ -490,10 +490,11 @@ foreach ($key in @($additionalValues.Keys)) {
     })
 }
 
+$resetScope = if ($usesExplicitResetFields) { 'explicit-selectors' } else { 'stage-blocked-only' }
 Write-Output ("[RESET-START-FILE] start_file={0}" -f $startFilePath)
 Write-Output ("[RESET-START-FILE] template_file={0}" -f $templatePath)
 Write-Output ("[RESET-START-FILE] stage={0}" -f $Stage)
-Write-Output ("[RESET-START-FILE] reset_scope={0}" -f $(if ($usesExplicitResetFields) { 'explicit-selectors' } else { 'stage-blocked-only' }))
+Write-Output ("[RESET-START-FILE] reset_scope={0}" -f $resetScope)
 Write-Output ("[RESET-START-FILE] selectors={0}" -f ($effectiveSelectors -join ';'))
 Write-Output ("[RESET-START-FILE] template_baseline_mode={0}" -f $UseTemplateBaseline.IsPresent)
 Write-Output ("[RESET-START-FILE] matched_keys={0}" -f $keysToReset.Count)
