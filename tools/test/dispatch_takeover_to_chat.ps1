@@ -4457,19 +4457,19 @@ else {
 if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
     $aTimingText = 'A elapsed={0}; start={1}; end={2}' -f $aStageElapsed, $sessionInitialLaunchAt, $aStageCompletedAt
     if ($useChineseDispatchMessage) {
-        $firstMessage += (' 最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。' -f $reviewContentRequirements, $aTimingText)
+        $firstMessage += ("`n`n最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。" -f $reviewContentRequirements, $aTimingText)
     }
     else {
-        $firstMessage += (' Minimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}.' -f $reviewContentRequirements, $aTimingText)
+        $firstMessage += ("`n`nMinimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}." -f $reviewContentRequirements, $aTimingText)
     }
 }
 elseif ($eventNormalized -eq 'chat-session-final-status') {
     $finalTimingText = 'B elapsed={0}; B start={1}; B end={2}; A/B total elapsed={3}; session start={4}' -f $bStageElapsed, $bStageFirstStartAt, $bStageCompletedAt, $abTotalElapsed, $sessionInitialLaunchAt
     if ($useChineseDispatchMessage) {
-        $firstMessage += (' 最低总结内容：{0}。回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点：{1}。' -f $summaryContentRequirements, $finalTimingText)
+        $firstMessage += ("`n`n最低总结内容：{0}。回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点：{1}。" -f $summaryContentRequirements, $finalTimingText)
     }
     else {
-        $firstMessage += (' Minimum summary content: {0}. The reply must reproduce the B-stage elapsed time, combined A/B elapsed time, and anchors exactly: {1}.' -f $summaryContentRequirements, $finalTimingText)
+        $firstMessage += ("`n`nMinimum summary content: {0}. The reply must reproduce the B-stage elapsed time, combined A/B elapsed time, and anchors exactly: {1}." -f $summaryContentRequirements, $finalTimingText)
     }
 }
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {

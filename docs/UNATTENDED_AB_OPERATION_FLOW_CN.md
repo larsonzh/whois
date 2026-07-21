@@ -1217,13 +1217,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 ```
 
 补充：
-- 默认 reset 会恢复未运行态字段并保留当前模式（normal/anti-missent/low-disturb/event-only）。
-- 若需“按当前模式回到模板基线”，可显式传 `-UseTemplateBaseline`：该模式会委托 `tools/test/create_unattended_ab_start_file.ps1` 按“当前 start-file 文件名 + 当前模式（`AI_CHAT_POLICY_WORK_MODE`，缺失回退 `normal`）”重建并覆盖当前文件。
+- reset 支持 `-Stage A|B`，省略时兼容为 `-Stage A`。默认 reset 只将目标阶段作用域内当前值为 `BLOCKED` 的字段改为 `NOT_RUN`，并设置 `START_ROUND=1`；不会清除 `SESSION_INITIAL_LAUNCH_AT`、失败轮次或其他运行证据，因此从 D1 进入并在原失败轮恢复完整执行。
+- `-Stage A -UseTemplateBaseline` 按当前模式重建整份 start-file，保留 A/B 任务定义、窗口与 remote 配置，其余所有键值恢复至初始未运行状态，从仓库基线开始新的 A-D1 完整流程。
+- `-Stage B` 默认 reset 只执行目标作用域内的 `BLOCKED -> NOT_RUN`，并设置 `START_ROUND=1`、`B_RESTORE_FROM_A_SNAPSHOT=true`；保留失败轮、`SESSION_INITIAL_LAUNCH_AT` 和其他运行证据，从 B-D1 进入并在原失败轮恢复完整执行。
+- `-Stage B -UseTemplateBaseline` 要求 A final status 为 PASS 且 `a_success_snapshot` 通过 manifest/hash 检查。该模式不重建 start-file，只执行目标作用域内的 `BLOCKED -> NOT_RUN`，并原位设置 `START_ROUND=1`、`RESUME_FAILED_ROUND=D1`、`B_RESTORE_FROM_A_SNAPSHOT=true`；保留所有其他运行状态，从 A snapshot 基线开始新的 B-D1 完整流程。B launch-ready 仍会再次执行 snapshot 完整性检查。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline -DryRun
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline
 ```
+
+B 阶段对应命令在上述命令后添加 `-Stage B`；B 模板基线 reset 必须在 A snapshot 仍有效时执行。
 
 然后：
 - 重新运行 `tools/test/check_unattended_ab_launch_ready.ps1`

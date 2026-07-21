@@ -311,6 +311,32 @@ catch {
     ) -ExitCode 1 -StartFilePath $startFilePath
 }
 
+if ($Stage -eq 'B') {
+    $snapshotStatusRaw = if ($startSettings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+        ([string]$startSettings.A_SUCCESS_SNAPSHOT_FINAL_STATUS).Trim()
+    }
+    else {
+        ''
+    }
+
+    if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw) -or $snapshotStatusRaw -match '^<.*>$') {
+        Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot is unavailable; template baseline reset requires restarting from Stage A.' -OutputLines @(
+            ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
+            'NEXT_ALLOWED_STAGE=A'
+        ) -ExitCode 1 -StartFilePath $startFilePath
+    }
+
+    try {
+        [void](Resolve-RepoPath -Path $snapshotStatusRaw -MustExist $true)
+    }
+    catch {
+        Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot final status does not exist; restart from Stage A or restore a verified A snapshot.' -OutputLines @(
+            ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
+            'NEXT_ALLOWED_STAGE=A'
+        ) -ExitCode 1 -StartFilePath $startFilePath
+    }
+}
+
 $startFileLines = @(
     ('STAGE={0}' -f $Stage),
     ('A_TASK_DEFINITION={0}' -f $resolvedATask),

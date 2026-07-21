@@ -1,6 +1,7 @@
 ﻿param(
     [string]$StartFile = 'testdata\unattended_start\active\unattended_ab_start_20260504-1123.md',
     [string]$TemplateFile = 'docs\UNATTENDED_AB_START_TEMPLATE_CN.md',
+    [ValidateSet('A', 'B')][string]$Stage = 'A',
     [AllowEmptyString()][string]$ResetFields = '',
     [switch]$UseDefaultResetFieldList,
     [switch]$UseTemplateBaseline,
@@ -12,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 $script:UnhandledExitTag = 'RESET-UNATTENDED-AB-START-FILE'
 
 trap {
@@ -257,6 +259,12 @@ function Get-ResetValue {
         '^PRECHECK_(START_GATE|REMOTE_LOCK)$' { return 'NOT_RUN' }
         '^PRECHECK_(AT|START_BLOCKER|FAILURE_REASON|NOTES)$' { return '' }
         '^PRECHECK_' { return 'NOT_RUN' }
+        '^START_ROUND$' {
+            if ($TemplateMap.Contains($Key)) {
+                return [string]$TemplateMap[$Key]
+            }
+            return '1'
+        }
         '^NETWORK_PRECHECK_LAST_RESULT$' { return 'NOT_RUN' }
         '^NETWORK_PRECHECK_LAST_(AT|REASON)$' { return '' }
         '^(A_FINAL_STATUS|B_FINAL_STATUS|SESSION_FINAL_STATUS)$' { return 'NOT_RUN' }
@@ -288,14 +296,58 @@ function Get-ResetValue {
     return $CurrentValue
 }
 
+function Assert-BSnapshotBaseline {
+    param(
+        [System.Collections.IDictionary]$StartFileMap,
+        [string]$ATaskDefinition
+    )
+
+    $snapshotStatusRaw = if ($StartFileMap.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+        ([string]$StartFileMap['A_SUCCESS_SNAPSHOT_FINAL_STATUS']).Trim()
+    }
+    else {
+        ''
+    }
+    if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw) -or $snapshotStatusRaw -match '^<.*>$') {
+        throw 'Stage B template baseline reset requires an existing A_SUCCESS_SNAPSHOT_FINAL_STATUS.'
+    }
+
+    $snapshotStatusPath = Resolve-RepoPath -Path $snapshotStatusRaw -MustExist $true
+    try {
+        $snapshotStatus = Get-Content -LiteralPath $snapshotStatusPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Stage B template baseline reset requires valid A final-status JSON: $snapshotStatusPath"
+    }
+    if (([string]$snapshotStatus.Result).Trim().ToUpperInvariant() -ne 'PASS') {
+        throw "Stage B template baseline reset requires A final status PASS: $snapshotStatusPath"
+    }
+
+    $snapshotDir = Join-Path (Split-Path -Parent $snapshotStatusPath) 'a_success_snapshot'
+    if (-not (Test-Path -LiteralPath $snapshotDir)) {
+        throw "Stage B template baseline reset requires an existing A snapshot directory: $snapshotDir"
+    }
+    $aTaskDefinitionPath = Resolve-RepoPath -Path $ATaskDefinition -MustExist $true
+    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
+    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    if (-not $snapshotIntegrity.Pass) {
+        throw ("Stage B template baseline reset blocked by A snapshot integrity errors: {0}" -f ($snapshotIntegrity.Errors -join ','))
+    }
+}
+
 $startFilePath = Resolve-RepoPath -Path $StartFile -MustExist $true
 $templatePath = Resolve-RepoPath -Path $TemplateFile -MustExist $true
 
-$defaultSelectorText = 'PRECHECK_*;NETWORK_PRECHECK_LAST_RESULT;NETWORK_PRECHECK_LAST_AT;NETWORK_PRECHECK_LAST_REASON;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;SESSION_CLOSED;SESSION_CLOSED_AT;SESSION_CLOSED_REASON;SESSION_FINAL_NOTES;AI_SESSION_BLOCKING_WATCH_NOTES;RESTART_EVIDENCE_NOTES;A_LAUNCH_PID;B_LAUNCH_PID;A_RUN_DIR;B_RUN_DIR;A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE;A_PASS_CONCLUSION_B_STARTED_TICKET_AT;LAST_INCIDENT_GENERATION_SIGNATURE;LAST_INCIDENT_GENERATION_TICKET_AT;WATCH_LAUNCH_PID;WATCH_PARENT_PID;WATCH_LAST_START_AT;WATCH_LAST_EXIT_PID;WATCH_LAST_EXIT_AT;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND'
+$defaultSelectorText = 'PRECHECK_*;START_ROUND;B_RESTORE_FROM_A_SNAPSHOT;NETWORK_PRECHECK_LAST_RESULT;NETWORK_PRECHECK_LAST_AT;NETWORK_PRECHECK_LAST_REASON;A_SUCCESS_SNAPSHOT_FINAL_STATUS;A_SUCCESS_SNAPSHOT_SUMMARY;A_SUCCESS_SNAPSHOT_SOURCE_STATE;A_FINAL_STATUS;B_FINAL_STATUS;SESSION_FINAL_STATUS;SESSION_CLOSED;SESSION_CLOSED_AT;SESSION_CLOSED_REASON;SESSION_FINAL_NOTES;AI_SESSION_BLOCKING_WATCH_NOTES;RESTART_EVIDENCE_NOTES;A_LAUNCH_PID;B_LAUNCH_PID;A_RUN_DIR;B_RUN_DIR;A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE;A_PASS_CONCLUSION_B_STARTED_TICKET_AT;LAST_INCIDENT_GENERATION_SIGNATURE;LAST_INCIDENT_GENERATION_TICKET_AT;WATCH_LAUNCH_PID;WATCH_PARENT_PID;WATCH_LAST_START_AT;WATCH_LAST_EXIT_PID;WATCH_LAST_EXIT_AT;LOCAL_GUARD_WAIT_FOR_MANUAL_RESTART;LOCAL_GUARD_AUTO_RECOVER_B;LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED;LOCAL_GUARD_RESTART_REQUIRES_CONFIRM;LOCAL_GUARD_RESTART_APPROVED;LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS;AI_CHAT_DISPATCH_ALLOW_RUNNING_STATUS_MESSAGE_OVERRIDE;LOCAL_GUARD_POLL_STATUS_REPORT_EVENTS;LOCAL_GUARD_POLL_DRAIN_SAFE_EVENTS;LOCAL_GUARD_POLL_BARRIER_EVENTS;LOCAL_GUARD_POLL_RESTART_SENSITIVE_EVENTS;LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS;LOCAL_GUARD_POLL_EVENT_POLICY_STRICT;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_MAIN_PROCESS_HEALTH_CHECK;LOCAL_GUARD_POLL_STATUS_REPORT_ENABLE_MAIN_PROCESS_SELF_HEAL;LOCAL_GUARD_STATUS_ONLY_AUTOFLOW_EXEC_TOKEN;TASK_STATIC_PRECHECK_FAIL_ON_WARNINGS;TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED;EXTERNAL_TRIGGER_EXECUTE;EXTERNAL_TRIGGER_COMMAND'
 
 $startState = Get-StartFileState -StartFilePath $startFilePath
 
-if ($UseTemplateBaseline.IsPresent) {
+if ($UseTemplateBaseline.IsPresent -and $Stage -eq 'B') {
+    $aTaskDefinition = if ($startState.Map.Contains('A_TASK_DEFINITION')) { [string]$startState.Map['A_TASK_DEFINITION'] } else { '' }
+    Assert-BSnapshotBaseline -StartFileMap $startState.Map -ATaskDefinition $aTaskDefinition
+}
+
+if ($UseTemplateBaseline.IsPresent -and $Stage -eq 'A') {
     $selectedMode = Resolve-StartFileMode -StartFileMap $startState.Map
     $createScriptPath = Join-Path $PSScriptRoot 'create_unattended_ab_start_file.ps1'
     if (-not (Test-Path -LiteralPath $createScriptPath)) {
@@ -305,16 +357,33 @@ if ($UseTemplateBaseline.IsPresent) {
     Write-Output ("[RESET-START-FILE] start_file={0}" -f $startFilePath)
     Write-Output ("[RESET-START-FILE] template_file={0}" -f $templatePath)
     Write-Output '[RESET-START-FILE] mode=delegate-create'
+    Write-Output ("[RESET-START-FILE] stage={0}" -f $Stage)
     Write-Output ("[RESET-START-FILE] template_baseline_mode={0}" -f $UseTemplateBaseline.IsPresent)
     Write-Output ("[RESET-START-FILE] selected_mode={0}" -f $selectedMode)
 
+    $preservedCreateArguments = @{
+        ATaskDefinition = if ($startState.Map.Contains('A_TASK_DEFINITION')) { [string]$startState.Map['A_TASK_DEFINITION'] } else { '' }
+        BTaskDefinition = if ($startState.Map.Contains('B_TASK_DEFINITION')) { [string]$startState.Map['B_TASK_DEFINITION'] } else { '' }
+        Window = if ($startState.Map.Contains('WINDOW')) { [string]$startState.Map['WINDOW'] } else { '' }
+        RemoteIp = if ($startState.Map.Contains('REMOTE_IP')) { [string]$startState.Map['REMOTE_IP'] } else { '' }
+        RemoteUser = if ($startState.Map.Contains('REMOTE_USER')) { [string]$startState.Map['REMOTE_USER'] } else { '' }
+        RemoteKeyPath = if ($startState.Map.Contains('REMOTE_KEYPATH')) { [string]$startState.Map['REMOTE_KEYPATH'] } else { '' }
+    }
+
+    $preservedSetValues = @()
+
+    Write-Output '[RESET-START-FILE] session_initial_launch_at=cleared-for-new-session'
+    Write-Output ("[RESET-START-FILE] recovery_state=cleared next_allowed_stage={0}" -f $Stage)
+    Write-Output ("[RESET-START-FILE] preserved_a_task={0}" -f $preservedCreateArguments.ATaskDefinition)
+    Write-Output ("[RESET-START-FILE] preserved_b_task={0}" -f $preservedCreateArguments.BTaskDefinition)
+    Write-Output ("[RESET-START-FILE] preserved_window={0}" -f $preservedCreateArguments.Window)
     if ($DryRun.IsPresent) {
-        Write-Output ("[RESET-START-FILE] dry_run=true delegate_command=powershell -NoProfile -ExecutionPolicy Bypass -File {0} -TemplateFile {1} -OutputFile {2} -Mode {3} -Force" -f $createScriptPath, $templatePath, $startFilePath, $selectedMode)
+        Write-Output ("[RESET-START-FILE] dry_run=true delegate_command=powershell -NoProfile -ExecutionPolicy Bypass -File {0} -TemplateFile {1} -OutputFile {2} -Mode {3} -ATaskDefinition <preserved> -BTaskDefinition <preserved> -Window <preserved> -RemoteIp <preserved> -RemoteUser <preserved> -RemoteKeyPath <preserved> -Set <stage-preserved-values> -Force" -f $createScriptPath, $templatePath, $startFilePath, $selectedMode)
         Write-Output '[RESET-START-FILE] dry_run=true write_skipped=true'
         exit 0
     }
 
-    & $createScriptPath -TemplateFile $templatePath -OutputFile $startFilePath -Mode $selectedMode -Force
+    & $createScriptPath -TemplateFile $templatePath -OutputFile $startFilePath -Mode $selectedMode @preservedCreateArguments -Set $preservedSetValues -Force
     Write-Output '[RESET-START-FILE] dry_run=false delegate_applied=true'
     exit 0
 }
@@ -335,19 +404,73 @@ else {
 
 $selectors = Get-ResetSelectorSet -RawSelectors $selectorText
 $alwaysSelectors = Get-ResetSelectorSet -RawSelectors $defaultSelectorText
-$allSelectors = @($selectors + $alwaysSelectors)
+[void]@($selectors + $alwaysSelectors)
 
-$keysToReset = Resolve-SelectorKeySet -Selectors $allSelectors -AvailableKeys $startState.OrderedKeys
-if ($keysToReset.Count -lt 1) {
-    throw 'No fields matched reset selectors. Nothing to reset.'
+$usesExplicitResetFields = -not [string]::IsNullOrWhiteSpace($ResetFields)
+if ($usesExplicitResetFields) {
+    $effectiveSelectors = @(Get-ResetSelectorSet -RawSelectors $ResetFields)
+    $keysToReset = @(Resolve-SelectorKeySet -Selectors $effectiveSelectors -AvailableKeys $startState.OrderedKeys)
+    if ($Stage -eq 'B') {
+        $keysToReset = @($keysToReset | Where-Object { $_ -notmatch '^A_' })
+    }
+    if ($keysToReset.Count -lt 1) {
+        throw 'No fields matched explicit reset selectors. Nothing to reset.'
+    }
+}
+else {
+    $effectiveSelectors = @('<stage-blocked-only>')
+    $keysToReset = @($startState.OrderedKeys | Where-Object {
+        $key = [string]$_
+        $value = if ($startState.Map.Contains($key)) { ([string]$startState.Map[$key]).Trim() } else { '' }
+        $inStageScope = if ($Stage -eq 'A') { $key -notmatch '^B_' } else { $key -notmatch '^A_' }
+        $inStageScope -and $value -ceq 'BLOCKED'
+    })
 }
 
 $newLines = @($startState.Lines)
+$additionalValues = [ordered]@{}
+$additionalValues['START_ROUND'] = '1'
+if ($Stage -eq 'B') {
+    $additionalValues['B_RESTORE_FROM_A_SNAPSHOT'] = 'true'
+    if ($UseTemplateBaseline.IsPresent) {
+        $additionalValues['RESUME_FAILED_ROUND'] = 'D1'
+    }
+}
+else {
+    $additionalValues['B_RESTORE_FROM_A_SNAPSHOT'] = 'false'
+}
 $changes = New-Object 'System.Collections.Generic.List[object]'
 foreach ($key in @($keysToReset)) {
     $oldValue = if ($startState.Map.Contains($key)) { [string]$startState.Map[$key] } else { '' }
-    $newValue = Get-ResetValue -Key $key -CurrentValue $oldValue -TemplateMap $templateState.Map -UseTemplateBaseline $UseTemplateBaseline.IsPresent
+    $newValue = if ($usesExplicitResetFields) {
+        Get-ResetValue -Key $key -CurrentValue $oldValue -TemplateMap $templateState.Map -UseTemplateBaseline $UseTemplateBaseline.IsPresent
+    }
+    else {
+        'NOT_RUN'
+    }
 
+    if ($oldValue -ceq $newValue) {
+        continue
+    }
+
+    if ($startState.KeyLineIndex.ContainsKey($key)) {
+        $lineIndex = [int]$startState.KeyLineIndex[$key]
+        $newLines[$lineIndex] = "$key=$newValue"
+    }
+    else {
+        $newLines += "$key=$newValue"
+    }
+
+    [void]$changes.Add([pscustomobject]@{
+        Key = $key
+        OldValue = $oldValue
+        NewValue = $newValue
+    })
+}
+
+foreach ($key in @($additionalValues.Keys)) {
+    $oldValue = if ($startState.Map.Contains($key)) { [string]$startState.Map[$key] } else { '' }
+    $newValue = [string]$additionalValues[$key]
     if ($oldValue -ceq $newValue) {
         continue
     }
@@ -369,7 +492,9 @@ foreach ($key in @($keysToReset)) {
 
 Write-Output ("[RESET-START-FILE] start_file={0}" -f $startFilePath)
 Write-Output ("[RESET-START-FILE] template_file={0}" -f $templatePath)
-Write-Output ("[RESET-START-FILE] selectors={0}" -f ($allSelectors -join ';'))
+Write-Output ("[RESET-START-FILE] stage={0}" -f $Stage)
+Write-Output ("[RESET-START-FILE] reset_scope={0}" -f $(if ($usesExplicitResetFields) { 'explicit-selectors' } else { 'stage-blocked-only' }))
+Write-Output ("[RESET-START-FILE] selectors={0}" -f ($effectiveSelectors -join ';'))
 Write-Output ("[RESET-START-FILE] template_baseline_mode={0}" -f $UseTemplateBaseline.IsPresent)
 Write-Output ("[RESET-START-FILE] matched_keys={0}" -f $keysToReset.Count)
 Write-Output ("[RESET-START-FILE] changed_keys={0}" -f $changes.Count)

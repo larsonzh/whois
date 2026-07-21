@@ -2366,8 +2366,14 @@ if ($Stage -eq 'B') {
     Set-Item -Path 'Env:AUTO_A_PREVIOUS_FINAL_STATUS' -Value $previousAFinalStatus
     Set-Item -Path 'Env:AUTO_B_PREVIOUS_FINAL_STATUS' -Value $previousBFinalStatus
 
-    $restoreFromASnapshot = if ($bRestartModeForGate) { 'true' } else { 'false' }
-    $restoreDecisionReason = if ($bRestartModeForGate) { 'auto-mode=restart' } else { 'auto-mode=normal' }
+    $explicitSnapshotRestore = if ($settings.Contains('B_RESTORE_FROM_A_SNAPSHOT')) {
+        Convert-ToBooleanSetting -Value ([string]$settings.B_RESTORE_FROM_A_SNAPSHOT) -Default $false
+    }
+    else {
+        $false
+    }
+    $restoreFromASnapshot = if ($bRestartModeForGate -or $explicitSnapshotRestore) { 'true' } else { 'false' }
+    $restoreDecisionReason = if ($explicitSnapshotRestore) { 'start-file-explicit' } elseif ($bRestartModeForGate) { 'auto-mode=restart' } else { 'auto-mode=normal' }
 
     Set-Item -Path 'Env:AUTO_B_RESTORE_FROM_A_SNAPSHOT' -Value $restoreFromASnapshot
 
