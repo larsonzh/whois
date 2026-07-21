@@ -125,6 +125,28 @@ function Add-DelimitedNote {
     return ($Existing.TrimEnd() + '; ' + $Append.Trim())
 }
 
+function Convert-ToTaskTimingDateTime {
+    param([AllowEmptyString()][string]$Text)
+
+    $value = Convert-ToSingleLineText -Text $Text
+    foreach ($format in @('yyyy-MM-dd HH:mm:ss', 'yyyyMMdd-HHmmss')) {
+        $parsed = [datetime]::MinValue
+        if ([datetime]::TryParseExact($value, $format, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+            return $parsed
+        }
+    }
+
+    return $null
+}
+
+function Format-TaskElapsedDuration {
+    param([double]$TotalSeconds)
+
+    $seconds = [long][Math]::Max(0, [Math]::Round($TotalSeconds))
+    $span = [TimeSpan]::FromSeconds($seconds)
+    return ('{0}d {1:00}:{2:00}:{3:00}' -f [int][Math]::Floor($span.TotalDays), $span.Hours, $span.Minutes, $span.Seconds)
+}
+
 function Resolve-RunDirAnchorFromNotes {
     param([AllowEmptyString()][string]$Notes)
 
@@ -425,6 +447,14 @@ function Write-Utf8NoBomTextFileAtomically {
 function Write-GuardState {
     param([hashtable]$Values)
 
+    if ($Values.ContainsKey('status') -and [string]$Values.status -notin @('waiting-main-exit-grace', 'waiting-monitor-chain-grace')) {
+        foreach ($graceKey in @('grace_reason', 'grace_stage', 'grace_remaining_min')) {
+            if ($script:GuardState.Contains($graceKey)) {
+                $script:GuardState.Remove($graceKey)
+            }
+        }
+    }
+
     foreach ($key in $Values.Keys) {
         $script:GuardState[$key] = $Values[$key]
     }
@@ -540,6 +570,7 @@ function Add-AgentTicket {
 
     $eventNormalized = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
     $scriptSelfHealEnabled = $false
+    $ticketPolicySettings = [ordered]@{}
     try {
         $ticketPolicySettings = Read-KeyValueFile -Path $script:StartFilePath
         if ($ticketPolicySettings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
@@ -632,11 +663,12 @@ function Add-AgentTicket {
         return [pscustomobject]$result
     }
 
-    $ticketId = ("T{0}-{1}" -f (Get-Date).ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $ticketCreatedAt = Get-Date
+    $ticketId = ("T{0}-{1}" -f $ticketCreatedAt.ToString('yyyyMMdd-HHmmssfff'), ([System.Guid]::NewGuid().ToString('N').Substring(0, 8)))
     $ticket = [ordered]@{
         schema = 'AB_AGENT_TICKET_V1'
         ticket_id = $ticketId
-        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        created_at = $ticketCreatedAt.ToString('yyyy-MM-dd HH:mm:ss')
         source = 'unattended_ab_session_guard'
         event = $eventCompact
         severity = (Convert-ToSingleLineText -Text $Severity)
@@ -666,6 +698,18 @@ function Add-AgentTicket {
         non_recoverable_env = [bool]$NonRecoverableEnv
         self_heal_hint = if ([string]::IsNullOrWhiteSpace($SelfHealHint)) { '' } else { (Convert-ToBoundedSingleLineText -Text $SelfHealHint -MaxChars 120) }
         dedup_signature = $signature
+    }
+
+    if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
+        $sessionInitialLaunchAt = if ($ticketPolicySettings.Contains('SESSION_INITIAL_LAUNCH_AT')) { Convert-ToSingleLineText -Text ([string]$ticketPolicySettings.SESSION_INITIAL_LAUNCH_AT) } else { '' }
+        $sessionInitialLaunchDateTime = Convert-ToTaskTimingDateTime -Text $sessionInitialLaunchAt
+        $aElapsedSeconds = if ($null -ne $sessionInitialLaunchDateTime) { [long][Math]::Max(0, [Math]::Round(($ticketCreatedAt - $sessionInitialLaunchDateTime).TotalSeconds)) } else { -1 }
+        $ticket.review_content_requirements = 'State the A-stage final conclusion; summarize key checkpoints and final evidence; list material incidents/recoveries and their outcomes; report the A-stage elapsed time and its start/end anchors; state that B has started.'
+        $ticket.timing_basis = 'A elapsed uses SESSION_INITIAL_LAUNCH_AT through this A-to-B review ticket creation time; it includes launcher/preflight time before A_TASK_FIRST_START_AT.'
+        $ticket.session_initial_launch_at = $sessionInitialLaunchAt
+        $ticket.a_stage_completed_at = $ticketCreatedAt.ToString('yyyy-MM-dd HH:mm:ss')
+        $ticket.a_stage_elapsed_seconds = $aElapsedSeconds
+        $ticket.a_stage_elapsed = if ($aElapsedSeconds -ge 0) { Format-TaskElapsedDuration -TotalSeconds $aElapsedSeconds } else { 'unknown' }
     }
 
     $line = $ticket | ConvertTo-Json -Compress -Depth 8
@@ -1537,26 +1581,22 @@ function Resolve-RunDirAnchorForFailurePolicy {
     )
 
     $resolvedRunDirAnchor = Convert-ToSingleLineText -Text $CurrentRunDirAnchor
-    if (-not [string]::IsNullOrWhiteSpace($resolvedRunDirAnchor)) {
-        return $resolvedRunDirAnchor
-    }
-
     $normalizedA = Get-StatusValue -Value $AStatus
     $normalizedB = Get-StatusValue -Value $BStatus
-
-    if ($normalizedA -in @('FAIL', 'BLOCKED') -and $normalizedB -ne 'RUNNING') {
-        $aExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $ALaunchPid
-        $aArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence -ExitReasonEvidence $aExitEvidence -ExpectedProcessId $ALaunchPid
-        if (-not [string]::IsNullOrWhiteSpace($aArtifactRunDir)) {
-            return $aArtifactRunDir
-        }
-    }
 
     if ($normalizedB -in @('FAIL', 'BLOCKED') -or $BLaunchPid -gt 0) {
         $bExitEvidence = Get-BStageExitReasonEvidence -ExpectedProcessId $BLaunchPid
         $bArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence -ExitReasonEvidence $bExitEvidence -ExpectedProcessId $BLaunchPid
         if (-not [string]::IsNullOrWhiteSpace($bArtifactRunDir)) {
             return $bArtifactRunDir
+        }
+    }
+
+    if ($normalizedA -in @('FAIL', 'BLOCKED') -and $normalizedB -ne 'RUNNING') {
+        $aExitEvidence = Get-AStageExitReasonEvidence -ExpectedProcessId $ALaunchPid
+        $aArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence -ExitReasonEvidence $aExitEvidence -ExpectedProcessId $ALaunchPid
+        if (-not [string]::IsNullOrWhiteSpace($aArtifactRunDir)) {
+            return $aArtifactRunDir
         }
     }
 
@@ -3877,6 +3917,37 @@ function Set-APassConclusionPersistedSignature {
     }
 }
 
+function Test-APassConclusionTicketAlreadyQueued {
+    param(
+        [AllowEmptyString()][string]$QueuePath,
+        [AllowEmptyString()][string]$Signature
+    )
+
+    $signatureCompact = Convert-ToSingleLineText -Text $Signature
+    $resolvedQueuePath = Resolve-RepoPathAllowMissing -Path $QueuePath
+    if ([string]::IsNullOrWhiteSpace($signatureCompact) -or [string]::IsNullOrWhiteSpace($resolvedQueuePath) -or -not (Test-Path -LiteralPath $resolvedQueuePath)) {
+        return $false
+    }
+
+    $startFileRelative = (Convert-ToRepoRelativePath -Path $script:StartFilePath).Replace('\', '/').ToLowerInvariant()
+    foreach ($line in @(Get-Content -LiteralPath $resolvedQueuePath -Encoding utf8 -Tail 2000 -ErrorAction SilentlyContinue)) {
+        try {
+            $ticket = $line | ConvertFrom-Json -ErrorAction Stop
+            $ticketEvent = Convert-ToSingleLineText -Text ([string]$ticket.event)
+            $ticketStartFile = (Convert-ToSingleLineText -Text ([string]$ticket.start_file)).Replace('\', '/').ToLowerInvariant()
+            $ticketDedupSignature = Convert-ToSingleLineText -Text ([string]$ticket.dedup_signature)
+            if ($ticketEvent -eq 'a-pass-conclusion-b-started' -and $ticketStartFile -eq $startFileRelative -and $ticketDedupSignature.EndsWith(('|' + $signatureCompact), [System.StringComparison]::Ordinal)) {
+                return $true
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return $false
+}
+
 Write-GuardState -Values @{}
 $MaxRecoveryAttempts = [int]$MaxBRecoveryAttempts
 Write-GuardLog ("startup start_file={0} poll_sec={1} max_recovery_attempts={2} max_b_recovery_attempts={3} recovery_cooldown_minutes={4} stop_on_budget_exhausted={5} guard_log={6} guard_state={7}" -f (Convert-ToRepoRelativePath -Path $script:StartFilePath), $PollSec, $MaxRecoveryAttempts, $MaxBRecoveryAttempts, $RecoveryCooldownMinutes, $StopOnBudgetExhausted, (Convert-ToRepoRelativePath -Path $script:GuardLogPath), (Convert-ToRepoRelativePath -Path $script:GuardStatePath))
@@ -4805,9 +4876,7 @@ function Write-WaitingMonitorChainGraceState {
         grace_remaining_min = ([Math]::Round($RemainingGraceMinutes, 1))
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($GraceReason)) {
-        $stateValues.grace_reason = $GraceReason
-    }
+    $stateValues.grace_reason = $GraceReason
 
     Write-GuardState -Values $stateValues
 }
@@ -4902,6 +4971,7 @@ function Write-WaitingMainExitGraceState {
         session_final_status = $SessionStatus
         a_final_status = $AStatus
         b_final_status = $BStatus
+        grace_reason = 'main-process-exit'
         grace_stage = $GraceStage
         grace_remaining_min = ([Math]::Round($RemainingGraceMinutes, 1))
     }
@@ -5922,6 +5992,7 @@ try {
                     $aStatus,
                     $aSnapshotFinalHint)
                 $aPassConclusionPersistedSignature = Get-APassConclusionPersistedSignature -Settings $settings
+                $aPassConclusionAlreadyQueued = Test-APassConclusionTicketAlreadyQueued -QueuePath $agentQueuePath -Signature $aPassConclusionDedup
 
                 # B runs in a different directory from A. The handover ticket requires
                 # settled A snapshot evidence, not equality with B's current run directory.
@@ -5934,8 +6005,12 @@ try {
                     }
                 }
 
-                if ($aSnapshotSettled -and $aPassConclusionDedup -eq $aPassConclusionPersistedSignature) {
+                if ($aSnapshotSettled -and ($aPassConclusionDedup -eq $aPassConclusionPersistedSignature -or $aPassConclusionAlreadyQueued)) {
                     $lastAPassConclusionSignature = $aPassConclusionDedup
+                    if ($aPassConclusionAlreadyQueued -and $aPassConclusionDedup -ne $aPassConclusionPersistedSignature) {
+                        Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup
+                        Write-GuardLog ('a_pass_conclusion_dedup_rehydrated source=queue-history signature={0}' -f $aPassConclusionDedup)
+                    }
                 }
                 elseif ($aPassConclusionDedup -ne $lastAPassConclusionSignature -and $aSnapshotSettled) {
                     $aPassConclusionDetail = ("A stage PASS confirmed; B stage launch observed (b_status={0}, b_launch_pid={1}); run_dir={2}" -f $bStatus, $bLaunchPidForConclusion, $runDirAnchor)
@@ -5943,7 +6018,7 @@ try {
                         $aPassConclusionDetail = ("{0}; a_snapshot_final={1}" -f $aPassConclusionDetail, $aSnapshotFinalHint)
                     }
 
-                    $aPassConclusionAction = 'Provide an explicit A PASS completion conclusion with a concise A-stage run summary (key checkpoints and final evidence), then report that B-stage has started.'
+                    $aPassConclusionAction = 'Meet review_content_requirements: state the A conclusion, key checkpoints/final evidence, material incidents/recoveries, exact A elapsed time with anchors, and that B has started.'
                     $aPassConclusionTicketResult = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'a-pass-conclusion-b-started' -Severity 'normal' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $aPassConclusionDetail -DedupSuffix $aPassConclusionDedup -RecommendedAction $aPassConclusionAction -PreferredStage 'B' -MainRound '' -FailureKind 'stage-transition' -FailureCategory '' -FailureSource '' -FailureEvidence '' -SelfHealable $true -NonRecoverableEnv $false
                     if ((Get-TicketResultQueuedFlag -TicketResult $aPassConclusionTicketResult) -or (Get-TicketResultReason -TicketResult $aPassConclusionTicketResult) -in @('duplicate-signature', 'queue-disabled')) {
                         $lastAPassConclusionSignature = $aPassConclusionDedup
@@ -7448,9 +7523,6 @@ try {
                     if ($null -ne $mainProcessExitGraceStartedAt) {
                         if ($canRecoverB) {
                             Write-GuardLog ("main_process_exit_no_autofix_deferred reason=b-recoverable-ticket session={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
-                            Write-WaitingMainExitGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $mainProcessExitGraceStage -RemainingGraceMinutes $mainProcessExitMonitorGraceMinutes
-                            Start-Sleep -Seconds $PollSec
-                            continue
                         }
 
                         $graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes

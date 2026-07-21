@@ -701,6 +701,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 - `a-pass-conclusion-b-started` 与 `chat-session-final-status` 是只读阶段结论票，`running-status-report` 是只读定时状态票，均不得触发修复、恢复或进程控制。
 - 发送链内部或未知事件不得直接授权修复；进入票据链后必须先经 route guard，未知事件默认 `event-review`。
 
+阶段结论票必须携带可直接投影到聊天回复的最低内容要求和确定性耗时，dispatch 不得在投递时重新计算：
+- `a-pass-conclusion-b-started` 的评审回复至少包含 A 阶段最终结论、关键检查点与最终证据、重要事故/恢复及结果、B 已启动，以及 A 阶段总用时和起止锚点。A 阶段总用时按 `SESSION_INITIAL_LAUNCH_AT` 到该评审票 `created_at` 计算。
+- `chat-session-final-status` 的总结回复至少包含 SESSION/A/B 最终结论、执行时间线、重要事故/根因/修复与恢复动作、状态票和 ACK/heartbeat 结果、会话结束时间，以及 B 阶段总用时和 A/B 两阶段合计总用时。B 阶段总用时按 `B_TASK_FIRST_START_AT` 到总结票 `created_at` 计算；A/B 合计总用时按 `SESSION_INITIAL_LAUNCH_AT` 到同一结束时间计算。
+- `SESSION_INITIAL_LAUNCH_AT` 是当前 start-file 会话的首次启动时间，只写一次，统计会包含 launcher/preflight、阶段交接和恢复等待；它不是纯 A worker 运行时间。全新独立 A/B 任务必须由模板重建 start-file 并重新生成该值；同一会话内的恢复不得清空它。
+- 任一基准时间缺失或格式非法时，对应格式化耗时必须输出 `unknown`、秒数输出 `-1`，不得伪造或用当前时间替代起点。
+
 启动文件中必须确认的关键项：
 - `ENTRY_MODE=single-param-fastmode`
 - `ENTRY_SCRIPT_A` / `ENTRY_SCRIPT_B` 保持模板默认值，不作为人工/AI 手工执行命令使用

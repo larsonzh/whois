@@ -3793,6 +3793,15 @@ $briefDetail = ''
 if ($briefSettings.Contains('detail')) {
     $briefDetail = Convert-ToSingleLineText -Text ([string]$briefSettings.detail)
 }
+$reviewContentRequirements = if ($briefSettings.Contains('review_content_requirements')) { Convert-ToSingleLineText -Text ([string]$briefSettings.review_content_requirements) } else { '' }
+$summaryContentRequirements = if ($briefSettings.Contains('summary_content_requirements')) { Convert-ToSingleLineText -Text ([string]$briefSettings.summary_content_requirements) } else { '' }
+$sessionInitialLaunchAt = if ($briefSettings.Contains('session_initial_launch_at')) { Convert-ToSingleLineText -Text ([string]$briefSettings.session_initial_launch_at) } else { '' }
+$aStageCompletedAt = if ($briefSettings.Contains('a_stage_completed_at')) { Convert-ToSingleLineText -Text ([string]$briefSettings.a_stage_completed_at) } else { '' }
+$aStageElapsed = if ($briefSettings.Contains('a_stage_elapsed')) { Convert-ToSingleLineText -Text ([string]$briefSettings.a_stage_elapsed) } else { '' }
+$bStageFirstStartAt = if ($briefSettings.Contains('b_stage_first_start_at')) { Convert-ToSingleLineText -Text ([string]$briefSettings.b_stage_first_start_at) } else { '' }
+$bStageCompletedAt = if ($briefSettings.Contains('b_stage_completed_at')) { Convert-ToSingleLineText -Text ([string]$briefSettings.b_stage_completed_at) } else { '' }
+$bStageElapsed = if ($briefSettings.Contains('b_stage_elapsed')) { Convert-ToSingleLineText -Text ([string]$briefSettings.b_stage_elapsed) } else { '' }
+$abTotalElapsed = if ($briefSettings.Contains('ab_total_elapsed')) { Convert-ToSingleLineText -Text ([string]$briefSettings.ab_total_elapsed) } else { '' }
 $briefDetailLower = $briefDetail.ToLowerInvariant()
 $retryBudgetOneTimeOnly = ($briefDetail.ToLowerInvariant().Contains('one_time_retry_only=true'))
 $retryBudgetExhausted = ($briefDetail.ToLowerInvariant().Contains('retry_budget_exhausted=true'))
@@ -4444,6 +4453,25 @@ else {
         default { $firstMessage = $genericRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
     }
 
+
+if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
+    $aTimingText = 'A elapsed={0}; start={1}; end={2}' -f $aStageElapsed, $sessionInitialLaunchAt, $aStageCompletedAt
+    if ($useChineseDispatchMessage) {
+        $firstMessage += (' 最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。' -f $reviewContentRequirements, $aTimingText)
+    }
+    else {
+        $firstMessage += (' Minimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}.' -f $reviewContentRequirements, $aTimingText)
+    }
+}
+elseif ($eventNormalized -eq 'chat-session-final-status') {
+    $finalTimingText = 'B elapsed={0}; B start={1}; B end={2}; A/B total elapsed={3}; session start={4}' -f $bStageElapsed, $bStageFirstStartAt, $bStageCompletedAt, $abTotalElapsed, $sessionInitialLaunchAt
+    if ($useChineseDispatchMessage) {
+        $firstMessage += (' 最低总结内容：{0}。回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点：{1}。' -f $summaryContentRequirements, $finalTimingText)
+    }
+    else {
+        $firstMessage += (' Minimum summary content: {0}. The reply must reproduce the B-stage elapsed time, combined A/B elapsed time, and anchors exactly: {1}.' -f $summaryContentRequirements, $finalTimingText)
+    }
+}
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
         $ruleSuffix = if ($useChineseDispatchMessage) { $selfHealRuleSuffixZh } else { $selfHealRuleSuffixEn }
         if (-not [string]::IsNullOrWhiteSpace($ruleSuffix)) {

@@ -324,6 +324,28 @@ function Get-DateTimeOrNull {
     return $null
 }
 
+function Get-TaskTimingDateTimeOrNull {
+    param([AllowNull()][string]$Text)
+
+    $value = Convert-ToSingleLineText -Text $Text
+    foreach ($format in @('yyyy-MM-dd HH:mm:ss', 'yyyyMMdd-HHmmss')) {
+        $parsed = [datetime]::MinValue
+        if ([datetime]::TryParseExact($value, $format, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+            return $parsed
+        }
+    }
+
+    return $null
+}
+
+function Format-TaskElapsedDuration {
+    param([double]$TotalSeconds)
+
+    $seconds = [long][Math]::Max(0, [Math]::Round($TotalSeconds))
+    $span = [TimeSpan]::FromSeconds($seconds)
+    return ('{0}d {1:00}:{2:00}:{3:00}' -f [int][Math]::Floor($span.TotalDays), $span.Hours, $span.Minutes, $span.Seconds)
+}
+
 function Get-StatusValue {
     param([AllowNull()][string]$Value)
 
@@ -2152,6 +2174,22 @@ function New-TakeoverBrief {
     $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' }
     $atomicCloseoutExecutionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'not-applicable-readonly-status-ticket' } else { 'exactly-once-per-event-ticket-after-handling-no-retry' }
 
+    $ticketTimingFields = [ordered]@{
+        review_content_requirements = Get-ObjectPropertyString -InputObject $Ticket -Name 'review_content_requirements'
+        summary_content_requirements = Get-ObjectPropertyString -InputObject $Ticket -Name 'summary_content_requirements'
+        timing_basis = Get-ObjectPropertyString -InputObject $Ticket -Name 'timing_basis'
+        session_initial_launch_at = Get-ObjectPropertyString -InputObject $Ticket -Name 'session_initial_launch_at'
+        a_stage_completed_at = Get-ObjectPropertyString -InputObject $Ticket -Name 'a_stage_completed_at'
+        a_stage_elapsed_seconds = Get-ObjectPropertyString -InputObject $Ticket -Name 'a_stage_elapsed_seconds'
+        a_stage_elapsed = Get-ObjectPropertyString -InputObject $Ticket -Name 'a_stage_elapsed'
+        b_stage_first_start_at = Get-ObjectPropertyString -InputObject $Ticket -Name 'b_stage_first_start_at'
+        b_stage_completed_at = Get-ObjectPropertyString -InputObject $Ticket -Name 'b_stage_completed_at'
+        b_stage_elapsed_seconds = Get-ObjectPropertyString -InputObject $Ticket -Name 'b_stage_elapsed_seconds'
+        b_stage_elapsed = Get-ObjectPropertyString -InputObject $Ticket -Name 'b_stage_elapsed'
+        ab_total_elapsed_seconds = Get-ObjectPropertyString -InputObject $Ticket -Name 'ab_total_elapsed_seconds'
+        ab_total_elapsed = Get-ObjectPropertyString -InputObject $Ticket -Name 'ab_total_elapsed'
+    }
+
     $lines = @(
         '# AB Takeover Brief',
         '',
@@ -2210,6 +2248,19 @@ function New-TakeoverBrief {
         ('live_status={0}' -f $liveStatus),
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
         ('recommended_action={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'recommended_action'))),
+        ('review_content_requirements={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.review_content_requirements))),
+        ('summary_content_requirements={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.summary_content_requirements))),
+        ('timing_basis={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.timing_basis))),
+        ('session_initial_launch_at={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.session_initial_launch_at))),
+        ('a_stage_completed_at={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.a_stage_completed_at))),
+        ('a_stage_elapsed_seconds={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.a_stage_elapsed_seconds))),
+        ('a_stage_elapsed={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.a_stage_elapsed))),
+        ('b_stage_first_start_at={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.b_stage_first_start_at))),
+        ('b_stage_completed_at={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.b_stage_completed_at))),
+        ('b_stage_elapsed_seconds={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.b_stage_elapsed_seconds))),
+        ('b_stage_elapsed={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.b_stage_elapsed))),
+        ('ab_total_elapsed_seconds={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.ab_total_elapsed_seconds))),
+        ('ab_total_elapsed={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.ab_total_elapsed))),
         ('self_heal_scope={0}' -f $selfHealScope),
         ('self_heal_hint={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_heal_hint'))),
         ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
@@ -2633,12 +2684,19 @@ while ($true) {
             $finalTicketId = ''
 
             if (-not $alreadyFinalDispatched) {
-                $finalTicketId = ('chat-final-{0}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+                $finalTicketCreatedAt = Get-Date
+                $finalTicketId = ('chat-final-{0}' -f $finalTicketCreatedAt.ToString('yyyyMMdd-HHmmss'))
                 $finalDetail = ('session reached terminal status; session={0}; a={1}; b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)
+                $sessionInitialLaunchAt = if ($settings.Contains('SESSION_INITIAL_LAUNCH_AT')) { Convert-ToSingleLineText -Text ([string]$settings.SESSION_INITIAL_LAUNCH_AT) } else { '' }
+                $bStageFirstStartAt = if ($settings.Contains('B_TASK_FIRST_START_AT')) { Convert-ToSingleLineText -Text ([string]$settings.B_TASK_FIRST_START_AT) } else { '' }
+                $sessionInitialLaunchDateTime = Get-TaskTimingDateTimeOrNull -Text $sessionInitialLaunchAt
+                $bStageFirstStartDateTime = Get-TaskTimingDateTimeOrNull -Text $bStageFirstStartAt
+                $bElapsedSeconds = if ($null -ne $bStageFirstStartDateTime) { [long][Math]::Max(0, [Math]::Round(($finalTicketCreatedAt - $bStageFirstStartDateTime).TotalSeconds)) } else { -1 }
+                $abElapsedSeconds = if ($null -ne $sessionInitialLaunchDateTime) { [long][Math]::Max(0, [Math]::Round(($finalTicketCreatedAt - $sessionInitialLaunchDateTime).TotalSeconds)) } else { -1 }
                 $finalTicket = [pscustomobject]@{
                     schema = 'AB_AGENT_TICKET_V1'
                     ticket_id = $finalTicketId
-                    created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+                    created_at = $finalTicketCreatedAt.ToString('yyyy-MM-dd HH:mm:ss')
                     source = 'unattended_ab_takeover_trigger'
                     event = $finalEventName
                     severity = 'info'
@@ -2652,7 +2710,16 @@ while ($true) {
                     a_final_status = [string]$watchExpectation.a_status
                     b_final_status = [string]$watchExpectation.b_status
                     detail = $finalDetail
-                    recommended_action = 'summarize unattended execution/completion (timeline, ticket handling, heartbeat, ack, final status), then close monitor windows.'
+                    recommended_action = 'Summarize unattended execution/completion with the required content and exact timing fields from this ticket, then close monitor windows.'
+                    summary_content_requirements = 'State final SESSION/A/B conclusions; summarize the execution timeline, material incidents/root causes/remediations, key recovery actions, status-ticket and ACK/heartbeat outcomes; report B-stage elapsed time and combined A/B elapsed time with start/end anchors; state the session end time.'
+                    timing_basis = 'B elapsed uses B_TASK_FIRST_START_AT through this final-summary ticket creation time. Combined A/B elapsed uses SESSION_INITIAL_LAUNCH_AT through the same completion time and includes launcher/preflight/handover/recovery intervals.'
+                    session_initial_launch_at = $sessionInitialLaunchAt
+                    b_stage_first_start_at = $bStageFirstStartAt
+                    b_stage_completed_at = $finalTicketCreatedAt.ToString('yyyy-MM-dd HH:mm:ss')
+                    b_stage_elapsed_seconds = $bElapsedSeconds
+                    b_stage_elapsed = if ($bElapsedSeconds -ge 0) { Format-TaskElapsedDuration -TotalSeconds $bElapsedSeconds } else { 'unknown' }
+                    ab_total_elapsed_seconds = $abElapsedSeconds
+                    ab_total_elapsed = if ($abElapsedSeconds -ge 0) { Format-TaskElapsedDuration -TotalSeconds $abElapsedSeconds } else { 'unknown' }
                 }
 
                 $finalQueueAppend = Add-TicketToQueue -Ticket $finalTicket -QueueFilePath $queueFilePath

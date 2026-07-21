@@ -298,13 +298,27 @@ $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait rea
 $guardHasTicketWriteGate = $sessionGuardText.Contains('fault_action_ticket_wait event=') -and $sessionGuardText.Contains('fault_action_ticket_ready event=') -and $sessionGuardText.Contains("`$faultActionTicket = `$eventNormalized -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')")
 $guardHasBShellPassTerminalConvergence = $sessionGuardText.Contains("B_FINAL_STATUS = 'PASS'") -and $sessionGuardText.Contains("SESSION_CLOSED_REASON = 'b-pass-shell-exit'") -and $sessionGuardText.Contains("Reset-BMissingProcessTracking -RunningNoProcessSince ([ref]`$bRunningNoProcessSince) -LastMissingProcessReportAt ([ref]`$lastMissingBProcessReportAt) -LastMissingExitReasonEvidence ([ref]`$lastBMissingExitReasonEvidence) -LastMissingRuntimeTailEvidence ([ref]`$lastBMissingRuntimeTailEvidence)`n                            Start-Sleep -Seconds `$PollSec`n                            continue")
 $recoveryTransactionHonorsBriefCommandOrder = $recoveryTransactionText.Contains('function Test-AutoResumeRouteClassification') -and $recoveryTransactionText.Contains('function Test-KnownRouteClassification') -and $recoveryTransactionText.Contains("`$nextCommandOrder -contains 'recovery_transaction_command'") -and $recoveryTransactionText.Contains('route guard classification mismatch') -and $recoveryTransactionText.Contains('route guard restart flags do not authorize business_command') -and -not $recoveryTransactionText.Contains("`$eventName -notin @('running-status-report', 'a-pass-conclusion-b-started', 'chat-session-final-status')") -and $recoveryTransactionText.Contains('business_command = $businessCommand')
-$guardPersistsAPassConclusionDedup = $sessionGuardText.Contains('function Get-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('function Set-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE = $signatureCompact') -and $sessionGuardText.Contains('$aPassConclusionDedup = ("{0}|{1}|{2}" -f') -and $sessionGuardText.Contains('$aPassConclusionDedup -eq $aPassConclusionPersistedSignature') -and $sessionGuardText.Contains('Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup')
+$guardPersistsAPassConclusionDedup = $sessionGuardText.Contains('function Get-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('function Set-APassConclusionPersistedSignature') -and $sessionGuardText.Contains('function Test-APassConclusionTicketAlreadyQueued') -and $sessionGuardText.Contains('A_PASS_CONCLUSION_B_STARTED_TICKET_SIGNATURE = $signatureCompact') -and $sessionGuardText.Contains('$aPassConclusionDedup = ("{0}|{1}|{2}" -f') -and $sessionGuardText.Contains('$aPassConclusionDedup -eq $aPassConclusionPersistedSignature -or $aPassConclusionAlreadyQueued') -and $sessionGuardText.Contains("a_pass_conclusion_dedup_rehydrated source=queue-history") -and $sessionGuardText.Contains('Set-APassConclusionPersistedSignature -Signature $aPassConclusionDedup')
 $bShellPassTerminalConvergenceReason = if ($guardHasBShellPassTerminalConvergence) { 'b-shell-pass-terminal-convergence-present' } else { 'missing-b-shell-pass-terminal-convergence' }
 [void]$results.Add((Get-CaseResult -Name 'b-shell-pass-terminal-convergence' -Pass $guardHasBShellPassTerminalConvergence -Reason $bShellPassTerminalConvergenceReason))
 $eventReviewTransactionFastPathReason = if ($recoveryTransactionHonorsBriefCommandOrder) { 'event-review-transaction-fast-path-present' } else { 'missing-event-review-transaction-fast-path' }
 [void]$results.Add((Get-CaseResult -Name 'event-review-transaction-fast-path' -Pass $recoveryTransactionHonorsBriefCommandOrder -Reason $eventReviewTransactionFastPathReason))
 $aPassConclusionPersistentDedupReason = if ($guardPersistsAPassConclusionDedup) { 'a-pass-conclusion-persistent-dedup-present' } else { 'missing-a-pass-conclusion-persistent-dedup' }
 [void]$results.Add((Get-CaseResult -Name 'a-pass-conclusion-persistent-dedup' -Pass $guardPersistsAPassConclusionDedup -Reason $aPassConclusionPersistentDedupReason))
+$stageConclusionTimingContract = (
+    $sessionGuardText.Contains("review_content_requirements = 'State the A-stage final conclusion") -and
+    $sessionGuardText.Contains("timing_basis = 'A elapsed uses SESSION_INITIAL_LAUNCH_AT") -and
+    $sessionGuardText.Contains('$ticket.a_stage_elapsed_seconds = $aElapsedSeconds') -and
+    $takeoverTriggerText.Contains("summary_content_requirements = 'State final SESSION/A/B conclusions") -and
+    $takeoverTriggerText.Contains("timing_basis = 'B elapsed uses B_TASK_FIRST_START_AT") -and
+    $takeoverTriggerText.Contains('ab_total_elapsed_seconds = $abElapsedSeconds') -and
+    $takeoverTriggerText.Contains("('a_stage_elapsed={0}'") -and
+    $takeoverTriggerText.Contains("('b_stage_elapsed={0}'") -and
+    $dispatchText.Contains('回复中必须原样包含 A 阶段总用时及起止锚点') -and
+    $dispatchText.Contains('回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点')
+)
+$stageConclusionTimingContractReason = if ($stageConclusionTimingContract) { 'stage-conclusion-content-and-timing-contract-present' } else { 'missing-stage-conclusion-content-or-timing-contract' }
+[void]$results.Add((Get-CaseResult -Name 'stage-conclusion-content-and-timing-contract' -Pass $stageConclusionTimingContract -Reason $stageConclusionTimingContractReason))
 $guardFiltersNoExitHostStrictly = $sessionGuardText.Contains('function Get-StageBusinessProcessSnapshot') -and $sessionGuardText.Contains('[bool]$exitEvidence.StartFileMatch') -and $sessionGuardText.Contains('$artifactFresh -and') -and $sessionGuardText.Contains('([bool]$exitEvidence.ProcessIdMatch -or $artifactMatchesCandidate)') -and $sessionGuardText.Contains("ResolvedSource = if (`$terminalExitConfirmed) { 'terminal-exit-artifact-filtered' }")
 $d1BlockStart = $sessionGuardText.IndexOf('d1_stall_detected detail=')
 $d1BlockEnd = if ($d1BlockStart -ge 0) { $sessionGuardText.IndexOf('# Log periodic stall heartbeat', $d1BlockStart) } else { -1 }
@@ -473,9 +487,16 @@ $guardBLaunchPassesParentEvidence = $sessionGuardText.Contains('AUTO_PARENT_GUAR
 $guardBLaunchPassesParentEvidenceReason = if ($guardBLaunchPassesParentEvidence) { 'guard-b-launch-parent-evidence-present' } else { 'missing-guard-b-launch-parent-evidence' }
 [void]$results.Add((Get-CaseResult -Name 'guard-b-launch-parent-evidence' -Pass $guardBLaunchPassesParentEvidence -Reason $guardBLaunchPassesParentEvidenceReason))
 
-$guardKeepsRecoverableBMonitoring = $sessionGuardText.Contains('main_process_exit_no_autofix_deferred reason=b-recoverable-ticket') -and $sessionGuardText.Contains('if ($canRecoverB) {')
-$guardKeepsRecoverableBMonitoringReason = if ($guardKeepsRecoverableBMonitoring) { 'recoverable-b-main-exit-keeps-monitor-chain' } else { 'missing-recoverable-b-monitor-chain-deferral' }
-[void]$results.Add((Get-CaseResult -Name 'recoverable-b-monitor-chain-deferral' -Pass $guardKeepsRecoverableBMonitoring -Reason $guardKeepsRecoverableBMonitoringReason))
+$recoverableBDeferLogStart = $sessionGuardText.IndexOf('main_process_exit_no_autofix_deferred reason=b-recoverable-ticket')
+$recoverableBElapsedStart = if ($recoverableBDeferLogStart -ge 0) { $sessionGuardText.IndexOf('$graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes', $recoverableBDeferLogStart) } else { -1 }
+$recoverableBPreElapsedText = if ($recoverableBDeferLogStart -ge 0 -and $recoverableBElapsedStart -gt $recoverableBDeferLogStart) { $sessionGuardText.Substring($recoverableBDeferLogStart, $recoverableBElapsedStart - $recoverableBDeferLogStart) } else { '' }
+$guardKeepsRecoverableBMonitoring = $recoverableBDeferLogStart -ge 0 -and -not $recoverableBPreElapsedText.Contains('continue') -and $sessionGuardText.Contains('if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes)')
+$guardKeepsRecoverableBMonitoringReason = if ($guardKeepsRecoverableBMonitoring) { 'recoverable-b-main-exit-uses-finite-grace' } else { 'recoverable-b-main-exit-bypasses-finite-grace' }
+[void]$results.Add((Get-CaseResult -Name 'recoverable-b-monitor-chain-finite-grace' -Pass $guardKeepsRecoverableBMonitoring -Reason $guardKeepsRecoverableBMonitoringReason))
+
+$guardClearsStaleGraceState = $sessionGuardText.Contains("[string]`$Values.status -notin @('waiting-main-exit-grace', 'waiting-monitor-chain-grace')") -and $sessionGuardText.Contains("foreach (`$graceKey in @('grace_reason', 'grace_stage', 'grace_remaining_min'))") -and $sessionGuardText.Contains("grace_reason = 'main-process-exit'") -and $sessionGuardText.Contains('$stateValues.grace_reason = $GraceReason')
+$guardClearsStaleGraceStateReason = if ($guardClearsStaleGraceState) { 'guard-grace-state-family-clears-stale-fields' } else { 'guard-grace-state-family-retains-stale-fields' }
+[void]$results.Add((Get-CaseResult -Name 'guard-grace-state-family-cleanup' -Pass $guardClearsStaleGraceState -Reason $guardClearsStaleGraceStateReason))
 
 $triggerPendingTreatsHandledAsClosed = $takeoverTriggerText.Contains("`$terminalStatuses = @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')") -and $takeoverTriggerText.Contains("if (`$ledgerStatus -notin `$terminalStatuses -and [string]::IsNullOrWhiteSpace(`$handledAt))")
 $triggerPendingTreatsHandledAsClosedReason = if ($triggerPendingTreatsHandledAsClosed) { 'pending-recovery-honors-terminal-or-handled-state' } else { 'missing-pending-recovery-terminal-handled-gate' }
@@ -502,8 +523,15 @@ $guardStageExitRunDirFallback = (
     $sessionGuardText.Contains('Save-IncidentPackage -Settings $settings -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchorOverride $failureRunDirAnchor') -and
     $sessionGuardText.Contains('-RunDirAnchor $failureRunDirAnchor -IncidentDir $incidentDir')
 )
-$guardStageExitRunDirFallbackReason = if ($guardStageExitRunDirFallback) { 'stage-exit-run-dir-fallback-present' } else { 'missing-stage-exit-run-dir-fallback' }
-[void]$results.Add((Get-CaseResult -Name 'stage-exit-run-dir-fallback' -Pass $guardStageExitRunDirFallback -Reason $guardStageExitRunDirFallbackReason))
+$runDirResolverStart = $sessionGuardText.IndexOf('function Resolve-RunDirAnchorForFailurePolicy')
+$runDirResolverEnd = if ($runDirResolverStart -ge 0) { $sessionGuardText.IndexOf('function Get-BRuntimeTailEvidence', $runDirResolverStart) } else { -1 }
+$runDirResolverText = if ($runDirResolverStart -ge 0 -and $runDirResolverEnd -gt $runDirResolverStart) { $sessionGuardText.Substring($runDirResolverStart, $runDirResolverEnd - $runDirResolverStart) } else { '' }
+$currentRunDirReturnIndex = $runDirResolverText.LastIndexOf('return $resolvedRunDirAnchor')
+$bArtifactRunDirIndex = $runDirResolverText.IndexOf('$bArtifactRunDir = Resolve-RunDirFromStageExitReasonEvidence')
+$guardStageExitOverridesStaleRunDir = $currentRunDirReturnIndex -gt $bArtifactRunDirIndex -and -not $runDirResolverText.Contains("if (-not [string]::IsNullOrWhiteSpace(`$resolvedRunDirAnchor)) {`n        return `$resolvedRunDirAnchor")
+$guardStageExitRunDirFallback = $guardStageExitRunDirFallback -and $guardStageExitOverridesStaleRunDir
+$guardStageExitRunDirFallbackReason = if ($guardStageExitRunDirFallback) { 'stage-exit-run-dir-overrides-stale-anchor' } else { 'missing-stage-exit-run-dir-stale-anchor-override' }
+[void]$results.Add((Get-CaseResult -Name 'stage-exit-run-dir-stale-anchor-override' -Pass $guardStageExitRunDirFallback -Reason $guardStageExitRunDirFallbackReason))
 
 # Case 7: stage window must emit monitor continuity timeline artifacts.
 $stageWindowHasTimelinePath = $stageWindowText.Contains('MONITOR_CHAIN_TIMELINE') -and $stageWindowText.Contains('Get-MonitorTimelinePath')
