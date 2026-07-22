@@ -3,7 +3,8 @@
     [string]$MainHealthScript = 'tools/test/check_unattended_main_process_health.ps1',
     [string]$PollScript = 'tools/test/poll_agent_tickets.ps1',
     [string]$PromptDoc = 'docs/UNATTENDED_AB_PROMPTS_CN.md',
-    [string]$OutDirRoot = ''
+    [string]$OutDirRoot = '',
+    [switch]$ContractGateOnly
 )
 
 Set-StrictMode -Version Latest
@@ -19,7 +20,9 @@ if (-not $OutDirRoot -or $OutDirRoot.Trim().Length -eq 0) {
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outDir = Join-Path $OutDirRoot $stamp
-New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+if (-not $ContractGateOnly.IsPresent) {
+    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+}
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -179,6 +182,7 @@ $taskStaticCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
+$fastModeAText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_fastmode_A.ps1') -Raw -Encoding utf8
 $codeStepText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_code_step_rounds.ps1') -Raw -Encoding utf8
 $fastModeBText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_fastmode_B.ps1') -Raw -Encoding utf8
 $snapshotIntegrityText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/a_success_snapshot_integrity.ps1') -Raw -Encoding utf8
@@ -193,8 +197,115 @@ $launchReadyText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/
 $startFieldSyncText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_unattended_start_field_sync.ps1') -Raw -Encoding utf8
 $ps51FormatGuardPath = Resolve-RepoPath -Path 'tools/test/check_ps51_format_inline_if_guard.ps1'
 $ps51FormatGuardText = Get-Content -LiteralPath $ps51FormatGuardPath -Raw -Encoding utf8
+$retryBudgetRegressionText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/retry_budget_minimal_regression.ps1') -Raw -Encoding utf8
 
 $results = New-Object 'System.Collections.Generic.List[object]'
+
+if ($ContractGateOnly.IsPresent) {
+    $contractStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $criticalScriptPaths = @(
+        $dispatchPath,
+        $pollPath,
+        $takeoverTriggerPath,
+        $atomicCloseoutPath,
+        $recoveryTransactionPath,
+        (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1'),
+        (Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1')
+    )
+    $parseFailures = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($criticalScriptPath in $criticalScriptPaths) {
+        $parseTokens = $null
+        $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($criticalScriptPath, [ref]$parseTokens, [ref]$parseErrors)
+        if (@($parseErrors).Count -gt 0) {
+            [void]$parseFailures.Add((Convert-ToRepoRelativePath -Path $criticalScriptPath))
+        }
+    }
+    $syntaxPass = ($parseFailures.Count -eq 0)
+    $syntaxReason = if ($syntaxPass) { 'critical-powershell-syntax-valid' } else { 'parse-failed:{0}' -f ($parseFailures -join ',') }
+    [void]$results.Add((Get-CaseResult -Name 'critical-script-syntax' -Pass $syntaxPass -Reason $syntaxReason))
+
+    $repairTransactionText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1') -Raw -Encoding utf8
+    $repairTransactionPass = (
+        $repairTransactionText.Contains("if (`$Mode -eq 'Prepare')") -and
+        $repairTransactionText.Contains("if (`$Mode -eq 'Inspect')") -and
+        $repairTransactionText.Contains("if (`$Mode -eq 'Validate')") -and
+        $repairTransactionText.Contains("if (`$Mode -eq 'Promote')") -and
+        $repairTransactionText.Contains('baseline drift detected') -and
+        $repairTransactionText.Contains('candidate drift detected') -and
+        $repairTransactionText.Contains('preview_stale={0}') -and
+        ([regex]::Matches($repairTransactionText, 'SyntaxOnly = \$true')).Count -ge 2 -and
+        $repairTransactionText.Contains('RequestedOperationIndex = $effectiveOperation') -and
+        $repairTransactionText.Contains('RoundTag = $effectiveRound')
+    )
+    $repairTransactionReason = if ($repairTransactionPass) { 'candidate-transaction-hash-and-gates-present' } else { 'missing-candidate-transaction-contract' }
+    [void]$results.Add((Get-CaseResult -Name 'task-definition-repair-transaction' -Pass $repairTransactionPass -Reason $repairTransactionReason))
+
+    $checkerContractPass = (
+        $taskStaticCheckerText.Contains('single_instance_conflict') -and
+        $taskStaticCheckerText.Contains('operationSafetyPolicy') -and
+        $taskStaticCheckerText.Contains('idempotentContains') -and
+        $taskStaticCheckerText.Contains('postApplyAssertions') -and
+        $taskStaticCheckerText.Contains('SyntaxOnly') -and
+        $taskStaticCheckerText.Contains('OperationIndex')
+    )
+    $checkerContractReason = if ($checkerContractPass) { 'task-static-operation-safety-contract-present' } else { 'missing-task-static-operation-safety-contract' }
+    [void]$results.Add((Get-CaseResult -Name 'task-static-checker-contract' -Pass $checkerContractPass -Reason $checkerContractReason))
+
+    $operatorContractPass = (
+        $copilotInstructionsText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具') -and
+        $copilotInstructionsText.Contains('`-SyntaxOnly` 装载检查') -and
+        $copilotInstructionsText.Contains('当前故障 D 轮的不带 `-OperationIndex` 递进严格检查') -and
+        $dispatchText.Contains('modify only the emitted candidate.json with the VS Code apply_patch editing tool') -and
+        $takeoverTriggerText.Contains('use VS Code apply_patch only on candidate.json')
+    )
+    $operatorContractReason = if ($operatorContractPass) { 'operator-task-repair-contract-present' } else { 'missing-operator-task-repair-contract' }
+    [void]$results.Add((Get-CaseResult -Name 'operator-task-repair-contract' -Pass $operatorContractPass -Reason $operatorContractReason))
+
+    $takeoverContractOrderIndex = $takeoverTriggerText.IndexOf("`$nextCommandNames.Add('contract_gate_command')")
+    $takeoverLaunchReadyOrderIndex = $takeoverTriggerText.IndexOf("`$nextCommandNames.Add('pre_restart_launch_ready_command')")
+    $contractRoutingPass = (
+        $pollText.Contains("`$order.Add('contract_gate_command')") -and
+        $pollText.Contains('status_ticket_mini_regression.ps1 -ContractGateOnly') -and
+        $takeoverTriggerText.Contains("('contract_gate_command={0}' -f `$contractGateCommand)") -and
+        $takeoverContractOrderIndex -ge 0 -and
+        $takeoverLaunchReadyOrderIndex -gt $takeoverContractOrderIndex
+    )
+    $contractRoutingReason = if ($contractRoutingPass) { 'contract-gate-precedes-launch-ready-and-recovery' } else { 'contract-gate-routing-order-missing' }
+    [void]$results.Add((Get-CaseResult -Name 'contract-gate-routing-order' -Pass $contractRoutingPass -Reason $contractRoutingReason))
+
+    $retryBudgetFastPathPass = (
+        $retryBudgetRegressionText.Contains('Seed the session floor once') -and
+        $retryBudgetRegressionText.Contains("Join-Path `$outputRootPath 'agent_tickets.jsonl'") -and
+        ([regex]::Matches($retryBudgetRegressionText, 'Invoke-Poll -QueuePath \$queuePath')).Count -eq 2 -and
+        -not $retryBudgetRegressionText.Contains('$pollSelectRaw')
+    )
+    $retryBudgetFastPathReason = if ($retryBudgetFastPathPass) { 'retry-budget-regression-uses-shared-seed-and-ack-only-path' } else { 'retry-budget-regression-returned-to-repeated-selection' }
+    [void]$results.Add((Get-CaseResult -Name 'retry-budget-regression-fast-path' -Pass $retryBudgetFastPathPass -Reason $retryBudgetFastPathReason))
+
+    $warmWindowIsolationPass = (
+        -not $recoveryTransactionText.Contains('status_ticket_mini_regression.ps1') -and
+        -not $recoveryTransactionText.Contains('contract_gate_command') -and
+        $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and
+        $recoveryTransactionText.Contains('stage_main_process_verified') -and
+        $recoveryTransactionText.Contains('[ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240')
+    )
+    $warmWindowIsolationReason = if ($warmWindowIsolationPass) { 'recovery-transaction-excludes-contract-regression' } else { 'contract-regression-entered-recovery-transaction' }
+    [void]$results.Add((Get-CaseResult -Name 'recovery-warm-window-isolation' -Pass $warmWindowIsolationPass -Reason $warmWindowIsolationReason))
+
+    $contractFailedCases = @($results | Where-Object { -not [bool]$_.pass })
+    $contractPass = ($contractFailedCases.Count -eq 0)
+    $contractStopwatch.Stop()
+    foreach ($entry in $results.ToArray()) {
+        Write-Output ('[STATUS-TICKET-CONTRACT] case={0} pass={1} reason={2}' -f [string]$entry.case, [bool]$entry.pass, [string]$entry.reason)
+    }
+    $contractResultText = if ($contractPass) { 'pass' } else { 'fail' }
+    Write-Output ('[STATUS-TICKET-CONTRACT] result={0} total_cases={1} failed_cases={2} elapsed_ms={3}' -f $contractResultText, $results.Count, $contractFailedCases.Count, $contractStopwatch.ElapsedMilliseconds)
+    if (-not $contractPass) {
+        Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason 'status-ticket contract gate failed' -ExitCode 1
+    }
+    exit 0
+}
 
 # New start files and missing/invalid reset modes must converge on event-only.
 $eventOnlyCreateDefault = $createStartFileText.Contains("[string]`$Mode = 'event-only'")
@@ -272,6 +383,13 @@ $launchReadyMessageGatePass = ($launchReadyUsesSelectedStartFile -and $launchRea
 $launchReadyMessageGateReason = if ($launchReadyMessageGatePass) { 'launch-ready-running-status-message-gate-present' } else { 'missing-launch-ready-running-status-message-gate' }
 [void]$results.Add((Get-CaseResult -Name 'launch-ready-running-status-message-gate' -Pass $launchReadyMessageGatePass -Reason $launchReadyMessageGateReason))
 
+# Full integration regressions belong to standalone/release gates, not every A/B process startup.
+$launchReadyRegressionsOptIn = $launchReadyText.Contains("`$statusMiniRegressionEnabled = `$false") -and $launchReadyText.Contains("`$retryBudgetMiniRegressionEnabled = `$false") -and $launchReadyText.Contains("`$routeGuardSmokeSuiteEnabled = `$false") -and $launchReadyText.Contains("`$repositoryGuardsEnabled = `$false")
+$fastModeAvoidsStatusRegression = -not $fastModeAText.Contains('Invoke-StatusTicketMiniRegressionGate') -and -not $fastModeBText.Contains('Invoke-StatusTicketMiniRegressionGate')
+$startupRegressionScopePass = ($launchReadyRegressionsOptIn -and $fastModeAvoidsStatusRegression)
+$startupRegressionScopeReason = if ($startupRegressionScopePass) { 'full-regressions-are-explicit-startup-opt-in' } else { 'full-regression-returned-to-default-startup-path' }
+[void]$results.Add((Get-CaseResult -Name 'startup-full-regression-opt-in' -Pass $startupRegressionScopePass -Reason $startupRegressionScopeReason))
+
 # Scheduled status tickets are strictly read-only reports and cannot initiate remediation or process control.
 $guardStatusIsReportOnly = $sessionGuardText.Contains('Scheduled status report only: report observed runtime state') -and $sessionGuardText.Contains('Do not execute self-heal, fault handling, process restart, business_resume, source/script edits, or operational recovery from this ticket.')
 $briefSuppressesStatusActions = $takeoverTriggerText.Contains("`$nextCommandPolicy = 'status-report-only-readonly'") -and $takeoverTriggerText.Contains('status_ticket_action_policy={0}') -and -not $takeoverTriggerText.Contains("`$nextCommandPolicy = 'status-healthcheck'")
@@ -284,13 +402,13 @@ $statusReportOnlyReason = if ($statusReportOnlyPass) { 'scheduled-status-report-
 [void]$results.Add((Get-CaseResult -Name 'scheduled-status-report-only' -Pass $statusReportOnlyPass -Reason $statusReportOnlyReason))
 
 # Runtime ticket handling is passive: delivery belongs to guard/trigger/dispatch, not agent-created polling loops.
-$promptHasPassiveWaitInAllVariants = ([regex]::Matches($promptDocText, '静默等待')).Count -ge 4 -and $promptDocText.Contains('不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`') -and $promptDocText.Contains('长时间跨轮次巡检命令') -and $promptDocText.Contains('重启主进程后 3 分钟内')
-$templateHasPassiveWaitContract = $startTemplateText.Contains('进入事件驱动被动接收模式') -and $startTemplateText.Contains('等待本身不执行任何命令') -and $startTemplateText.Contains('不是 AI 自建定时巡检的依据') -and ([regex]::Matches($startTemplateText, 'atomic_closeout_command')).Count -ge 5 -and ([regex]::Matches($startTemplateText, '重启主进程后 3 分钟内')).Count -ge 4 -and ([regex]::Matches($startTemplateText, '长时间跨轮次巡检命令')).Count -ge 4 -and -not $startTemplateText.Contains('回执校验与 mark_processed')
-$operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigger/dispatch 链负责生成并投送') -and $operationFlowText.Contains('工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息') -and $operationFlowText.Contains('3 分钟内完成事件票的 `recovery_transaction_command` 或唯一的 `atomic_closeout_command`') -and $operationFlowText.Contains('仅作审计兼容展示；事件票不得逐条执行这些旧分步命令') -and -not $operationFlowText.Contains('回执校验与 `mark_processed`')
-$copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票与三分钟收尾（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行定时巡检监控脚本') -and $copilotInstructionsText.Contains('3 分钟是闭环上限，不是继续巡检的窗口')
-$guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('complete atomic closeout within 3 minutes') -and $sessionGuardText.Contains('long-running cross-round monitoring commands') -and -not $sessionGuardText.Contains('finish closure, receipt validation, and mark_processed within 3 minutes')
-$stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'complete atomic closeout within 3 minutes')).Count -ge 3 -and $stageWindowText.Contains('long-running cross-round monitoring commands') -and -not $stageWindowText.Contains('finish closure, receipt validation, and mark_processed within 3 minutes')
-$dispatchHasPassiveWaitSuffixes = $dispatchText.Contains("`$passiveWaitSuffixEn = ' Follow every ticket step without omission") -and $dispatchText.Contains("`$passiveWaitSuffixZh = ' 严格按票据流程执行") -and $dispatchText.Contains('重启主进程后，必须在 3 分钟内') -and $dispatchText.Contains('Add-PassiveWaitConstraint') -and $dispatchText.Contains('$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage)') -and $dispatchText.Contains('Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix')
+$promptHasPassiveWaitInAllVariants = ([regex]::Matches($promptDocText, '静默等待')).Count -ge 4 -and $promptDocText.Contains('不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`') -and $promptDocText.Contains('长时间跨轮次巡检命令') -and ([regex]::Matches($promptDocText, '等待同步命令自然退出')).Count -ge 3 -and $promptDocText.Contains('不得仅因超过 3 分钟或 240 秒')
+$templateHasPassiveWaitContract = $startTemplateText.Contains('进入事件驱动被动接收模式') -and $startTemplateText.Contains('等待本身不执行任何命令') -and $startTemplateText.Contains('不是 AI 自建定时巡检的依据') -and ([regex]::Matches($startTemplateText, 'atomic_closeout_command')).Count -ge 5 -and ([regex]::Matches($startTemplateText, '等待同步命令自然退出')).Count -ge 5 -and ([regex]::Matches($startTemplateText, '长时间跨轮次巡检命令')).Count -ge 4 -and -not $startTemplateText.Contains('回执校验与 mark_processed')
+$operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigger/dispatch 链负责生成并投送') -and $operationFlowText.Contains('工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息') -and $operationFlowText.Contains('不是 AI 可执行的事务总墙钟超时或强杀授权') -and $operationFlowText.Contains('不得调用 kill、`Stop-Process`') -and $operationFlowText.Contains('仅是事务脚本内部的 stage 主进程启动验证预算') -and $operationFlowText.Contains('仅作审计兼容展示；事件票不得逐条执行这些旧分步命令') -and -not $operationFlowText.Contains('回执校验与 `mark_processed`')
+$copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票与三分钟收尾（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行定时巡检监控脚本') -and $copilotInstructionsText.Contains('不是 Agent 可执行的事务总墙钟超时或强杀授权') -and $copilotInstructionsText.Contains('等待该同步命令自然退出')
+$guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('not an agent-enforced transaction timeout') -and $sessionGuardText.Contains('never kill, Stop-Process') -and $sessionGuardText.Contains('long-running cross-round monitoring commands')
+$stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'not an agent-enforced transaction timeout')).Count -ge 3 -and $stageWindowText.Contains('never kill, Stop-Process') -and $stageWindowText.Contains('long-running cross-round monitoring commands')
+$dispatchHasPassiveWaitSuffixes = $dispatchText.Contains("`$passiveWaitSuffixEn = ' Follow every ticket step without omission") -and $dispatchText.Contains("`$passiveWaitSuffixZh = ' 严格按票据流程执行") -and $dispatchText.Contains('not an agent-enforced wall-clock timeout') -and $dispatchText.Contains('不得仅因超过 3 分钟或 240 秒') -and $dispatchText.Contains('Add-PassiveWaitConstraint') -and $dispatchText.Contains('$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage)') -and $dispatchText.Contains('Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix')
 $passiveTicketWaitPass = ($promptHasPassiveWaitInAllVariants -and $templateHasPassiveWaitContract -and $operationFlowHasPassiveWaitContract -and $copilotHasPassiveWaitHardRule -and $guardHasPassiveWaitTicketSuffix -and $stageWindowHasPassiveWaitTicketSuffix -and $dispatchHasPassiveWaitSuffixes)
 $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-contract-present' } else { 'missing-passive-ticket-wait-contract' }
 [void]$results.Add((Get-CaseResult -Name 'passive-ticket-wait-no-agent-polling' -Pass $passiveTicketWaitPass -Reason $passiveTicketWaitReason))

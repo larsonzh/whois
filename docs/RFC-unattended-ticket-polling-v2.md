@@ -141,7 +141,9 @@ Drain 行为：
 默认约束（实现强制）：
 - 无论如何配置，`running-status-report` 视为状态上报事件，并保持在 drain-safe 集合内（脚本会自动补齐）。
 - 若 barrier/restart-sensitive 集合未覆盖核心重启敏感事件（`incident-captured`、`recovery-await-confirmation`、`auto-fix-await-confirmation`），脚本会自动补齐并输出规范化记录。
-- `LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS` 至少包含 `task-definition-fix-required`，用于脚本契约修复工单下发强锚点门禁命令（`status_ticket_mini_regression.ps1`）。
+- `LOCAL_GUARD_POLL_CONTRACT_GATE_EVENTS` 至少包含 `task-definition-fix-required`，用于任务定义修复工单下发快速强锚点门禁命令（`status_ticket_mini_regression.ps1 -ContractGateOnly`）。该模式仅检查关键脚本语法、候选事务/静态 checker/操作边界和恢复温窗隔离契约；完整集成回归仍由不带该参数的独立/发布门禁执行。
+- 任务定义修复后的恢复顺序固定为 `route_guard_command -> contract_gate_command -> pre_restart_launch_ready_command -> recovery_transaction_command`。contract gate 与 launch-ready 均在主进程重启前完成；恢复事务内部不得再次执行 contract regression。
+- 三分钟是主进程重启后完成原子收尾的目标窗口，不是 Agent 执行的事务总墙钟超时或强杀授权。Agent 启动 `recovery_transaction_command` 后必须等待同步命令自然退出；即使超过 3 分钟或 240 秒，也不得调用 kill、`Stop-Process`、终止承载终端或取消事务及其子进程。stage 主进程验证保留脚本内部 240 秒预算，atomic closeout 保留 120 秒 acknowledge 超时；成功或失败只按命令退出码与 JSON 机器事实判定。若执行器自身存在不可配置的外层时限并中断命令，必须 fail-close 报告基础设施阻塞，不得再次执行事务或伪造 `handled_at`。
 - 当 `LOCAL_GUARD_POLL_EVENT_POLICY_STRICT=true` 时，若存在自动补齐需求则直接失败退出，要求先修正策略配置。
 - `LOCAL_GUARD_POLL_STATUS_REPORT_INCLUDE_TICKET_CHAIN_CHECK`（默认 `false`，开启后状态票 `business_command` 追加 ticket-chain 检查）
 - 代际 stale 启发式优先作用于“重启敏感事件”集合，避免对普通动作事件过度 stale 化。

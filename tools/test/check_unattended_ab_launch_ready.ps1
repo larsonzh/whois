@@ -244,8 +244,13 @@ function Invoke-PowerShellScriptStep {
         [string[]]$Arguments
     )
 
+    $stepName = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath)
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=START' -f $stepName))
     $lines = @((& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1) | ForEach-Object { [string]$_ })
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    $stopwatch.Stop()
+    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=DONE exit_code={1} elapsed_ms={2}' -f $stepName, $exitCode, $stopwatch.ElapsedMilliseconds))
 
     return [pscustomobject]@{
         ExitCode = $exitCode
@@ -312,6 +317,8 @@ catch {
 }
 
 if ($Stage -eq 'B') {
+    $bBaselineStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    [Console]::Error.WriteLine('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=START')
     $snapshotStatusRaw = if ($startSettings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
         ([string]$startSettings.A_SUCCESS_SNAPSHOT_FINAL_STATUS).Trim()
     }
@@ -320,6 +327,8 @@ if ($Stage -eq 'B') {
     }
 
     if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw) -or $snapshotStatusRaw -match '^<.*>$') {
+        $bBaselineStopwatch.Stop()
+        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
         Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot is unavailable; template baseline reset requires restarting from Stage A.' -OutputLines @(
             ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
             'NEXT_ALLOWED_STAGE=A'
@@ -330,11 +339,16 @@ if ($Stage -eq 'B') {
         [void](Resolve-RepoPath -Path $snapshotStatusRaw -MustExist $true)
     }
     catch {
+        $bBaselineStopwatch.Stop()
+        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
         Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot final status does not exist; restart from Stage A or restore a verified A snapshot.' -OutputLines @(
             ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
             'NEXT_ALLOWED_STAGE=A'
         ) -ExitCode 1 -StartFilePath $startFilePath
     }
+
+    $bBaselineStopwatch.Stop()
+    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=0 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
 }
 
 $startFileLines = @(
@@ -397,22 +411,34 @@ if ($fieldSync.ExitCode -ne 0) {
     Write-ResultAndExit -Step 'start-field-sync' -Status 'FAIL' -Reason $reason -OutputLines $fieldSync.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
-$statusMiniRegression = Invoke-PowerShellScriptStep -ScriptPath $statusMiniRegressionScript -Arguments @()
-if ($statusMiniRegression.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $statusMiniRegression.Lines -Pattern 'result=fail|missing-|case='    
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $statusMiniRegression.Lines
-    }
+$statusMiniRegressionEnabled = $false
+if ($startSettings.Contains('STATUS_TICKET_MINI_REGRESSION_ENABLED')) {
+    $statusMiniRegressionEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.STATUS_TICKET_MINI_REGRESSION_ENABLED) -Default $false
+}
 
-    Write-Output ('[AB-LAUNCH-READY] step=status-ticket-mini-regression status=WARN reason={0}' -f $reason)
-    foreach ($line in @($statusMiniRegression.Lines)) {
-        Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+$statusMiniRegressionSummary = 'Status-ticket mini regression skipped (startup default; run the standalone or release gate for full coverage).'
+if ($statusMiniRegressionEnabled) {
+    $statusMiniRegression = Invoke-PowerShellScriptStep -ScriptPath $statusMiniRegressionScript -Arguments @()
+    if ($statusMiniRegression.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $statusMiniRegression.Lines -Pattern 'result=fail|missing-|case='
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $statusMiniRegression.Lines
+        }
+
+        Write-Output ('[AB-LAUNCH-READY] step=status-ticket-mini-regression status=WARN reason={0}' -f $reason)
+        foreach ($line in @($statusMiniRegression.Lines)) {
+            Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+        }
+        $statusMiniRegressionSummary = 'Status-ticket mini regression warned (non-blocking).'
+    }
+    else {
+        $statusMiniRegressionSummary = 'Status-ticket mini regression passed.'
     }
 }
 
-$retryBudgetMiniRegressionEnabled = $true
+$retryBudgetMiniRegressionEnabled = $false
 if ($startSettings.Contains('RETRY_BUDGET_MINI_REGRESSION_ENABLED')) {
-    $retryBudgetMiniRegressionEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.RETRY_BUDGET_MINI_REGRESSION_ENABLED) -Default $true
+    $retryBudgetMiniRegressionEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.RETRY_BUDGET_MINI_REGRESSION_ENABLED) -Default $false
 }
 
 $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression skipped (disabled by start-file setting).'
@@ -445,14 +471,12 @@ if ($startSettings.Contains('ROUTE_GUARD_SMOKE_SUITE_ENABLED')) {
 }
 
 $ciMode = Test-IsCiEnvironment
-$routeGuardSmokeSuiteEnabled = $true
+$routeGuardSmokeSuiteEnabled = $false
 if ($null -ne $routeGuardSmokeSuiteConfigured) {
     $routeGuardSmokeSuiteEnabled = [bool]$routeGuardSmokeSuiteConfigured
 }
-elseif ($GuardManagedLaunch.IsPresent -and -not $ciMode) {
-    $routeGuardSmokeSuiteEnabled = $false
-}
 
+$routeGuardSmokeSuiteSummary = 'Route-guard smoke suite skipped (startup default; run the standalone or release gate for full coverage).'
 if ($routeGuardSmokeSuiteEnabled) {
     $routeGuardSmokeSuite = Invoke-PowerShellScriptStep -ScriptPath $routeGuardSmokeSuiteScript -Arguments @()
     if ($routeGuardSmokeSuite.ExitCode -ne 0) {
@@ -468,19 +492,29 @@ if ($routeGuardSmokeSuiteEnabled) {
         $outputLines = @($aggregateLines + $routeGuardSmokeSuite.Lines)
         Write-ResultAndExit -Step 'route-guard-smoke-suite' -Status 'FAIL' -Reason $reason -OutputLines $outputLines -ExitCode 1 -StartFilePath $startFilePath
     }
+    $routeGuardSmokeSuiteSummary = 'Route-guard smoke suite passed.'
 }
 else {
     Write-Output ('[AB-LAUNCH-READY] detail=route-guard-smoke-suite skipped guard_managed={0} ci_mode={1} configured={2}' -f [string]$GuardManagedLaunch.IsPresent, [string]$ciMode, [string]($null -ne $routeGuardSmokeSuiteConfigured))
 }
 
-$ps51FormatGuard = Invoke-PowerShellScriptStep -ScriptPath $ps51FormatGuardScript -Arguments @('-Scope', 'tracked')
-if ($ps51FormatGuard.ExitCode -ne 0) {
-    $reason = Get-LastMatchingLine -Lines $ps51FormatGuard.Lines -Pattern 'severity=error|inline-\$\(if\)|result=FAIL'
-    if ([string]::IsNullOrWhiteSpace($reason)) {
-        $reason = Get-FirstMeaningfulLine -Lines $ps51FormatGuard.Lines
-    }
+$repositoryGuardsEnabled = $false
+if ($startSettings.Contains('LAUNCH_READY_REPOSITORY_GUARDS_ENABLED')) {
+    $repositoryGuardsEnabled = Convert-ToBooleanSetting -Value ([string]$startSettings.LAUNCH_READY_REPOSITORY_GUARDS_ENABLED) -Default $false
+}
 
-    Write-ResultAndExit -Step 'ps51-format-guard' -Status 'FAIL' -Reason $reason -OutputLines $ps51FormatGuard.Lines -ExitCode 1 -StartFilePath $startFilePath
+$ps51FormatGuardSummary = 'PS5.1 inline-if format guard skipped (startup default; run the standalone or release gate for full coverage).'
+if ($repositoryGuardsEnabled) {
+    $ps51FormatGuard = Invoke-PowerShellScriptStep -ScriptPath $ps51FormatGuardScript -Arguments @('-Scope', 'tracked')
+    if ($ps51FormatGuard.ExitCode -ne 0) {
+        $reason = Get-LastMatchingLine -Lines $ps51FormatGuard.Lines -Pattern 'severity=error|inline-\$\(if\)|result=FAIL'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = Get-FirstMeaningfulLine -Lines $ps51FormatGuard.Lines
+        }
+
+        Write-ResultAndExit -Step 'ps51-format-guard' -Status 'FAIL' -Reason $reason -OutputLines $ps51FormatGuard.Lines -ExitCode 1 -StartFilePath $startFilePath
+    }
+    $ps51FormatGuardSummary = 'PS5.1 inline-if format guard passed.'
 }
 
 $incrementalEncodingArgs = if ($DryRun.IsPresent) {
@@ -500,46 +534,50 @@ if ($incrementalEncoding.ExitCode -ne 0) {
     Write-ResultAndExit -Step 'encoding-incremental-fix' -Status 'FAIL' -Reason $reason -OutputLines $incrementalEncoding.Lines -ExitCode 1 -StartFilePath $startFilePath
 }
 
-$encodingCheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
-if ($encodingCheck.ExitCode -ne 0) {
-    $encodingRepairLines = @()
-    $encodingRepairLines += '--- encoding-format-check FAILED, attempting auto-repair ---'
-    foreach ($line in @($encodingCheck.Lines)) {
-        $encodingRepairLines += ('  ' + [string]$line)
-    }
-
-    $encodingFix = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'fix', '-Policy', 'enforce', '-Scope', 'tracked')
-    if ($encodingFix.ExitCode -ne 0) {
-        $reason = Get-LastMatchingLine -Lines $encodingFix.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant|lock=busy|mutex busy|lock_busy=true'
-        if ([string]::IsNullOrWhiteSpace($reason)) {
-            $reason = Get-FirstMeaningfulLine -Lines $encodingFix.Lines
+$trackedEncodingSummary = 'Tracked file encoding format check skipped (startup default; changed-file encoding checks remain enabled).'
+if ($repositoryGuardsEnabled) {
+    $encodingCheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
+    if ($encodingCheck.ExitCode -ne 0) {
+        $encodingRepairLines = @()
+        $encodingRepairLines += '--- encoding-format-check FAILED, attempting auto-repair ---'
+        foreach ($line in @($encodingCheck.Lines)) {
+            $encodingRepairLines += ('  ' + [string]$line)
         }
 
-        $encodingRepairLines += '--- auto-repair FAILED ---'
+        $encodingFix = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'fix', '-Policy', 'enforce', '-Scope', 'tracked')
+        if ($encodingFix.ExitCode -ne 0) {
+            $reason = Get-LastMatchingLine -Lines $encodingFix.Lines -Pattern 'result=fail|non_compliant|remaining=|policy=enforce|fix_failed|noncompliant|lock=busy|mutex busy|lock_busy=true'
+            if ([string]::IsNullOrWhiteSpace($reason)) {
+                $reason = Get-FirstMeaningfulLine -Lines $encodingFix.Lines
+            }
+
+            $encodingRepairLines += '--- auto-repair FAILED ---'
+            foreach ($line in @($encodingFix.Lines)) {
+                $encodingRepairLines += ('  ' + [string]$line)
+            }
+            Write-ResultAndExit -Step 'encoding-format-fix' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
+        }
+
+        $encodingRecheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
+        if ($encodingRecheck.ExitCode -ne 0) {
+            $reason = Get-LastMatchingLine -Lines $encodingRecheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF|lock=busy|mutex busy|lock_busy=true'
+            if ([string]::IsNullOrWhiteSpace($reason)) {
+                $reason = Get-FirstMeaningfulLine -Lines $encodingRecheck.Lines
+            }
+
+            $encodingRepairLines += '--- recheck after fix STILL FAILED ---'
+            foreach ($line in @($encodingRecheck.Lines)) {
+                $encodingRepairLines += ('  ' + [string]$line)
+            }
+            Write-ResultAndExit -Step 'encoding-format-recheck' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
+        }
+
+        $encodingRepairLines += '--- auto-repair OK, recheck PASSED ---'
         foreach ($line in @($encodingFix.Lines)) {
             $encodingRepairLines += ('  ' + [string]$line)
         }
-        Write-ResultAndExit -Step 'encoding-format-fix' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
     }
-
-    $encodingRecheck = Invoke-PowerShellScriptStep -ScriptPath $encodingFormatScript -Arguments @('-Mode', 'check', '-Policy', 'enforce', '-Scope', 'tracked')
-    if ($encodingRecheck.ExitCode -ne 0) {
-        $reason = Get-LastMatchingLine -Lines $encodingRecheck.Lines -Pattern 'result=fail|non-compliant|encoding|eol|BOM|LF|lock=busy|mutex busy|lock_busy=true'
-        if ([string]::IsNullOrWhiteSpace($reason)) {
-            $reason = Get-FirstMeaningfulLine -Lines $encodingRecheck.Lines
-        }
-
-        $encodingRepairLines += '--- recheck after fix STILL FAILED ---'
-        foreach ($line in @($encodingRecheck.Lines)) {
-            $encodingRepairLines += ('  ' + [string]$line)
-        }
-        Write-ResultAndExit -Step 'encoding-format-recheck' -Status 'FAIL' -Reason $reason -OutputLines $encodingRepairLines -ExitCode 1 -StartFilePath $startFilePath
-    }
-
-    $encodingRepairLines += '--- auto-repair OK, recheck PASSED ---'
-    foreach ($line in @($encodingFix.Lines)) {
-        $encodingRepairLines += ('  ' + [string]$line)
-    }
+    $trackedEncodingSummary = 'Tracked file encoding format check passed (UTF-8 with BOM + LF).'
 }
 
 $srcEncodingArgs = if ($DryRun.IsPresent) {
@@ -588,12 +626,12 @@ $precheckModeMessage = if ($DryRun.IsPresent) { 'Precheck dry-run passed.' } els
 
 $successDetails = @($staticCheckMessages.ToArray()) + @(
     'Start-file field sync passed.',
-    'Status-ticket mini regression passed.',
+    $statusMiniRegressionSummary,
     $retryBudgetMiniRegressionSummary,
-    'Route-guard smoke suite passed.',
-    'PS5.1 inline-if format guard passed.',
+    $routeGuardSmokeSuiteSummary,
+    $ps51FormatGuardSummary,
     $incrementalEncodingMessage,
-    'Tracked file encoding format check passed (UTF-8 with BOM + LF).',
+    $trackedEncodingSummary,
     $srcCodeEncodingMessage,
     $precheckModeMessage
 )

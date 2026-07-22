@@ -15,7 +15,7 @@
 - 所有 `running-status-report` 均为只读状态汇报票：只读取运行状态并回传 `handled_at`，禁止自愈修复、故障处理、主进程/guard 重启、`business_resume`、文件修改、环境稳定化或任何恢复动作。异常只汇报并等待独立事故票。
 - `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。相同指纹重试预算耗尽时必须投送结构化 `manual-wait-paused`，至少包含 `hard_block=true`、`hard_block_reason`、`failure_fingerprint`、`retry_count`、`retry_limit`、`auto_restart_allowed=false` 与 `task_definition`，不得静默退出。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
-- 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票若提供 `recovery_transaction_command`，优先只执行一次该“恢复+闭环事务”；否则最终只执行一次 `atomic_closeout_command`。仅在对应机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内完成事务/原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
+- 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票若提供 `recovery_transaction_command`，优先只执行一次该“恢复+闭环事务”；否则最终只执行一次 `atomic_closeout_command`。仅在对应机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。3 分钟是收尾目标，不是 AI 执行的事务总墙钟超时；执行 `recovery_transaction_command` 后须等待同步命令自然退出，不得仅因超过 3 分钟或 240 秒而 kill、`Stop-Process`、终止终端或取消事务。240 秒只属于脚本内部 stage 启动验证，成功或失败按退出码与 JSON 机器事实判定。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
 - 脚本故障必须先读取 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED`。字段缺失、非法或为 `false` 时进入 `incident-script-diagnose-only`：只读排查并在聊天中输出根因、证据、影响、最小修复建议、验证命令、风险与回滚方案；禁止改文件、创建脚本、控制或重启进程、resume、改变环境。仅显式为 `true` 时才允许脚本自愈。
 - 在代码修复、非代码恢复、事件评审或其他非脚本工单中发现新的 guard/trigger/dispatch/poll 脚本故障时，必须停止原流程并按 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED` 重新路由；不得在原工单车道内直接修脚本。
@@ -48,7 +48,7 @@
 8. 运行期工单流属于预授权既定动作；严格按 `next_command_order` 执行业务动作，并以唯一的 `atomic_closeout_command` 收尾。只有该命令的退出码与 JSON 机器事实全部通过后才可回传其中的 handled_at 并声称闭环；命令缺失、锁忙、JSON 无效或任一事实失败时只报告阻塞。旧的分步回执字段只用于审计兼容，不再逐条执行。
 9. `handled_at` 是强制回执字段；对需要 handled 收据的票据，完成当轮动作后必须立即写入。对 running-status-report，只读汇报完成后立即回传 handled_at。
 10. running-status-report 只汇报观测状态，禁止输出或执行修复路径；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B，异常等待独立事故票。
-11. 运行期静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按票据 `next_command_order` 执行其中所有无需用户确认的预授权操作，不得遗漏。事件票最终只执行一次 `atomic_closeout_command`，仅当其退出码和全部 JSON 机器事实门禁通过后才继续静默等待；旧分步回执字段不得逐条执行。不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`，不得创建任何定时巡检监控脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。通过标准 stage window 重启主进程后，必须在 3 分钟内执行原子收尾并通过全部机器事实门禁；无法完成则立即如实报告阻塞，不得转为主动巡检。
+11. 运行期静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按票据 `next_command_order` 执行其中所有无需用户确认的预授权操作，不得遗漏。事件票最终只执行一次 `atomic_closeout_command`，仅当其退出码和全部 JSON 机器事实门禁通过后才继续静默等待；旧分步回执字段不得逐条执行。不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`，不得创建任何定时巡检监控脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。3 分钟仅是收尾目标；恢复事务运行时等待其自然退出，不得按 3 分钟或 240 秒墙钟主动终止，是否失败仅按退出码与 JSON 机器事实判定。
 12. 若收到的工单指出 strict、heartbeat/poll/dispatch 链路异常，按该工单允许边界处理；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
 13. 只有 task-static 故障，以及编译/验证阶段经证据分类确认为代码故障的事故，才允许进入代码自愈；编译/验证阶段的权限、磁盘、网络、远程锁、工具链不可用或测试基础设施故障必须进入 noncode。code-step 仅执行“读绑定产物 -> 验证 -> 原子写 -> 写后验证”，任何 code-step 故障均属于 noncode，禁止修改源码或任务定义。不允许直接手改源码做自愈；只能在被允许的代码修复票中修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。独立 task-static checker 首错即停，全部通过后生成哈希绑定产物；code-step 不重复 checker，只校验并原子应用该产物。task-static 与 code-step 均不进入相同指纹状态机；该状态机仅约束编译/验证阶段经结构化证据确认的代码故障重启。只有当前故障轮通过才允许同阶段重启或 resume；`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
@@ -89,7 +89,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 进入无人值守运行期后，不要结束会话；仅在 A/B 都到终态或用户明确说“停止监控”时结束。事件工单流默认预授权并按 next_command_order 执行。running-status-report 只允许只读状态查询、状态汇报和 handled_at，不得执行 continue_watch、closure/dedup、恢复或重启命令。
 
-运行期只需静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按 `next_command_order` 执行全部预授权操作，不遗漏任务。事件票最终只执行一次 `atomic_closeout_command`，以其机器输出完成 handled_at、processed、receipt 与 closure 的统一校验后再继续静默等待；旧分步回执字段不得逐条执行。不得主动定时执行 heartbeat 或 poll，不得创建巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。重启主进程后 3 分钟内必须完成原子收尾并通过全部机器事实门禁；该期限不是巡检窗口。对 low-disturb 的 running-status-report，正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at，等待独立事故票。
+运行期只需静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按 `next_command_order` 执行全部预授权操作，不遗漏任务。事件票最终只执行一次 `atomic_closeout_command`，以其机器输出完成 handled_at、processed、receipt 与 closure 的统一校验后再继续静默等待；旧分步回执字段不得逐条执行。不得主动定时执行 heartbeat 或 poll，不得创建巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。3 分钟仅是收尾目标；执行 recovery_transaction_command 后等待同步命令自然退出，不得因超过 3 分钟或 240 秒而主动终止，结果仅以退出码和 JSON 机器事实为准。对 low-disturb 的 running-status-report，正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at，等待独立事故票。
 
 若 route guard 分类为 `incident-script-diagnose-only`，本票只允许只读取证、根因分析、修复方案、聊天汇报和原子收尾。不得修改脚本/源码/任务定义，不得创建脚本，不得停止或重启进程，不得执行 `business_resume`、`continue_watch_command` 或环境恢复；报告完成后执行唯一 `atomic_closeout_command` 并等待用户决定。
 
@@ -117,7 +117,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 长跑必须在 VS Code 外部 PowerShell 窗口；严格先 A 后 B；A 未成功前禁止启动 B。
 
-运行期不要结束会话；静默等待现有 guard/trigger/dispatch 链投送事件票或状态票，收到后严格按 next_command_order 执行全部预授权操作，不遗漏任务。事件票最终只执行一次 atomic_closeout_command，并以其成功机器事实完成 handled_at、processed、receipt 与 closure 的统一校验后再继续等待。不得自建或运行任何定时巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。重启主进程后 3 分钟内执行原子收尾并通过全部机器事实门禁，不把该期限用于巡检。状态票只读汇报 SESSION/A/B、main_round、进程/监控存活、heartbeat 与待处理事故票，并回传 handled_at。
+运行期不要结束会话；静默等待现有 guard/trigger/dispatch 链投送事件票或状态票，收到后严格按 next_command_order 执行全部预授权操作，不遗漏任务。事件票最终只执行一次 atomic_closeout_command，并以其成功机器事实完成 handled_at、processed、receipt 与 closure 的统一校验后再继续等待。不得自建或运行任何定时巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。3 分钟仅是收尾目标；恢复事务运行时等待同步命令自然退出，不得按 3 分钟或 240 秒墙钟 kill、Stop-Process、终止终端或取消事务。状态票只读汇报 SESSION/A/B、main_round、进程/监控存活、heartbeat 与待处理事故票，并回传 handled_at。
 
 low-disturb 的 running-status-report 正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at；不得据旧 exit 证据建议重启 B，不得处置异常。event-only 不期待定时状态票；若文档冲突、字段异常或入口行为异常，先汇报，不要猜。
 

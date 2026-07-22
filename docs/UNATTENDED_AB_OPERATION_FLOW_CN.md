@@ -135,7 +135,7 @@ AI：
 - 进入无人值守运行期后，事件驱动票中列出的既定动作属于预授权执行项；AI 应按事件票 `next_command_order` 执行。定时状态票是严格例外，只预授权只读状态查询、状态汇报与 `handled_at` 回执，不预授权任何故障处理或进程控制动作。
 - 运行期工单由既有 guard/trigger/dispatch 链负责生成并投送。AI 只需保持在线并静默等待已投送的事件驱动票或状态票；等待期间不执行命令，不主动定时 heartbeat/poll，不创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。此类命令可能在下一张事件票到达时中断任务、收尾与回执写入。
 - 收到工单后，AI 严格按工单指令与 `next_command_order` 执行所有无需用户确认的预授权操作，不得遗漏；若事件票提供 `recovery_transaction_command`，优先将其作为“业务恢复 + 继续监控 + 原子闭环”的单次事务入口执行；未提供事务命令的事件票才执行唯一的 `atomic_closeout_command` 完成 `handled_at`、processed、ledger receipt 与 closure 校验。机器事实门禁全部通过后才算闭环，随后继续静默等待下一张工单。
-- 通过标准 stage window 重启主进程后，AI 必须在 3 分钟内完成事件票的 `recovery_transaction_command` 或唯一的 `atomic_closeout_command`，并通过全部机器事实门禁，然后回到静默被动等待。该时限是票据闭环上限，不是主动巡检窗口；无法按时闭环时立即如实报告阻塞，不得以轮询或长时间观察延长处置。
+- 通过标准 stage window 重启主进程后，3 分钟是完成事件票 `recovery_transaction_command` 或唯一 `atomic_closeout_command` 的目标窗口，不是 AI 可执行的事务总墙钟超时或强杀授权。AI 启动恢复事务后必须等待该同步命令自然退出；即使超过 3 分钟或 240 秒，也不得调用 kill、`Stop-Process`、终止承载终端或取消事务及其子进程。240 秒仅是事务脚本内部的 stage 主进程启动验证预算，atomic closeout 另有 120 秒 acknowledge 超时；是否闭环只按命令退出码和 JSON 机器事实判定。执行器自身意外中断命令时只报告阻塞，不得重跑事务或伪造 `handled_at`。
 - `ticket_closure_check_command`、`event_dedup_health_check_command`、`final_status_closeout_command` 与 `final_status_closeout_apply_ack_command` 仅作审计兼容展示；事件票不得逐条执行这些旧分步命令，其校验职责统一由事务命令或 `atomic_closeout_command` 内部完成。`running-status-report` 不执行事件票原子收尾。
 - 事件驱动票具有高优先级，始终凌驾于 `normal/anti-missent/low-disturb/event-only` 模式之上；事件票处理标准在所有模式下保持一致，不受模式降级影响。
 - `event-only` 仅定义“是否触发/发送常规状态票”的调度策略，不得在事件票或故障处置话术中表述为“按 low-disturb 流程执行”。
@@ -867,17 +867,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 读取并验证 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`
 - 按阶段对当前任务定义执行 `-SyntaxOnly` 技术装载检查：`Stage=A` 检查 `A_TASK_DEFINITION`，`Stage=B` 检查 `B_TASK_DEFINITION`；不读取目标源码、不检查 D1-op1、不执行 operation 正则
 - 执行启动文件字段同步检查
-- 执行 `tools/test/status_ticket_mini_regression.ps1` 迷你回归门禁
-- 执行 `tools/test/route_guard_smoke_suite.ps1` 门禁
-- 执行 `tools/test/check_ps51_format_inline_if_guard.ps1 -Scope tracked` 门禁
-- 执行增量编码检查（基于 `git diff --name-only`）
-- 非 DryRun 场景下，先自动修复增量不合规编码，再继续全量硬门禁检查
-- 执行 tracked 文件编码门禁（`tools/dev/enforce_utf8_bom_lf.ps1 -Mode check -Policy enforce -Scope tracked`）
+- 默认跳过耗时较长的 status-ticket、retry-budget、route-guard 完整回归和 repository 全仓扫描；这些检查由对应 start-file 开关显式启用，或通过独立回归/发布门禁执行
+- 执行增量编码检查（基于 `git diff --name-only`）；非 DryRun 场景先自动修复增量不合规编码
 - 执行 src 变更编码门禁（`tools/dev/enforce_utf8_lf_src_changed.ps1`）
-- 执行预检并回填 `PRECHECK_*`
+- 执行本地进程、任务文件、入口、SSH 和远程锁预检；非 DryRun 原子回填 `PRECHECK_*`，DryRun 只报告拟写入值
+
+完整检查 opt-in 开关：
+- `STATUS_TICKET_MINI_REGRESSION_ENABLED=true`：执行 `tools/test/status_ticket_mini_regression.ps1`
+- `RETRY_BUDGET_MINI_REGRESSION_ENABLED=true`：执行 `tools/test/retry_budget_minimal_regression.ps1`
+- `ROUTE_GUARD_SMOKE_SUITE_ENABLED=true`：执行 `tools/test/route_guard_smoke_suite.ps1`
+- `LAUNCH_READY_REPOSITORY_GUARDS_ENABLED=true`：执行 PS5.1 inline-if guard 和 tracked 文件编码全仓门禁
 
 返回约定：
 - 任一步失败，立即返回 `step`、`status=FAIL`、`reason`，并停止后续步骤；任务定义 SyntaxOnly 装载失败必须硬阻断，不得通过 `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket` 延迟。
+- `Stage=B` 会先检查 A PASS snapshot baseline；baseline 缺失或不可用时，在 SyntaxOnly、字段同步和编码等后续步骤之前 fail-fast，并输出 `step=b-start-baseline` 的 START/DONE 进度。这是串行 A -> B 门禁，不是遗漏 A 阶段的检查项。
 - 全部通过，返回 `step=launch-ready`、`status=PASS`，表示当前 A/B 任务已具备启动条件。
 - D 轮 operation 的唯一匹配、替换、marker、收敛、replay 与断言检查由运行期独立 checker 执行。失败时主进程在 code-step 前停止，guard 通过阶段进程快照确认主进程已停止后，才生成 `incident-captured` 自愈票；仍运行时只写 `task_definition_repair_wait`。
 - 默认直接看终端最后一行：`AB_LAUNCH_READY_RESULT=PASS` 或 `AB_LAUNCH_READY_RESULT=FAIL`。
@@ -928,12 +931,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/enforce_utf8_lf_sr
 ```
 
 默认行为说明：
-- `tools/test/check_unattended_ab_launch_ready.ps1` 在非 `-DryRun` 场景会先执行增量自动修复，再执行全量硬门禁。
-- `-DryRun` 场景只做增量检查，不落盘修改。
+- `tools/test/check_unattended_ab_launch_ready.ps1` 默认走轻量启动路径；在非 `-DryRun` 场景会执行增量自动修复，并原子写回 `PRECHECK_*`。
+- `-DryRun` 场景只做检查，不修复编码，也不写回 start-file。
 - `start_dev_verify_fastmode_A.ps1` 与 `start_dev_verify_fastmode_B.ps1` 在启动前会依次执行：文本增量编码门禁（BOM+LF）和 src C 源码增量门禁（UTF-8+LF，无 BOM），降低 A->B 切换期因编码问题中断的概率。
 
 取舍建议（减少运行期开销）：
-- 启动前预检阶段仍保留一次全量 `-Scope tracked` 硬门禁，保证“可提交工作区”质量下限。
+- 启动前默认只保留 SyntaxOnly、字段同步、增量编码、进程、SSH 和远程锁等启动必要门禁，避免完整集成回归把主进程启动延长到数分钟。
+- status-ticket、retry-budget、route-guard 和 repository guards 的完整覆盖保留在独立回归、事故票 contract gate 或发布门禁中；需要在启动前强制执行时再通过 start-file 开关显式启用。
+- retry-budget 独立回归使用一次共享 session-floor seed 和三次 ack-only 校验覆盖 yes/missing/no receipt，不再重复 ticket selection；该优化只减少测试进程初始化，不改变生产 poll 的 receipt 校验或 ledger 终态语义。
 - 无人值守运行期间优先增量自动修复（`enforce_utf8_bom_lf_changed.ps1 -Mode fix -Policy enforce`），避免频繁全量扫描导致抖动。
 - 在阶段切换（A->B）或关键里程碑后，再执行一次全量 `-Scope tracked` 收口检查。
 
@@ -1117,11 +1122,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 运行期执行规则：
 - 事件驱动票中的工作内容视为预授权操作，AI 按事件票 `next_command_order` 执行。定时状态票只预授权只读查询、汇报与 handled 回执。
-- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息；主进程重启后必须在 3 分钟内完成该命令并通过全部机器事实门禁。
+- AI 不得自行创建或运行定时巡检脚本、轮询循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令，也不得为了“保持监控”周期性执行 heartbeat/poll。工单通过事务命令或唯一原子收尾命令完成真实回执与闭环后只需静默等待下一条投送消息；3 分钟是收尾目标，不是 Agent 可执行的总墙钟超时，事务启动后等待同步命令自然退出，不得按 3 分钟或 240 秒主动终止。
 - 对 `running-status-report` 这类需要 handled 收据的工单，必须立即写入 `handled_at`；`handled_at` 是强制项，不可省略。
 - `handled_at` 现在应优先作为 `poll_agent_tickets.ps1` ledger 中的一等状态字段理解；额外的 `handled_tickets/*.md` 仅在显式开启 `LOCAL_GUARD_WRITE_HANDLED_ARTIFACTS=true` 时才写入，不再作为默认必需产物。
 - 对 `running-status-report`，默认处置为只读状态查询、汇报与 handled 回执；不得执行 continue_watch、故障处理或恢复动作。
-- 自动恢复类事件票默认执行顺序为：`route_guard_command -> pre_restart_launch_ready_command -> recovery_transaction_command`；事务命令内部按当前工单字段执行 `business_command -> continue_watch_command -> atomic_closeout_command`。无事务命令的事件票按 `route_guard_command -> atomic_closeout_command` 或专项 closeout 字段执行；具体以票据 `next_command_order` 为准。状态票不适用该顺序。
+- 自动恢复类事件票默认执行顺序为：`route_guard_command -> pre_restart_launch_ready_command -> recovery_transaction_command`；`task-definition-fix-required` 在 route guard 后额外执行 `contract_gate_command`，完整顺序为 `route_guard_command -> contract_gate_command -> pre_restart_launch_ready_command -> recovery_transaction_command`。快速 contract gate 与 launch-ready 均在主进程重启前完成。事务命令内部按当前工单字段执行 `business_command -> continue_watch_command -> atomic_closeout_command`，不重复执行 contract regression；三分钟温窗是主进程重启后完成原子收尾的目标，不替代恢复事务原有的弹性超时，也不授权 Agent 强杀。事务必须等待自然退出，stage 主进程验证保留脚本内部 240 秒容错预算，atomic closeout 保留 120 秒 acknowledge 超时；任一内部超时仍 fail-close。无事务命令的事件票按 `route_guard_command -> atomic_closeout_command` 或专项 closeout 字段执行；具体以票据 `next_command_order` 为准。状态票不适用该顺序。
 - `handled_receipt_command`、`validate_receipt_command`、`mark_processed_command`、`post_check_command` 继续作为审计与旧消费者兼容字段输出，但 Agent 不得逐条重复执行；原子命令已覆盖写入、校验和 closure。
 - 若 `recovery_transaction_command` / `atomic_closeout_command` 按当前票据应存在却缺失、锁忙、JSON 无法解析或任一机器事实门禁失败，必须 fail-close 并报告阻塞；不得自行生成 `handled_at`，不得用聊天文本替代 ledger 状态。
 - 聊天输出层（relay/转录）校验默认关闭，不作为常态强门禁；该层信号仅作为辅证，不替代 ledger 的强约束状态。

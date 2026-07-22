@@ -425,7 +425,6 @@ try {
     Invoke-IncrementalEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
     Invoke-SrcCodeEncodingFixGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
     Invoke-StartFieldSyncStrictGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B' -StartFilePath $startFilePath
-    Invoke-StatusTicketMiniRegressionGate -RepoRoot $repoRoot -RoleTag 'FASTMODE-B'
 
     $existingRunPids = @(Get-RunningFastmodeProcessIdList -Role 'B' -RepoRoot $repoRoot -ExcludePid $PID)
     if ($existingRunPids.Count -gt 0) {

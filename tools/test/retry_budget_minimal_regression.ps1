@@ -81,34 +81,13 @@ function Invoke-Poll {
 function Invoke-RegressionCase {
     param(
         [string]$Name,
-        [string]$AckValue
+        [string]$AckValue,
+        [string]$QueuePath,
+        [string]$LedgerPath,
+        [string]$StatePath
     )
 
-    $queuePath = Join-Path $outputRootPath ("agent_tickets_{0}.jsonl" -f $Name)
-    $ledgerPath = Join-Path $outputRootPath ("ledger_{0}.json" -f $Name)
-    $statePath = Join-Path $outputRootPath ("state_{0}.json" -f $Name)
-    Remove-Item -LiteralPath $queuePath,$ledgerPath,$statePath -ErrorAction SilentlyContinue
-
-    # First poll seeds in-session floor so test ticket is handled as fresh work.
-    $null = Invoke-Poll -QueuePath $queuePath -LedgerPath $ledgerPath -StatePath $statePath
-
     $ticketId = "T-MIN-" + $Name
-    $queueRel = Convert-ToRepoRelativePath -Path $queuePath
-    (New-SyntheticTicket -TicketId $ticketId -QueuePathRel $queueRel | ConvertTo-Json -Compress -Depth 8) | Out-File -LiteralPath $queuePath -Encoding utf8
-
-    $pollSelectRaw = Invoke-Poll -QueuePath $queuePath -LedgerPath $ledgerPath -StatePath $statePath
-    $pollSelect = $pollSelectRaw | ConvertFrom-Json
-    if ($null -eq $pollSelect.rows -or @($pollSelect.rows).Count -lt 1) {
-        return [ordered]@{
-            case = $Name
-            ack = $AckValue
-            ok = $false
-            reason = 'no-row-selected'
-            ledger_status = 'n/a'
-            failure_reason = 'n/a'
-        }
-    }
-
     $null = Invoke-Poll -QueuePath $queuePath -LedgerPath $ledgerPath -StatePath $statePath -TicketId $ticketId -RetryBudgetUsed $AckValue
 
     $ledgerObj = Get-Content -LiteralPath $ledgerPath -Raw -Encoding utf8 | ConvertFrom-Json
@@ -137,10 +116,32 @@ function Invoke-RegressionCase {
     }
 }
 
+$queuePath = Join-Path $outputRootPath 'agent_tickets.jsonl'
+$ledgerPath = Join-Path $outputRootPath 'ledger.json'
+$statePath = Join-Path $outputRootPath 'state.json'
+Remove-Item -LiteralPath $queuePath,$ledgerPath,$statePath -ErrorAction SilentlyContinue
+
+# Seed the session floor once, then exercise the three receipt outcomes through
+# the poll script's ack-only fast path without repeating ticket selection.
+$null = Invoke-Poll -QueuePath $queuePath -LedgerPath $ledgerPath -StatePath $statePath
+$queueRel = Convert-ToRepoRelativePath -Path $queuePath
+$caseDefinitions = @(
+    [pscustomobject]@{ Name = 'ack_yes'; AckValue = 'yes' }
+    [pscustomobject]@{ Name = 'ack_missing'; AckValue = '' }
+    [pscustomobject]@{ Name = 'ack_no'; AckValue = 'no' }
+)
+$ticketLines = @(
+    foreach ($caseDefinition in $caseDefinitions) {
+        $ticketId = 'T-MIN-' + [string]$caseDefinition.Name
+        New-SyntheticTicket -TicketId $ticketId -QueuePathRel $queueRel | ConvertTo-Json -Compress -Depth 8
+    }
+)
+$ticketLines | Out-File -LiteralPath $queuePath -Encoding utf8
+
 $results = @(
-    Invoke-RegressionCase -Name 'ack_yes' -AckValue 'yes'
-    Invoke-RegressionCase -Name 'ack_missing' -AckValue ''
-    Invoke-RegressionCase -Name 'ack_no' -AckValue 'no'
+    foreach ($caseDefinition in $caseDefinitions) {
+        Invoke-RegressionCase -Name ([string]$caseDefinition.Name) -AckValue ([string]$caseDefinition.AckValue) -QueuePath $queuePath -LedgerPath $ledgerPath -StatePath $statePath
+    }
 )
 $failed = @($results | Where-Object { -not $_.ok })
 $allPass = ($failed.Count -eq 0)

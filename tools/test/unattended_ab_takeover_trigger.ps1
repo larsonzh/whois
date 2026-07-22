@@ -1891,6 +1891,12 @@ function New-TakeoverBrief {
     $resumeCommand = [string]$resumePlan.command
     $guardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_session_guard_window.ps1 -StartFile "{0}" -NoRestartIfRunning' -f (Convert-ToRepoRelativePath -Path $StartFilePath)
     $routeGuardCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_takeover_route_guard.ps1 -BriefPath "{0}" -QueuePath "{1}" -AsJson' -f $briefRel, $queueRel
+    $contractGateCommand = if ($eventNameNormalized -eq 'task-definition-fix-required') {
+        'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/status_ticket_mini_regression.ps1 -ContractGateOnly'
+    }
+    else {
+        ''
+    }
     $launchReadyCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "{0}"' -f $startFileRel
     $ticketClosureCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ticket_closure.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $eventDedupHealthCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
@@ -2089,12 +2095,14 @@ function New-TakeoverBrief {
     elseif ($routeGuardExpected -like 'incident-auto-resume-*') {
         $nextCommandPolicy = 'incident-auto-resume'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($contractGateCommand)) { [void]$nextCommands.Add($contractGateCommand); [void]$nextCommandNames.Add('contract_gate_command') }
         if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
         if (-not [string]::IsNullOrWhiteSpace($recoveryTransactionCommand)) { [void]$nextCommands.Add($recoveryTransactionCommand); [void]$nextCommandNames.Add('recovery_transaction_command') }
     }
     elseif ($routeGuardExpected -like 'incident-manual-*') {
         $nextCommandPolicy = 'incident-manual-gated'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
+        if (-not [string]::IsNullOrWhiteSpace($contractGateCommand)) { [void]$nextCommands.Add($contractGateCommand); [void]$nextCommandNames.Add('contract_gate_command') }
         if (-not [string]::IsNullOrWhiteSpace($launchReadyCommandForBrief)) { [void]$nextCommands.Add($launchReadyCommandForBrief); [void]$nextCommandNames.Add('pre_restart_launch_ready_command') }
         if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
@@ -2244,6 +2252,7 @@ function New-TakeoverBrief {
         ('route_next_command_consistency_actual_policy={0}' -f $nextCommandPolicy),
         ('next_command_policy={0}' -f $nextCommandPolicy),
         ('next_command_order={0}' -f $nextCommandOrderJoined),
+        'recovery_transaction_execution_policy=execute once as a synchronous command and wait for natural exit; the 3-minute closeout window is a target, not an agent-enforced wall-clock timeout; never kill, Stop-Process, terminate the terminal, or cancel solely because runtime exceeds 3 minutes or 240 seconds; 240 seconds is only the transaction internal stage-start verification budget; use exit code and JSON machine facts',
         ('run_dir={0}' -f $runDir),
         ('live_status={0}' -f $liveStatus),
         ('detail={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'detail'))),
@@ -2263,6 +2272,7 @@ function New-TakeoverBrief {
         ('ab_total_elapsed={0}' -f (Convert-ToSingleLineText -Text ([string]$ticketTimingFields.ab_total_elapsed))),
         ('self_heal_scope={0}' -f $selfHealScope),
         ('self_heal_hint={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'self_heal_hint'))),
+        ('contract_gate_command={0}' -f $contractGateCommand),
         ('pre_restart_launch_ready_command={0}' -f $launchReadyCommandForBrief),
         ('handled_receipt_command={0}' -f $handledReceiptCommand),
         ('validate_receipt_command={0}' -f $validateReceiptCommand),

@@ -170,6 +170,7 @@ function Get-EffectiveRecommendedAction {
 function Get-NextCommandOrder {
     param(
         [AllowEmptyString()][string]$RouteGuardCommand,
+        [AllowEmptyString()][string]$ContractGateCommand,
         [AllowEmptyString()][string]$RecoveryTransactionCommand,
         [AllowEmptyString()][string]$BusinessCommand,
         [AllowEmptyString()][string]$ContinueWatchCommand,
@@ -186,6 +187,7 @@ function Get-NextCommandOrder {
 
     $order = New-Object 'System.Collections.Generic.List[string]'
     if (-not [string]::IsNullOrWhiteSpace($RouteGuardCommand)) { [void]$order.Add('route_guard_command') }
+    if (-not [string]::IsNullOrWhiteSpace($ContractGateCommand)) { [void]$order.Add('contract_gate_command') }
     if (-not [string]::IsNullOrWhiteSpace($RecoveryTransactionCommand)) {
         [void]$order.Add('recovery_transaction_command')
         return @($order.ToArray())
@@ -420,7 +422,7 @@ function Get-ContractGateCommand {
         return ''
     }
 
-    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/status_ticket_mini_regression.ps1')
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/status_ticket_mini_regression.ps1 -ContractGateOnly')
 }
 
 $script:WriteHandledArtifacts = $false
@@ -2788,7 +2790,7 @@ foreach ($ticket in $tickets) {
                 event_dedup_health_check_command = $eventDedupHealthCheckCommand
                 final_status_closeout_command = $finalStatusCloseoutCommand
                 final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -RecoveryTransactionCommand $recoveryTransactionCommand -BusinessCommand '' -ContinueWatchCommand '' -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -ContractGateCommand (Get-ContractGateCommand -EventName $eventName) -RecoveryTransactionCommand $recoveryTransactionCommand -BusinessCommand '' -ContinueWatchCommand '' -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2907,7 +2909,7 @@ foreach ($ticket in $tickets) {
                 event_dedup_health_check_command = ''
                 final_status_closeout_command = ''
                 final_status_closeout_apply_ack_command = ''
-                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -RecoveryTransactionCommand '' -BusinessCommand (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $false -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $false -EnableMonitorChainDegradedEscalation $false -LowDisturbMode $statusReportLowDisturbMode) -ContinueWatchCommand '' -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand '' -TicketClosureCheckCommand '' -EventDedupHealthCheckCommand '' -FinalStatusCloseoutCommand '' -FinalStatusCloseoutApplyAckCommand '')
+                next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -ContractGateCommand (Get-ContractGateCommand -EventName $eventName) -RecoveryTransactionCommand '' -BusinessCommand (Get-StatusReportBusinessCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -IncludeTicketChainCheck $false -IncludeMainProcessHealthCheck $statusReportIncludeMainProcessHealthCheck -EnableMainProcessAutoHeal $false -EnableMonitorChainDegradedEscalation $false -LowDisturbMode $statusReportLowDisturbMode) -ContinueWatchCommand '' -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand '' -TicketClosureCheckCommand '' -EventDedupHealthCheckCommand '' -FinalStatusCloseoutCommand '' -FinalStatusCloseoutApplyAckCommand '')
                 route_guard_required = $true
                 receipt_required = $true
                 receipt_type = 'handled_at'
@@ -2988,7 +2990,7 @@ foreach ($ticket in $tickets) {
             event_dedup_health_check_command = $eventDedupHealthCheckCommand
             final_status_closeout_command = $finalStatusCloseoutCommand
             final_status_closeout_apply_ack_command = $finalStatusCloseoutApplyAckCommand
-            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -RecoveryTransactionCommand $recoveryTransactionCommand -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $selectedContinueWatchCommand -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
+            next_command_order = @(Get-NextCommandOrder -RouteGuardCommand (Get-RouteGuardCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId) -ContractGateCommand (Get-ContractGateCommand -EventName $eventName) -RecoveryTransactionCommand $recoveryTransactionCommand -BusinessCommand $selectedBusinessCommand -ContinueWatchCommand $selectedContinueWatchCommand -AtomicCloseoutCommand (Get-AtomicCloseoutCommand -StartFileRel $startFileRel -QueuePathRel $queueRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -HandledReceiptCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -ValidateReceiptCommand (Get-ValidateHandledReceiptCommand -StartFileRel $startFileRel -TicketId $ticketId -ExpectedRetryBudgetUsed $expectedRetryBudgetUsed) -MarkProcessedCommand (Get-MarkProcessedCommand -StartFileRel $startFileRel -TicketId $ticketId -Last $Last -RetryBudgetUsed $expectedRetryBudgetUsed) -PostCheckCommand (Get-PostExecutionCheckCommand -StartFileRel $startFileRel -Last $Last) -TicketClosureCheckCommand $ticketClosureCheckCommand -EventDedupHealthCheckCommand $eventDedupHealthCheckCommand -FinalStatusCloseoutCommand $finalStatusCloseoutCommand -FinalStatusCloseoutApplyAckCommand $finalStatusCloseoutApplyAckCommand)
             route_guard_required = $true
             receipt_required = $true
             receipt_type = 'handled_at'
