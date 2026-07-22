@@ -302,6 +302,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 
 # 2. 只用 VS Code apply_patch 修改输出目录中的 candidate.json
 
+# 2.1 可选：修改后只读刷新源码匹配、替换结果与 JSON 邻接上下文
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Inspect -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage A -RoundTag D3 -OperationIndex 8
+
 # 3. 绑定正式基线哈希，并依次执行 SyntaxOnly、目标 op 和当前轮检查
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Validate -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage A -RoundTag D3 -OperationIndex 8
 
@@ -314,12 +317,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - `baseline.json`：准备时的正式文件字节基线。
 - `candidate.json`：唯一允许代理修改的候选文件。
 - `manifest.json`：正式路径、stage/round/op 边界、基线及候选 SHA-256、事务状态和验证日志。
+- `operation-preview.json`：绑定 baseline、candidate 与目标源码 SHA-256 的机器可读预览，包含前置 op 只读模拟、目标 pattern 命中位置和替换后剩余命中数。
+- `operation-preview.txt`：pattern/replacement 解码视图、控制字符可视化、双重转义风险与局部源码预览。
+- `apply-patch-context.txt`：目标 operation 的 JSON Path 及前一项/当前项/后一项只读上下文；仅用于辅助定位，仍只能用 VS Code `apply_patch` 修改 `candidate.json`。
 - `promotion-receipt.json`：原子提升成功后的正式文件哈希与写后检查收据。
 
 生命周期规则：
 
 - 提升、写后哈希、写后 `SyntaxOnly` 和 receipt 全部成功后，删除 `candidate.json` 与 `baseline.json`，保留 manifest、验证日志和 promotion receipt。
 - 验证失败、正式基线漂移、候选验证后漂移或提升失败时，正式文件保持或恢复原状，候选现场保留。
+- `Prepare` 自动生成首份预览；候选修改后可重复执行 `Inspect` 刷新。`Validate` 对比当前 candidate SHA-256 与预览绑定并输出 `preview_stale=true|false`；预览陈旧是显式诊断状态，不替代 SyntaxOnly、目标 op 和当前轮严格检查。
+- `Inspect` 只读取 candidate 与目标源码并更新事务目录中的预览 sidecar/manifest，不修改 candidate、正式任务定义或业务源码；正式基线漂移时 fail-close。
 - 会话放弃时执行 `-Mode Abandon -Reason <reason>`；工具参数污染时执行 `-Mode Quarantine -Reason tool-call-parameter-corruption`。两者均禁止后续提升。
 - 候选清理失败只输出 `cleanup_warning=true`，不得回滚已经验证成功的正式提升。
 - `tools/dev/prune_artifacts_all.ps1` 保留最近 20 个事务目录，统一清理更早的成功或失败现场。
@@ -351,6 +359,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - tools/test/check_unattended_start_field_sync.ps1
 - tools/test/check_unattended_ab_launch_ready.ps1
 
+任务定义修复事务：
+- tools/test/task_definition_repair_transaction.ps1（`Prepare -> Inspect（推荐只读刷新）-> Validate -> Promote`，另支持 `Abandon` / `Quarantine`）
+- `Prepare` / `Inspect` 生成的 `operation-preview.json`、`operation-preview.txt` 与 `apply-patch-context.txt` 是事务产物，不是独立脚本；只允许修改同一事务目录中的 `candidate.json`。
+
 操作入口（人工/AI 使用）：
 - tools/test/open_unattended_ab_stage_window.ps1
 
@@ -368,6 +380,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - tools/test/check_unattended_routine_status.ps1
 - tools/test/update_chat_session_heartbeat.ps1
 - tools/test/watch_ab_light.ps1
+
+票据生成/接管投送：
+- tools/test/unattended_ab_takeover_trigger.ps1（生成 takeover brief、路由范围与工单执行提示）
+- tools/test/dispatch_takeover_to_chat.ps1（组装并投送中英文 Agent 提示及事务安全 suffix）
+
+关键契约回归：
+- tools/test/task_definition_repair_transaction_regression.ps1（事务、哈希漂移、Inspect/preview 与转义风险回归）
+- tools/test/status_ticket_mini_regression.ps1（状态票、brief、dispatch 及多层任务定义安全口径一致性回归）
 
 ### 3.3 长跑脚本的运行位置
 

@@ -57,7 +57,7 @@
    - 必须先确认前序构建完成，或明确清理失效锁后，才能继续本轮执行。
 13. 事件驱动票中的既定工作内容视为预授权动作，并严格按各票 `next_command_order` 执行。定时状态票是例外：只允许只读状态查询、状态汇报与 `handled_at` 回执，不得执行 `continue_watch_command`、恢复命令或任何影响无人值守进程持续运行的动作。
    - 工单处理完成后继续静默等待下一条投送消息；无需用户再次确认，也不得通过自建 timer、循环、后台 job、watcher 或常驻 PowerShell 命令主动巡检。
-14. 代码自愈修复不允许直接修改源码或正式任务定义；必须先用 `tools/test/task_definition_repair_transaction.ps1 -Mode Prepare` 建立哈希绑定事务，只使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`，再依次执行 `Validate` 与 `Promote`。验证包含 SyntaxOnly、故障目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；成功提升后删除候选与基线，失败或漂移时保留现场。发现工具参数污染时必须 `-Mode Quarantine` 并禁止提升。禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。只有提升成功才允许重启或 resume；后续轮由实际 code-step 检查。重启时只能启动当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
+14. 代码自愈修复不允许直接修改源码或正式任务定义；必须先用 `tools/test/task_definition_repair_transaction.ps1 -Mode Prepare` 建立哈希绑定事务并读取 `operation-preview.*` 与 `apply-patch-context.txt`，只使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`。修改后推荐执行只读 `-Mode Inspect` 刷新预览，先排除零/多匹配、替换后仍匹配与双重转义风险，再依次执行 `Validate` 与 `Promote`；Inspect 不修改候选/正式文件/业务源码，也不替代验证门禁。Validate 必须报告 `preview_stale=true|false`，并完成 SyntaxOnly、故障目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；成功提升后删除候选与基线，失败或漂移时保留现场。发现工具参数污染时必须 `-Mode Quarantine` 并禁止提升。禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。只有提升成功才允许重启或 resume；后续轮由实际 code-step 检查。重启时只能启动当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
 15. 如确需临时脚本，只能放在 `tmp/` 目录，用完删除。
 16. 对 `running-status-report`，只汇报观测到的运行状态；healthy 时写“运行正常”，异常时只描述异常与待处理事故票，不提供或执行修复路径。不得仅凭历史失败证据推断需要重启 B。运行期不得手工创建 `chat_heartbeat*.jsonl`、额外 handled 回执文件，也不得在未获同意时创建非 `tmp/` 新脚本。
 17. 无人值守运行期间禁止执行提交与推送操作（如 `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
@@ -212,7 +212,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 自愈修复与排查分支（brief 必须显式写清）：
 - `incident-script-diagnose-only`：当 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED` 缺失、非法或为 `false` 时，脚本故障只能只读排查并在聊天中报告根因、证据、影响、最小修改建议、验证命令、风险与回滚方法；不得修改文件、控制进程、重启/resume、改变环境或创建脚本。
 - `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 脚本链路，禁止把业务源码改动混进来。
-- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：仅用 VS Code `apply_patch` 修改对应阶段任务定义文件中允许范围的定义内容；例如当前 B D4，就在 B 任务定义文件里修 D4 或追加该轮次补丁，然后按 SyntaxOnly、目标 op 快检（可定位时）、当前故障轮递进严格检查的顺序验证并按阶段重启。
+- `incident-auto-resume-code-fix` / `incident-manual-code-fix`：保持正式任务定义只读，先 `Prepare` 并读取 operation/source preview，只用 VS Code `apply_patch` 修改 candidate；修改后推荐用只读 `Inspect` 刷新预览，再按 Validate/Promote 内置的 SyntaxOnly、目标 op 快检（可定位时）、当前故障轮递进严格检查顺序验证并按阶段重启。例如当前 B D4，只能在 B 候选任务定义允许边界内修 D4 或追加该轮次补丁。
    - 只有 task-static 故障，以及编译/验证阶段经证据分类确认为代码故障的事故，才允许进入本分支。code-step 的读/验证/原子写/写后验证故障一律进入 noncode；编译/验证阶段的权限、磁盘、网络、远程锁、工具链不可用或测试基础设施故障也进入 noncode。
    - 若故障发生在 V1-V4 轮次，优先把增量修改补丁追加到 D4 轮次的现有定义后面，尽量不要回改已经编译/验证通过的 D1-D4 轮次定义。
    - 若改动了任务定义，先运行 SyntaxOnly，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 对故障 op 做目标检查，再只对当前故障 D 轮运行不带 `-OperationIndex` 的递进严格检查；不得预演后续轮阻断恢复。工单内可按首错诊断反复调用 checker，调用次数不消耗相同指纹主进程重启预算。检查通过后才允许 `stage_restart` / `business_resume`，并且只能重启该票据对应阶段。

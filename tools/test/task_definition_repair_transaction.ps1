@@ -1,5 +1,5 @@
 ﻿param(
-    [Parameter(Mandatory = $true)][ValidateSet('Prepare', 'Validate', 'Promote', 'Abandon', 'Quarantine')][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet('Prepare', 'Inspect', 'Validate', 'Promote', 'Abandon', 'Quarantine')][string]$Mode,
     [Parameter(Mandatory = $true)][string]$TaskDefinitionFile,
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$TicketId,
     [ValidateSet('A', 'B')][string]$Stage = 'A',
@@ -32,6 +32,9 @@ $baselinePath = Join-Path $transactionDir 'baseline.json'
 $candidatePath = Join-Path $transactionDir 'candidate.json'
 $manifestPath = Join-Path $transactionDir 'manifest.json'
 $receiptPath = Join-Path $transactionDir 'promotion-receipt.json'
+$previewJsonPath = Join-Path $transactionDir 'operation-preview.json'
+$previewTextPath = Join-Path $transactionDir 'operation-preview.txt'
+$patchContextPath = Join-Path $transactionDir 'apply-patch-context.txt'
 
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -68,6 +71,241 @@ function Write-JsonAtomically {
     finally {
         Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Write-TextAtomically {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text
+    )
+
+    $directory = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+    $temporaryPath = Join-Path $directory ('.task-definition-preview-{0}.tmp' -f ([guid]::NewGuid().ToString('N')))
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, $Text, [System.Text.UTF8Encoding]::new($true))
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $backupPath = Join-Path $directory ('.task-definition-preview-{0}.bak' -f ([guid]::NewGuid().ToString('N')))
+            try {
+                [System.IO.File]::Replace($temporaryPath, $Path, $backupPath, $true)
+            }
+            finally {
+                Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        else {
+            [System.IO.File]::Move($temporaryPath, $Path)
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function ConvertTo-VisibleText {
+    param([AllowEmptyString()][string]$Text)
+    if ($null -eq $Text) { return '' }
+    return $Text.Replace("`r", '<CR>').Replace("`n", "<LF>`n").Replace("`t", '<TAB>')
+}
+
+function Get-LineNumber {
+    param([string]$Text, [int]$Index)
+    if ($Index -le 0) { return 1 }
+    return 1 + ([regex]::Matches($Text.Substring(0, $Index), "`n")).Count
+}
+
+function Get-SourceExcerpt {
+    param(
+        [string[]]$Lines,
+        [int]$LineNumber,
+        [int]$Radius = 8
+    )
+    $start = [Math]::Max(1, $LineNumber - $Radius)
+    $end = [Math]::Min($Lines.Count, $LineNumber + $Radius)
+    $result = New-Object System.Collections.Generic.List[string]
+    for ($line = $start; $line -le $end; $line++) {
+        $result.Add(('{0,6}: {1}' -f $line, $Lines[$line - 1]))
+    }
+    return ($result -join "`n")
+}
+
+function Resolve-TaskTargetPath {
+    param([Parameter(Mandatory = $true)][object]$Task)
+    $targetFile = [string]$Task.targetFile
+    if ([string]::IsNullOrWhiteSpace($targetFile)) {
+        throw '[TASK-DEFINITION-TRANSACTION] preview targetFile is empty'
+    }
+    if ([System.IO.Path]::IsPathRooted($targetFile)) {
+        return [System.IO.Path]::GetFullPath($targetFile)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $repoRoot $targetFile))
+}
+
+function Write-OperationPreview {
+    param([Parameter(Mandatory = $true)][object]$Manifest)
+
+    if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {
+        throw '[TASK-DEFINITION-TRANSACTION] preview candidate task definition missing'
+    }
+    $task = Get-Content -LiteralPath $candidatePath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+    $effectiveRound = ([string]$Manifest.round).Trim().ToUpperInvariant()
+    $effectiveOperation = [int]$Manifest.operation_index
+    if ([string]::IsNullOrWhiteSpace($effectiveRound) -or $effectiveOperation -le 0) {
+        throw '[TASK-DEFINITION-TRANSACTION] preview requires round and operation bindings'
+    }
+    $roundProperty = $task.rounds.PSObject.Properties[$effectiveRound]
+    if ($null -eq $roundProperty) {
+        throw "[TASK-DEFINITION-TRANSACTION] preview round not found: $effectiveRound"
+    }
+    $operations = @($roundProperty.Value.operations)
+    if ($effectiveOperation -gt $operations.Count) {
+        throw "[TASK-DEFINITION-TRANSACTION] preview operation out of range op=$effectiveOperation total=$($operations.Count)"
+    }
+
+    $targetPath = Resolve-TaskTargetPath -Task $task
+    if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
+        throw "[TASK-DEFINITION-TRANSACTION] preview target file not found: $targetPath"
+    }
+    $sourceText = [System.IO.File]::ReadAllText($targetPath)
+    $workingText = $sourceText
+    $simulation = New-Object System.Collections.Generic.List[object]
+    $regexOptions = [System.Text.RegularExpressions.RegexOptions]::Singleline
+    $regexTimeout = [TimeSpan]::FromMilliseconds(2000)
+    for ($index = 0; $index -lt ($effectiveOperation - 1); $index++) {
+        $operation = $operations[$index]
+        $pattern = [string]$operation.pattern
+        $replacement = [string]$operation.replacement
+        $regex = [regex]::new($pattern, $regexOptions, $regexTimeout)
+        $matches = $regex.Matches($workingText)
+        $status = 'not-applied'
+        if ($matches.Count -eq 1) {
+            $workingText = $regex.Replace($workingText, $replacement, 1)
+            $status = 'applied'
+        }
+        elseif ($matches.Count -eq 0) {
+            $markers = @($operation.idempotentContains | ForEach-Object { [string]$_ })
+            $markerFound = $false
+            foreach ($marker in $markers) {
+                if (-not [string]::IsNullOrWhiteSpace($marker) -and $workingText.Contains($marker)) {
+                    $markerFound = $true
+                    break
+                }
+            }
+            if ($markerFound) { $status = 'idempotent-marker-found' }
+        }
+        $simulation.Add([ordered]@{
+            operation_index = $index + 1
+            match_count = $matches.Count
+            status = $status
+        })
+        if ($status -eq 'not-applied') { break }
+    }
+
+    $targetOperation = $operations[$effectiveOperation - 1]
+    $targetPattern = [string]$targetOperation.pattern
+    $targetReplacement = [string]$targetOperation.replacement
+    $targetRegex = [regex]::new($targetPattern, $regexOptions, $regexTimeout)
+    $targetMatches = $targetRegex.Matches($workingText)
+    $sourceLines = [regex]::Split($workingText, "\r?\n")
+    $matchDetails = New-Object System.Collections.Generic.List[object]
+    foreach ($match in $targetMatches) {
+        $lineNumber = Get-LineNumber -Text $workingText -Index $match.Index
+        $matchDetails.Add([ordered]@{
+            line = $lineNumber
+            index = $match.Index
+            length = $match.Length
+            excerpt = Get-SourceExcerpt -Lines $sourceLines -LineNumber $lineNumber
+        })
+    }
+
+    $postReplacementRemaining = $null
+    $replacementPreview = ''
+    if ($targetMatches.Count -eq 1) {
+        $effectiveText = $targetRegex.Replace($workingText, $targetReplacement, 1)
+        $postReplacementRemaining = $targetRegex.Matches($effectiveText).Count
+        $replacementLine = Get-LineNumber -Text $effectiveText -Index $targetMatches[0].Index
+        $replacementPreview = Get-SourceExcerpt -Lines ([regex]::Split($effectiveText, "\r?\n")) -LineNumber $replacementLine -Radius 12
+    }
+
+    $candidateHash = Get-Sha256 -Path $candidatePath
+    $preview = [ordered]@{
+        schema = 'TASK_DEFINITION_OPERATION_PREVIEW_V1'
+        generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        ticket_id = $TicketId
+        json_path = ('rounds.{0}.operations[{1}]' -f $effectiveRound, ($effectiveOperation - 1))
+        round = $effectiveRound
+        operation_index = $effectiveOperation
+        candidate_path = $candidatePath
+        candidate_sha256 = $candidateHash
+        baseline_sha256 = [string]$Manifest.baseline_sha256
+        target_path = $targetPath
+        target_sha256 = Get-Sha256 -Path $targetPath
+        prerequisite_simulation = $simulation.ToArray()
+        pattern_match_count = $targetMatches.Count
+        matches = $matchDetails.ToArray()
+        post_replacement_pattern_match_count = $postReplacementRemaining
+        replacement_contains_actual_newline = ($targetReplacement.Contains("`n") -or $targetReplacement.Contains("`r"))
+        replacement_contains_actual_tab = $targetReplacement.Contains("`t")
+        replacement_contains_literal_backslash_n = $targetReplacement.Contains('\n')
+        replacement_contains_literal_backslash_t = $targetReplacement.Contains('\t')
+        possible_double_escape = (($targetReplacement.Contains('\n') -or $targetReplacement.Contains('\t')) -and -not ($targetReplacement.Contains("`n") -or $targetReplacement.Contains("`t")))
+    }
+    Write-JsonAtomically -Path $previewJsonPath -Value $preview
+
+    $textSections = @(
+        '[BINDING]',
+        ('candidate_sha256={0}' -f $candidateHash),
+        ('baseline_sha256={0}' -f $Manifest.baseline_sha256),
+        ('target_sha256={0}' -f $preview.target_sha256),
+        ('json_path={0}' -f $preview.json_path),
+        ('pattern_match_count={0}' -f $targetMatches.Count),
+        ('post_replacement_pattern_match_count={0}' -f $postReplacementRemaining),
+        ('possible_double_escape={0}' -f ([string]$preview.possible_double_escape).ToLowerInvariant()),
+        '',
+        '[PATTERN DECODED]',
+        (ConvertTo-VisibleText -Text $targetPattern),
+        '',
+        '[REPLACEMENT DECODED]',
+        (ConvertTo-VisibleText -Text $targetReplacement),
+        '',
+        '[SOURCE MATCHES]',
+        (($matchDetails | ForEach-Object { "line=$($_.line)`n$($_.excerpt)" }) -join "`n---`n"),
+        '',
+        '[POST REPLACEMENT LOCAL PREVIEW]',
+        $replacementPreview,
+        ''
+    )
+    Write-TextAtomically -Path $previewTextPath -Text (($textSections -join "`n") + "`n")
+
+    $previousOperation = if ($effectiveOperation -gt 1) { $operations[$effectiveOperation - 2] } else { $null }
+    $nextOperation = if ($effectiveOperation -lt $operations.Count) { $operations[$effectiveOperation] } else { $null }
+    $patchContext = @(
+        '# Read-only apply_patch context. candidate.json remains the only editable source.',
+        ('candidate_sha256={0}' -f $candidateHash),
+        ('json_path={0}' -f $preview.json_path),
+        '',
+        '[PREVIOUS OPERATION]',
+        $(if ($null -eq $previousOperation) { '<none>' } else { $previousOperation | ConvertTo-Json -Depth 16 }),
+        '',
+        '[TARGET OPERATION]',
+        ($targetOperation | ConvertTo-Json -Depth 16),
+        '',
+        '[NEXT OPERATION]',
+        $(if ($null -eq $nextOperation) { '<none>' } else { $nextOperation | ConvertTo-Json -Depth 16 }),
+        ''
+    )
+    Write-TextAtomically -Path $patchContextPath -Text (($patchContext -join "`n") + "`n")
+
+    $Manifest.preview_candidate_sha256 = $candidateHash
+    $Manifest.preview_baseline_sha256 = [string]$Manifest.baseline_sha256
+    $Manifest.preview_target_sha256 = [string]$preview.target_sha256
+    $Manifest.preview_generated_at = [string]$preview.generated_at
+    $Manifest.preview_stale = $false
+    $Manifest.preview_files = @($previewJsonPath, $previewTextPath, $patchContextPath)
+    Write-JsonAtomically -Path $manifestPath -Value $Manifest
+    return $preview
 }
 
 function Read-Manifest {
@@ -148,6 +386,12 @@ if ($Mode -eq 'Prepare') {
         validated_candidate_sha256 = ''
         validation_at = ''
         validation_logs = @()
+        preview_candidate_sha256 = ''
+        preview_baseline_sha256 = ''
+        preview_target_sha256 = ''
+        preview_generated_at = ''
+        preview_stale = $true
+        preview_files = @()
         promoted_sha256 = ''
         promoted_at = ''
         state = 'prepared'
@@ -156,7 +400,21 @@ if ($Mode -eq 'Prepare') {
         detail = ''
     }
     Write-JsonAtomically -Path $manifestPath -Value $manifest
-    Write-Output ("[TASK-DEFINITION-TRANSACTION] status=prepared ticket={0} candidate={1} baseline_sha256={2}" -f $TicketId, $candidatePath, $baselineHash)
+    if (-not [string]::IsNullOrWhiteSpace([string]$manifest.round) -and [int]$manifest.operation_index -gt 0) {
+        try {
+            $preview = Write-OperationPreview -Manifest $manifest
+            Write-Output ("[TASK-DEFINITION-TRANSACTION] status=prepared ticket={0} candidate={1} baseline_sha256={2} preview={3} pattern_match_count={4}" -f $TicketId, $candidatePath, $baselineHash, $previewJsonPath, $preview.pattern_match_count)
+        }
+        catch {
+            $manifest.preview_stale = $true
+            $manifest.detail = "preview unavailable: $($_.Exception.Message)"
+            Write-JsonAtomically -Path $manifestPath -Value $manifest
+            Write-Output ("[TASK-DEFINITION-TRANSACTION] status=prepared ticket={0} candidate={1} baseline_sha256={2} preview_unavailable=true detail={3}" -f $TicketId, $candidatePath, $baselineHash, $_.Exception.Message)
+        }
+    }
+    else {
+        Write-Output ("[TASK-DEFINITION-TRANSACTION] status=prepared ticket={0} candidate={1} baseline_sha256={2} preview_unavailable=true detail=round-and-operation-binding-required" -f $TicketId, $candidatePath, $baselineHash)
+    }
     exit 0
 }
 
@@ -169,12 +427,27 @@ if ($Mode -eq 'Abandon' -or $Mode -eq 'Quarantine') {
     exit 0
 }
 
+if ($Mode -eq 'Inspect') {
+    Assert-BaselineBinding -Manifest $manifest
+    $preview = Write-OperationPreview -Manifest $manifest
+    Write-Output ("[TASK-DEFINITION-TRANSACTION] status=inspected ticket={0} candidate_sha256={1} preview={2} pattern_match_count={3} post_replacement_pattern_match_count={4}" -f $TicketId, $preview.candidate_sha256, $previewJsonPath, $preview.pattern_match_count, $preview.post_replacement_pattern_match_count)
+    exit 0
+}
+
+if ([string]$manifest.state -in @('abandoned', 'quarantined')) {
+    throw "[TASK-DEFINITION-TRANSACTION] terminal transaction state blocks mode=$Mode state=$($manifest.state)"
+}
+
 if ($Mode -eq 'Validate') {
     try {
         Assert-BaselineBinding -Manifest $manifest
         if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {
             throw '[TASK-DEFINITION-TRANSACTION] candidate task definition missing'
         }
+        $currentCandidateHash = Get-Sha256 -Path $candidatePath
+        $manifest.preview_stale = ($currentCandidateHash -ne [string]$manifest.preview_candidate_sha256)
+        Write-JsonAtomically -Path $manifestPath -Value $manifest
+        Write-Output ("[TASK-DEFINITION-TRANSACTION] preview_stale={0} preview_candidate_sha256={1} current_candidate_sha256={2}" -f $manifest.preview_stale.ToString().ToLowerInvariant(), $manifest.preview_candidate_sha256, $currentCandidateHash)
         $syntaxLog = Invoke-Checker -Name 'syntax' -Arguments @{
             TaskDefinitionFile = $candidatePath
             RepoRoot = $repoRoot
@@ -206,7 +479,7 @@ if ($Mode -eq 'Validate') {
         $manifest.validation_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         $manifest.validation_logs = @($syntaxLog, $focusedLog, $roundLog | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         Set-ManifestState -Manifest $manifest -State 'validated'
-        Write-Output ("[TASK-DEFINITION-TRANSACTION] status=validated ticket={0} candidate_sha256={1}" -f $TicketId, $manifest.validated_candidate_sha256)
+        Write-Output ("[TASK-DEFINITION-TRANSACTION] status=validated ticket={0} candidate_sha256={1} preview_stale={2}" -f $TicketId, $manifest.validated_candidate_sha256, $manifest.preview_stale.ToString().ToLowerInvariant())
         exit 0
     }
     catch {

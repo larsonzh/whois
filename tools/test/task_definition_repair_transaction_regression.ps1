@@ -95,17 +95,37 @@ function Assert-True {
     if (-not $Condition) { throw $Message }
 }
 
+function Set-CandidateOperation {
+    param(
+        [string]$CandidatePath,
+        [AllowEmptyString()][string]$Pattern,
+        [AllowEmptyString()][string]$Replacement
+    )
+    $candidate = Get-Content -LiteralPath $CandidatePath -Raw -Encoding utf8 | ConvertFrom-Json
+    $candidate.rounds.D1.operations[0].pattern = $Pattern
+    $candidate.rounds.D1.operations[0].replacement = $Replacement
+    Write-Utf8Bom -Path $CandidatePath -Text (($candidate | ConvertTo-Json -Depth 16) + "`n")
+}
+
 try {
     $successFixture = New-Fixture -Name 'success'
     $successOriginal = [System.IO.File]::ReadAllBytes($successFixture.TaskPath)
     [void](Invoke-Transaction -Fixture $successFixture -TicketId 'T-SUCCESS' -Mode Prepare -ExpectedExitCode 0)
     $successDir = Join-Path $successFixture.ArtifactRoot 'T-SUCCESS'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'candidate.json')) -Message 'success candidate missing after prepare'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'operation-preview.json')) -Message 'operation preview json missing after prepare'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'operation-preview.txt')) -Message 'decoded operation preview missing after prepare'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'apply-patch-context.txt')) -Message 'apply_patch context missing after prepare'
+    $successPreview = Get-Content -LiteralPath (Join-Path $successDir 'operation-preview.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([int]$successPreview.pattern_match_count -eq 1) -Message 'prepare preview should find one match'
+    Assert-True -Condition ([int]$successPreview.post_replacement_pattern_match_count -eq 0) -Message 'prepare preview should show converged replacement'
+    Assert-True -Condition ([string]$successPreview.candidate_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $successDir 'candidate.json') -Algorithm SHA256).Hash) -Message 'preview candidate hash binding mismatch'
     Assert-True -Condition ([System.Linq.Enumerable]::SequenceEqual([byte[]]$successOriginal, [byte[]][System.IO.File]::ReadAllBytes($successFixture.TaskPath))) -Message 'official changed during prepare'
     $candidateObject = Get-Content -LiteralPath (Join-Path $successDir 'candidate.json') -Raw -Encoding utf8 | ConvertFrom-Json
     $candidateObject.name = 'success-promoted'
     Write-Utf8Bom -Path (Join-Path $successDir 'candidate.json') -Text (($candidateObject | ConvertTo-Json -Depth 16) + "`n")
-    [void](Invoke-Transaction -Fixture $successFixture -TicketId 'T-SUCCESS' -Mode Validate -ExpectedExitCode 0)
+    $successValidationOutput = Invoke-Transaction -Fixture $successFixture -TicketId 'T-SUCCESS' -Mode Validate -ExpectedExitCode 0
+    Assert-True -Condition (($successValidationOutput -join "`n") -match 'preview_stale=true') -Message 'candidate edit should be reported as stale preview'
     [void](Invoke-Transaction -Fixture $successFixture -TicketId 'T-SUCCESS' -Mode Promote -ExpectedExitCode 0)
     $promotedObject = Get-Content -LiteralPath $successFixture.TaskPath -Raw -Encoding utf8 | ConvertFrom-Json
     Assert-True -Condition ([string]$promotedObject.name -eq 'success-promoted') -Message 'official did not receive validated candidate'
@@ -153,9 +173,50 @@ try {
     $quarantineManifest = Get-Content -LiteralPath (Join-Path $quarantineFixture.ArtifactRoot 'T-QUARANTINE\manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
     Assert-True -Condition ([string]$quarantineManifest.state -eq 'quarantined') -Message 'quarantine state missing'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $quarantineFixture.ArtifactRoot 'T-QUARANTINE\candidate.json')) -Message 'quarantined candidate should be retained'
+    [void](Invoke-Transaction -Fixture $quarantineFixture -TicketId 'T-QUARANTINE' -Mode Validate -ExpectedExitCode 1)
+    $quarantineManifestAfterValidate = Get-Content -LiteralPath (Join-Path $quarantineFixture.ArtifactRoot 'T-QUARANTINE\manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([string]$quarantineManifestAfterValidate.state -eq 'quarantined') -Message 'quarantine terminal state was changed by validate'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=quarantine-retained status=pass'
 
-    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=5 fail=0'
+    $inspectFixture = New-Fixture -Name 'inspect-refresh'
+    [void](Invoke-Transaction -Fixture $inspectFixture -TicketId 'T-INSPECT' -Mode Prepare -ExpectedExitCode 0)
+    $inspectDir = Join-Path $inspectFixture.ArtifactRoot 'T-INSPECT'
+    $inspectCandidatePath = Join-Path $inspectDir 'candidate.json'
+    Set-CandidateOperation -CandidatePath $inspectCandidatePath -Pattern 'missing token' -Replacement 'return 2;'
+    $inspectOutput = Invoke-Transaction -Fixture $inspectFixture -TicketId 'T-INSPECT' -Mode Inspect -ExpectedExitCode 0
+    Assert-True -Condition (($inspectOutput -join "`n") -match 'pattern_match_count=0') -Message 'inspect should report zero matches'
+    $inspectManifest = Get-Content -LiteralPath (Join-Path $inspectDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition (-not [bool]$inspectManifest.preview_stale) -Message 'inspect should refresh stale preview binding'
+    Assert-True -Condition ([string]$inspectManifest.preview_candidate_sha256 -eq (Get-FileHash -LiteralPath $inspectCandidatePath -Algorithm SHA256).Hash) -Message 'inspect did not refresh candidate hash binding'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=inspect-zero-match-refresh status=pass'
+
+    $multiFixture = New-Fixture -Name 'multi-match'
+    Write-Utf8Bom -Path $multiFixture.SourcePath -Text "static int target(void)`n{`n    return 1;`n    return 1;`n}`n"
+    $multiOutput = Invoke-Transaction -Fixture $multiFixture -TicketId 'T-MULTI' -Mode Prepare -ExpectedExitCode 0
+    Assert-True -Condition (($multiOutput -join "`n") -match 'pattern_match_count=2') -Message 'prepare should report multiple matches'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=multi-match-preview status=pass'
+
+    $remainsFixture = New-Fixture -Name 'remains-matchable'
+    [void](Invoke-Transaction -Fixture $remainsFixture -TicketId 'T-REMAINS' -Mode Prepare -ExpectedExitCode 0)
+    $remainsCandidatePath = Join-Path $remainsFixture.ArtifactRoot 'T-REMAINS\candidate.json'
+    Set-CandidateOperation -CandidatePath $remainsCandidatePath -Pattern 'return\s+\d;' -Replacement 'return 2;'
+    [void](Invoke-Transaction -Fixture $remainsFixture -TicketId 'T-REMAINS' -Mode Inspect -ExpectedExitCode 0)
+    $remainsPreview = Get-Content -LiteralPath (Join-Path $remainsFixture.ArtifactRoot 'T-REMAINS\operation-preview.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([int]$remainsPreview.post_replacement_pattern_match_count -eq 1) -Message 'preview should expose pattern remaining matchable'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=post-replacement-remains-matchable status=pass'
+
+    $escapeFixture = New-Fixture -Name 'double-escape'
+    [void](Invoke-Transaction -Fixture $escapeFixture -TicketId 'T-ESCAPE' -Mode Prepare -ExpectedExitCode 0)
+    $escapeCandidatePath = Join-Path $escapeFixture.ArtifactRoot 'T-ESCAPE\candidate.json'
+    Set-CandidateOperation -CandidatePath $escapeCandidatePath -Pattern 'return 1;' -Replacement 'return 2;\n'
+    [void](Invoke-Transaction -Fixture $escapeFixture -TicketId 'T-ESCAPE' -Mode Inspect -ExpectedExitCode 0)
+    $escapePreview = Get-Content -LiteralPath (Join-Path $escapeFixture.ArtifactRoot 'T-ESCAPE\operation-preview.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([bool]$escapePreview.possible_double_escape) -Message 'preview should flag literal backslash-n risk'
+    $escapeDecoded = Get-Content -LiteralPath (Join-Path $escapeFixture.ArtifactRoot 'T-ESCAPE\operation-preview.txt') -Raw -Encoding utf8
+    Assert-True -Condition ($escapeDecoded.Contains('possible_double_escape=true')) -Message 'decoded sidecar should expose double escape warning'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=double-escape-warning status=pass'
+
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=9 fail=0'
 }
 finally {
     Remove-Item -LiteralPath $caseRoot -Recurse -Force -ErrorAction SilentlyContinue
