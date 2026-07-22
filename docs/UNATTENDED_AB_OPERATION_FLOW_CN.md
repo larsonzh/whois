@@ -1265,14 +1265,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 顺序：
 
-默认 A reset（仅将 A 作用域内当前为 `BLOCKED` 的字段改为 `NOT_RUN`）：
+默认 A reset（解除 A/SESSION 的 `BLOCKED`，并将 stop 留下的 `B_FINAL_STATUS=BLOCKED` 恢复为 `NOT_RUN`，准备完整 A->B 串行重跑）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -DryRun
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md
 ```
 
-默认 B reset（仅处理 B 作用域内当前为 `BLOCKED` 的字段，并启用 A snapshot 恢复）：
+默认 B reset（先验证 A PASS snapshot；通过后恢复 `A_FINAL_STATUS=PASS`、清零旧 A PID，再解除 B/SESSION 的 `BLOCKED` 并启用 snapshot 恢复）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -Stage B -DryRun
@@ -1280,10 +1280,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 ```
 
 补充：
-- reset 支持 `-Stage A|B`，省略时兼容为 `-Stage A`。默认 reset 只将目标阶段作用域内当前值为 `BLOCKED` 的字段改为 `NOT_RUN`，并设置 `START_ROUND=1`；不会清除 `SESSION_INITIAL_LAUNCH_AT`、失败轮次或其他运行证据，因此从 D1 进入并在原失败轮恢复完整执行。
+- reset 支持 `-Stage A|B`，省略时兼容为 `-Stage A`。默认 A reset 将 A/SESSION 作用域内当前为 `BLOCKED` 的字段及 `B_FINAL_STATUS=BLOCKED` 改为 `NOT_RUN`，因为从 A 重跑代表重新进入完整 A->B 串行链；其他 `B_*` 运行证据保持不变。B reset 必须先验证 A final status 为 PASS 且 snapshot 通过 manifest/hash 检查；通过后将 stop 留下的 `A_FINAL_STATUS=BLOCKED` 归一化为 `PASS`、清零旧 `A_LAUNCH_PID`，再解除 B/SESSION 作用域的 `BLOCKED`，其他 `A_*` 证据保持不变。两者均设置 `START_ROUND=1`，不会清除 `SESSION_INITIAL_LAUNCH_AT`、失败轮次或其他运行证据，因此从 D1 进入并在原失败轮恢复完整执行。
 - `-Stage A -UseTemplateBaseline` 按当前模式重建整份 start-file，保留 A/B 任务定义、窗口与 remote 配置，其余所有键值恢复至初始未运行状态，从仓库基线开始新的 A-D1 完整流程。
-- `-Stage B` 默认 reset 只执行目标作用域内的 `BLOCKED -> NOT_RUN`，并设置 `START_ROUND=1`、`B_RESTORE_FROM_A_SNAPSHOT=true`；保留失败轮、`SESSION_INITIAL_LAUNCH_AT` 和其他运行证据，从 B-D1 进入并在原失败轮恢复完整执行。
-- `-Stage B -UseTemplateBaseline` 要求 A final status 为 PASS 且 `a_success_snapshot` 通过 manifest/hash 检查。该模式不重建 start-file，只执行目标作用域内的 `BLOCKED -> NOT_RUN`，并原位设置 `START_ROUND=1`、`RESUME_FAILED_ROUND=D1`、`B_RESTORE_FROM_A_SNAPSHOT=true`；保留所有其他运行状态，从 A snapshot 基线开始新的 B-D1 完整流程。B launch-ready 仍会再次执行 snapshot 完整性检查。
+- `-Stage B` 默认 reset 要求 A final status 为 PASS 且 `a_success_snapshot` 通过 manifest/hash 检查；失败时不写 start-file。通过后将 `A_FINAL_STATUS` 归一化为 `PASS`、清零 `A_LAUNCH_PID`，执行 B/SESSION 作用域内的 `BLOCKED -> NOT_RUN`，并设置 `START_ROUND=1`、`B_RESTORE_FROM_A_SNAPSHOT=true`；保留失败轮、`SESSION_INITIAL_LAUNCH_AT` 和其他运行证据，从 B-D1 进入并在原失败轮恢复完整执行。
+- `-Stage B -UseTemplateBaseline` 复用相同 A PASS snapshot 门禁。该模式不重建 start-file，而是额外原位设置 `RESUME_FAILED_ROUND=D1`；保留所有其他运行状态，从 A snapshot 基线开始新的 B-D1 完整流程。B launch-ready 仍会再次执行 snapshot 完整性检查。
 
 完整 A 模板基线 reset（委托 create 脚本按当前模式重建 start-file）：
 
@@ -1315,7 +1315,7 @@ reset 操作约束：
 - 先用统一进程快照确认 A/B 业务主进程均已停止；不得在主进程运行期间 reset start-file。
 - 所有写入模式必须先运行对应的 `-DryRun`，核对 `stage`、`reset_scope`、`matched_keys`、`changed_keys` 与逐字段 change 输出后，再去掉 `-DryRun`。
 - 显式 `-ResetFields` 至少要匹配一个目标阶段允许的字段，否则脚本硬失败；B 阶段会过滤所有 `A_*` 字段。
-- 默认 reset 是 `stage-blocked-only`，不会因为 start-file 中存在 `RERUN_FROM_A_STARTFILE_RESET_FIELDS` 就扩大修改范围；只有显式 `-ResetFields` 才进入 `explicit-selectors`。
+- 默认 reset 是 `stage-blocked-only`，不会因为 start-file 中存在 `RERUN_FROM_A_STARTFILE_RESET_FIELDS` 就扩大修改范围；Stage A 唯一允许跨入 B 作用域的字段是 `B_FINAL_STATUS`，用于解除 stop 对后续 B 的串行阻断。只有显式 `-ResetFields` 才进入 `explicit-selectors`。
 - A `-UseTemplateBaseline` 会清除旧 session/recovery 状态并开启新会话；B `-UseTemplateBaseline` 不重建整份文件，只在已验证的 A snapshot 基线上准备新的 B-D1。
 
 然后：

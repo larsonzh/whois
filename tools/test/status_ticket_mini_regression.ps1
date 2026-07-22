@@ -208,6 +208,52 @@ $eventOnlyDefaultPass = ($eventOnlyCreateDefault -and $eventOnlyCreateUsesPolicy
 $eventOnlyDefaultReason = if ($eventOnlyDefaultPass) { 'event-only-default-contract-present' } else { 'missing-event-only-default-contract' }
 [void]$results.Add((Get-CaseResult -Name 'event-only-default-contract' -Pass $eventOnlyDefaultPass -Reason $eventOnlyDefaultReason))
 
+# A reset restarts the serial A->B chain, while B reset must preserve A state.
+$resetProbeRoot = Join-Path $outDir 'reset_stage_scope_runtime'
+New-Item -ItemType Directory -Path $resetProbeRoot -Force | Out-Null
+$resetScriptPath = Resolve-RepoPath -Path 'tools/test/reset_unattended_ab_start_file.ps1'
+$resetTemplatePath = Resolve-RepoPath -Path 'docs/UNATTENDED_AB_START_TEMPLATE_CN.md'
+$stageAResetProbePath = Join-Path $resetProbeRoot 'stage-a.md'
+$stageAResetProbeText = "AB_UNATTENDED_START_V1`nA_FINAL_STATUS=BLOCKED`nB_FINAL_STATUS=BLOCKED`nSESSION_FINAL_STATUS=BLOCKED`nB_RUNTIME_EVIDENCE=BLOCKED`nSTART_ROUND=4`nB_RESTORE_FROM_A_SNAPSHOT=true`n"
+Write-Utf8BomText -Path $stageAResetProbePath -Text $stageAResetProbeText
+$stageABeforeHash = (Get-FileHash -LiteralPath $stageAResetProbePath -Algorithm SHA256).Hash
+$stageADryRunOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $resetScriptPath -StartFile $stageAResetProbePath -TemplateFile $resetTemplatePath -Stage A -DryRun 2>&1 | ForEach-Object { [string]$_ })
+$stageADryRunExit = $LASTEXITCODE
+$stageAAfterDryRunHash = (Get-FileHash -LiteralPath $stageAResetProbePath -Algorithm SHA256).Hash
+$stageAApplyOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $resetScriptPath -StartFile $stageAResetProbePath -TemplateFile $resetTemplatePath -Stage A 2>&1 | ForEach-Object { [string]$_ })
+$stageAApplyExit = $LASTEXITCODE
+$stageAResultText = Get-Content -LiteralPath $stageAResetProbePath -Raw -Encoding utf8
+$stageAResetPass = (
+    $stageADryRunExit -eq 0 -and
+    $stageAApplyExit -eq 0 -and
+    $stageABeforeHash -eq $stageAAfterDryRunHash -and
+    ($stageADryRunOutput -join "`n").Contains('matched_keys=3') -and
+    $stageAResultText.Contains('A_FINAL_STATUS=NOT_RUN') -and
+    $stageAResultText.Contains('B_FINAL_STATUS=NOT_RUN') -and
+    $stageAResultText.Contains('SESSION_FINAL_STATUS=NOT_RUN') -and
+    $stageAResultText.Contains('B_RUNTIME_EVIDENCE=BLOCKED') -and
+    $stageAResultText.Contains('START_ROUND=1') -and
+    $stageAResultText.Contains('B_RESTORE_FROM_A_SNAPSHOT=false')
+)
+
+$stageBResetProbePath = Join-Path $resetProbeRoot 'stage-b-invalid-snapshot.md'
+$stageBResetProbeText = "AB_UNATTENDED_START_V1`nA_TASK_DEFINITION=testdata/autopilot_code_step_tasks_template.json`nA_SUCCESS_SNAPSHOT_FINAL_STATUS=<missing>`nA_FINAL_STATUS=BLOCKED`nB_FINAL_STATUS=BLOCKED`nSESSION_FINAL_STATUS=BLOCKED`nSTART_ROUND=4`nB_RESTORE_FROM_A_SNAPSHOT=false`n"
+Write-Utf8BomText -Path $stageBResetProbePath -Text $stageBResetProbeText
+$stageBBeforeHash = (Get-FileHash -LiteralPath $stageBResetProbePath -Algorithm SHA256).Hash
+$stageBApplyOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $resetScriptPath -StartFile $stageBResetProbePath -TemplateFile $resetTemplatePath -Stage B 2>&1 | ForEach-Object { [string]$_ })
+$stageBApplyExit = $LASTEXITCODE
+$stageBAfterHash = (Get-FileHash -LiteralPath $stageBResetProbePath -Algorithm SHA256).Hash
+$stageBResetPass = (
+    $stageBApplyExit -ne 0 -and
+    $stageBBeforeHash -eq $stageBAfterHash -and
+    ($stageBApplyOutput -join "`n").Contains('requires an existing A_SUCCESS_SNAPSHOT_FINAL_STATUS') -and
+    $resetStartFileText.Contains("`$additionalValues['A_FINAL_STATUS'] = 'PASS'") -and
+    $resetStartFileText.Contains("`$additionalValues['A_LAUNCH_PID'] = '0'")
+)
+$resetStageScopePass = ($stageAResetPass -and $stageBResetPass)
+$resetStageScopeReason = if ($resetStageScopePass) { 'reset-stage-scope-runtime-present' } else { 'reset-stage-scope-runtime-missing' }
+[void]$results.Add((Get-CaseResult -Name 'reset-stage-scope-runtime' -Pass $resetStageScopePass -Reason $resetStageScopeReason))
+
 # Identical compile/verify fingerprints must accumulate across stage restarts.
 $identicalFingerprintMatchesA = $stageWindowText.Contains('$aFailureFingerprint -eq $aPreviousFailureFingerprint') -and $stageWindowText.Contains('$aFailureMainRound -eq $aPreviousFailureMainRound') -and $stageWindowText.Contains('$aFailurePhase -eq $aPreviousFailurePhase')
 $identicalFingerprintMatchesB = $stageWindowText.Contains('$bFailureFingerprint -eq $bPreviousFailureFingerprint') -and $stageWindowText.Contains('$bFailureMainRound -eq $bPreviousFailureMainRound') -and $stageWindowText.Contains('$bFailurePhase -eq $bPreviousFailurePhase')

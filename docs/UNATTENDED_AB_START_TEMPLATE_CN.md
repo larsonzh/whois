@@ -153,9 +153,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - `create_unattended_ab_start_file.ps1 -Mode all-modes` 可一次性生成四种模式文件：`normal` 保持基名，另外三种模式自动附加 `_anti_missent`、`_low_disturb`、`_event_only` 后缀。
 - `create_unattended_ab_start_file.ps1` 生成的启动文件会强制写为 UTF-8 with BOM + LF，便于中文字段与 PowerShell 5.1 稳定解析。
 - `create_unattended_ab_start_file.ps1` 默认输出到 `testdata/unattended_start/active/`；如需生成 smoke 启动文件可加 `-OutputCategory smoke`。
-- `reset_unattended_ab_start_file.ps1` 支持 `-Stage A|B`（默认 A），并提供 `-DryRun`。默认 reset 只将目标阶段作用域内当前值为 `BLOCKED` 的字段改为 `NOT_RUN`，同时设置 `START_ROUND=1`；保留 `RESUME_FAILED_ROUND`、`SESSION_INITIAL_LAUNCH_AT` 及其他运行证据，从对应阶段 D1 进入并在原失败轮恢复完整执行。
+- `reset_unattended_ab_start_file.ps1` 支持 `-Stage A|B`（默认 A），并提供 `-DryRun`。默认 `-Stage A` 为串行 A->B 链重跑：将 A/SESSION 作用域内当前为 `BLOCKED` 的字段及 `B_FINAL_STATUS=BLOCKED` 改为 `NOT_RUN`，使 A PASS 后可正常进入 B；其他 `B_*` 运行证据保持不变。`-Stage B` 必须先验证 A final status 为 PASS 且 snapshot 通过 manifest/hash 检查；验证通过后将 stop 留下的 `A_FINAL_STATUS=BLOCKED` 恢复为 `PASS`、清零旧 `A_LAUNCH_PID`，再解除 B/SESSION 作用域的 `BLOCKED`，其他 `A_*` 证据保持不变。两者均设置 `START_ROUND=1`，保留 `RESUME_FAILED_ROUND`、`SESSION_INITIAL_LAUNCH_AT` 及其他运行证据，从对应阶段 D1 进入并在原失败轮恢复完整执行。
 - `-Stage A -UseTemplateBaseline` 会按当前模式重建 start-file，保留任务定义、窗口与 remote 配置，其余所有键值恢复至初始未运行状态，从仓库基线开始新的 A-D1 完整流程。
-- `-Stage B` 默认 reset 只执行目标作用域内的 `BLOCKED -> NOT_RUN`，并设置 `B_RESTORE_FROM_A_SNAPSHOT=true`；`-Stage B -UseTemplateBaseline` 要求 A final status 为 PASS 且 snapshot 通过 manifest/hash 检查，不重建 start-file，而是原位设置 `START_ROUND=1`、`RESUME_FAILED_ROUND=D1`、`B_RESTORE_FROM_A_SNAPSHOT=true`，从 A snapshot 基线开始新的 B-D1 完整流程并保留其他运行状态。
+- `-Stage B` 默认 reset 先验证 A PASS snapshot，验证失败时不写 start-file；通过后将 `A_FINAL_STATUS` 归一化为 `PASS`、`A_LAUNCH_PID` 清零，执行 B/SESSION 作用域内的 `BLOCKED -> NOT_RUN`，并设置 `B_RESTORE_FROM_A_SNAPSHOT=true`。`-Stage B -UseTemplateBaseline` 复用相同门禁，不重建 start-file，而是额外原位设置 `START_ROUND=1`、`RESUME_FAILED_ROUND=D1`，从 A snapshot 基线开始新的 B-D1 完整流程并保留其他运行状态。
 
 ### 任务启动文件（从模板生成）
 

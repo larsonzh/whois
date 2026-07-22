@@ -309,7 +309,7 @@ function Assert-BSnapshotBaseline {
         ''
     }
     if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw) -or $snapshotStatusRaw -match '^<.*>$') {
-        throw 'Stage B template baseline reset requires an existing A_SUCCESS_SNAPSHOT_FINAL_STATUS.'
+        throw 'Stage B reset requires an existing A_SUCCESS_SNAPSHOT_FINAL_STATUS.'
     }
 
     $snapshotStatusPath = Resolve-RepoPath -Path $snapshotStatusRaw -MustExist $true
@@ -317,15 +317,15 @@ function Assert-BSnapshotBaseline {
         $snapshotStatus = Get-Content -LiteralPath $snapshotStatusPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
     }
     catch {
-        throw "Stage B template baseline reset requires valid A final-status JSON: $snapshotStatusPath"
+        throw "Stage B reset requires valid A final-status JSON: $snapshotStatusPath"
     }
     if (([string]$snapshotStatus.Result).Trim().ToUpperInvariant() -ne 'PASS') {
-        throw "Stage B template baseline reset requires A final status PASS: $snapshotStatusPath"
+        throw "Stage B reset requires A final status PASS: $snapshotStatusPath"
     }
 
     $snapshotDir = Join-Path (Split-Path -Parent $snapshotStatusPath) 'a_success_snapshot'
     if (-not (Test-Path -LiteralPath $snapshotDir)) {
-        throw "Stage B template baseline reset requires an existing A snapshot directory: $snapshotDir"
+        throw "Stage B reset requires an existing A snapshot directory: $snapshotDir"
     }
     $aTaskDefinitionPath = Resolve-RepoPath -Path $ATaskDefinition -MustExist $true
     $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
@@ -342,7 +342,7 @@ $defaultSelectorText = 'PRECHECK_*;START_ROUND;B_RESTORE_FROM_A_SNAPSHOT;NETWORK
 
 $startState = Get-StartFileState -StartFilePath $startFilePath
 
-if ($UseTemplateBaseline.IsPresent -and $Stage -eq 'B') {
+if ($Stage -eq 'B') {
     $aTaskDefinition = if ($startState.Map.Contains('A_TASK_DEFINITION')) { [string]$startState.Map['A_TASK_DEFINITION'] } else { '' }
     Assert-BSnapshotBaseline -StartFileMap $startState.Map -ATaskDefinition $aTaskDefinition
 }
@@ -422,7 +422,12 @@ else {
     $keysToReset = @($startState.OrderedKeys | Where-Object {
         $key = [string]$_
         $value = if ($startState.Map.Contains($key)) { ([string]$startState.Map[$key]).Trim() } else { '' }
-        $inStageScope = if ($Stage -eq 'A') { $key -notmatch '^B_' } else { $key -notmatch '^A_' }
+        $inStageScope = if ($Stage -eq 'A') {
+            $key -notmatch '^B_' -or $key -eq 'B_FINAL_STATUS'
+        }
+        else {
+            $key -notmatch '^A_'
+        }
         $inStageScope -and $value -ceq 'BLOCKED'
     })
 }
@@ -431,6 +436,8 @@ $newLines = @($startState.Lines)
 $additionalValues = [ordered]@{}
 $additionalValues['START_ROUND'] = '1'
 if ($Stage -eq 'B') {
+    $additionalValues['A_FINAL_STATUS'] = 'PASS'
+    $additionalValues['A_LAUNCH_PID'] = '0'
     $additionalValues['B_RESTORE_FROM_A_SNAPSHOT'] = 'true'
     if ($UseTemplateBaseline.IsPresent) {
         $additionalValues['RESUME_FAILED_ROUND'] = 'D1'
