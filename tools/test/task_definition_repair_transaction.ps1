@@ -178,13 +178,13 @@ function Write-OperationPreview {
         $pattern = [string]$operation.pattern
         $replacement = [string]$operation.replacement
         $regex = [regex]::new($pattern, $regexOptions, $regexTimeout)
-        $matches = $regex.Matches($workingText)
+        $operationMatches = $regex.Matches($workingText)
         $status = 'not-applied'
-        if ($matches.Count -eq 1) {
+        if ($operationMatches.Count -eq 1) {
             $workingText = $regex.Replace($workingText, $replacement, 1)
             $status = 'applied'
         }
-        elseif ($matches.Count -eq 0) {
+        elseif ($operationMatches.Count -eq 0) {
             $markers = @($operation.idempotentContains | ForEach-Object { [string]$_ })
             $markerFound = $false
             foreach ($marker in $markers) {
@@ -197,7 +197,7 @@ function Write-OperationPreview {
         }
         $simulation.Add([ordered]@{
             operation_index = $index + 1
-            match_count = $matches.Count
+            match_count = $operationMatches.Count
             status = $status
         })
         if ($status -eq 'not-applied') { break }

@@ -6946,7 +6946,7 @@ try {
                         [bool]$aExitEvidenceForIncident.StartFileMatch -and
                         [bool]$aExitEvidenceForIncident.ProcessIdMatch -and
                         [string]$aExitEvidenceForIncident.Result -eq 'fail' -and
-                        [string]$aExitEvidenceForIncident.FailCategory -eq 'runtime-fail'
+                        -not (Test-IsRoundFailureCategory -Category ([string]$aExitEvidenceForIncident.FailCategory))
                     )
                 }
 
@@ -6961,7 +6961,7 @@ try {
 
                 if ($suppressDuplicateAExitIncident) {
                     $lastIncidentSignature = $statusSignature
-                    Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-runtime-fail-covered-by-main-process-exit-review artifact={0}' -f [string]$aExitEvidenceForIncident.ArtifactPath)
+                    Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-non-round-exit-covered-by-main-process-exit-review category={0} artifact={1}' -f [string]$aExitEvidenceForIncident.FailCategory, [string]$aExitEvidenceForIncident.ArtifactPath)
                 }
                 elseif ($incidentGenerationSignature -eq $persistedIncidentGeneration) {
                     $lastIncidentSignature = $statusSignature
