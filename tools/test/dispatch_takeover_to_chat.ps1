@@ -574,8 +574,8 @@ function Format-DispatchMessage {
         [AllowEmptyString()][string]$Message,
         [bool]$AppendAdvisory = $true,
         [bool]$UseChinese = $false,
-        [ValidateRange(20, 1000)][int]$MaxLines = 120,
-        [ValidateRange(200, 20000)][int]$MaxChars = 4000
+        [ValidateRange(0, 1000)][int]$MaxLines = 0,
+        [ValidateRange(0, 20000)][int]$MaxChars = 0
     )
 
     $result = [ordered]@{
@@ -753,7 +753,7 @@ function Format-DispatchMessage {
     }
 
     $lineArray = @($dedupedLines.ToArray())
-    if ($lineArray.Length -gt $MaxLines) {
+    if ($MaxLines -gt 0 -and $lineArray.Length -gt $MaxLines) {
         $headCount = [Math]::Max(1, [int][Math]::Floor([double]$MaxLines * 0.65))
         $tailCount = [Math]::Max(1, $MaxLines - $headCount - 1)
         $headPart = @($lineArray | Select-Object -First $headCount)
@@ -766,7 +766,7 @@ function Format-DispatchMessage {
     }
 
     $sanitizedMessage = (($lineArray -join "`n").Trim())
-    if ($sanitizedMessage.Length -gt $MaxChars) {
+    if ($MaxChars -gt 0 -and $sanitizedMessage.Length -gt $MaxChars) {
         $marker = '[filtered-transcript-truncated-chars]'
         $contentBudget = [Math]::Max(64, $MaxChars - $marker.Length - 20)
         $headChars = [Math]::Max(32, [int][Math]::Floor([double]$contentBudget * 0.65))

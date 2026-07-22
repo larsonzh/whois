@@ -43,6 +43,7 @@
 - 定时节拍由常驻监控脚本提供（例如 guard/supervisor 的循环 + sleep），并通过工单队列向会话暴露待执行动作。
 - `poll_agent_tickets.ps1` 为单次轮询消费器：每次执行读取当前队列快照。需要自动恢复的事故票可输出 `recovery_transaction_command`，由它在同一事务中按当前工单字段执行 `business_command`、`continue_watch_command` 与唯一的 `atomic_closeout_command`；业务动作成功后只执行一次事务/原子收尾。三类阻断/通告票不输出业务或继续监控命令，只输出 `route_guard_command -> atomic_closeout_command`。`mark_processed_command` 等旧分步字段仅作审计兼容，不进入事件票 `next_command_order`，不得逐条执行。
 - 默认推荐闭环是“guard 产票 + trigger/dispatch 投送 + 会话内 AI 串行执行已投送工单”。Agent 不得自行创建定时巡检、轮询循环或周期性调用 poll/heartbeat。
+- Dispatch 消息完整性：票据模板、路由规则、恢复命令与机器事实门禁均属于业务正文，默认不得按统一字符数或行数从中间截断。`Format-DispatchMessage` 只默认过滤可识别的命令面板/终端 transcript 噪声并折叠连续重复行；仅由专用调用方显式传入 `MaxChars`/`MaxLines` 时才允许有界截断。该规则适用于代码修复、脚本修复/只诊断、noncode、状态票、终态和 manual/budget/infra 通告等全部分支。
 - 若会话终止，已投送工单不会由 AI 完成；guard 可以继续监控和产票，但不会自动完成业务动作闭环。
 - 如需完全脱离会话的人值守，可在外层增加独立调度器；该模式不属于本文默认路径。
 

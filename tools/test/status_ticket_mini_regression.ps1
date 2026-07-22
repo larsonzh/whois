@@ -295,6 +295,42 @@ if ($ContractGateOnly.IsPresent) {
     $launchReadyDiagnosticReason = if ($launchReadyDiagnosticPass) { 'launch-ready-native-stderr-and-failure-detail-preserved' } else { 'launch-ready-diagnostics-can-terminate-or-collapse' }
     [void]$results.Add((Get-CaseResult -Name 'launch-ready-diagnostic-preservation' -Pass $launchReadyDiagnosticPass -Reason $launchReadyDiagnosticReason))
 
+    $dispatchParseTokens = $null
+    $dispatchParseErrors = $null
+    $dispatchAst = [System.Management.Automation.Language.Parser]::ParseFile($dispatchPath, [ref]$dispatchParseTokens, [ref]$dispatchParseErrors)
+    $formatDispatchFunction = $dispatchAst.Find({
+        param($node)
+        return ($node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Format-DispatchMessage')
+    }, $true)
+    $dispatchMessageIntegrityPass = $false
+    $dispatchMessageIntegrityReason = 'format-dispatch-function-missing'
+    if ($null -ne $formatDispatchFunction) {
+        Invoke-Expression $formatDispatchFunction.Extent.Text
+        $longBusinessMessage = 'business-start ' + ('x' * 5000) + ' business-end'
+        $longBusinessResult = Format-DispatchMessage -Message $longBusinessMessage -AppendAdvisory $false
+        $explicitCapResult = Format-DispatchMessage -Message $longBusinessMessage -AppendAdvisory $false -MaxChars 4000
+        $explicitLineCapMessage = ((1..30 | ForEach-Object { "business-line-$_" }) -join "`n")
+        $explicitLineCapResult = Format-DispatchMessage -Message $explicitLineCapMessage -AppendAdvisory $false -MaxLines 20
+        $transcriptMessage = "business-before`nTerminal: PowerShell Extension`nPS D:\repo> powershell -File noisy.ps1`nnoisy output`n`nsummary: business-after"
+        $transcriptResult = Format-DispatchMessage -Message $transcriptMessage -AppendAdvisory $false
+        $dispatchMessageIntegrityPass = (
+            [string]$longBusinessResult.message -ceq $longBusinessMessage -and
+            -not [bool]$longBusinessResult.truncated -and
+            -not ([string]$longBusinessResult.message).Contains('[filtered-transcript-truncated-') -and
+            [bool]$explicitCapResult.truncated -and
+            ([string]$explicitCapResult.message).Contains('[filtered-transcript-truncated-chars]') -and
+            [bool]$explicitLineCapResult.truncated -and
+            ([string]$explicitLineCapResult.message).Contains('[filtered-transcript-truncated-lines omitted=') -and
+            [bool]$transcriptResult.sanitized -and
+            -not ([string]$transcriptResult.message).Contains('PowerShell Extension') -and
+            -not ([string]$transcriptResult.message).Contains('noisy.ps1') -and
+            ([string]$transcriptResult.message).Contains('business-before') -and
+            ([string]$transcriptResult.message).Contains('summary: business-after')
+        )
+        $dispatchMessageIntegrityReason = if ($dispatchMessageIntegrityPass) { 'long-business-content-preserved-and-transcript-noise-filtered' } else { 'business-content-truncated-or-transcript-filter-regressed' }
+    }
+    [void]$results.Add((Get-CaseResult -Name 'dispatch-message-content-integrity' -Pass $dispatchMessageIntegrityPass -Reason $dispatchMessageIntegrityReason))
+
     $warmWindowIsolationPass = (
         -not $recoveryTransactionText.Contains('status_ticket_mini_regression.ps1') -and
         -not $recoveryTransactionText.Contains('contract_gate_command') -and
