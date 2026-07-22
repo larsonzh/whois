@@ -283,6 +283,18 @@ if ($ContractGateOnly.IsPresent) {
     $retryBudgetFastPathReason = if ($retryBudgetFastPathPass) { 'retry-budget-regression-uses-shared-seed-and-ack-only-path' } else { 'retry-budget-regression-returned-to-repeated-selection' }
     [void]$results.Add((Get-CaseResult -Name 'retry-budget-regression-fast-path' -Pass $retryBudgetFastPathPass -Reason $retryBudgetFastPathReason))
 
+    $launchReadyDiagnosticPass = (
+        $launchReadyText.Contains("Start-Process -FilePath 'powershell.exe'") -and
+        $launchReadyText.Contains('-RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath') -and
+        $launchReadyText.Contains('status=DONE exit_code={1}') -and
+        $stageWindowText.Contains("`$previousErrorActionPreference = `$ErrorActionPreference") -and
+        $stageWindowText.Contains("`$ErrorActionPreference = 'Continue'") -and
+        $stageWindowText.Contains('single_instance_conflict|severity=error|warning_gate=fail|error=') -and
+        $stageWindowText.Contains('detail=$failureDetailText')
+    )
+    $launchReadyDiagnosticReason = if ($launchReadyDiagnosticPass) { 'launch-ready-native-stderr-and-failure-detail-preserved' } else { 'launch-ready-diagnostics-can-terminate-or-collapse' }
+    [void]$results.Add((Get-CaseResult -Name 'launch-ready-diagnostic-preservation' -Pass $launchReadyDiagnosticPass -Reason $launchReadyDiagnosticReason))
+
     $warmWindowIsolationPass = (
         -not $recoveryTransactionText.Contains('status_ticket_mini_regression.ps1') -and
         -not $recoveryTransactionText.Contains('contract_gate_command') -and
@@ -408,8 +420,9 @@ $operationFlowHasPassiveWaitContract = $operationFlowText.Contains('guard/trigge
 $copilotHasPassiveWaitHardRule = $copilotInstructionsText.Contains('**运行期被动收票与三分钟收尾（硬规则）**') -and $copilotInstructionsText.Contains('禁止 Agent 自行创建或运行定时巡检监控脚本') -and $copilotInstructionsText.Contains('不是 Agent 可执行的事务总墙钟超时或强杀授权') -and $copilotInstructionsText.Contains('等待该同步命令自然退出')
 $guardHasPassiveWaitTicketSuffix = $sessionGuardText.Contains('wait silently for the next ticket delivered by guard/trigger/dispatch') -and $sessionGuardText.Contains('not an agent-enforced transaction timeout') -and $sessionGuardText.Contains('never kill, Stop-Process') -and $sessionGuardText.Contains('long-running cross-round monitoring commands')
 $stageWindowHasPassiveWaitTicketSuffix = ([regex]::Matches($stageWindowText, 'not an agent-enforced transaction timeout')).Count -ge 3 -and $stageWindowText.Contains('never kill, Stop-Process') -and $stageWindowText.Contains('long-running cross-round monitoring commands')
+$stageWindowPreservesLaunchReadyDiagnostics = $stageWindowText.Contains("`$previousErrorActionPreference = `$ErrorActionPreference") -and $stageWindowText.Contains("`$ErrorActionPreference = 'Continue'") -and $stageWindowText.Contains('single_instance_conflict|severity=error|warning_gate=fail|error=') -and $stageWindowText.Contains('detail=$failureDetailText')
 $dispatchHasPassiveWaitSuffixes = $dispatchText.Contains("`$passiveWaitSuffixEn = ' Follow every ticket step without omission") -and $dispatchText.Contains("`$passiveWaitSuffixZh = ' 严格按票据流程执行") -and $dispatchText.Contains('not an agent-enforced wall-clock timeout') -and $dispatchText.Contains('不得仅因超过 3 分钟或 240 秒') -and $dispatchText.Contains('Add-PassiveWaitConstraint') -and $dispatchText.Contains('$selectedPassiveWaitSuffix = if ($useChineseDispatchMessage)') -and $dispatchText.Contains('Add-PassiveWaitConstraint -Template $runningStatusFullMessage -Suffix $selectedPassiveWaitSuffix')
-$passiveTicketWaitPass = ($promptHasPassiveWaitInAllVariants -and $templateHasPassiveWaitContract -and $operationFlowHasPassiveWaitContract -and $copilotHasPassiveWaitHardRule -and $guardHasPassiveWaitTicketSuffix -and $stageWindowHasPassiveWaitTicketSuffix -and $dispatchHasPassiveWaitSuffixes)
+$passiveTicketWaitPass = ($promptHasPassiveWaitInAllVariants -and $templateHasPassiveWaitContract -and $operationFlowHasPassiveWaitContract -and $copilotHasPassiveWaitHardRule -and $guardHasPassiveWaitTicketSuffix -and $stageWindowHasPassiveWaitTicketSuffix -and $stageWindowPreservesLaunchReadyDiagnostics -and $dispatchHasPassiveWaitSuffixes)
 $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-contract-present' } else { 'missing-passive-ticket-wait-contract' }
 [void]$results.Add((Get-CaseResult -Name 'passive-ticket-wait-no-agent-polling' -Pass $passiveTicketWaitPass -Reason $passiveTicketWaitReason))
 

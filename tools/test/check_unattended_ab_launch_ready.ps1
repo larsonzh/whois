@@ -247,10 +247,50 @@ function Invoke-PowerShellScriptStep {
     $stepName = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath)
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=START' -f $stepName))
-    $lines = @((& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1) | ForEach-Object { [string]$_ })
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-    $stopwatch.Stop()
-    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=DONE exit_code={1} elapsed_ms={2}' -f $stepName, $exitCode, $stopwatch.ElapsedMilliseconds))
+    $lines = @()
+    $exitCode = 1
+    $process = $null
+    $token = [guid]::NewGuid().ToString('N')
+    $stdoutPath = Join-Path $env:TEMP ('whois-launch-ready-{0}.stdout' -f $token)
+    $stderrPath = Join-Path $env:TEMP ('whois-launch-ready-{0}.stderr' -f $token)
+    try {
+        $processArguments = @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $ScriptPath)
+        )
+        foreach ($argument in @($Arguments)) {
+            $argumentText = [string]$argument
+            if ($argumentText -match '[\s"]') {
+                $argumentText = '"{0}"' -f $argumentText.Replace('"', '\"')
+            }
+            $processArguments += $argumentText
+        }
+
+        $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $processArguments `
+            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $exitCode = [int]$process.ExitCode
+        if (Test-Path -LiteralPath $stdoutPath -PathType Leaf) {
+            $lines += @(Get-Content -LiteralPath $stdoutPath | ForEach-Object { [string]$_ })
+        }
+        if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+            $lines += @(Get-Content -LiteralPath $stderrPath | ForEach-Object { [string]$_ })
+        }
+    }
+    catch {
+        $lines = @($lines) + @([string]$_.Exception.Message)
+        $exitCode = 1
+    }
+    finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+        foreach ($temporaryPath in @($stdoutPath, $stderrPath)) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+        $stopwatch.Stop()
+        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=DONE exit_code={1} elapsed_ms={2}' -f $stepName, $exitCode, $stopwatch.ElapsedMilliseconds))
+    }
 
     return [pscustomobject]@{
         ExitCode = $exitCode

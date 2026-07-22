@@ -1167,7 +1167,9 @@ function Invoke-LaunchReadyGate {
 
     $outputLines = New-Object 'System.Collections.Generic.List[string]'
     $exitCode = 1
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = 'Continue'
         & $powershellPath @launchReadyArgs 2>&1 | ForEach-Object {
             $line = [string]$_
             [void]$outputLines.Add($line)
@@ -1184,6 +1186,9 @@ function Invoke-LaunchReadyGate {
         if (-not [string]::IsNullOrWhiteSpace($fallbackLine)) {
             Write-Output $fallbackLine
         }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
     $outputLines = @($outputLines)
@@ -1204,7 +1209,24 @@ function Invoke-LaunchReadyGate {
     }
 
     if ($exitCode -ne 0 -or $resultValue -ne 'PASS') {
-        $reason = "LAUNCH_READY_GATE_FAIL exit=$exitCode result=$resultValue"
+        $failureDetail = @($outputLines | Where-Object {
+            (Convert-ToSingleLineText -Text ([string]$_)) -match 'single_instance_conflict|severity=error|warning_gate=fail|error='
+        } | Select-Object -Last 1)
+        if ($failureDetail.Count -eq 0) {
+            $failureDetail = @($outputLines | Where-Object {
+            $text = (Convert-ToSingleLineText -Text ([string]$_)).Trim()
+            -not [string]::IsNullOrWhiteSpace($text) -and
+            $text -notmatch '^\[AB-LAUNCH-READY-PROGRESS\].*status=START$' -and
+                $text -match 'result=FAIL|blocked|no-output'
+            } | Select-Object -Last 1)
+        }
+        $failureDetailText = if ($failureDetail.Count -gt 0) {
+            Convert-ToSingleLineText -Text ([string]$failureDetail[0])
+        }
+        else {
+            'no failure detail returned'
+        }
+        $reason = "LAUNCH_READY_GATE_FAIL exit=$exitCode result=$resultValue detail=$failureDetailText"
         Invoke-KeyValueFileValueUpdateCore -Path $StartFilePath -Values @{
             PRECHECK_START_GATE = 'BLOCKED'
             PRECHECK_START_BLOCKER = $reason
