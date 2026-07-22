@@ -57,7 +57,7 @@
    - 必须先确认前序构建完成，或明确清理失效锁后，才能继续本轮执行。
 13. 事件驱动票中的既定工作内容视为预授权动作，并严格按各票 `next_command_order` 执行。定时状态票是例外：只允许只读状态查询、状态汇报与 `handled_at` 回执，不得执行 `continue_watch_command`、恢复命令或任何影响无人值守进程持续运行的动作。
    - 工单处理完成后继续静默等待下一条投送消息；无需用户再次确认，也不得通过自建 timer、循环、后台 job、watcher 或常驻 PowerShell 命令主动巡检。
-14. 代码自愈修复不允许直接修改源码；只能使用 VS Code `apply_patch` 修改当前阶段任务定义 JSON，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。若改动了任务定义，必须依次通过 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）和当前故障 D 轮递进严格检查，才允许重启或 resume；后续轮由实际 code-step 检查。重启时只能启动当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
+14. 代码自愈修复不允许直接修改源码或正式任务定义；必须先用 `tools/test/task_definition_repair_transaction.ps1 -Mode Prepare` 建立哈希绑定事务，只使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`，再依次执行 `Validate` 与 `Promote`。验证包含 SyntaxOnly、故障目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；成功提升后删除候选与基线，失败或漂移时保留现场。发现工具参数污染时必须 `-Mode Quarantine` 并禁止提升。禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。只有提升成功才允许重启或 resume；后续轮由实际 code-step 检查。重启时只能启动当前票据对应阶段的主进程，A 问题只重启 A，B 问题只重启 B。
 15. 如确需临时脚本，只能放在 `tmp/` 目录，用完删除。
 16. 对 `running-status-report`，只汇报观测到的运行状态；healthy 时写“运行正常”，异常时只描述异常与待处理事故票，不提供或执行修复路径。不得仅凭历史失败证据推断需要重启 B。运行期不得手工创建 `chat_heartbeat*.jsonl`、额外 handled 回执文件，也不得在未获同意时创建非 `tmp/` 新脚本。
 17. 无人值守运行期间禁止执行提交与推送操作（如 `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
@@ -218,7 +218,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
    - 若改动了任务定义，先运行 SyntaxOnly，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 对故障 op 做目标检查，再只对当前故障 D 轮运行不带 `-OperationIndex` 的递进严格检查；不得预演后续轮阻断恢复。工单内可按首错诊断反复调用 checker，调用次数不消耗相同指纹主进程重启预算。检查通过后才允许 `stage_restart` / `business_resume`，并且只能重启该票据对应阶段。
    - 只有设计阶段确认整轮无代码变更目标时才允许最小 `type=noop`；运行时发现前置轮已吸收、replacement 已存在或 pattern 不再命中时，必须保持 `regex-patch` 并以逐 op 自有 marker 表达 `absorbed-by-prior-round` / `idempotent-replay`，禁止改成 noop 绕过门禁。
 - `incident-auto-resume-noncode` / `incident-manual-noncode`：只做环境/监控链/瞬态稳定化，不改源码也不改任务定义。
-- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报告阻塞、预算或基础设施状态并回执，不进入自愈重启。
+- `notice-manual-wait` / `notice-budget-exhausted` / `notice-known-infra-transient`：只报告阻塞、预算或基础设施状态并回执，不进入自愈重启。相同指纹预算耗尽时必须投送结构化 `manual-wait-paused`，包含 `hard_block=true`、原因、指纹、当前重试数、上限、`auto_restart_allowed=false` 与任务定义路径；不得无提示退出。
 
 补充约束：
 - 接管 brief 中如果已经知道是 code-fix 场景，要把目标 stage / round / task-definition 文件名写出来，不要只写“修 scripts and code”。

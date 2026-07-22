@@ -441,6 +441,7 @@ $timestampDirectoryPlans = @(
 )
 
 $directoryPlans = @(
+    @{ Keep = 20; RelativePath = "out/artifacts/task_definition_repair" },
     @{ Keep = 8; RelativePath = "out/artifacts/batch_raw" },
     @{ Keep = 8; RelativePath = "out/artifacts/batch_health" },
     @{ Keep = 8; RelativePath = "out/artifacts/batch_plan" },

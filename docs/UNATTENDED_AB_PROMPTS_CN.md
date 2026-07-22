@@ -13,7 +13,7 @@
 
 模式补充：
 - 所有 `running-status-report` 均为只读状态汇报票：只读取运行状态并回传 `handled_at`，禁止自愈修复、故障处理、主进程/guard 重启、`business_resume`、文件修改、环境稳定化或任何恢复动作。异常只汇报并等待独立事故票。
-- `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
+- `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。相同指纹重试预算耗尽时必须投送结构化 `manual-wait-paused`，至少包含 `hard_block=true`、`hard_block_reason`、`failure_fingerprint`、`retry_count`、`retry_limit`、`auto_restart_allowed=false` 与 `task_definition`，不得静默退出。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
 - 运行期工单由现有 guard/trigger/dispatch 链生成并投送到会话。AI 只需静默等待已投送的事件驱动票或状态票；收到后严格按 `next_command_order` 执行，不遗漏操作。事件票若提供 `recovery_transaction_command`，优先只执行一次该“恢复+闭环事务”；否则最终只执行一次 `atomic_closeout_command`。仅在对应机器事实门禁全部通过后声称闭环。不得自行启动 heartbeat/poll 定时巡检，不得创建监控脚本、循环、后台 job、watcher、常驻 PowerShell 命令或长时间跨轮次巡检命令；等待本身不需要执行任何命令。通过标准 stage window 重启主进程后，必须在 3 分钟内完成事务/原子收尾并通过全部机器事实门禁，然后静默等待；3 分钟不是巡检窗口。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
@@ -38,7 +38,7 @@
 - 最终收尾时，必须显式上报会话结束日期时间；若回传 session_closed_at，需与该时间一致。
 
 执行规则：
-1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具；禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。格式化器仅可做不改变 JSON 值、数组顺序或 operation 结构的机械格式化。编辑后依次执行 SyntaxOnly 装载检查、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查；后续轮检查范围服从 start-file 的 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED`，默认关闭时不得预演后续轮，开启时当前轮通过后按顺序逐轮检查到 D4。
+1. 只允许使用仓库现有入口脚本与既有流程，不准新写脚本、不准自创 wrapper、不准依赖隐式默认值。任务定义修复必须先用 `tools/test/task_definition_repair_transaction.ps1 -Mode Prepare` 建立哈希绑定候选，只允许使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`，禁止直接编辑正式任务定义。随后按 `Validate -> Promote` 原子提升；成功后候选与基线自动删除，失败或漂移时保留现场。工具参数污染必须执行 `-Mode Quarantine` 并禁止提升。禁止用终端内联 Python、多层 `powershell -Command`、here-string、重定向、通用字符串替换或格式化器修改任务定义。验证依次包含 SyntaxOnly、故障目标 op 快检（可定位时）、当前故障 D 轮递进严格检查；后续轮检查范围服从 start-file 的 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED`，默认关闭时不得预演后续轮，开启时当前轮通过后按顺序逐轮检查到 D4。
 2. 准备阶段可直接运行统一检查脚本 tools/test/check_unattended_ab_launch_ready.ps1；不要为每个检查子项逐项申请授权。
 3. 只有当统一检查整体 PASS 后，才向用户提一次最终授权；只有用户明确下达“启动 A（带 -StartMonitors）”或等价命令后，才允许真正启动。
 4. 标准启动入口只能是 tools/test/open_unattended_ab_stage_window.ps1，并且命令必须显式带 -StartMonitors。

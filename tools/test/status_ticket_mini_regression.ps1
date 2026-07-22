@@ -208,6 +208,15 @@ $eventOnlyDefaultPass = ($eventOnlyCreateDefault -and $eventOnlyCreateUsesPolicy
 $eventOnlyDefaultReason = if ($eventOnlyDefaultPass) { 'event-only-default-contract-present' } else { 'missing-event-only-default-contract' }
 [void]$results.Add((Get-CaseResult -Name 'event-only-default-contract' -Pass $eventOnlyDefaultPass -Reason $eventOnlyDefaultReason))
 
+# Identical compile/verify fingerprints must accumulate across stage restarts.
+$identicalFingerprintMatchesA = $stageWindowText.Contains('$aFailureFingerprint -eq $aPreviousFailureFingerprint') -and $stageWindowText.Contains('$aFailureMainRound -eq $aPreviousFailureMainRound') -and $stageWindowText.Contains('$aFailurePhase -eq $aPreviousFailurePhase')
+$identicalFingerprintMatchesB = $stageWindowText.Contains('$bFailureFingerprint -eq $bPreviousFailureFingerprint') -and $stageWindowText.Contains('$bFailureMainRound -eq $bPreviousFailureMainRound') -and $stageWindowText.Contains('$bFailurePhase -eq $bPreviousFailurePhase')
+$identicalFingerprintRequiresEvidence = $stageWindowText.Contains('$aNextAttempt -gt 1 -and -not $aHasRepairEvidence') -and $stageWindowText.Contains('$bNextAttempt -gt 1 -and -not $bHasRepairEvidence') -and $stageWindowText.Contains("`$aCurrentState -eq 'hard_block' -and `$aHasRepairEvidence") -and $stageWindowText.Contains("`$bCurrentState -eq 'hard_block' -and `$bHasRepairEvidence")
+$identicalFingerprintIgnoresStageStart = -not $stageWindowText.Contains('task_start_window_changed') -and -not $stageWindowText.Contains('SameTaskStartWindow')
+$identicalFingerprintPersistencePass = ($identicalFingerprintMatchesA -and $identicalFingerprintMatchesB -and $identicalFingerprintRequiresEvidence -and $identicalFingerprintIgnoresStageStart)
+$identicalFingerprintPersistenceReason = if ($identicalFingerprintPersistencePass) { 'identical-fingerprint-persists-across-stage-restarts' } else { 'missing-identical-fingerprint-restart-persistence' }
+[void]$results.Add((Get-CaseResult -Name 'identical-fingerprint-restart-persistence' -Pass $identicalFingerprintPersistencePass -Reason $identicalFingerprintPersistenceReason))
+
 # Launch-ready must reject stale running-status messages in the selected start file.
 $launchReadyUsesSelectedStartFile = $launchReadyText.Contains("'-StartFile', `$startFilePath")
 $launchReadyEnforcesMessageMatch = $launchReadyText.Contains("'-EnforceRunningStatusMessageTemplateMatch'")
@@ -272,11 +281,11 @@ $atomicCloseoutContractReason = if ($atomicCloseoutContractPass) { 'atomic-ticke
 
 # Task-definition semantic edits must name apply_patch explicitly in every operator-facing layer.
 $copilotRequiresApplyPatch = $copilotInstructionsText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
-$promptRequiresApplyPatch = ([regex]::Matches($promptDocText, '任务定义 JSON 的语义修改.*VS Code `apply_patch`')).Count -ge 3
+$promptRequiresApplyPatch = $promptDocText.Contains('task_definition_repair_transaction.ps1 -Mode Prepare') -and $promptDocText.Contains('只允许使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`') -and $promptDocText.Contains('随后按 `Validate -> Promote` 原子提升')
 $operationFlowRequiresApplyPatch = $operationFlowText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
-$startTemplateRequiresApplyPatch = $startTemplateText.Contains('只能使用 VS Code `apply_patch` 修改当前阶段任务定义 JSON')
-$dispatchRequiresApplyPatch = $dispatchText.Contains('Task-definition JSON semantic edits must use the VS Code `apply_patch` editing tool') -and $dispatchText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具')
-$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: use VS Code apply_patch to edit only allowed task-definition operations') -and $takeoverTriggerText.Contains('validate SyntaxOnly and target-op when locatable')
+$startTemplateRequiresApplyPatch = $startTemplateText.Contains('只使用 VS Code `apply_patch` 修改事务目录中的 `candidate.json`') -and $startTemplateText.Contains('再依次执行 `Validate` 与 `Promote`')
+$dispatchRequiresApplyPatch = $dispatchText.Contains('Keep the official task-definition file under testdata read-only while editing') -and $dispatchText.Contains('modify only the emitted candidate.json with the VS Code apply_patch editing tool') -and $dispatchText.Contains('编辑期间保持 testdata 下正式任务定义只读') -and $dispatchText.Contains('只允许使用 VS Code `apply_patch` 修改生成的 candidate.json')
+$takeoverRequiresApplyPatch = $takeoverTriggerText.Contains('code-fix: keep the official task definition read-only') -and $takeoverTriggerText.Contains('use VS Code apply_patch only on candidate.json') -and $takeoverTriggerText.Contains('then Validate and Promote') -and $takeoverTriggerText.Contains('diagnose the first structured child/compiler/test failure')
 $taskDefinitionApplyPatchPass = ($copilotRequiresApplyPatch -and $promptRequiresApplyPatch -and $operationFlowRequiresApplyPatch -and $startTemplateRequiresApplyPatch -and $dispatchRequiresApplyPatch -and $takeoverRequiresApplyPatch)
 $taskDefinitionApplyPatchReason = if ($taskDefinitionApplyPatchPass) { 'task-definition-apply-patch-contract-present' } else { 'missing-task-definition-apply-patch-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-apply-patch-contract' -Pass $taskDefinitionApplyPatchPass -Reason $taskDefinitionApplyPatchReason))
@@ -394,10 +403,13 @@ $taskSafetyBriefProjectsSwitch = $takeoverTriggerText.Contains('task_static_cros
 $taskSafetyDispatchBranches = $dispatchText.Contains('[Cross-round repair enabled] For task-static faults and compile/verify faults classified as code faults') -and $dispatchText.Contains('[Cross-round repair disabled] For task-static faults and compile/verify faults classified as code faults') -and $dispatchText.Contains('[跨轮次修复已开启] 对 task-static 故障，以及经分类确认为代码故障的编译/验证故障') -and $dispatchText.Contains('[跨轮次修复已关闭] 对 task-static 故障，以及经分类确认为代码故障的编译/验证故障') -and $dispatchText.Contains('$taskStaticCrossRoundRepairEnabled = $briefTaskStaticCrossRoundRepairEnabled') -and $dispatchText.Contains('$taskDefinitionFixMessage -f $TicketId, $TicketEvent, $dispatchReadContextText, '''', $crossRoundRepairStatus') -and -not $dispatchText.Contains('$crossRoundRepairStatus, $firstMessage.TrimStart()')
 $taskSafetyHasFailFast = $dispatchText.Contains('stops at the first failure') -and $dispatchText.Contains('首错即停') -and $dispatchText.Contains('validates one round at a time') -and $dispatchText.Contains('每次只验证一轮')
 $taskSafetyHasAssertionBoundary = $dispatchText.Contains('Update same-round postApplyAssertions only when operation results change') -and $dispatchText.Contains('仅当 operation 结果变化时同步更新同轮 postApplyAssertions')
+$taskSafetyHasRepairTransaction = $dispatchText.Contains('[Task-definition repair transaction]') -and $dispatchText.Contains('[任务定义修复事务]') -and $dispatchText.Contains('task_definition_repair_transaction.ps1 -Mode Prepare') -and $dispatchText.Contains('Run -Mode Promote only after validation succeeds') -and $dispatchText.Contains('仅在验证成功后执行 -Mode Promote') -and $dispatchText.Contains('Keep the official task-definition file under testdata read-only while editing') -and $dispatchText.Contains('编辑期间保持 testdata 下正式任务定义只读') -and $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionTransactionSuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionTransactionSuffixZh') -and $dispatchText.Contains('$taskDefinitionSafetySuffixZh + $taskDefinitionTransactionSuffixZh + $boundArtifactCorrectionZh') -and $dispatchText.Contains('$taskDefinitionSafetySuffixEn + $taskDefinitionTransactionSuffixEn + $boundArtifactCorrectionEn') -and $dispatchText.Contains('$taskDefinitionRuleSuffix.Trim()')
+$taskSafetyHasDiagnosisIntegrity = $dispatchText.Contains('tool-call-parameter corruption') -and $dispatchText.Contains('工具调用参数污染') -and $dispatchText.Contains('checker effective source/manifest') -and $dispatchText.Contains('checker 有效源码/manifest') -and $dispatchText.Contains('remote_build_and_test.sh uploads the current local worktree') -and $dispatchText.Contains('remote_build_and_test.sh 上传当前本地工作树')
+$taskSafetyHasHardBlockNotice = $stageWindowText.Contains('hard_block = $HardBlock') -and $stageWindowText.Contains('hard_block_reason = (Convert-ToSingleLineText -Text $HardBlockReason)') -and $stageWindowText.Contains('failure_fingerprint = (Convert-ToSingleLineText -Text $FailureFingerprint)') -and $stageWindowText.Contains('auto_restart_allowed = (-not $HardBlock)') -and $stageWindowText.Contains("-HardBlockReason 'retry-budget-exhausted'") -and $stageWindowText.Contains("-HardBlockReason 'repair-evidence-missing'")
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
 $taskSafetyHasPhaseBoundary = $dispatchText.Contains('every code-step failure is noncode') -and $dispatchText.Contains('任何 code-step 故障均属于 noncode') -and $dispatchText.Contains('independent task-static checker') -and $dispatchText.Contains('独立 task-static checker') -and $takeoverTriggerText.Contains("if (`$ticketFailurePhase -eq 'code-step')") -and $takeoverTriggerText.Contains("`$ticketFailureCategory = 'noncode-transient'")
 $taskSafetyHasRetryScope = $stageWindowText.Contains("`$aFailurePhase -in @('compile', 'verify')") -and $stageWindowText.Contains("`$bFailurePhase -in @('compile', 'verify')") -and $stageWindowText.Contains('$aFailureCodeFault') -and $stageWindowText.Contains('$bFailureCodeFault') -and $sessionGuardText.Contains('"${fpKeyPrefix}_FAILURE_CODE_FAULT" = ([bool]$failureHasCodeFault).ToString().ToLowerInvariant()') -and $stageWindowText.Contains('CODEFIX_IDENTICAL_FP_MAX_RETRIES') -and -not $stageWindowText.Contains('CODESTEP_IDENTICAL_FP') -and $taskStaticCheckerText.Contains('${prefix}_FAILURE_CODE_FAULT') -and $taskStaticCheckerText.Contains("`$fingerprintGateApplicable = (`$curPhase -in @('compile', 'verify') -and") -and $taskStaticCheckerText.Contains('status=not-applicable phase={1}') -and -not $taskStaticCheckerText.Contains('CODESTEP_IDENTICAL_FP') -and $promptDocText.Contains('task-static 与 code-step 均不进入相同指纹状态机') -and $operationFlowText.Contains('`task-static` 不适用') -and $operationFlowText.Contains('`code-step` 不适用')
-$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasSwitchDefault -and $taskSafetyBriefProjectsSwitch -and $taskSafetyDispatchBranches -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetySuffixAttached -and $taskSafetyHasPhaseBoundary -and $taskSafetyHasRetryScope)
+$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasSwitchDefault -and $taskSafetyBriefProjectsSwitch -and $taskSafetyDispatchBranches -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetyHasRepairTransaction -and $taskSafetyHasDiagnosisIntegrity -and $taskSafetyHasHardBlockNotice -and $taskSafetySuffixAttached -and $taskSafetyHasPhaseBoundary -and $taskSafetyHasRetryScope)
 $taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
 
@@ -575,7 +587,25 @@ $triageReason = if ($triagePass) { 'poll-triage-summary-contract-present' } else
 
 # Case 9: poll runtime JSON must surface triage_summary fields for downstream automation.
 $pollRuntimeStartFile = Resolve-RepoPath -Path 'testdata/unattended_start/smoke/unattended_ab_start_status_ticket_smoke.md'
-$pollRuntimeRaw = & $pollPath -StartFile $pollRuntimeStartFile -Last 20 -AsJson | Out-String
+$pollRuntimeRoot = Join-Path $outDir 'poll_runtime_json'
+$pollRuntimeQueue = Join-Path $pollRuntimeRoot 'agent_tickets.jsonl'
+$pollRuntimeState = Join-Path $pollRuntimeRoot 'poll_state.json'
+$pollRuntimeLedger = Join-Path $pollRuntimeRoot 'ledger.json'
+New-Item -ItemType Directory -Path $pollRuntimeRoot -Force | Out-Null
+Write-Utf8BomText -Path $pollRuntimeQueue -Text ''
+Write-Utf8BomText -Path $pollRuntimeState -Text (([ordered]@{
+            schema = 'AB_AI_TICKET_POLL_STATE_V1'
+            processed_ids = @()
+            recovery_drain_pending = $false
+            event_queue_floor_at = '2026-01-01 00:00:00'
+            event_queue_floor_source = 'mini-regression'
+            event_queue_skip_existing_on_start = $false
+        } | ConvertTo-Json -Depth 8) + "`n")
+Write-Utf8BomText -Path $pollRuntimeLedger -Text (([ordered]@{
+            schema = 'AB_AI_TICKET_LEDGER_V3'
+            records = @()
+        } | ConvertTo-Json -Depth 8) + "`n")
+$pollRuntimeRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollRuntimeQueue -StatePath $pollRuntimeState -LedgerPath $pollRuntimeLedger -Last 20 -AsJson | Out-String
 $pollRuntimeJson = $null
 try {
     $pollRuntimeJson = $pollRuntimeRaw | ConvertFrom-Json -ErrorAction Stop
@@ -1348,7 +1378,7 @@ $dispatchRuntimeCrossRoundIndex = $dispatchRuntimeMessage.IndexOf('[跨轮次修
 $dispatchRuntimeAuthorizationIndex = $dispatchRuntimeMessage.IndexOf('本流程只授权处理 task-static 故障', [System.StringComparison]::Ordinal)
 $dispatchRuntimeCrossRoundPlacementPass = ($dispatchRuntimePlacementIndex -ge 0 -and $dispatchRuntimeCrossRoundIndex -gt $dispatchRuntimePlacementIndex -and $dispatchRuntimeAuthorizationIndex -gt $dispatchRuntimeCrossRoundIndex)
 $dispatchRuntimeCrossRoundSpacingPass = [regex]::IsMatch($dispatchRuntimeNormalized, 'D4 既有内容。\n\n\[跨轮次修复已开启\][^\n]+\n\n本流程只授权处理 task-static 故障')
-$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.StartsWith('请接管票据') -and $dispatchRuntimeCrossRoundPlacementPass -and $dispatchRuntimeCrossRoundSpacingPass -and $dispatchRuntimeMessage.Contains('[跨轮次修复已开启] 对 task-static 故障，以及经分类确认为代码故障的编译/验证故障') -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('只能在该轮 operations 数组末尾连续追加') -and -not $dispatchRuntimeMessage.Contains('缺少被允许的 task-static 或编译/验证代码故障阶段') -and $dispatchRuntimeMessage.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
+$dispatchRuntimePass = ($dispatchRuntimeMarkerCount -eq 1 -and $dispatchRuntimeMessage.StartsWith('请接管票据') -and $dispatchRuntimeCrossRoundPlacementPass -and $dispatchRuntimeCrossRoundSpacingPass -and $dispatchRuntimeMessage.Contains('[跨轮次修复已开启] 对 task-static 故障，以及经分类确认为代码故障的编译/验证故障') -and $dispatchRuntimeMessage.Contains('机器事实闭环门禁：每张事件票处理结束时，atomic_closeout_command 只能执行一次，无论成功或失败均不得再次执行') -and $dispatchRuntimeMessage.Contains('success=true') -and $dispatchRuntimeMessage.Contains('closure_pass=true') -and $dispatchRuntimeMessage.Contains('VS Code `apply_patch`') -and $dispatchRuntimeMessage.Contains('task_definition_repair_transaction.ps1 -Mode Prepare') -and $dispatchRuntimeMessage.Contains('只用 VS Code `apply_patch` 修改 candidate.json') -and $dispatchRuntimeMessage.Contains('诊断必须下钻到第一个结构化子失败和编译器/测试首错') -and -not $dispatchRuntimeMessage.Contains('修改 testdata 下对应阶段任务定义的对应轮次') -and $dispatchRuntimeMessage.Contains('只能在该轮 operations 数组末尾连续追加') -and -not $dispatchRuntimeMessage.Contains('缺少被允许的 task-static 或编译/验证代码故障阶段') -and $dispatchRuntimeMessage.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchRuntimeNormalized.EndsWith($mandatoryReceiptSuffix))
 $dispatchRuntimeReason = if ($dispatchRuntimePass) { 'atomic-dispatch-message-runtime-present' } else { 'atomic-dispatch-message-runtime-failed' }
 [void]$results.Add((Get-CaseResult -Name 'atomic-dispatch-message-runtime' -Pass $dispatchRuntimePass -Reason $dispatchRuntimeReason))
 

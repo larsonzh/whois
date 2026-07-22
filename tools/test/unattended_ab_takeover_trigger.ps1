@@ -2039,14 +2039,14 @@ function New-TakeoverBrief {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
             $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
-            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly and target-op when locatable; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
+            'code-fix: keep the official task definition read-only; run task_definition_repair_transaction.ps1 Prepare, use VS Code apply_patch only on candidate.json for {0}/{1}, then Validate and Promote; diagnose the first structured child/compiler/test failure; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
         'incident-manual-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
             $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
-            'code-fix: use VS Code apply_patch to edit only allowed task-definition operations for {0}/{1}; validate SyntaxOnly and target-op when locatable; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
+            'code-fix: keep the official task definition read-only; run task_definition_repair_transaction.ps1 Prepare, use VS Code apply_patch only on candidate.json for {0}/{1}, then Validate and Promote; diagnose the first structured child/compiler/test failure; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
         'incident-auto-resume-noncode' { 'noncode: stabilize environment / monitor chain only'; break }
