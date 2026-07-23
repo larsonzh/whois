@@ -199,6 +199,7 @@ function Test-StaleFailedStageLauncher {
     param(
         [string]$Role,
         [int]$ProcessId,
+        [Nullable[datetime]]$ProcessCreationDate,
         [string]$RepoRoot,
         [string]$StartFilePath,
         [System.Collections.IDictionary]$Settings
@@ -234,7 +235,7 @@ function Test-StaleFailedStageLauncher {
         return $false
     }
 
-    if ($launchPidValue -ne 0) {
+    if ($launchPidValue -notin @(0, $ProcessId)) {
         return $false
     }
 
@@ -243,7 +244,10 @@ function Test-StaleFailedStageLauncher {
         return $false
     }
 
-    $artifactStage = (Convert-ToBooleanSetting -Value 'false') > $null
+    if ([string]$payload.schema -ne 'AB_STAGE_EXIT_REASON_V1') {
+        return $false
+    }
+
     $artifactStage = ([string]$payload.stage).Trim().ToUpperInvariant()
     if ($artifactStage -ne $stage) {
         return $false
@@ -262,6 +266,26 @@ function Test-StaleFailedStageLauncher {
     $expectedStartFileIdentity = Get-NormalizedPathIdentity -Path $StartFilePath -RepoRoot $RepoRoot
     $artifactStartFileIdentity = Get-NormalizedPathIdentity -Path ([string]$payload.start_file_path) -RepoRoot $RepoRoot
     if ([string]::IsNullOrWhiteSpace($expectedStartFileIdentity) -or $artifactStartFileIdentity -ne $expectedStartFileIdentity) {
+        return $false
+    }
+
+    if ($stage -eq 'B' -and $Settings.Contains('B_LAUNCH_TOKEN')) {
+        $expectedLaunchToken = ([string]$Settings.B_LAUNCH_TOKEN).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($expectedLaunchToken) -and ([string]$payload.launch_token).Trim() -ne $expectedLaunchToken) {
+            return $false
+        }
+    }
+
+    if ($null -eq $ProcessCreationDate -or [string]::IsNullOrWhiteSpace([string]$payload.generated_at)) {
+        return $false
+    }
+
+    $artifactGeneratedAt = [datetime]::MinValue
+    if (-not [datetime]::TryParse(([string]$payload.generated_at), [ref]$artifactGeneratedAt)) {
+        return $false
+    }
+
+    if ($artifactGeneratedAt -lt ([datetime]$ProcessCreationDate).AddSeconds(-5)) {
         return $false
     }
 
@@ -393,7 +417,7 @@ function Get-LocalRelatedProcess {
 
                 return $true
             } |
-            Select-Object ProcessId, Name, CommandLine
+            Select-Object ProcessId, Name, CreationDate, CommandLine
     )
 
     $classifiedRows = foreach ($row in $rows) {
@@ -419,7 +443,8 @@ function Get-LocalRelatedProcess {
 
         $sameStartFile = ((-not [string]::IsNullOrWhiteSpace($startFileIdentity)) -and ($processStartFileIdentity -eq $startFileIdentity)) -or ((-not [string]::IsNullOrWhiteSpace($expectedTaskDefinitionIdentity)) -and ($processTaskDefinitionIdentity -eq $expectedTaskDefinitionIdentity))
         $reusable = $sameStartFile -and ($reusableRoles -contains $role)
-        $staleFailedLauncher = Test-StaleFailedStageLauncher -Role $role -ProcessId ([int]$row.ProcessId) -RepoRoot $RepoRoot -StartFilePath $StartFilePath -Settings $Settings
+        $processCreationDate = if ($null -ne $row.CreationDate) { [Nullable[datetime]]([datetime]$row.CreationDate) } else { $null }
+        $staleFailedLauncher = Test-StaleFailedStageLauncher -Role $role -ProcessId ([int]$row.ProcessId) -ProcessCreationDate $processCreationDate -RepoRoot $RepoRoot -StartFilePath $StartFilePath -Settings $Settings
         $completedLauncherShell = Test-CompletedLauncherShell -Role $role -Settings $Settings -SameStartFile $sameStartFile
 
         $blockReason = ''

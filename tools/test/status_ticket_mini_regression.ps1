@@ -164,6 +164,7 @@ $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
 $recoveryGraceStatePath = Resolve-RepoPath -Path 'tools/test/recovery_grace_state.ps1'
+$precheckStartFilePath = Resolve-RepoPath -Path 'tools/test/precheck_unattended_ab_start_file.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
 $atomicCloseoutPath = Resolve-RepoPath -Path 'tools/test/complete_agent_ticket_closeout.ps1'
 $recoveryTransactionPath = Resolve-RepoPath -Path 'tools/test/complete_recovery_ticket_transaction.ps1'
@@ -176,6 +177,7 @@ $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
 $recoveryGraceStateText = Get-Content -LiteralPath $recoveryGraceStatePath -Raw -Encoding utf8
+$precheckStartFileText = Get-Content -LiteralPath $precheckStartFilePath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $recoveryTransactionText = Get-Content -LiteralPath $recoveryTransactionPath -Raw -Encoding utf8
@@ -801,6 +803,19 @@ $guardCanonicalRuntimePass = (
 $guardCanonicalRecoveryGracePass = ($guardHasCanonicalRecoveryGrace -and $guardHasNoLegacyGraceState -and $guardCanonicalRuntimePass)
 $guardCanonicalRecoveryGraceReason = if ($guardCanonicalRecoveryGracePass) { 'guard-canonical-recovery-grace-runtime-pass' } else { 'guard-canonical-recovery-grace-missing-legacy-or-runtime-failure' }
 [void]$results.Add((Get-CaseResult -Name 'guard-canonical-recovery-grace' -Pass $guardCanonicalRecoveryGracePass -Reason $guardCanonicalRecoveryGraceReason))
+
+$precheckFiltersTerminalNoExitLauncher = (
+    $precheckStartFileText.Contains("if (`$launchPidValue -notin @(0, `$ProcessId))") -and
+    $precheckStartFileText.Contains("if ([string]`$payload.schema -ne 'AB_STAGE_EXIT_REASON_V1')") -and
+    $precheckStartFileText.Contains("`$artifactPidValue -ne `$ProcessId") -and
+    $precheckStartFileText.Contains('artifactStartFileIdentity -ne $expectedStartFileIdentity') -and
+    $precheckStartFileText.Contains("`$Settings.Contains('B_LAUNCH_TOKEN')") -and
+    $precheckStartFileText.Contains('([datetime]$ProcessCreationDate).AddSeconds(-5)') -and
+    $precheckStartFileText.Contains('Select-Object ProcessId, Name, CreationDate, CommandLine') -and
+    $precheckStartFileText.Contains('-ProcessCreationDate $processCreationDate')
+)
+$precheckFiltersTerminalNoExitLauncherReason = if ($precheckFiltersTerminalNoExitLauncher) { 'precheck-terminal-noexit-launcher-filter-present' } else { 'precheck-terminal-noexit-launcher-filter-missing' }
+[void]$results.Add((Get-CaseResult -Name 'precheck-terminal-noexit-launcher-filter' -Pass $precheckFiltersTerminalNoExitLauncher -Reason $precheckFiltersTerminalNoExitLauncherReason))
 
 $triggerPendingTreatsHandledAsClosed = $takeoverTriggerText.Contains("`$terminalStatuses = @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')") -and $takeoverTriggerText.Contains("if (`$ledgerStatus -notin `$terminalStatuses -and [string]::IsNullOrWhiteSpace(`$handledAt))")
 $triggerPendingTreatsHandledAsClosedReason = if ($triggerPendingTreatsHandledAsClosed) { 'pending-recovery-honors-terminal-or-handled-state' } else { 'missing-pending-recovery-terminal-handled-gate' }
