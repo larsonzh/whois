@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 . (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
+. (Join-Path $PSScriptRoot 'recovery_grace_state.ps1')
 $script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Move'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:ReadMaxAttempts'] = 8
@@ -4041,16 +4042,7 @@ $aExitEvidenceForIncident = $null
 $aMainExitReviewRecommendedAction = 'Review A-stage main-process exit evidence and root cause, then run script-level self-heal for recoverable faults before deciding the next restart step.'
 $mainExitReviewRecommendedAction = 'Review main-process exit evidence and provide a clear failure conclusion; then perform post-failure cleanup by letting monitor scripts exit gracefully (keep NoExit terminal windows for forensics) before next restart decision.'
 $aSuccessSnapshotDir = ''
-$mainProcessExitGraceStartedAt = $null
-$mainProcessExitGraceLastNoticeAt = $null
-$mainProcessExitGraceShutdownDetail = ''
-$mainProcessExitGraceStage = ''
-$monitorChainGraceStartedAt = $null
-$monitorChainGraceLastNoticeAt = $null
-$monitorChainGraceShutdownDetail = ''
-$monitorChainGraceShutdownStage = ''
-$monitorChainGraceShutdownReason = ''
-$monitorChainGraceShutdownSource = ''
+
 $healthCheckIterationCounter = 0
 $script:StartupSuppressLastSignature = ''
 $script:StartupSuppressLastRemainingBucket = ''
@@ -5531,19 +5523,19 @@ function Invoke-InitDeadProcessCheck {
         [bool]$AutoRecoverB,
         [int]$MainProcessExitMonitorGraceMinutes,
         [AllowEmptyString()][string]$RunDirAnchor,
-        [Nullable[datetime]]$MainProcessExitGraceStartedAt = $null
+        [bool]$RecoveryGraceActive
     )
 
     $result = [pscustomobject]@{
         Settings = $Settings
-        MainProcessExitGraceStartedAt = $MainProcessExitGraceStartedAt
-        MainProcessExitGraceLastNoticeAt = $null
-        MainProcessExitGraceShutdownDetail = ''
-        MainProcessExitGraceStage = ''
+        RecoveryGraceRequested = $false
+        RecoveryGraceDetail = ''
+        DeadBLaunchPid = 0
+        RecoveryCapabilityDetail = ''
         MainProcessExitNoAutoFixStopRequested = $false
     }
 
-    if ($null -ne $MainProcessExitGraceStartedAt -or $BStatus -notin @('FAIL', 'BLOCKED') -or $SessionStatus -ne 'RUNNING') {
+    if ($RecoveryGraceActive -or $BStatus -notin @('FAIL', 'BLOCKED') -or $SessionStatus -ne 'RUNNING') {
         return $result
     }
 
@@ -5576,12 +5568,10 @@ function Invoke-InitDeadProcessCheck {
     $shutdownDetail = ("init_dead_process stage=B pid={0} session={1} a={2} b={3} run_dir={4}" -f $deadBLaunchPid, $SessionStatus, $AStatus, $BStatus, $RunDirAnchor)
 
     if ($MainProcessExitMonitorGraceMinutes -gt 0) {
-        $result.MainProcessExitGraceStartedAt = Get-Date
-        $result.MainProcessExitGraceLastNoticeAt = $null
-        $result.MainProcessExitGraceShutdownDetail = $shutdownDetail
-        $result.MainProcessExitGraceStage = 'B'
-        $recoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $AutoRecoverB -CanRecoverB $canRecoverBAfterMissing
-        Write-GuardLog ("init_dead_process_grace_start stage=B grace_min={0} pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $MainProcessExitMonitorGraceMinutes, $deadBLaunchPid, $SessionStatus, $AStatus, $BStatus, $recoveryCapabilityDetail, $RunDirAnchor)
+        $result.RecoveryGraceRequested = $true
+        $result.RecoveryGraceDetail = $shutdownDetail
+        $result.DeadBLaunchPid = $deadBLaunchPid
+        $result.RecoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $AutoRecoverB -CanRecoverB $canRecoverBAfterMissing
     }
     else {
         $result.Settings = Request-MonitorChainShutdown -Settings $Settings -Reason 'init-dead-process' -Source 'session-guard' -Detail $shutdownDetail
@@ -5851,58 +5841,57 @@ try {
                 }
             }
 
-            if ($null -ne $mainProcessExitGraceStartedAt) {
+            $aMainActive = ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid))
+            $bMainActive = ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
+
+            if ($script:RecoveryGraceState.Active -and $script:RecoveryGraceState.Kind -eq 'main-exit') {
+                $mainExitGraceResolvedByPass = (
+                    $sessionStatus -eq 'PASS' -or
+                    ($script:RecoveryGraceState.Scope -eq 'A' -and $aStatus -eq 'PASS') -or
+                    ($script:RecoveryGraceState.Scope -eq 'B' -and $bStatus -eq 'PASS')
+                )
                 $mainExitGraceRecovered = (
-                    ($mainProcessExitGraceStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
-                    ($mainProcessExitGraceStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
+                    $mainExitGraceResolvedByPass -or
+                    $aMainActive -or
+                    $bMainActive
                 )
                 if ($mainExitGraceRecovered) {
-                    $reboundPid = if ($mainProcessExitGraceStage -eq 'A') { $aLaunchPid } else { $bLaunchPid }
-                    Write-GuardLog ("main_process_exit_grace_cleared stage={0} rebound_pid={1} session={2} a={3} b={4}" -f $mainProcessExitGraceStage, $reboundPid, $sessionStatus, $aStatus, $bStatus)
-                    $mainProcessExitGraceStartedAt = $null
-                    $mainProcessExitGraceLastNoticeAt = $null
-                    $mainProcessExitGraceShutdownDetail = ''
-                    $mainProcessExitGraceStage = ''
-                    $graceClearedAt = Get-Date
-                    Write-GuardLog ("startup_warmup window_min={0} reason=main-process-exit-grace-cleared" -f $startupWarmupMin)
+                    $reboundPid = if ($aMainActive) { $aLaunchPid } elseif ($bMainActive) { $bLaunchPid } else { 0 }
+                    $clearReason = if ($mainExitGraceResolvedByPass) { 'pass-terminal' } else { 'main-process-rebound' }
+                    Write-GuardLog ("main_process_exit_grace_cleared stage={0} rebound_pid={1} reason={2} session={3} a={4} b={5}" -f $script:RecoveryGraceState.Scope, $reboundPid, $clearReason, $sessionStatus, $aStatus, $bStatus)
+                    Clear-RecoveryGrace
+                    if (-not $mainExitGraceResolvedByPass) {
+                        $graceClearedAt = Get-Date
+                        Write-GuardLog ("startup_warmup window_min={0} reason=main-process-exit-grace-cleared" -f $startupWarmupMin)
+                    }
                 }
             }
 
-            if ($null -ne $monitorChainGraceStartedAt) {
+            if ($script:RecoveryGraceState.Active -and $script:RecoveryGraceState.Kind -eq 'monitor-chain') {
+                $monitorGraceResolvedByPass = ($sessionStatus -eq 'PASS')
                 $monitorChainGraceRecovered = (
-                    ($monitorChainGraceShutdownStage -eq 'A' -and $aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
-                    ($monitorChainGraceShutdownStage -eq 'B' -and $bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid)) -or
-                    ($monitorChainGraceShutdownStage -eq 'SESSION' -and (
-                        ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) -or
-                        ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
-                    ))
+                    $monitorGraceResolvedByPass -or
+                    $aMainActive -or
+                    $bMainActive
                 )
                 if ($monitorChainGraceRecovered) {
-                    $reboundPid = 0
-                    if ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid)) {
-                        $reboundPid = $aLaunchPid
-                    }
-                    elseif ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid)) {
-                        $reboundPid = $bLaunchPid
-                    }
+                    $reboundPid = if ($aMainActive) { $aLaunchPid } elseif ($bMainActive) { $bLaunchPid } else { 0 }
+                    $clearReason = if ($monitorGraceResolvedByPass) { 'pass-terminal' } else { $script:RecoveryGraceState.Reason }
 
                     Write-GuardLog (
                         "monitor_chain_grace_cleared stage={0} rebound_pid={1} reason={2} session={3} a={4} b={5}" -f
-                        $monitorChainGraceShutdownStage,
+                        $script:RecoveryGraceState.Scope,
                         $reboundPid,
-                        $monitorChainGraceShutdownReason,
+                        $clearReason,
                         $sessionStatus,
                         $aStatus,
                         $bStatus)
-                    $monitorChainGraceStartedAt = $null
-                    $monitorChainGraceLastNoticeAt = $null
-                    $monitorChainGraceShutdownDetail = ''
-                    $monitorChainGraceShutdownStage = ''
-                    $monitorChainGraceShutdownReason = ''
-                    $monitorChainGraceShutdownSource = ''
+                    Clear-RecoveryGrace
                     $lastIncidentSignature = ''
-                    $graceClearedAt = Get-Date
-                    Write-GuardLog ("startup_warmup window_min={0} reason=monitor-chain-grace-cleared" -f $startupWarmupMin)
+                    if (-not $monitorGraceResolvedByPass) {
+                        $graceClearedAt = Get-Date
+                        Write-GuardLog ("startup_warmup window_min={0} reason=monitor-chain-grace-cleared" -f $startupWarmupMin)
+                    }
                 }
             }
 
@@ -6084,12 +6073,14 @@ try {
             # but session is still RUNNING — indicates B process exited before the main
             # guard loop could detect it. Enter main-process-exit grace to allow
             # time for recovery or clean shutdown.
-            $initDeadProcessCheckResult = Invoke-InitDeadProcessCheck -Settings $settings -Notes $notes -StartFilePath $script:StartFilePath -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB ([bool]$autoRecoverB) -MainProcessExitMonitorGraceMinutes $mainProcessExitMonitorGraceMinutes -RunDirAnchor $runDirAnchor -MainProcessExitGraceStartedAt $mainProcessExitGraceStartedAt
+            $initDeadProcessCheckResult = Invoke-InitDeadProcessCheck -Settings $settings -Notes $notes -StartFilePath $script:StartFilePath -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB ([bool]$autoRecoverB) -MainProcessExitMonitorGraceMinutes $mainProcessExitMonitorGraceMinutes -RunDirAnchor $runDirAnchor -RecoveryGraceActive ([bool]$script:RecoveryGraceState.Active)
             $settings = $initDeadProcessCheckResult.Settings
-            $mainProcessExitGraceStartedAt = $initDeadProcessCheckResult.MainProcessExitGraceStartedAt
-            $mainProcessExitGraceLastNoticeAt = $initDeadProcessCheckResult.MainProcessExitGraceLastNoticeAt
-            $mainProcessExitGraceShutdownDetail = $initDeadProcessCheckResult.MainProcessExitGraceShutdownDetail
-            $mainProcessExitGraceStage = $initDeadProcessCheckResult.MainProcessExitGraceStage
+            if ([bool]$initDeadProcessCheckResult.RecoveryGraceRequested) {
+                $graceStarted = Start-RecoveryGrace -Kind 'main-exit' -Scope 'B' -Reason 'init-dead-process' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown' -Detail ([string]$initDeadProcessCheckResult.RecoveryGraceDetail)
+                if ($graceStarted) {
+                    Write-GuardLog ("init_dead_process_grace_start stage=B grace_min={0} pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $mainProcessExitMonitorGraceMinutes, [int]$initDeadProcessCheckResult.DeadBLaunchPid, $sessionStatus, $aStatus, $bStatus, [string]$initDeadProcessCheckResult.RecoveryCapabilityDetail, $runDirAnchor)
+                }
+            }
             if ([bool]$initDeadProcessCheckResult.MainProcessExitNoAutoFixStopRequested) {
                 $mainProcessExitNoAutoFixStopRequested = $true
             }
@@ -6345,14 +6336,13 @@ try {
                         # no active follow-up stage, start main-process-exit grace immediately.
                         # This aligns A with B main-process-exit grace semantics.
                         $noActiveFollowupStage = ($bStatus -ne 'RUNNING')
-                        if ($noActiveFollowupStage -and $null -eq $mainProcessExitGraceStartedAt) {
+                        if ($noActiveFollowupStage -and -not $script:RecoveryGraceState.Active) {
                             $aMainExitShutdownDetail = ("main_process_exit stage=A expected_pid={0} elapsed_sec={1} grace_sec={2} session={3} a={4} b={5} run_dir={6}" -f $aLaunchPid, $missingASec, $aRunningNoProcessGraceSec, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
                             if ($mainProcessExitMonitorGraceMinutes -gt 0) {
-                                $mainProcessExitGraceStartedAt = Get-Date
-                                $mainProcessExitGraceLastNoticeAt = $null
-                                $mainProcessExitGraceShutdownDetail = $aMainExitShutdownDetail
-                                $mainProcessExitGraceStage = 'A'
-                                Write-GuardLog ("main_process_exit_grace_start stage=A grace_min={0} expected_pid={1} session={2} a={3} b={4} run_dir={5}" -f $mainProcessExitMonitorGraceMinutes, $aLaunchPid, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                                $graceStarted = Start-RecoveryGrace -Kind 'main-exit' -Scope 'A' -Reason 'main-process-exit' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown' -Detail $aMainExitShutdownDetail
+                                if ($graceStarted) {
+                                    Write-GuardLog ("main_process_exit_grace_start stage=A grace_min={0} expected_pid={1} session={2} a={3} b={4} run_dir={5}" -f $mainProcessExitMonitorGraceMinutes, $aLaunchPid, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                                }
                             }
                             else {
                                 $settings = Request-MainProcessExitNoAutofixShutdown -Settings $settings -Detail $aMainExitShutdownDetail
@@ -6705,11 +6695,10 @@ try {
                             $recoveryCapabilityDetail = Get-RecoveryCapabilityDetail -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverBAfterMissing
                             $shutdownDetail = ("main_process_exit expected_pid={0} {1} run_dir={2}" -f $bLaunchPid, $recoveryCapabilityDetail, $runDirAnchor)
                             if ($mainProcessExitMonitorGraceMinutes -gt 0) {
-                                $mainProcessExitGraceStartedAt = Get-Date
-                                $mainProcessExitGraceLastNoticeAt = $null
-                                $mainProcessExitGraceShutdownDetail = $shutdownDetail
-                                $mainProcessExitGraceStage = 'B'
-                                Write-GuardLog ("main_process_exit_grace_start stage=B grace_min={0} expected_pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $mainProcessExitMonitorGraceMinutes, $bLaunchPid, $sessionStatus, $aStatus, $bStatus, $recoveryCapabilityDetail, $runDirAnchor)
+                                $graceStarted = Start-RecoveryGrace -Kind 'main-exit' -Scope 'B' -Reason 'main-process-exit' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown' -Detail $shutdownDetail
+                                if ($graceStarted) {
+                                    Write-GuardLog ("main_process_exit_grace_start stage=B grace_min={0} expected_pid={1} session={2} a={3} b={4} {5} run_dir={6}" -f $mainProcessExitMonitorGraceMinutes, $bLaunchPid, $sessionStatus, $aStatus, $bStatus, $recoveryCapabilityDetail, $runDirAnchor)
+                                }
                             }
                             else {
                                 $settings = Request-MainProcessExitNoAutofixShutdown -Settings $settings -Detail $shutdownDetail
@@ -7168,7 +7157,7 @@ try {
                 }
 
                 $monitorChainGraceStopRequested = $false
-                if ($null -ne $monitorChainGraceStartedAt) {
+                if ($script:RecoveryGraceState.Active -and $script:RecoveryGraceState.Kind -eq 'monitor-chain') {
                     # Check if the main process has been revived during grace period
                     # (e.g. by AI processing incident ticket and restarting A stage).
                     # If revived, cancel grace and resume normal monitoring.
@@ -7183,38 +7172,44 @@ try {
                     if ($freshAAlive -or $freshBAlive) {
                         $revivedStage = if ($freshAAlive) { 'A' } else { 'B' }
                         $revivedPid = if ($freshAAlive) { $freshALaunchPid } else { $freshBLaunchPid }
-                        $monitorChainGraceStartedAt = $null
+                        Clear-RecoveryGrace
                         Write-GuardLog ("monitor_chain_grace_cancelled stage={0} reason=session-revived pid={1}" -f $revivedStage, $revivedPid)
                         Start-Sleep -Seconds $PollSec
                         continue
                     }
 
-                    $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
+                    $graceElapsedMinutes = ((Get-Date) - $script:RecoveryGraceState.StartedAt).TotalMinutes
                     if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
-                        $shutdownDetail = $monitorChainGraceShutdownDetail
-                        if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
-                            $shutdownDetail = ("monitor_chain_grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $monitorChainGraceShutdownStage, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                        if ($script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear') {
+                            Write-MonitorChainGraceExpiredLog -Stage $script:RecoveryGraceState.Scope -ElapsedMinutes $graceElapsedMinutes -Reason $script:RecoveryGraceState.Reason
+                            Clear-RecoveryGrace
                         }
-                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason $monitorChainGraceShutdownReason -Source $monitorChainGraceShutdownSource -Detail $shutdownDetail
-                        $monitorChainGraceStopRequested = $true
+                        else {
+                            $shutdownDetail = $script:RecoveryGraceState.Detail
+                            if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
+                                $shutdownDetail = ("monitor_chain_grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $script:RecoveryGraceState.Scope, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                            }
+                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason $script:RecoveryGraceState.Reason -Source $script:RecoveryGraceState.Source -Detail $shutdownDetail
+                            $monitorChainGraceStopRequested = $true
+                        }
                     }
                     else {
                         $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
-                        if ($null -eq $monitorChainGraceLastNoticeAt -or (((Get-Date) - $monitorChainGraceLastNoticeAt).TotalMinutes -ge 5)) {
-                            Write-MonitorChainGraceWaitLog -Stage $monitorChainGraceShutdownStage -ElapsedMinutes $graceElapsedMinutes -RemainingMinutes $remainingGraceMinutes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Reason $monitorChainGraceShutdownReason
-                            $monitorChainGraceLastNoticeAt = Get-Date
+                        if ($null -eq $script:RecoveryGraceState.LastNoticeAt -or (((Get-Date) - $script:RecoveryGraceState.LastNoticeAt).TotalMinutes -ge 5)) {
+                            Write-MonitorChainGraceWaitLog -Stage $script:RecoveryGraceState.Scope -ElapsedMinutes $graceElapsedMinutes -RemainingMinutes $remainingGraceMinutes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -Reason $script:RecoveryGraceState.Reason
+                            Update-RecoveryGraceLastNotice
                         }
-                        Write-WaitingMonitorChainGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $monitorChainGraceShutdownStage -RemainingGraceMinutes $remainingGraceMinutes -GraceReason $monitorChainGraceShutdownReason
+                        Write-WaitingMonitorChainGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $script:RecoveryGraceState.Scope -RemainingGraceMinutes $remainingGraceMinutes -GraceReason $script:RecoveryGraceState.Reason
                         Start-Sleep -Seconds $PollSec
                         continue
                     }
                 }
 
                 if ($monitorChainGraceStopRequested) {
-                    Write-StoppedSessionState -EventName 'monitor-chain-grace-stop' -StopReason ([string]$monitorChainGraceShutdownReason) -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                    Write-StoppedSessionState -EventName 'monitor-chain-grace-stop' -StopReason ([string]$script:RecoveryGraceState.Reason) -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
                     Write-GuardLog (
                         "complete reason=monitor_chain_grace_stop shutdown_reason={0} status={1} a={2} b={3}" -f
-                        [string]$monitorChainGraceShutdownReason,
+                        [string]$script:RecoveryGraceState.Reason,
                         $sessionStatus,
                         $aStatus,
                         $bStatus)
@@ -7223,14 +7218,9 @@ try {
 
                 if ([bool]$knownInfraTransient -and [bool]$exitOnKnownInfraTransient) {
                     if ($mainProcessExitMonitorGraceMinutes -gt 0) {
-                        if ($null -eq $monitorChainGraceStartedAt) {
-                            $monitorChainGraceStartedAt = Get-Date
-                            $monitorChainGraceLastNoticeAt = $null
-                            $monitorChainGraceShutdownDetail = [string]$failurePolicy.FailedRoundTag
-                            $monitorChainGraceShutdownStage = 'SESSION'
-                            $monitorChainGraceShutdownReason = 'known-infra-transient-stop'
-                            $monitorChainGraceShutdownSource = 'session-guard'
-                            Write-MonitorChainGraceStartLog -Stage $monitorChainGraceShutdownStage -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $monitorChainGraceShutdownReason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
+                        $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'known-infra-transient-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown' -Detail ([string]$failurePolicy.FailedRoundTag)
+                        if ($graceStarted) {
+                            Write-MonitorChainGraceStartLog -Stage $script:RecoveryGraceState.Scope -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $script:RecoveryGraceState.Reason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                         }
                         Start-Sleep -Seconds $PollSec
                         continue
@@ -7444,31 +7434,13 @@ try {
                 # and B cannot recover, enter grace period instead of immediate shutdown
                 # to keep monitor chain alive for AI handler.
                 if ($aStatus -eq 'FAIL' -and -not ($autoRecoverB -and $canRecoverB) -and $mainProcessExitMonitorGraceMinutes -gt 0) {
-                    if ($null -eq $monitorChainGraceStartedAt) {
-                        $monitorChainGraceStartedAt = Get-Date
-                        $monitorChainGraceLastNoticeAt = $null
-                        $monitorChainGraceShutdownDetail = Get-LoopRecoveryStatusDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB
-                        $monitorChainGraceShutdownStage = 'SESSION'
-                        $monitorChainGraceShutdownReason = 'a-fail-incident-ticket'
-                        $monitorChainGraceShutdownSource = 'session-guard'
-                        Write-MonitorChainGraceStartLog -Stage $monitorChainGraceShutdownStage -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $monitorChainGraceShutdownReason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
+                    $graceDetail = Get-LoopRecoveryStatusDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB
+                    $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'expire-and-clear' -Detail $graceDetail
+                    if ($graceStarted) {
+                        Write-MonitorChainGraceStartLog -Stage $script:RecoveryGraceState.Scope -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $script:RecoveryGraceState.Reason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                     }
-
-                    $graceElapsedMinutes = ((Get-Date) - $monitorChainGraceStartedAt).TotalMinutes
-                    if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
-                        Write-MonitorChainGraceExpiredLog -Stage $monitorChainGraceShutdownStage -ElapsedMinutes $graceElapsedMinutes -Reason $monitorChainGraceShutdownReason
-                        $monitorChainGraceStartedAt = $null
-                    }
-                    else {
-                        $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
-                        if ($null -eq $monitorChainGraceLastNoticeAt -or (((Get-Date) - $monitorChainGraceLastNoticeAt).TotalMinutes -ge 5)) {
-                            Write-MonitorChainGraceWaitLog -Stage $monitorChainGraceShutdownStage -ElapsedMinutes $graceElapsedMinutes -RemainingMinutes $remainingGraceMinutes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
-                            $monitorChainGraceLastNoticeAt = Get-Date
-                        }
-                        Write-WaitingMonitorChainGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $monitorChainGraceShutdownStage -RemainingGraceMinutes $remainingGraceMinutes
-                        Start-Sleep -Seconds $PollSec
-                        continue
-                    }
+                    Start-Sleep -Seconds $PollSec
+                    continue
                 }
 
                 if ($autoRecoverB -and $canRecoverB -and $guardRestartAllowedForFailure) {
@@ -7509,14 +7481,10 @@ try {
 
                             Write-BudgetExhaustedStoppedState -Stage 'B' -RecoveryAttempts $bRecoveryAttempts
                             if ($mainProcessExitMonitorGraceMinutes -gt 0) {
-                                if ($null -eq $monitorChainGraceStartedAt) {
-                                    $monitorChainGraceStartedAt = Get-Date
-                                    $monitorChainGraceLastNoticeAt = $null
-                                    $monitorChainGraceShutdownDetail = Get-BudgetAttemptsDetail -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts
-                                    $monitorChainGraceShutdownStage = 'SESSION'
-                                    $monitorChainGraceShutdownReason = 'budget-exhausted-stop'
-                                    $monitorChainGraceShutdownSource = 'session-guard'
-                                    Write-MonitorChainGraceStartLog -Stage $monitorChainGraceShutdownStage -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $monitorChainGraceShutdownReason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
+                                $graceDetail = Get-BudgetAttemptsDetail -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts
+                                $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'budget-exhausted-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown' -Detail $graceDetail
+                                if ($graceStarted) {
+                                    Write-MonitorChainGraceStartLog -Stage $script:RecoveryGraceState.Scope -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $script:RecoveryGraceState.Reason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                                 }
 
                                 $budgetDetail = Get-BudgetExhaustedDetail -Attempts $bRecoveryAttempts -MaxAttempts $MaxBRecoveryAttempts -StopOnBudgetExhausted $StopOnBudgetExhausted
@@ -7566,27 +7534,43 @@ try {
                 else {
                     Reset-GuardLoopSignatures -BudgetExhaustedSignature ([ref]$lastBudgetExhaustedSignature) -RestartApprovalWaitSignature ([ref]$lastRestartApprovalWaitSignature)
 
-                    if ($null -ne $mainProcessExitGraceStartedAt) {
+                    if ($canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
+                        $recoverableBGraceDetail = ("b-recoverable-ticket stage=B run_dir={0}" -f $runDirAnchor)
+                        $recoverableBGraceNeedsRebind = (
+                            -not $script:RecoveryGraceState.Active -or
+                            $script:RecoveryGraceState.Kind -ne 'main-exit' -or
+                            $script:RecoveryGraceState.Scope -ne 'B' -or
+                            $script:RecoveryGraceState.Detail -ne $recoverableBGraceDetail
+                        )
+                        if ($recoverableBGraceNeedsRebind) {
+                            $graceStarted = Start-RecoveryGrace -Kind 'main-exit' -Scope 'B' -Reason 'b-recoverable-ticket' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown' -Detail $recoverableBGraceDetail
+                            if ($graceStarted) {
+                                Write-GuardLog ("main_process_exit_recovery_grace_rebound stage=B grace_min={0} run_dir={1}" -f $mainProcessExitMonitorGraceMinutes, $runDirAnchor)
+                            }
+                        }
+                    }
+
+                    if ($script:RecoveryGraceState.Active -and $script:RecoveryGraceState.Kind -eq 'main-exit') {
                         if ($canRecoverB) {
                             Write-GuardLog ("main_process_exit_no_autofix_deferred reason=b-recoverable-ticket session={0} a={1} b={2}" -f $sessionStatus, $aStatus, $bStatus)
                         }
 
-                        $graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes
+                        $graceElapsedMinutes = ((Get-Date) - $script:RecoveryGraceState.StartedAt).TotalMinutes
                         if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
-                            $shutdownDetail = $mainProcessExitGraceShutdownDetail
+                            $shutdownDetail = $script:RecoveryGraceState.Detail
                             if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
-                                $shutdownDetail = ("main_process_exit grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $mainProcessExitGraceStage, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
+                                $shutdownDetail = ("main_process_exit grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $script:RecoveryGraceState.Scope, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
                             }
                             $settings = Request-MainProcessExitNoAutofixShutdown -Settings $settings -Detail $shutdownDetail
                             $mainProcessExitNoAutoFixStopRequested = $true
                         }
                         else {
                             $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
-                            if ($null -eq $mainProcessExitGraceLastNoticeAt -or (((Get-Date) - $mainProcessExitGraceLastNoticeAt).TotalMinutes -ge 5)) {
-                                Write-GraceWaitLog -Prefix 'main_process_exit_grace_wait' -Stage $mainProcessExitGraceStage -ElapsedMinutes $graceElapsedMinutes -RemainingMinutes $remainingGraceMinutes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
-                                $mainProcessExitGraceLastNoticeAt = Get-Date
+                            if ($null -eq $script:RecoveryGraceState.LastNoticeAt -or (((Get-Date) - $script:RecoveryGraceState.LastNoticeAt).TotalMinutes -ge 5)) {
+                                Write-GraceWaitLog -Prefix 'main_process_exit_grace_wait' -Stage $script:RecoveryGraceState.Scope -ElapsedMinutes $graceElapsedMinutes -RemainingMinutes $remainingGraceMinutes -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                                Update-RecoveryGraceLastNotice
                             }
-                            Write-WaitingMainExitGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $mainProcessExitGraceStage -RemainingGraceMinutes $remainingGraceMinutes
+                            Write-WaitingMainExitGraceState -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -GraceStage $script:RecoveryGraceState.Scope -RemainingGraceMinutes $remainingGraceMinutes
                             Start-Sleep -Seconds $PollSec
                             continue
                         }
@@ -7617,12 +7601,12 @@ try {
                                 if ($reviveAAlive) {
                                     Write-SessionReviveLog -Stage 'A' -ProcessId $reviveAPid -SessionStatus $sessionStatus -StageStatus $aStatus
                                     $sessionStatus = 'RUNNING'; $aStatus = 'RUNNING'
-                                    $monitorChainGraceStartedAt = $null
+                                    Clear-RecoveryGrace
                                 }
                                 elseif ($reviveBAlive) {
                                     Write-SessionReviveLog -Stage 'B' -ProcessId $reviveBPid -SessionStatus $sessionStatus -StageStatus $bStatus
                                     $sessionStatus = 'RUNNING'; $bStatus = 'RUNNING'
-                                    $monitorChainGraceStartedAt = $null
+                                    Clear-RecoveryGrace
                                 }
                             }
                         }
@@ -7638,14 +7622,10 @@ try {
                     $manualWaitSignature = "{0}|{1}|{2}|{3}|{4}" -f $sessionStatus, $aStatus, $bStatus, $runDirAnchor, $canRecoverB
                     $loopRecoveryArgs = Get-RecoveryStateArgs -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB
                     if (-not $canRecoverB -and $mainProcessExitMonitorGraceMinutes -gt 0) {
-                        if ($null -eq $monitorChainGraceStartedAt) {
-                            $monitorChainGraceStartedAt = Get-Date
-                            $monitorChainGraceLastNoticeAt = $null
-                            $monitorChainGraceShutdownDetail = Get-SessionStatusTripleDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
-                            $monitorChainGraceShutdownStage = 'SESSION'
-                            $monitorChainGraceShutdownReason = 'final-state-no-followup'
-                            $monitorChainGraceShutdownSource = 'session-guard'
-                            Write-MonitorChainGraceStartLog -Stage $monitorChainGraceShutdownStage -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $monitorChainGraceShutdownReason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
+                        $graceDetail = Get-SessionStatusTripleDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus
+                        $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'final-state-no-followup' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown' -Detail $graceDetail
+                        if ($graceStarted) {
+                            Write-MonitorChainGraceStartLog -Stage $script:RecoveryGraceState.Scope -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $script:RecoveryGraceState.Reason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                         }
                         Start-Sleep -Seconds $PollSec
                         continue
@@ -7761,7 +7741,7 @@ try {
                 $aMainAlive = ($aStatus -eq 'RUNNING' -and $aLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $aLaunchPid))
                 $bMainAlive = ($bStatus -eq 'RUNNING' -and $bLaunchPid -gt 0 -and (Test-ProcessAlive -ProcessId $bLaunchPid))
                 $mainProcessAlive = ([bool]$aMainAlive -or [bool]$bMainAlive)
-                $graceStopActive = ($null -ne $mainProcessExitGraceStartedAt -or $null -ne $monitorChainGraceStartedAt)
+                $graceStopActive = [bool]$script:RecoveryGraceState.Active
 
                 if ($sessionIdleNotRun -and -not $triggerRequestPending) {
                     Write-TriggerHealthSkipLog -Reason 'session_idle_not_run'

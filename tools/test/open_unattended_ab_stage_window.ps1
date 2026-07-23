@@ -2440,6 +2440,32 @@ if ($Stage -eq 'B') {
         if ($parsedStageRetryMax -gt 0) { $bRetryMax = $parsedStageRetryMax }
     }
 
+    $bIdenticalTaskStaticFailure = (
+        -not [string]::IsNullOrWhiteSpace($bFailureMainRound) -and
+        $bFailureMainRound -eq $bPreviousFailureMainRound -and
+        $bFailurePhase -eq 'task-static' -and
+        $bFailurePhase -eq $bPreviousFailurePhase -and
+        -not [string]::IsNullOrWhiteSpace($bFailureFingerprint) -and
+        $bFailureFingerprint -eq $bPreviousFailureFingerprint
+    )
+    if ($bIdenticalTaskStaticFailure) {
+        $bTaskStaticEvidence = Get-TaskDefinitionRepairEvidence -TaskDefinitionPath $taskDefinitionRelative -Round $bFailureMainRound
+        $bTaskStaticOfficialChanged = (
+            -not [string]::IsNullOrWhiteSpace($bFailureTaskDefHash) -and
+            $bFailureTaskDefHash -ne '-' -and
+            -not [string]::IsNullOrWhiteSpace([string]$bTaskStaticEvidence.FileHash) -and
+            [string]$bTaskStaticEvidence.FileHash -ne $bFailureTaskDefHash
+        )
+        if (-not $bTaskStaticOfficialChanged) {
+            Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values @{
+                B_TASK_STATIC_IDENTICAL_FP_STATE = 'hard_block'
+                B_TASK_STATIC_IDENTICAL_FP_STATE_AT = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+            }
+            Add-StageTaskDefinitionBlockedTicket -StartFilePath $startFilePath -Settings $settings -Stage $Stage -TaskDefinitionRelative $taskDefinitionRelative -FailCount 1 -MaxFails 1 -PrecheckExitCode 0 -BlockEvent 'manual-wait-paused' -ExtraDetail ("task_static_identical_fingerprint=true official_task_definition_changed=false round={0} fingerprint={1}" -f $bFailureMainRound, $bFailureFingerprint) -RecommendedActionOverride 'The same task-static failure repeated without an official task-definition change. Complete candidate Validate and atomic Promote, verify the promotion receipt and current-round static check, then relaunch.' -FailureCategoryOverride 'task-static-identical-fingerprint' -FailureKindOverride 'task-definition-not-promoted' -HardBlock $true -HardBlockReason 'official-task-definition-unchanged' -FailureFingerprint $bFailureFingerprint -RetryCount 0 -RetryLimit 0
+            throw ("[OPEN-AB-STAGE] infinite-loop-protection: B identical task-static fingerprint detected without an official task-definition change (round={0}, fingerprint={1}). Complete Validate and Promote before relaunch." -f $bFailureMainRound, $bFailureFingerprint)
+        }
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($bFailureMainRound) -and
         -not [string]::IsNullOrWhiteSpace($bPreviousFailureMainRound) -and
         $bFailureMainRound -eq $bPreviousFailureMainRound -and

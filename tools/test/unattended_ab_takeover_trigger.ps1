@@ -2224,7 +2224,8 @@ function New-TakeoverBrief {
         ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
         ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
-        ('same_stage_restart_policy={0}' -f 'after valid repair evidence and full checks, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),
+        ('task_definition_promotion_gate={0}' -f 'before recovery/restart/resume require same-ticket manifest.state=promoted; validated_candidate_sha256=promoted_sha256=official SHA-256; successful promotion-receipt ticket/hash match; and current failing round strict check PASS; candidate edited or Inspect/focused-check PASS is not completion; quarantined/validation_failed/promotion_failed/abandoned/missing receipt/hash mismatch must fail-close'),
+        ('same_stage_restart_policy={0}' -f 'only after task_definition_promotion_gate passes, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),
         ('guard_state={0}' -f $guardState),
         ('guard_log={0}' -f $guardLog),
         ('trigger_state={0}' -f $triggerState),
@@ -2470,8 +2471,16 @@ while ($true) {
 
         # Fallback: guard crash safety net. Exit if both stages terminal and no shutdown request after warm-window + grace.
 
+        $bothPass = ($aFinalStatus -eq 'PASS' -and $bFinalStatus -eq 'PASS')
+        if ($bothPass -and ($null -ne $script:TriggerWarmStartedAt -or $null -ne $script:TriggerGraceStartedAt)) {
+            Write-TriggerLog ('terminal_windows_cleared reason=pass-terminal a={0} b={1}' -f $aFinalStatus, $bFinalStatus)
+            $script:TriggerWarmStartedAt = $null
+            $script:TriggerWarmLastNoticeAt = $null
+            $script:TriggerGraceStartedAt = $null
+        }
         $bothTerminal = ($aFinalStatus -in @('PASS','FAIL','BLOCKED') -or $aFinalStatus -eq 'NOT_RUN') -and
-            ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN')
+            ($bFinalStatus -in @('PASS','FAIL','BLOCKED') -or $bFinalStatus -eq 'NOT_RUN') -and
+            -not $bothPass
         if ($bothTerminal) {
             $monitorChainGraceMinutes = 60
             if ($settings.Contains('MONITOR_CHAIN_GRACE_MINUTES')) {

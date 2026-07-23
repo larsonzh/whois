@@ -163,6 +163,7 @@ $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
+$recoveryGraceStatePath = Resolve-RepoPath -Path 'tools/test/recovery_grace_state.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
 $atomicCloseoutPath = Resolve-RepoPath -Path 'tools/test/complete_agent_ticket_closeout.ps1'
 $recoveryTransactionPath = Resolve-RepoPath -Path 'tools/test/complete_recovery_ticket_transaction.ps1'
@@ -174,6 +175,7 @@ $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
+$recoveryGraceStateText = Get-Content -LiteralPath $recoveryGraceStatePath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $recoveryTransactionText = Get-Content -LiteralPath $recoveryTransactionPath -Raw -Encoding utf8
@@ -464,7 +466,7 @@ $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-co
 
 # Event tickets close through one machine-verified command; missing command data must fail closed.
 $atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false') -and $atomicCloseoutText.Contains('[ValidateRange(10, 600)][int]$AcknowledgeTimeoutSec = 120') -and $atomicCloseoutText.Contains('acknowledge timed out after {0}ms')
-$recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command') -and $recoveryTransactionText.Contains('stage_main_process_verified') -and $recoveryTransactionText.Contains('business_command did not start stage-{0} main process within {1}ms') -and $recoveryTransactionText.Contains('business_command launcher exited before stage-{0} main process started') -and $recoveryTransactionText.Contains('-RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath') -and $recoveryTransactionText.Contains('$launcherExitedAtMs') -and $recoveryTransactionText.Contains('[ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240') -and $recoveryTransactionText.Contains('[switch]$ShowBusinessCommandWindow') -and $recoveryTransactionText.Contains('if ($ShowBusinessCommandWindow.IsPresent) { ''Normal'' } else { ''Hidden'' }') -and $recoveryTransactionText.Contains('business_command_window_style={0}') -and $recoveryTransactionText.Contains('business_command_verify_timeout_ms={0}') -and $recoveryTransactionText.Contains('latest_{0}_exit.json') -and $recoveryTransactionText.Contains('Test-ProcessFilteredByTerminalExitArtifact') -and $recoveryTransactionText.Contains('Write-RecoveryFailureLedger') -and $recoveryTransactionText.Contains('failure_ledger_recorded') -and $pollText.Contains('$ackOnlyMode') -and $pollText.Contains('ack_only_mode = [bool]$ackOnlyMode')
+$recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command') -and $recoveryTransactionText.Contains('stage_main_process_verified') -and $recoveryTransactionText.Contains('business_command did not start stage-{0} main process within {1}ms') -and $recoveryTransactionText.Contains('business_command launcher exited before stage-{0} main process started') -and $recoveryTransactionText.Contains('-RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath') -and $recoveryTransactionText.Contains('$launcherExitedAtMs') -and $recoveryTransactionText.Contains('[ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240') -and $recoveryTransactionText.Contains('[switch]$ShowBusinessCommandWindow') -and $recoveryTransactionText.Contains('if ($ShowBusinessCommandWindow.IsPresent) { ''Normal'' } else { ''Hidden'' }') -and $recoveryTransactionText.Contains('business_command_window_style={0}') -and $recoveryTransactionText.Contains('business_command_verify_timeout_ms={0}') -and $recoveryTransactionText.Contains('latest_{0}_exit.json') -and $recoveryTransactionText.Contains('Test-ProcessFilteredByTerminalExitArtifact') -and $recoveryTransactionText.Contains('Write-RecoveryFailureLedger') -and $recoveryTransactionText.Contains('failure_ledger_recorded') -and $recoveryTransactionText.Contains('Assert-TaskStaticRepairPromoted') -and $recoveryTransactionText.Contains("`$manifestState -ne 'promoted'") -and $recoveryTransactionText.Contains('task-static recovery promotion receipt/hash gate failed') -and $recoveryTransactionText.Contains('task-static recovery current-round static gate failed') -and $pollText.Contains('$ackOnlyMode') -and $pollText.Contains('ack_only_mode = [bool]$ackOnlyMode')
 $ps51FormatGuardUsesAst = $ps51FormatGuardText.Contains('[System.Management.Automation.Language.Parser]::ParseFile') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.BinaryExpressionAst]') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.TokenKind]::Format') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.IfStatementAst]')
 $ps51FormatGuardProbeRoot = Join-Path $outDir 'ps51_format_guard_runtime'
 $ps51FormatGuardBadRoot = Join-Path $ps51FormatGuardProbeRoot 'bad'
@@ -730,16 +732,75 @@ $guardBLaunchPassesParentEvidence = $sessionGuardText.Contains('AUTO_PARENT_GUAR
 $guardBLaunchPassesParentEvidenceReason = if ($guardBLaunchPassesParentEvidence) { 'guard-b-launch-parent-evidence-present' } else { 'missing-guard-b-launch-parent-evidence' }
 [void]$results.Add((Get-CaseResult -Name 'guard-b-launch-parent-evidence' -Pass $guardBLaunchPassesParentEvidence -Reason $guardBLaunchPassesParentEvidenceReason))
 
+$briefRequiresTaskDefinitionPromotion = $takeoverTriggerText.Contains('task_definition_promotion_gate={0}') -and $takeoverTriggerText.Contains('same-ticket manifest.state=promoted') -and $takeoverTriggerText.Contains('validated_candidate_sha256=promoted_sha256=official SHA-256') -and $takeoverTriggerText.Contains('quarantined/validation_failed/promotion_failed/abandoned/missing receipt/hash mismatch must fail-close') -and $takeoverTriggerText.Contains('only after task_definition_promotion_gate passes')
+$briefRequiresTaskDefinitionPromotionReason = if ($briefRequiresTaskDefinitionPromotion) { 'brief-task-definition-promotion-gate-present' } else { 'brief-task-definition-promotion-gate-missing' }
+[void]$results.Add((Get-CaseResult -Name 'brief-task-definition-promotion-gate' -Pass $briefRequiresTaskDefinitionPromotion -Reason $briefRequiresTaskDefinitionPromotionReason))
+
+$dispatchProjectsTaskDefinitionPromotion = $dispatchText.Contains("`$briefSettings.Contains('task_definition_promotion_gate')") -and $dispatchText.Contains('Brief task_definition_promotion_gate: {0}') -and $dispatchText.Contains('candidate 已编辑、preview 已刷新、Inspect PASS 或局部 checker PASS 都不表示修复完成') -and $dispatchText.Contains('manifest.state=promoted') -and $dispatchText.Contains('prepared、validation_failed、promotion_failed、quarantined、abandoned、receipt 缺失或哈希不一致必须 fail-close')
+$dispatchProjectsTaskDefinitionPromotionReason = if ($dispatchProjectsTaskDefinitionPromotion) { 'dispatch-task-definition-promotion-gate-present' } else { 'dispatch-task-definition-promotion-gate-missing' }
+[void]$results.Add((Get-CaseResult -Name 'dispatch-task-definition-promotion-gate' -Pass $dispatchProjectsTaskDefinitionPromotion -Reason $dispatchProjectsTaskDefinitionPromotionReason))
+
 $recoverableBDeferLogStart = $sessionGuardText.IndexOf('main_process_exit_no_autofix_deferred reason=b-recoverable-ticket')
-$recoverableBElapsedStart = if ($recoverableBDeferLogStart -ge 0) { $sessionGuardText.IndexOf('$graceElapsedMinutes = ((Get-Date) - $mainProcessExitGraceStartedAt).TotalMinutes', $recoverableBDeferLogStart) } else { -1 }
+$recoverableBElapsedStart = if ($recoverableBDeferLogStart -ge 0) { $sessionGuardText.IndexOf('$graceElapsedMinutes = ((Get-Date) - $script:RecoveryGraceState.StartedAt).TotalMinutes', $recoverableBDeferLogStart) } else { -1 }
 $recoverableBPreElapsedText = if ($recoverableBDeferLogStart -ge 0 -and $recoverableBElapsedStart -gt $recoverableBDeferLogStart) { $sessionGuardText.Substring($recoverableBDeferLogStart, $recoverableBElapsedStart - $recoverableBDeferLogStart) } else { '' }
-$guardKeepsRecoverableBMonitoring = $recoverableBDeferLogStart -ge 0 -and -not $recoverableBPreElapsedText.Contains('continue') -and $sessionGuardText.Contains('if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes)')
+$guardKeepsRecoverableBMonitoring = $recoverableBDeferLogStart -ge 0 -and -not $recoverableBPreElapsedText.Contains('continue') -and $sessionGuardText.Contains('if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes)') -and $sessionGuardText.Contains("`$script:RecoveryGraceState.Kind -ne 'main-exit'") -and $sessionGuardText.Contains("`$script:RecoveryGraceState.Scope -ne 'B'") -and $sessionGuardText.Contains('$script:RecoveryGraceState.Detail -ne $recoverableBGraceDetail') -and $sessionGuardText.Contains('main_process_exit_recovery_grace_rebound stage=B')
 $guardKeepsRecoverableBMonitoringReason = if ($guardKeepsRecoverableBMonitoring) { 'recoverable-b-main-exit-uses-finite-grace' } else { 'recoverable-b-main-exit-bypasses-finite-grace' }
 [void]$results.Add((Get-CaseResult -Name 'recoverable-b-monitor-chain-finite-grace' -Pass $guardKeepsRecoverableBMonitoring -Reason $guardKeepsRecoverableBMonitoringReason))
 
 $guardClearsStaleGraceState = $sessionGuardText.Contains("[string]`$Values.status -notin @('waiting-main-exit-grace', 'waiting-monitor-chain-grace')") -and $sessionGuardText.Contains("foreach (`$graceKey in @('grace_reason', 'grace_stage', 'grace_remaining_min'))") -and $sessionGuardText.Contains("grace_reason = 'main-process-exit'") -and $sessionGuardText.Contains('$stateValues.grace_reason = $GraceReason')
 $guardClearsStaleGraceStateReason = if ($guardClearsStaleGraceState) { 'guard-grace-state-family-clears-stale-fields' } else { 'guard-grace-state-family-retains-stale-fields' }
 [void]$results.Add((Get-CaseResult -Name 'guard-grace-state-family-cleanup' -Pass $guardClearsStaleGraceState -Reason $guardClearsStaleGraceStateReason))
+
+$guardHasCanonicalRecoveryGrace = (
+    $sessionGuardText.Contains(". (Join-Path `$PSScriptRoot 'recovery_grace_state.ps1')") -and
+    $recoveryGraceStateText.Contains('function New-RecoveryGraceState') -and
+    $recoveryGraceStateText.Contains('function Start-RecoveryGrace') -and
+    $recoveryGraceStateText.Contains('function Clear-RecoveryGrace') -and
+    $recoveryGraceStateText.Contains('function Update-RecoveryGraceLastNotice') -and
+    $recoveryGraceStateText.Contains("if (`$script:RecoveryGraceState.Scope -eq 'SESSION' -and `$Scope -ne 'SESSION')") -and
+    $recoveryGraceStateText.Contains('Generation = $nextGeneration') -and
+    $recoveryGraceStateText.Contains("[ValidateSet('main-exit-shutdown', 'monitor-chain-shutdown', 'expire-and-clear')]") -and
+    $sessionGuardText.Contains("-Reason 'known-infra-transient-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
+    $sessionGuardText.Contains("-Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'expire-and-clear'") -and
+    $sessionGuardText.Contains("-Reason 'budget-exhausted-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
+    $sessionGuardText.Contains("-Reason 'final-state-no-followup' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
+    $sessionGuardText.Contains("-Reason 'b-recoverable-ticket' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown'") -and
+    $sessionGuardText.Contains("if (`$script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear')") -and
+    $sessionGuardText.Contains('$graceStopActive = [bool]$script:RecoveryGraceState.Active')
+)
+$guardHasNoLegacyGraceState = -not [regex]::IsMatch($sessionGuardText, '\$(?:mainProcessExitGrace|monitorChainGrace)(?:StartedAt|LastNoticeAt|ShutdownDetail|Stage|ShutdownStage|ShutdownReason|ShutdownSource)')
+
+. $recoveryGraceStatePath
+$stageGraceStarted = Start-RecoveryGrace -Kind 'main-exit' -Scope 'B' -Reason 'main-process-exit' -Source 'runtime-test' -ExpiryAction 'main-exit-shutdown' -Detail 'stage-detail'
+$stageGeneration = [int]$script:RecoveryGraceState.Generation
+$stageStartedAt = $script:RecoveryGraceState.StartedAt
+$identicalStageRejected = -not (Start-RecoveryGrace -Kind 'main-exit' -Scope 'B' -Reason 'main-process-exit' -Source 'runtime-test' -ExpiryAction 'main-exit-shutdown' -Detail 'stage-detail')
+$identicalStagePreserved = ([int]$script:RecoveryGraceState.Generation -eq $stageGeneration -and $script:RecoveryGraceState.StartedAt -eq $stageStartedAt)
+$sessionGraceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'budget-exhausted-stop' -Source 'runtime-test' -ExpiryAction 'monitor-chain-shutdown' -Detail 'session-detail'
+$sessionGeneration = [int]$script:RecoveryGraceState.Generation
+$stageOverwriteRejected = -not (Start-RecoveryGrace -Kind 'main-exit' -Scope 'A' -Reason 'main-process-exit' -Source 'runtime-test' -ExpiryAction 'main-exit-shutdown' -Detail 'replacement-detail')
+Update-RecoveryGraceLastNotice
+$noticeUpdated = $null -ne $script:RecoveryGraceState.LastNoticeAt
+Clear-RecoveryGrace
+$clearPreservedGeneration = (-not $script:RecoveryGraceState.Active -and [int]$script:RecoveryGraceState.Generation -eq $sessionGeneration -and [string]::IsNullOrEmpty([string]$script:RecoveryGraceState.Reason))
+$expireAndClearStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'runtime-test' -ExpiryAction 'expire-and-clear' -Detail 'clear-detail'
+$guardCanonicalRuntimePass = (
+    $stageGraceStarted -and
+    $stageGeneration -eq 1 -and
+    $identicalStageRejected -and
+    $identicalStagePreserved -and
+    $sessionGraceStarted -and
+    $sessionGeneration -eq 2 -and
+    $stageOverwriteRejected -and
+    $noticeUpdated -and
+    $clearPreservedGeneration -and
+    $expireAndClearStarted -and
+    [int]$script:RecoveryGraceState.Generation -eq 3 -and
+    $script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear'
+)
+$guardCanonicalRecoveryGracePass = ($guardHasCanonicalRecoveryGrace -and $guardHasNoLegacyGraceState -and $guardCanonicalRuntimePass)
+$guardCanonicalRecoveryGraceReason = if ($guardCanonicalRecoveryGracePass) { 'guard-canonical-recovery-grace-runtime-pass' } else { 'guard-canonical-recovery-grace-missing-legacy-or-runtime-failure' }
+[void]$results.Add((Get-CaseResult -Name 'guard-canonical-recovery-grace' -Pass $guardCanonicalRecoveryGracePass -Reason $guardCanonicalRecoveryGraceReason))
 
 $triggerPendingTreatsHandledAsClosed = $takeoverTriggerText.Contains("`$terminalStatuses = @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')") -and $takeoverTriggerText.Contains("if (`$ledgerStatus -notin `$terminalStatuses -and [string]::IsNullOrWhiteSpace(`$handledAt))")
 $triggerPendingTreatsHandledAsClosedReason = if ($triggerPendingTreatsHandledAsClosed) { 'pending-recovery-honors-terminal-or-handled-state' } else { 'missing-pending-recovery-terminal-handled-gate' }
@@ -797,8 +858,17 @@ $sessionGuardHasGraceWaitLegacy = $sessionGuardText.Contains('main_process_exit_
 $sessionGuardHasGraceWaitHelper = $sessionGuardText.Contains("Write-GraceWaitLog -Prefix 'main_process_exit_grace_wait'")
 $sessionGuardHasGraceWait = ($sessionGuardHasGraceWaitLegacy -or $sessionGuardHasGraceWaitHelper)
 $sessionGuardHasGraceClear = $sessionGuardText.Contains('main_process_exit_grace_cleared stage={0}')
+$sessionGuardPreservesGraceMetadata = (
+    $recoveryGraceStateText.Contains('function New-RecoveryGraceState') -and
+    $recoveryGraceStateText.Contains('LastNoticeAt = $null') -and
+    $recoveryGraceStateText.Contains('Generation = $Generation') -and
+    $sessionGuardText.Contains('RecoveryGraceRequested = $false') -and
+    $sessionGuardText.Contains('-RecoveryGraceActive ([bool]$script:RecoveryGraceState.Active)')
+)
+$sessionGuardClearsPassWithoutWarmup = $sessionGuardText.Contains("`$clearReason = if (`$mainExitGraceResolvedByPass) { 'pass-terminal' }") -and $sessionGuardText.Contains('if (-not $mainExitGraceResolvedByPass) {')
+$triggerExcludesPassFromTerminalGrace = $takeoverTriggerText.Contains("`$bothPass = (`$aFinalStatus -eq 'PASS' -and `$bFinalStatus -eq 'PASS')") -and $takeoverTriggerText.Contains('-not $bothPass') -and $takeoverTriggerText.Contains('terminal_windows_cleared reason=pass-terminal')
 $graceDefaultIsSixty = $startTemplateText.Contains('MONITOR_CHAIN_GRACE_MINUTES=60') -and $takeoverTriggerText.Contains('$monitorChainGraceMinutes = 60') -and $sessionGuardText.Contains('$mainProcessExitMonitorGraceMinutes = 60')
-$sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear -and $graceDefaultIsSixty)
+$sessionGuardGracePass = ($sessionGuardHasGraceSetting -and $sessionGuardHasGraceStart -and $sessionGuardHasGraceWait -and $sessionGuardHasGraceClear -and $sessionGuardPreservesGraceMetadata -and $sessionGuardClearsPassWithoutWarmup -and $triggerExcludesPassFromTerminalGrace -and $graceDefaultIsSixty)
 $sessionGuardGraceReason = if ($sessionGuardGracePass) { 'session-guard-main-exit-grace-present' } else { 'missing-session-guard-main-exit-grace' }
 [void]$results.Add((Get-CaseResult -Name 'session-guard-main-exit-grace' -Pass $sessionGuardGracePass -Reason $sessionGuardGraceReason))
 

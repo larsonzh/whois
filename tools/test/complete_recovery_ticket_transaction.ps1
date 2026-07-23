@@ -283,6 +283,86 @@ function Resolve-RepoPath {
     }
 }
 
+function Assert-TaskStaticRepairPromoted {
+    param(
+        [string]$RepoRoot,
+        [string]$TicketId,
+        [AllowNull()][object]$Brief,
+        [AllowEmptyString()][string]$BusinessCommand
+    )
+
+    $failurePhase = (Convert-ToSingleLineText -Text ([string]$Brief['failure_phase'])).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($BusinessCommand) -or $failurePhase -ne 'task-static') {
+        return [pscustomobject]@{ required = $false; passed = $true; reason = 'not-task-static-recovery' }
+    }
+
+    $round = (Convert-ToSingleLineText -Text ([string]$Brief['main_round'])).ToUpperInvariant()
+    if ($round -notmatch '^D[1-4]$') {
+        throw 'task-static recovery requires a valid main_round'
+    }
+
+    $transactionDir = Join-Path $RepoRoot (Join-Path 'out\artifacts\task_definition_repair' $TicketId)
+    $manifestPath = Join-Path $transactionDir 'manifest.json'
+    $receiptPath = Join-Path $transactionDir 'promotion-receipt.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw ("task-static recovery requires repair manifest: {0}" -f $manifestPath)
+    }
+    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
+        throw ("task-static recovery requires promotion receipt: {0}" -f $receiptPath)
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw ("task-static recovery repair evidence is invalid JSON: {0}" -f $_.Exception.Message)
+    }
+
+    $manifestTicket = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $manifest -Name 'ticket_id')
+    $manifestState = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $manifest -Name 'state')).ToLowerInvariant()
+    $manifestRound = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $manifest -Name 'round')).ToUpperInvariant()
+    $validatedHash = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $manifest -Name 'validated_candidate_sha256')).ToLowerInvariant()
+    $promotedHash = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $manifest -Name 'promoted_sha256')).ToLowerInvariant()
+    $officialPath = Resolve-RepoPath -RepoRoot $RepoRoot -Path (Get-ObjectPropertyString -InputObject $manifest -Name 'official_path')
+
+    if ($manifestTicket -ne $TicketId -or $manifestState -ne 'promoted' -or $manifestRound -ne $round) {
+        throw ("task-static recovery repair manifest gate failed ticket={0} state={1} round={2}" -f $manifestTicket, $manifestState, $manifestRound)
+    }
+    if ([string]::IsNullOrWhiteSpace($validatedHash) -or $validatedHash -ne $promotedHash) {
+        throw 'task-static recovery validated/promoted hash gate failed'
+    }
+    if ([string]::IsNullOrWhiteSpace($officialPath) -or -not (Test-Path -LiteralPath $officialPath -PathType Leaf)) {
+        throw 'task-static recovery official task definition is missing'
+    }
+
+    $receiptTicket = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $receipt -Name 'ticket_id')
+    $receiptHash = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $receipt -Name 'promoted_sha256')).ToLowerInvariant()
+    $receiptSuccess = [bool]$receipt.success
+    $officialHash = (Get-FileHash -LiteralPath $officialPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not $receiptSuccess -or $receiptTicket -ne $TicketId -or $receiptHash -ne $promotedHash -or $officialHash -ne $promotedHash) {
+        throw ("task-static recovery promotion receipt/hash gate failed receipt_ticket={0} receipt_hash={1} official_hash={2} promoted_hash={3}" -f $receiptTicket, $receiptHash, $officialHash, $promotedHash)
+    }
+
+    $checkerPath = Join-Path $PSScriptRoot 'check_task_definition_static.ps1'
+    $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkerPath -TaskDefinitionFile $officialPath -Policy enforce -RoundTag $round 2>&1)
+    $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if ($checkerExitCode -ne 0) {
+        $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
+        throw ("task-static recovery current-round static gate failed exit={0} output={1}" -f $checkerExitCode, $checkerTail)
+    }
+
+    return [pscustomobject]@{
+        required = $true
+        passed = $true
+        reason = 'promoted-repair-and-current-round-static-pass'
+        round = $round
+        promoted_sha256 = $promotedHash
+        manifest_path = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $manifestPath)
+        receipt_path = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $receiptPath)
+    }
+}
+
 function Read-StageExitEvidence {
     param(
         [AllowEmptyString()][string]$Stage,
@@ -682,6 +762,7 @@ $result = [ordered]@{
     steps = @()
     closeout = $null
     transaction_row = $null
+    task_definition_gate = $null
 }
 
 $totalWatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -793,6 +874,8 @@ try {
                 throw 'route guard restart flags do not authorize business_command'
             }
         }
+
+        $result.task_definition_gate = Assert-TaskStaticRepairPromoted -RepoRoot $repoRoot -TicketId $ticket -Brief $briefForRoute -BusinessCommand $businessCommand
 
         $steps = New-Object 'System.Collections.Generic.List[object]'
         [void]$steps.Add((Invoke-TransactionCommand -Name 'business_command' -CommandLine $businessCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('business_command', 'business_resume') -BlockedTokens @('business_command', 'business_resume', 'stage_restart')))

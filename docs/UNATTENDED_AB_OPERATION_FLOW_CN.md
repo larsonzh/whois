@@ -324,6 +324,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 
 生命周期规则：
 
+- task-static 修复的完成事实只能由同票据事务证明：`manifest.state=promoted`，非空的 `validated_candidate_sha256` 与 `promoted_sha256` 相等，正式任务定义 SHA-256 与 promoted hash 相等，`promotion-receipt.json` 存在且 `success=true`、ticket/hash 匹配，并且正式文件再次通过当前故障轮不带 `-OperationIndex` 的严格检查。局部 checker/Inspect PASS、candidate 已编辑、preview 已刷新或聊天中声称“已修复”均不是完成证据。
+- 上述门禁全部满足前不得执行 `recovery_transaction_command`、`stage_restart`、`business_resume` 或成功 handled 收尾。`prepared`、`validation_failed`、`promotion_failed`、`quarantined`、`abandoned`、receipt 缺失或哈希不一致必须 fail-close；可继续修复的非终态事务继续修改 candidate，终态事务重新 Prepare 新 ticket/事务，无法继续时只报告阻塞。
 - 提升、写后哈希、写后 `SyntaxOnly` 和 receipt 全部成功后，删除 `candidate.json` 与 `baseline.json`，保留 manifest、验证日志和 promotion receipt。
 - 验证失败、正式基线漂移、候选验证后漂移或提升失败时，正式文件保持或恢复原状，候选现场保留。
 - `Prepare` 自动生成首份预览；候选修改后可重复执行 `Inspect` 刷新。`Validate` 对比当前 candidate SHA-256 与预览绑定并输出 `preview_stale=true|false`；预览陈旧是显式诊断状态，不替代 SyntaxOnly、目标 op 和当前轮严格检查。
@@ -458,6 +460,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - guard 发现 A/B 主进程 PID 消失时，先进入温窗期（主进程缺失观察窗口）：默认 180 秒，由 `LOCAL_GUARD_A_RUNNING_NO_PROCESS_GRACE_SEC` / `LOCAL_GUARD_B_RUNNING_NO_PROCESS_GRACE_SEC` 控制。温窗期用于确认 PID 缺失不是瞬时切换，并收集 exit artifact、运行日志和状态文件证据；不得以一次轮询的 PID 缺失立即将会话判死。
 - 温窗期结束且仍确认主进程故障退出后，guard 写入 FAIL 与故障证据，并按既定策略生成完整事件票；随后才进入宽限期（默认 60 分钟，由 `MONITOR_CHAIN_GRACE_MINUTES` 或 `LOCAL_GUARD_MAIN_EXIT_MONITOR_GRACE_MINUTES` 控制），保持监控链在线以等待恢复、重锚定和票据闭环。60 分钟默认值用于覆盖中阶/低阶模型处理高密度任务定义及开启跨轮次修复后的串行检查时间；显式配置仍可在允许范围内覆盖。
 - 温窗期或宽限期内若 start-file 出现新的有效 A/B PID，guard/trigger 必须自动重锚定、清除对应窗口状态并恢复正常监控。
+- 对应 A/B 阶段或 SESSION 已确认 PASS 时不得为该范围新建温窗或宽限期；若此前对应窗口仍存在，guard/trigger 必须立即清除其 started-at、stage、detail 与 last-notice 状态，且 PASS 清窗不得再次开启 startup warmup。SESSION 全 PASS 的正常收尾只走最终状态通知与关闭门禁，不得进入 trigger 的 terminal fallback grace。
+- guard helper 在只读检查或状态刷新时必须原样保留已有宽限期的 started-at、stage、detail 与 last-notice；禁止只保留 started-at 而清空其余元数据。此类半状态无法按 stage 在主进程恢复时清除，并会在后续无进程故障分支中被误判为早已过期。
+- guard 内部的 60 分钟恢复宽限统一由一个 recovery-grace 状态管理，`kind`、`scope`、`reason`、`source`、`expiry_action`、`detail`、`started_at`、`last_notice_at` 与 `generation` 必须原子创建、更新和清除。旧的两族状态变量及兼容投影已删除；`main_process_exit_grace_*` / `monitor_chain_grace_*` 仅作为日志标签保留，计时、判断、清除与到期分派必须直接读取 canonical recovery-grace 状态。
+- recovery-grace 的 SESSION scope 优先于 A/B scope：SESSION grace 可以替换阶段 grace，活动中的 SESSION grace 不得被阶段 rebind 覆盖。`known-infra-transient-stop`、`budget-exhausted-stop` 与 `final-state-no-followup` 到期执行 monitor-chain shutdown；`a-fail-incident-ticket` 到期只记录并清窗；A/B main-exit 与 `b-recoverable-ticket` 到期执行 main-exit shutdown。
+- 本节合并范围仅限 guard 内部两套 60 分钟状态。A/B PID 缺失的 180 秒 warm window 继续独立工作；trigger 的跨进程 terminal fallback 仍是 guard 缺失时的跟随/兜底机制，不与 guard 内存状态共享所有权。
 - A 或 B 因 `task-definition-mismatch` 结束时，应统一生成可自动接管的 code-fix 事件：自动修复对应阶段的任务定义、通过静态体检后按标准 Stage A/B 入口恢复。guard 不得在修复落地前盲目重启失败阶段，也不得为任一阶段另设人工等待或专属常驻流程；只有自动修复配额或相同故障指纹配额耗尽时，才转人工处置。
 - 若宽限期届满仍没有新的有效主进程，guard 应写入结束/故障证据，并请求监控链有序关闭；trigger 必须先完成已生成关键票据与最终状态的投递门禁。
 - 对未关闭的恢复票据，trigger 不得因会话表面终态而提前停止；应延后自动停止，直到票据闭环或按策略完成宽限期处置。
