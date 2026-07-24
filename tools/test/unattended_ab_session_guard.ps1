@@ -3948,29 +3948,16 @@ function Test-APassConclusionTicketAlreadyQueued {
         [AllowEmptyString()][string]$Signature
     )
 
-    $signatureCompact = Convert-ToSingleLineText -Text $Signature
-    $resolvedQueuePath = Resolve-RepoPathAllowMissing -Path $QueuePath
-    if ([string]::IsNullOrWhiteSpace($signatureCompact) -or [string]::IsNullOrWhiteSpace($resolvedQueuePath) -or -not (Test-Path -LiteralPath $resolvedQueuePath)) {
-        return $false
-    }
+    return (Test-AgentTicketQueueContainsDedupSuffix -QueuePath $QueuePath -StartFilePath $script:StartFilePath -EventName 'a-pass-conclusion-b-started' -Signature $Signature)
+}
 
-    $startFileRelative = (Convert-ToRepoRelativePath -Path $script:StartFilePath).Replace('\', '/').ToLowerInvariant()
-    foreach ($line in @(Get-Content -LiteralPath $resolvedQueuePath -Encoding utf8 -Tail 2000 -ErrorAction SilentlyContinue)) {
-        try {
-            $ticket = $line | ConvertFrom-Json -ErrorAction Stop
-            $ticketEvent = Convert-ToSingleLineText -Text ([string]$ticket.event)
-            $ticketStartFile = (Convert-ToSingleLineText -Text ([string]$ticket.start_file)).Replace('\', '/').ToLowerInvariant()
-            $ticketDedupSignature = Convert-ToSingleLineText -Text ([string]$ticket.dedup_signature)
-            if ($ticketEvent -eq 'a-pass-conclusion-b-started' -and $ticketStartFile -eq $startFileRelative -and $ticketDedupSignature.EndsWith(('|' + $signatureCompact), [System.StringComparison]::Ordinal)) {
-                return $true
-            }
-        }
-        catch {
-            continue
-        }
-    }
+function Test-IncidentGenerationTicketAlreadyQueued {
+    param(
+        [AllowEmptyString()][string]$QueuePath,
+        [AllowEmptyString()][string]$Signature
+    )
 
-    return $false
+    return (Test-AgentTicketQueueContainsDedupSuffix -QueuePath $QueuePath -StartFilePath $script:StartFilePath -EventName 'incident-captured' -Signature $Signature)
 }
 
 Write-GuardState -Values @{}
@@ -6836,7 +6823,8 @@ try {
                 if ($failureRunDirAnchor -ne $runDirAnchor) {
                     Write-GuardLog ("failure_policy_run_dir_override old={0} new={1} source=stage-exit-artifact a_pid={2} b_pid={3}" -f $runDirAnchor, $failureRunDirAnchor, $aLaunchPid, $bLaunchPid)
                 }
-                $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $failureRunDirAnchor
+                $statusRunDirSignature = (Convert-ToSingleLineText -Text $failureRunDirAnchor).Replace('\', '/').ToLowerInvariant()
+                $statusSignature = "{0}|{1}|{2}|{3}" -f $sessionStatus, $aStatus, $bStatus, $statusRunDirSignature
                 $failurePolicy = Get-FailureTicketPolicy -RunDirAnchor $failureRunDirAnchor
                 $knownInfraTransient = Test-KnownInfraTransientFailurePolicy -FailurePolicy $failurePolicy
                 $knownInfraTicketSuppressed = ([bool]$knownInfraTransient -and [bool]$suppressKnownInfraTickets)
@@ -6947,13 +6935,18 @@ try {
                     (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailurePhase)).ToLowerInvariant(),
                     (Convert-ToSingleLineText -Text ([string]$failureTicketMeta.FailureSource)).Replace('\', '/').ToLowerInvariant())
                 $persistedIncidentGeneration = Get-IncidentGenerationPersistedSignature -Settings $settings
+                $incidentGenerationAlreadyQueued = Test-IncidentGenerationTicketAlreadyQueued -QueuePath $agentQueuePath -Signature $incidentGenerationSignature
 
                 if ($suppressDuplicateAExitIncident) {
                     $lastIncidentSignature = $statusSignature
                     Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=a-non-round-exit-covered-by-main-process-exit-review category={0} artifact={1}' -f [string]$aExitEvidenceForIncident.FailCategory, [string]$aExitEvidenceForIncident.ArtifactPath)
                 }
-                elseif ($incidentGenerationSignature -eq $persistedIncidentGeneration) {
+                elseif ($incidentGenerationSignature -eq $persistedIncidentGeneration -or $incidentGenerationAlreadyQueued) {
                     $lastIncidentSignature = $statusSignature
+                    if ($incidentGenerationAlreadyQueued -and $incidentGenerationSignature -ne $persistedIncidentGeneration) {
+                        Set-IncidentGenerationPersistedSignature -Signature $incidentGenerationSignature
+                        Write-GuardLog ('incident_generation_dedup_rehydrated source=queue-history generation={0}' -f $incidentGenerationSignature)
+                    }
                     Write-GuardLog ('agent_ticket_suppressed event=incident-captured reason=incident-generation-already-queued generation={0}' -f $incidentGenerationSignature)
                 }
                 elseif ($statusSignature -ne $lastIncidentSignature) {

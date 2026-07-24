@@ -263,6 +263,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 初始设计期检查 B 时，应将 A 作为 `-PrerequisiteTaskDefinitionFiles` 传入；该模拟不写源码。A PASS 后的运行期 B 检查仍以 `a_success_snapshot` 对齐后的当前源码为准，不用设计期模拟替代 snapshot。
 - 生成后请先填写 D1~D4（至少 D1~D3）任务内容，再用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`。
 - 任务定义 JSON 允许出现中文 `description` / `notes`，因此模板与新生成文件固定使用 UTF-8 with BOM + LF。
+- 编辑或排查 `pattern` / `replacement` 时按“JSON 源码 -> `ConvertFrom-Json` 解码字符串 -> `.NET Regex`”三层核对；checker 使用标准 PowerShell JSON 解码。合法 JSON `"\\)"` 解码为正则 `\)`，可匹配字面量 `)`；`pattern_unmatched=0` 表示解析和正则编译均已完成、仅当前有效源码零命中，不是 JSON 解码错误。应查看事务 `operation-preview.txt` 的解码视图和源码匹配，不得因零命中改造 checker 的 JSON 处理。
 - 若体检报错或 warning（启用 `-FailOnWarnings` 时），应先修复任务定义再启动 A/B。
 
 建议内容模板（复制后替换尖括号）：

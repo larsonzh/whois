@@ -330,6 +330,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - 验证失败、正式基线漂移、候选验证后漂移或提升失败时，正式文件保持或恢复原状，候选现场保留。
 - `Prepare` 自动生成首份预览；候选修改后可重复执行 `Inspect` 刷新。`Validate` 对比当前 candidate SHA-256 与预览绑定并输出 `preview_stale=true|false`；预览陈旧是显式诊断状态，不替代 SyntaxOnly、目标 op 和当前轮严格检查。
 - `Inspect` 只读取 candidate 与目标源码并更新事务目录中的预览 sidecar/manifest，不修改 candidate、正式任务定义或业务源码；正式基线漂移时 fail-close。
+- 诊断 pattern/replacement 时必须区分三层文本：JSON 源码、`ConvertFrom-Json` 解码后的 PowerShell 字符串、`.NET Regex` 接收的 pattern。checker 没有自制 JSON 解码器；例如合法 JSON `"\\)"` 解码为正则 `\)`，用于匹配字面量 `)`。`pattern_unmatched=0` 表示 JSON 已加载且正则已编译、但对当前顺序内存文本零命中，不得归因为 JSON 解码失败；JSON 解析失败或正则非法会走更早的独立错误分支。应以 `operation-preview.txt` 的 `[PATTERN DECODED]`、源码匹配和 checker 首错定位实际的转义、源码形态或幂等状态问题，禁止为此修改 checker 的 JSON 处理。
 - 会话放弃时执行 `-Mode Abandon -Reason <reason>`；工具参数污染时执行 `-Mode Quarantine -Reason tool-call-parameter-corruption`。两者均禁止后续提升。
 - 候选清理失败只输出 `cleanup_warning=true`，不得回滚已经验证成功的正式提升。
 - `tools/dev/prune_artifacts_all.ps1` 保留最近 20 个事务目录，统一清理更早的成功或失败现场。

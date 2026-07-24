@@ -1003,6 +1003,46 @@ function Get-AgentTicketQueuePath {
     return (Resolve-RepoPathAllowMissing -Path $rawPath -RepoRoot $RepoRoot)
 }
 
+function Test-AgentTicketQueueContainsDedupSuffix {
+    param(
+        [AllowEmptyString()][string]$QueuePath,
+        [AllowEmptyString()][string]$StartFilePath,
+        [AllowEmptyString()][string]$EventName,
+        [AllowEmptyString()][string]$Signature,
+        [ValidateRange(1, 10000)][int]$Tail = 2000
+    )
+
+    $signatureCompact = Convert-ToSingleLineText -Text $Signature
+    $eventCompact = (Convert-ToSingleLineText -Text $EventName).ToLowerInvariant()
+    $resolvedQueuePath = Resolve-RepoPathAllowMissing -Path $QueuePath
+    if ([string]::IsNullOrWhiteSpace($signatureCompact) -or
+        [string]::IsNullOrWhiteSpace($eventCompact) -or
+        [string]::IsNullOrWhiteSpace($resolvedQueuePath) -or
+        -not (Test-Path -LiteralPath $resolvedQueuePath)) {
+        return $false
+    }
+
+    $startFileRelative = (Convert-ToRepoRelativePath -Path $StartFilePath).Replace('\', '/').ToLowerInvariant()
+    foreach ($line in @(Get-Content -LiteralPath $resolvedQueuePath -Encoding utf8 -Tail $Tail -ErrorAction SilentlyContinue)) {
+        try {
+            $ticket = $line | ConvertFrom-Json -ErrorAction Stop
+            $ticketEvent = (Convert-ToSingleLineText -Text ([string]$ticket.event)).ToLowerInvariant()
+            $ticketStartFile = (Convert-ToSingleLineText -Text ([string]$ticket.start_file)).Replace('\', '/').ToLowerInvariant()
+            $ticketDedupSignature = Convert-ToSingleLineText -Text ([string]$ticket.dedup_signature)
+            if ($ticketEvent -eq $eventCompact -and
+                $ticketStartFile -eq $startFileRelative -and
+                $ticketDedupSignature.EndsWith(('|' + $signatureCompact), [System.StringComparison]::Ordinal)) {
+                return $true
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return $false
+}
+
 function Write-JsonLineWithRetry {
     param(
         [string]$Path,

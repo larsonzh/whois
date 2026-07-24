@@ -58,6 +58,7 @@
   - 先定位“当前故障 op”在 operations 中的索引；前置轮次和该索引之前的 op 只读，禁止修改。
   - 允许动作仅限跨轮次矩阵允许的 D 轮，以及当前故障 op 及其后续：修改、删除、插入或追加 op。
   - 每次编辑后，保持 operations 内 op 顺序稳定；不要因为格式化或重排导致语义漂移。
+  - pattern/replacement 诊断必须区分 JSON 源码、`ConvertFrom-Json` 解码后的 PowerShell 字符串与 `.NET Regex` 三层；checker 使用标准 `ConvertFrom-Json`，合法 JSON `"\\)"` 会解码为正则 `\)` 并匹配字面量 `)`。`pattern_unmatched=0` 说明 JSON 已加载且正则已编译，只表示对当前顺序内存文本零命中；不得误判为 JSON 解码器不兼容或据此修改 checker。优先读取 `operation-preview.txt` 的解码视图、源码匹配与 checker 首错。
   - 修改 pattern/replacement 时必须同时保证“唯一命中 + 可落地替换 + marker 自有且唯一 + pattern 收敛 + 整轮 replay 稳定 + 精确断言通过”；若无法唯一命中，优先在允许边界内追加新 op，不要强改前置 op。
   - 不得以自替换 op 表示空轮，也不得把失败或运行时已吸收的 `regex-patch` 改成 `noop`；设计时确无变更目标才使用不含 operations/marker/assertions 的最小 `type=noop` 结构。
   - 重启前先跑 `-SyntaxOnly`，可定位时跑目标 op 快检，再跑当前故障轮的递进严格检查；若失败，继续在当前故障 op 及其后续修复，禁止回头改前置 op或预演后续轮。
