@@ -2182,7 +2182,9 @@ function New-TakeoverBrief {
     }
     $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
     $scriptFaultActionPolicy = if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' }
-    $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'run SyntaxOnly; check failed op when locatable; pass the failing D round; then check and repair each later D round in order through D4; restart only after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then check only the current failing D round without -OperationIndex before restart' }
+    $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'keep one candidate; run SyntaxOnly and the focused failing op; repair each scoped D round in order through D4; run one Validate -ValidateThroughRound D4; then Promote exactly once after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then Validate and Promote only the current failing D round' }
+    $repairValidateThroughRound = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'D4' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
+    $taskDefinitionPromotionGateText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'require one same-ticket candidate validated from the failing D round through D4; manifest/receipt validated_rounds must cover that exact sequence; Promote exactly once; hashes must match official; every scoped official round strict check must pass' } else { 'require same-ticket promoted manifest and successful receipt; validated/promoted/official hashes must match; current failing round strict check must pass' }
     $atomicCloseoutExecutionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'not-applicable-readonly-status-ticket' } else { 'exactly-once-per-event-ticket-after-handling-no-retry' }
 
     $ticketTimingFields = [ordered]@{
@@ -2215,6 +2217,7 @@ function New-TakeoverBrief {
         ('route_guard_expected={0}' -f $routeGuardExpected),
         ('script_self_heal_enabled={0}' -f [bool]$scriptSelfHealEnabled),
         ('task_static_cross_round_repair_enabled={0}' -f [bool]$taskStaticCrossRoundRepairEnabled),
+        ('repair_validate_through_round={0}' -f $repairValidateThroughRound),
         ('script_fault_action_policy={0}' -f $scriptFaultActionPolicy),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
@@ -2227,7 +2230,7 @@ function New-TakeoverBrief {
         ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
         ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
-        ('task_definition_promotion_gate={0}' -f 'before recovery/restart/resume require same-ticket manifest.state=promoted; validated_candidate_sha256=promoted_sha256=official SHA-256; successful promotion-receipt ticket/hash match; and current failing round strict check PASS; candidate edited or Inspect/focused-check PASS is not completion; quarantined/validation_failed/promotion_failed/abandoned/missing receipt/hash mismatch must fail-close'),
+        ('task_definition_promotion_gate={0}' -f $taskDefinitionPromotionGateText),
         ('same_stage_restart_policy={0}' -f 'only after task_definition_promotion_gate passes, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),
         ('guard_state={0}' -f $guardState),
         ('guard_log={0}' -f $guardLog),

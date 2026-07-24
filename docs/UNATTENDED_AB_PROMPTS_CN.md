@@ -95,7 +95,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 running-status-report 不提供或执行修复路径；不得仅凭旧 exit 证据建议重启 B。不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户明确授权。
 
-若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。运行期自愈保持正式任务定义只读，只改当前阶段候选事务 `candidate.json` 中允许范围，不直接改正式定义或源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查；后续轮由实际 code-step 检查。只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。运行期自愈保持正式任务定义只读，只改当前阶段候选事务 `candidate.json` 中允许范围，不直接改正式定义或源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查。
+
+跨轮次修复（task_static_cross_round_repair_enabled=true）：
+- Prepare 时传入 `-ValidateThroughRound D4`，只创建一个事务 candidate。
+- 在该 candidate 中从当前故障轮开始按顺序修复到 D4；遇到后续轮首错时继续修改同一 candidate，轮次之间禁止 Promote。
+- 全部范围修复写入后只执行一次 `Validate -ValidateThroughRound D4`；manifest 的 `validated_rounds` 必须精确覆盖故障轮到 D4。
+- 全序列通过后只执行一次 Promote；恢复门禁要求 manifest/receipt 的 `validated_rounds` 一致、哈希匹配，并逐轮复检正式定义。
+- 禁止 Promote 后直接编辑正式文件或为同一 ticket 再次 Prepare。
+
+后续轮由实际 code-step 检查。只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`；禁止通过终端内联 Python、PowerShell 多层命令、重定向、通用字符串替换或格式化器修改。先 Prepare 并读取预览，修改 candidate 后推荐用只读 Inspect 刷新哈希绑定预览，再按 Validate/Promote 完成 SyntaxOnly、目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；Validate 输出的 `preview_stale` 是诊断状态，不替代 checker 结论。pattern/replacement 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层核对；合法 JSON `"\\)"` 解码为正则 `\)`，`pattern_unmatched=0` 是有效文本零命中而非 JSON 解码失败，禁止据此修改 checker。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 
@@ -121,6 +130,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 low-disturb 的 running-status-report 正常时只回“运行正常”+ handled_at，异常时只回异常摘要+handled_at；不得据旧 exit 证据建议重启 B，不得处置异常。event-only 不期待定时状态票；若文档冲突、字段异常或入口行为异常，先汇报，不要猜。
 
-运行期自愈保持正式任务定义只读，只改当前阶段事务 `candidate.json` 中允许范围，不直改正式定义或源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查，后续轮在实际 code-step 到达时检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
+运行期自愈保持正式任务定义只读，只改当前阶段事务 `candidate.json` 中允许范围，不直改正式定义或源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查。
+
+跨轮次修复（task_static_cross_round_repair_enabled=true）：
+Prepare 时传入 `-ValidateThroughRound D4`，在同一 candidate 中依次修复当前故障轮到 D4，轮次之间禁止 Promote。全部范围修复写入后执行一次 `Validate -ValidateThroughRound D4`，确认 `validated_rounds` 完整后只执行一次 Promote；禁止 Promote 后直接编辑正式文件或重复 Prepare。
+
+后续轮在实际 code-step 到达时检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改；先 Prepare 并读取预览，修改 candidate 后推荐只读 Inspect，再按 Validate/Promote 内置的 SyntaxOnly -> 目标 op 快检（可定位时）-> 当前故障轮递进严格检查顺序验证；Inspect 不替代门禁。pattern 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层理解；合法 `"\\)"` 会解码为 `\)`，`pattern_unmatched=0` 只代表零命中，绝非 JSON 解码失败。
 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。

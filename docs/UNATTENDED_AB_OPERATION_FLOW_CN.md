@@ -312,6 +312,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Promote -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage A -RoundTag D3 -OperationIndex 8
 ```
 
+开启跨轮修复时，Prepare 与 Validate 命令都增加 `-ValidateThroughRound D4`。整个故障轮到 D4 的允许修改都写入同一个 `candidate.json`；轮次之间不得 Promote。全部范围修复写入后只执行一次 Validate，再且仅再执行一次 Promote。默认不传该参数时保持单轮事务行为。
+
 事务目录默认位于 `out/artifacts/task_definition_repair/<ticket-id>/`：
 
 - `baseline.json`：准备时的正式文件字节基线。
@@ -324,7 +326,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 
 生命周期规则：
 
-- task-static 修复的完成事实只能由同票据事务证明：`manifest.state=promoted`，非空的 `validated_candidate_sha256` 与 `promoted_sha256` 相等，正式任务定义 SHA-256 与 promoted hash 相等，`promotion-receipt.json` 存在且 `success=true`、ticket/hash 匹配，并且正式文件再次通过当前故障轮不带 `-OperationIndex` 的严格检查。局部 checker/Inspect PASS、candidate 已编辑、preview 已刷新或聊天中声称“已修复”均不是完成证据。
+- task-static 修复的完成事实只能由同票据事务证明：`manifest.state=promoted`，非空的 `validated_candidate_sha256` 与 `promoted_sha256` 相等，正式任务定义 SHA-256 与 promoted hash 相等，`promotion-receipt.json` 存在且 `success=true`、ticket/hash 匹配。单轮模式再次严格检查当前故障轮；跨轮模式还要求 manifest/receipt 的 `validated_rounds` 精确覆盖故障轮到 D4，并逐轮严格复检正式文件。局部 checker/Inspect PASS、candidate 已编辑、preview 已刷新或聊天中声称“已修复”均不是完成证据。
 - 上述门禁全部满足前不得执行 `recovery_transaction_command`、`stage_restart`、`business_resume` 或成功 handled 收尾。`prepared`、`validation_failed`、`promotion_failed`、`quarantined`、`abandoned`、receipt 缺失或哈希不一致必须 fail-close；可继续修复的非终态事务继续修改 candidate，终态事务重新 Prepare 新 ticket/事务，无法继续时只报告阻塞。
 - 提升、写后哈希、写后 `SyntaxOnly` 和 receipt 全部成功后，删除 `candidate.json` 与 `baseline.json`，保留 manifest、验证日志和 promotion receipt。
 - 验证失败、正式基线漂移、候选验证后漂移或提升失败时，正式文件保持或恢复原状，候选现场保留。
@@ -464,7 +466,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 - 对应 A/B 阶段或 SESSION 已确认 PASS 时不得为该范围新建温窗或宽限期；若此前对应窗口仍存在，guard/trigger 必须立即清除其 started-at、stage、detail 与 last-notice 状态，且 PASS 清窗不得再次开启 startup warmup。SESSION 全 PASS 的正常收尾只走最终状态通知与关闭门禁，不得进入 trigger 的 terminal fallback grace。
 - guard helper 在只读检查或状态刷新时必须原样保留已有宽限期的 started-at、stage、detail 与 last-notice；禁止只保留 started-at 而清空其余元数据。此类半状态无法按 stage 在主进程恢复时清除，并会在后续无进程故障分支中被误判为早已过期。
 - guard 内部的 60 分钟恢复宽限统一由一个 recovery-grace 状态管理，`kind`、`scope`、`reason`、`source`、`expiry_action`、`detail`、`started_at`、`last_notice_at` 与 `generation` 必须原子创建、更新和清除。旧的两族状态变量及兼容投影已删除；`main_process_exit_grace_*` / `monitor_chain_grace_*` 仅作为日志标签保留，计时、判断、清除与到期分派必须直接读取 canonical recovery-grace 状态。
-- recovery-grace 的 SESSION scope 优先于 A/B scope：SESSION grace 可以替换阶段 grace，活动中的 SESSION grace 不得被阶段 rebind 覆盖。`known-infra-transient-stop`、`budget-exhausted-stop` 与 `final-state-no-followup` 到期执行 monitor-chain shutdown；`a-fail-incident-ticket` 到期只记录并清窗；A/B main-exit 与 `b-recoverable-ticket` 到期执行 main-exit shutdown。
+- recovery-grace 的 SESSION scope 优先于 A/B scope：SESSION grace 可以替换阶段 grace，活动中的 SESSION grace 不得被阶段 rebind 覆盖。`known-infra-transient-stop`、`budget-exhausted-stop`、`final-state-no-followup` 与 `a-fail-incident-ticket` 到期均执行 monitor-chain shutdown；A/B main-exit 与 `b-recoverable-ticket` 到期执行 main-exit shutdown。任何宽限到期后都不得仅清窗并在相同终态条件下重新开始计时。
 - 本节合并范围仅限 guard 内部两套 60 分钟状态。A/B PID 缺失的 180 秒 warm window 继续独立工作；trigger 的跨进程 terminal fallback 仍是 guard 缺失时的跟随/兜底机制，不与 guard 内存状态共享所有权。
 - A 或 B 因 `task-definition-mismatch` 结束时，应统一生成可自动接管的 code-fix 事件：自动修复对应阶段的任务定义、通过静态体检后按标准 Stage A/B 入口恢复。guard 不得在修复落地前盲目重启失败阶段，也不得为任一阶段另设人工等待或专属常驻流程；只有自动修复配额或相同故障指纹配额耗尽时，才转人工处置。
 - 若宽限期届满仍没有新的有效主进程，guard 应写入结束/故障证据，并请求监控链有序关闭；trigger 必须先完成已生成关键票据与最终状态的投递门禁。
@@ -832,7 +834,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 - `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket`（允许启动监控链；启动预检只打印结果，不发票；D1 整轮静态失败且主进程停止后才进入自愈票链）
 - `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false`（默认只修当前 task-static 故障轮；缺失、空值或非法值也按关闭）
 
-`TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED` 只控制 task-static 代码自愈工单的检查/修复范围，不改变 checker 的单轮首错即停语义，也不改变运行时 D 轮管线。关闭时，当前故障轮通过后即可按同阶段恢复，后续轮由运行时门禁检查；开启时，当前故障轮通过后从下一 D 轮开始按顺序逐轮调用 checker 到 D4，遇到首错即停并只在该轮允许边界内修复，范围内全部通过后才允许恢复。该开关不授权 code-step 或非代码故障编辑任务定义，也不扩大编译/验证代码故障的追加式修复边界。takeover brief 必须同步输出开关值和一致的 `task_definition_check_order`。
+`TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED` 只控制 task-static 代码自愈工单的检查/修复范围，不改变 checker 的单轮首错即停语义，也不改变运行时 D 轮管线。关闭时，默认单轮事务只验证当前故障轮，后续轮由运行时门禁检查；开启时，使用同一 candidate 按顺序修复故障轮到 D4，并通过 `Validate -ValidateThroughRound D4` 一次验证完整序列，全部通过后只 Promote 一次。该开关不授权 code-step 或非代码故障编辑任务定义，也不扩大编译/验证代码故障的追加式修复边界。takeover brief/work order 必须同步输出开关值、`repair_validate_through_round` 和一致的 `task_definition_check_order`。
 
 所有故障动作统一停机门禁：
 - guard 在进入 `FAIL/BLOCKED` 故障处理、生成任何可修复/重启类票据或执行 auto-fix/recovery 前，必须通过 A/B 统一业务进程快照确认全部主进程已停止。
@@ -1804,7 +1806,7 @@ AI 在自愈修复中变更完成所在阶段任务定义文件里对应开发�
 2. **目标 op 快检**：task-static 故障可用 `-RoundTag <Dn> -OperationIndex <n>` 顺序模拟只读前置 op，只检查目标 op。
 3. **当前故障轮递进严格检查**：重启前运行不带 `-OperationIndex` 的 `-RoundTag <Dn>`。checker 从 op1 开始，当前 op 通过才推进内存副本；首错立即停止。仅当本轮全部 op 通过才执行 replay 与 `postApplyAssertions`。
 
-不再要求恢复前检查“所有受影响的后续 D 轮”。跨轮次编辑边界仍然有效，但未来轮的业务语义必须在实际执行到该轮时由 code-step 检查；未来轮缺陷不得提前阻断当前故障轮恢复。
+当 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false` 时，不要求恢复前检查后续 D 轮，未来轮由运行时门禁检查。当该开关为 `true` 时，恢复前必须由同一候选事务验证故障轮到 D4，并以 manifest/receipt 的 `validated_rounds` 和正式文件逐轮复检作为门禁。
 
 修改或追加 operation 时，必须同步维护所在轮的 `postApplyAssertions`。断言变更仅可描述允许编辑范围内 operation 产生的结构结果，不得借机改变前置只读 op 的既有契约；若现有断言仍准确，则保持不动。
 

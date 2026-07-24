@@ -23,7 +23,7 @@ function Start-RecoveryGrace {
         [ValidateSet('A', 'B', 'SESSION')][string]$Scope,
         [string]$Reason,
         [string]$Source,
-        [ValidateSet('main-exit-shutdown', 'monitor-chain-shutdown', 'expire-and-clear')][string]$ExpiryAction,
+        [ValidateSet('main-exit-shutdown', 'monitor-chain-shutdown')][string]$ExpiryAction,
         [AllowEmptyString()][string]$Detail
     )
 

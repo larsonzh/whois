@@ -7173,18 +7173,13 @@ try {
 
                     $graceElapsedMinutes = ((Get-Date) - $script:RecoveryGraceState.StartedAt).TotalMinutes
                     if ($graceElapsedMinutes -ge $mainProcessExitMonitorGraceMinutes) {
-                        if ($script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear') {
-                            Write-MonitorChainGraceExpiredLog -Stage $script:RecoveryGraceState.Scope -ElapsedMinutes $graceElapsedMinutes -Reason $script:RecoveryGraceState.Reason
-                            Clear-RecoveryGrace
+                        Write-MonitorChainGraceExpiredLog -Stage $script:RecoveryGraceState.Scope -ElapsedMinutes $graceElapsedMinutes -Reason $script:RecoveryGraceState.Reason
+                        $shutdownDetail = $script:RecoveryGraceState.Detail
+                        if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
+                            $shutdownDetail = ("monitor_chain_grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $script:RecoveryGraceState.Scope, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
                         }
-                        else {
-                            $shutdownDetail = $script:RecoveryGraceState.Detail
-                            if ([string]::IsNullOrWhiteSpace($shutdownDetail)) {
-                                $shutdownDetail = ("monitor_chain_grace_expired stage={0} status={1} a={2} b={3} run_dir={4}" -f $script:RecoveryGraceState.Scope, $sessionStatus, $aStatus, $bStatus, $runDirAnchor)
-                            }
-                            $settings = Request-MonitorChainShutdown -Settings $settings -Reason $script:RecoveryGraceState.Reason -Source $script:RecoveryGraceState.Source -Detail $shutdownDetail
-                            $monitorChainGraceStopRequested = $true
-                        }
+                        $settings = Request-MonitorChainShutdown -Settings $settings -Reason $script:RecoveryGraceState.Reason -Source $script:RecoveryGraceState.Source -Detail $shutdownDetail
+                        $monitorChainGraceStopRequested = $true
                     }
                     else {
                         $remainingGraceMinutes = [Math]::Max(0.0, ($mainProcessExitMonitorGraceMinutes - $graceElapsedMinutes))
@@ -7428,7 +7423,7 @@ try {
                 # to keep monitor chain alive for AI handler.
                 if ($aStatus -eq 'FAIL' -and -not ($autoRecoverB -and $canRecoverB) -and $mainProcessExitMonitorGraceMinutes -gt 0) {
                     $graceDetail = Get-LoopRecoveryStatusDetail -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -AutoRecoverB $autoRecoverB -CanRecoverB $canRecoverB
-                    $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'expire-and-clear' -Detail $graceDetail
+                    $graceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown' -Detail $graceDetail
                     if ($graceStarted) {
                         Write-MonitorChainGraceStartLog -Stage $script:RecoveryGraceState.Scope -GraceMinutes $mainProcessExitMonitorGraceMinutes -Reason $script:RecoveryGraceState.Reason -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor
                     }

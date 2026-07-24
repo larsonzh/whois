@@ -2172,6 +2172,10 @@ $scriptSelfHealEnabled = $false
 if ($settings.Contains('LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED')) {
     $scriptSelfHealEnabled = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED) -Default $false
 }
+$taskStaticCrossRoundRepairEnabled = $false
+if ($settings.Contains('TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED')) {
+    $taskStaticCrossRoundRepairEnabled = Convert-ToBooleanValue -Value ([string]$settings.TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED) -Default $false
+}
 $script:PreauthorizedExecution = $true
 if ($settings.Contains('LOCAL_GUARD_POLL_PREAUTHORIZED_EXECUTION')) {
     $script:PreauthorizedExecution = Convert-ToBooleanValue -Value ([string]$settings.LOCAL_GUARD_POLL_PREAUTHORIZED_EXECUTION) -Default $true
@@ -2766,6 +2770,8 @@ foreach ($ticket in $tickets) {
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
                 main_round = $ticketMainRound
+                task_static_cross_round_repair_enabled = [bool]$taskStaticCrossRoundRepairEnabled
+                repair_validate_through_round = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'D4' } else { $ticketMainRound }
                 failure_phase = $ticketFailurePhase
                 failure_kind = $ticketFailureKind
                 failure_category = $ticketFailureCategory
@@ -2885,6 +2891,8 @@ foreach ($ticket in $tickets) {
                 recommended_action = $recommendedAction
                 queue_path = $queueRel
                 main_round = $ticketMainRound
+                task_static_cross_round_repair_enabled = [bool]$taskStaticCrossRoundRepairEnabled
+                repair_validate_through_round = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'D4' } else { $ticketMainRound }
                 failure_phase = $ticketFailurePhase
                 failure_kind = $ticketFailureKind
                 failure_category = $ticketFailureCategory
@@ -2964,6 +2972,8 @@ foreach ($ticket in $tickets) {
             recommended_action = $recommendedAction
             queue_path = $queueRel
             main_round = $ticketMainRound
+            task_static_cross_round_repair_enabled = [bool]$taskStaticCrossRoundRepairEnabled
+            repair_validate_through_round = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'D4' } else { $ticketMainRound }
             failure_phase = $ticketFailurePhase
             failure_kind = $ticketFailureKind
             failure_category = $ticketFailureCategory

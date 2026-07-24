@@ -22,7 +22,10 @@ function Write-Utf8Bom {
 }
 
 function New-Fixture {
-    param([string]$Name)
+    param(
+        [string]$Name,
+        [switch]$IncludeAllRounds
+    )
     $root = Join-Path $caseRoot $Name
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     $sourcePath = Join-Path $root 'fixture.c'
@@ -59,6 +62,14 @@ function New-Fixture {
             }
         }
     }
+    if ($IncludeAllRounds.IsPresent) {
+        foreach ($roundNumber in 2..4) {
+            $task.rounds["D$roundNumber"] = [ordered]@{
+                type = 'noop'
+                description = "No source change for D$roundNumber fixture validation."
+            }
+        }
+    }
     Write-Utf8Bom -Path $taskPath -Text (($task | ConvertTo-Json -Depth 16) + "`n")
     return [pscustomobject]@{
         Root = $root
@@ -73,12 +84,17 @@ function Invoke-Transaction {
         [object]$Fixture,
         [string]$TicketId,
         [string]$Mode,
-        [int]$ExpectedExitCode
+        [int]$ExpectedExitCode,
+        [AllowEmptyString()][string]$ValidateThroughRound = ''
     )
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $transactionScript -Mode $Mode -TaskDefinitionFile $Fixture.TaskPath -TicketId $TicketId -Stage A -RoundTag D1 -OperationIndex 1 -ArtifactRoot $Fixture.ArtifactRoot 2>&1 | ForEach-Object { [string]$_ })
+        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $transactionScript, '-Mode', $Mode, '-TaskDefinitionFile', $Fixture.TaskPath, '-TicketId', $TicketId, '-Stage', 'A', '-RoundTag', 'D1', '-OperationIndex', '1', '-ArtifactRoot', $Fixture.ArtifactRoot)
+        if (-not [string]::IsNullOrWhiteSpace($ValidateThroughRound)) {
+            $arguments += @('-ValidateThroughRound', $ValidateThroughRound)
+        }
+        $output = @(& powershell.exe @arguments 2>&1 | ForEach-Object { [string]$_ })
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     }
     finally {
@@ -133,6 +149,25 @@ try {
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $successDir 'baseline.json'))) -Message 'baseline not cleaned after promote'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'promotion-receipt.json')) -Message 'promotion receipt missing'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=success-promote-cleanup status=pass'
+
+    $crossRoundFixture = New-Fixture -Name 'cross-round' -IncludeAllRounds
+    [void](Invoke-Transaction -Fixture $crossRoundFixture -TicketId 'T-CROSS-ROUND' -Mode Prepare -ExpectedExitCode 0 -ValidateThroughRound D4)
+    $crossRoundDir = Join-Path $crossRoundFixture.ArtifactRoot 'T-CROSS-ROUND'
+    $crossRoundCandidate = Get-Content -LiteralPath (Join-Path $crossRoundDir 'candidate.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $crossRoundCandidate.name = 'cross-round-promoted'
+    Write-Utf8Bom -Path (Join-Path $crossRoundDir 'candidate.json') -Text (($crossRoundCandidate | ConvertTo-Json -Depth 16) + "`n")
+    [void](Invoke-Transaction -Fixture $crossRoundFixture -TicketId 'T-CROSS-ROUND' -Mode Validate -ExpectedExitCode 0 -ValidateThroughRound D4)
+    $crossRoundManifest = Get-Content -LiteralPath (Join-Path $crossRoundDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([string]::Join(',', @($crossRoundManifest.round_sequence)) -eq 'D1,D2,D3,D4') -Message 'cross-round sequence binding mismatch'
+    Assert-True -Condition ([string]::Join(',', @($crossRoundManifest.validated_rounds)) -eq 'D1,D2,D3,D4') -Message 'cross-round validation coverage mismatch'
+    foreach ($round in @('d1', 'd2', 'd3', 'd4')) {
+        Assert-True -Condition (Test-Path -LiteralPath (Join-Path $crossRoundDir "validation-round-$round.log")) -Message "cross-round validation log missing round=$round"
+    }
+    [void](Invoke-Transaction -Fixture $crossRoundFixture -TicketId 'T-CROSS-ROUND' -Mode Promote -ExpectedExitCode 0)
+    $crossRoundReceipt = Get-Content -LiteralPath (Join-Path $crossRoundDir 'promotion-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([string]::Join(',', @($crossRoundReceipt.validated_rounds)) -eq 'D1,D2,D3,D4') -Message 'promotion receipt cross-round coverage mismatch'
+    Assert-True -Condition ((Get-FileHash -LiteralPath $crossRoundFixture.TaskPath -Algorithm SHA256).Hash.ToLowerInvariant() -eq [string]$crossRoundReceipt.promoted_sha256) -Message 'cross-round promoted hash mismatch'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=cross-round-single-promote status=pass'
 
     $invalidFixture = New-Fixture -Name 'invalid-candidate'
     $invalidOfficialHash = (Get-FileHash -LiteralPath $invalidFixture.TaskPath -Algorithm SHA256).Hash
@@ -216,7 +251,7 @@ try {
     Assert-True -Condition ($escapeDecoded.Contains('possible_double_escape=true')) -Message 'decoded sidecar should expose double escape warning'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=double-escape-warning status=pass'
 
-    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=9 fail=0'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=10 fail=0'
 }
 finally {
     Remove-Item -LiteralPath $caseRoot -Recurse -Force -ErrorAction SilentlyContinue

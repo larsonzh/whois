@@ -183,6 +183,7 @@ $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encod
 $sessionGuardLauncherText = Get-Content -LiteralPath $sessionGuardLauncherPath -Raw -Encoding utf8
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $recoveryTransactionText = Get-Content -LiteralPath $recoveryTransactionPath -Raw -Encoding utf8
+$taskDefinitionRepairTransactionText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1') -Raw -Encoding utf8
 $ticketClosureText = Get-Content -LiteralPath $ticketClosurePath -Raw -Encoding utf8
 $taskStaticCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1') -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
@@ -659,7 +660,8 @@ $taskSafetyHasHardBlockNotice = $stageWindowText.Contains('hard_block = $HardBlo
 $taskSafetySuffixAttached = $dispatchText.Contains('$selfHealRuleSuffixEn += $taskDefinitionSafetySuffixEn') -and $dispatchText.Contains('$selfHealRuleSuffixZh += $taskDefinitionSafetySuffixZh')
 $taskSafetyHasPhaseBoundary = $dispatchText.Contains('every code-step failure is noncode') -and $dispatchText.Contains('任何 code-step 故障均属于 noncode') -and $dispatchText.Contains('independent task-static checker') -and $dispatchText.Contains('独立 task-static checker') -and $takeoverTriggerText.Contains("if (`$ticketFailurePhase -eq 'code-step')") -and $takeoverTriggerText.Contains("`$ticketFailureCategory = 'noncode-transient'")
 $taskSafetyHasRetryScope = $stageWindowText.Contains("`$aFailurePhase -in @('compile', 'verify')") -and $stageWindowText.Contains("`$bFailurePhase -in @('compile', 'verify')") -and $stageWindowText.Contains('$aFailureCodeFault') -and $stageWindowText.Contains('$bFailureCodeFault') -and $sessionGuardText.Contains('"${fpKeyPrefix}_FAILURE_CODE_FAULT" = ([bool]$failureHasCodeFault).ToString().ToLowerInvariant()') -and $stageWindowText.Contains('CODEFIX_IDENTICAL_FP_MAX_RETRIES') -and -not $stageWindowText.Contains('CODESTEP_IDENTICAL_FP') -and $taskStaticCheckerText.Contains('${prefix}_FAILURE_CODE_FAULT') -and $taskStaticCheckerText.Contains("`$fingerprintGateApplicable = (`$curPhase -in @('compile', 'verify') -and") -and $taskStaticCheckerText.Contains('status=not-applicable phase={1}') -and -not $taskStaticCheckerText.Contains('CODESTEP_IDENTICAL_FP') -and $promptDocText.Contains('task-static 与 code-step 均不进入相同指纹状态机') -and $operationFlowText.Contains('`task-static` 不适用') -and $operationFlowText.Contains('`code-step` 不适用')
-$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasSwitchDefault -and $taskSafetyBriefProjectsSwitch -and $taskSafetyDispatchBranches -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetyHasRepairTransaction -and $taskSafetyHasDiagnosisIntegrity -and $taskSafetyHasHardBlockNotice -and $taskSafetySuffixAttached -and $taskSafetyHasPhaseBoundary -and $taskSafetyHasRetryScope)
+$taskSafetyHasCrossRoundTransaction = $taskDefinitionRepairTransactionText.Contains('[string]$ValidateThroughRound') -and $taskDefinitionRepairTransactionText.Contains('validated_rounds = @($roundSequence)') -and $taskDefinitionRepairTransactionText.Contains('validated_rounds = @($manifest.validated_rounds)') -and $recoveryTransactionText.Contains('task-static recovery validated round coverage gate failed') -and $recoveryTransactionText.Contains('task-static recovery receipt round coverage gate failed') -and $takeoverTriggerText.Contains('repair_validate_through_round={0}') -and $takeoverTriggerText.Contains('Promote exactly once after all scoped rounds pass') -and $pollText.Contains('repair_validate_through_round = if ($taskStaticCrossRoundRepairEnabled') -and $dispatchText.Contains('[Cross-round transaction execution]') -and $dispatchText.Contains('[跨轮事务执行]') -and $operationFlowText.Contains('Validate -ValidateThroughRound D4') -and $startTemplateText.Contains('Validate -ValidateThroughRound D4') -and $promptDocText.Contains('Validate -ValidateThroughRound D4') -and $copilotInstructionsText.Contains('Validate -ValidateThroughRound D4')
+$taskSafetyPass = ($taskSafetyHasFocusedLimitEn -and $taskSafetyHasFocusedLimitZh -and $taskSafetyHasSwitchDefault -and $taskSafetyBriefProjectsSwitch -and $taskSafetyDispatchBranches -and $taskSafetyHasFailFast -and $taskSafetyHasAssertionBoundary -and $taskSafetyHasRepairTransaction -and $taskSafetyHasDiagnosisIntegrity -and $taskSafetyHasHardBlockNotice -and $taskSafetySuffixAttached -and $taskSafetyHasPhaseBoundary -and $taskSafetyHasRetryScope -and $taskSafetyHasCrossRoundTransaction)
 $taskSafetyReason = if ($taskSafetyPass) { 'task-definition-progressive-static-check-contract-present' } else { 'missing-task-definition-progressive-static-check-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-definition-progressive-static-check' -Pass $taskSafetyPass -Reason $taskSafetyReason))
 
@@ -782,13 +784,13 @@ $guardHasCanonicalRecoveryGrace = (
     $recoveryGraceStateText.Contains('function Update-RecoveryGraceLastNotice') -and
     $recoveryGraceStateText.Contains("if (`$script:RecoveryGraceState.Scope -eq 'SESSION' -and `$Scope -ne 'SESSION')") -and
     $recoveryGraceStateText.Contains('Generation = $nextGeneration') -and
-    $recoveryGraceStateText.Contains("[ValidateSet('main-exit-shutdown', 'monitor-chain-shutdown', 'expire-and-clear')]") -and
+    $recoveryGraceStateText.Contains("[ValidateSet('main-exit-shutdown', 'monitor-chain-shutdown')]") -and
     $sessionGuardText.Contains("-Reason 'known-infra-transient-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
-    $sessionGuardText.Contains("-Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'expire-and-clear'") -and
+    $sessionGuardText.Contains("-Reason 'a-fail-incident-ticket' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
     $sessionGuardText.Contains("-Reason 'budget-exhausted-stop' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
     $sessionGuardText.Contains("-Reason 'final-state-no-followup' -Source 'session-guard' -ExpiryAction 'monitor-chain-shutdown'") -and
     $sessionGuardText.Contains("-Reason 'b-recoverable-ticket' -Source 'session-guard' -ExpiryAction 'main-exit-shutdown'") -and
-    $sessionGuardText.Contains("if (`$script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear')") -and
+    -not $sessionGuardText.Contains("ExpiryAction -eq 'expire-and-clear'") -and
     $sessionGuardText.Contains('$graceStopActive = [bool]$script:RecoveryGraceState.Active')
 )
 $guardHasNoLegacyGraceState = -not [regex]::IsMatch($sessionGuardText, '\$(?:mainProcessExitGrace|monitorChainGrace)(?:StartedAt|LastNoticeAt|ShutdownDetail|Stage|ShutdownStage|ShutdownReason|ShutdownSource)')
@@ -806,7 +808,7 @@ Update-RecoveryGraceLastNotice
 $noticeUpdated = $null -ne $script:RecoveryGraceState.LastNoticeAt
 Clear-RecoveryGrace
 $clearPreservedGeneration = (-not $script:RecoveryGraceState.Active -and [int]$script:RecoveryGraceState.Generation -eq $sessionGeneration -and [string]::IsNullOrEmpty([string]$script:RecoveryGraceState.Reason))
-$expireAndClearStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'runtime-test' -ExpiryAction 'expire-and-clear' -Detail 'clear-detail'
+$aFailGraceStarted = Start-RecoveryGrace -Kind 'monitor-chain' -Scope 'SESSION' -Reason 'a-fail-incident-ticket' -Source 'runtime-test' -ExpiryAction 'monitor-chain-shutdown' -Detail 'shutdown-detail'
 $guardCanonicalRuntimePass = (
     $stageGraceStarted -and
     $stageGeneration -eq 1 -and
@@ -817,9 +819,9 @@ $guardCanonicalRuntimePass = (
     $stageOverwriteRejected -and
     $noticeUpdated -and
     $clearPreservedGeneration -and
-    $expireAndClearStarted -and
+    $aFailGraceStarted -and
     [int]$script:RecoveryGraceState.Generation -eq 3 -and
-    $script:RecoveryGraceState.ExpiryAction -eq 'expire-and-clear'
+    $script:RecoveryGraceState.ExpiryAction -eq 'monitor-chain-shutdown'
 )
 $guardCanonicalRecoveryGracePass = ($guardHasCanonicalRecoveryGrace -and $guardHasNoLegacyGraceState -and $guardCanonicalRuntimePass)
 $guardCanonicalRecoveryGraceReason = if ($guardCanonicalRecoveryGracePass) { 'guard-canonical-recovery-grace-runtime-pass' } else { 'guard-canonical-recovery-grace-missing-legacy-or-runtime-failure' }

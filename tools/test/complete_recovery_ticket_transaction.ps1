@@ -300,6 +300,14 @@ function Assert-TaskStaticRepairPromoted {
     if ($round -notmatch '^D[1-4]$') {
         throw 'task-static recovery requires a valid main_round'
     }
+    $crossRoundEnabled = (Convert-ToSingleLineText -Text ([string]$Brief['task_static_cross_round_repair_enabled'])).ToLowerInvariant() -in @('1', 'true', 'yes', 'on')
+    $roundNumber = [int]$round.Substring(1)
+    $expectedRounds = if ($crossRoundEnabled) {
+        @($roundNumber..4 | ForEach-Object { "D$_" })
+    }
+    else {
+        @($round)
+    }
 
     $transactionDir = Join-Path $RepoRoot (Join-Path 'out\artifacts\task_definition_repair' $TicketId)
     $manifestPath = Join-Path $transactionDir 'manifest.json'
@@ -332,6 +340,16 @@ function Assert-TaskStaticRepairPromoted {
     if ([string]::IsNullOrWhiteSpace($validatedHash) -or $validatedHash -ne $promotedHash) {
         throw 'task-static recovery validated/promoted hash gate failed'
     }
+    $manifestValidatedRounds = @()
+    if ($manifest.PSObject.Properties.Name -contains 'validated_rounds') {
+        $manifestValidatedRounds = @($manifest.validated_rounds | ForEach-Object { (Convert-ToSingleLineText -Text ([string]$_)).ToUpperInvariant() })
+    }
+    elseif (-not $crossRoundEnabled) {
+        $manifestValidatedRounds = @($round)
+    }
+    if ([string]::Join(',', $manifestValidatedRounds) -ne [string]::Join(',', $expectedRounds)) {
+        throw ("task-static recovery validated round coverage gate failed expected={0} actual={1}" -f ([string]::Join(',', $expectedRounds)), ([string]::Join(',', $manifestValidatedRounds)))
+    }
     if ([string]::IsNullOrWhiteSpace($officialPath) -or -not (Test-Path -LiteralPath $officialPath -PathType Leaf)) {
         throw 'task-static recovery official task definition is missing'
     }
@@ -339,24 +357,37 @@ function Assert-TaskStaticRepairPromoted {
     $receiptTicket = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $receipt -Name 'ticket_id')
     $receiptHash = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $receipt -Name 'promoted_sha256')).ToLowerInvariant()
     $receiptSuccess = [bool]$receipt.success
+    $receiptValidatedRounds = @()
+    if ($receipt.PSObject.Properties.Name -contains 'validated_rounds') {
+        $receiptValidatedRounds = @($receipt.validated_rounds | ForEach-Object { (Convert-ToSingleLineText -Text ([string]$_)).ToUpperInvariant() })
+    }
+    elseif (-not $crossRoundEnabled) {
+        $receiptValidatedRounds = @($round)
+    }
     $officialHash = (Get-FileHash -LiteralPath $officialPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if (-not $receiptSuccess -or $receiptTicket -ne $TicketId -or $receiptHash -ne $promotedHash -or $officialHash -ne $promotedHash) {
         throw ("task-static recovery promotion receipt/hash gate failed receipt_ticket={0} receipt_hash={1} official_hash={2} promoted_hash={3}" -f $receiptTicket, $receiptHash, $officialHash, $promotedHash)
     }
+    if ([string]::Join(',', $receiptValidatedRounds) -ne [string]::Join(',', $expectedRounds)) {
+        throw ("task-static recovery receipt round coverage gate failed expected={0} actual={1}" -f ([string]::Join(',', $expectedRounds)), ([string]::Join(',', $receiptValidatedRounds)))
+    }
 
     $checkerPath = Join-Path $PSScriptRoot 'check_task_definition_static.ps1'
-    $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkerPath -TaskDefinitionFile $officialPath -Policy enforce -RoundTag $round 2>&1)
-    $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-    if ($checkerExitCode -ne 0) {
-        $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
-        throw ("task-static recovery current-round static gate failed exit={0} output={1}" -f $checkerExitCode, $checkerTail)
+    foreach ($validationRound in $expectedRounds) {
+        $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkerPath -TaskDefinitionFile $officialPath -Policy enforce -RoundTag $validationRound 2>&1)
+        $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($checkerExitCode -ne 0) {
+            $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
+            throw ("task-static recovery static gate failed round={0} exit={1} output={2}" -f $validationRound, $checkerExitCode, $checkerTail)
+        }
     }
 
     return [pscustomobject]@{
         required = $true
         passed = $true
-        reason = 'promoted-repair-and-current-round-static-pass'
+        reason = if ($crossRoundEnabled) { 'promoted-repair-and-cross-round-static-pass' } else { 'promoted-repair-and-current-round-static-pass' }
         round = $round
+        validated_rounds = @($expectedRounds)
         promoted_sha256 = $promotedHash
         manifest_path = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $manifestPath)
         receipt_path = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $receiptPath)

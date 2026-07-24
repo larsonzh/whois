@@ -4,6 +4,7 @@
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9._-]+$')][string]$TicketId,
     [ValidateSet('A', 'B')][string]$Stage = 'A',
     [AllowEmptyString()][string]$RoundTag = '',
+    [ValidateSet('', 'D1', 'D2', 'D3', 'D4')][string]$ValidateThroughRound = '',
     [ValidateRange(0, 256)][int]$OperationIndex = 0,
     [AllowEmptyString()][string]$ArtifactRoot = '',
     [AllowEmptyString()][string]$Reason = ''
@@ -39,6 +40,30 @@ $patchContextPath = Join-Path $transactionDir 'apply-patch-context.txt'
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ValidationRoundSequence {
+    param(
+        [Parameter(Mandatory = $true)][string]$StartRound,
+        [AllowEmptyString()][string]$ThroughRound = ''
+    )
+
+    $start = $StartRound.Trim().ToUpperInvariant()
+    $through = $ThroughRound.Trim().ToUpperInvariant()
+    if ($start -notmatch '^D[1-4]$') {
+        throw '[TASK-DEFINITION-TRANSACTION] validation requires D1-D4 round binding'
+    }
+    if ([string]::IsNullOrWhiteSpace($through)) {
+        return @($start)
+    }
+
+    $startNumber = [int]$start.Substring(1)
+    $throughNumber = [int]$through.Substring(1)
+    if ($throughNumber -lt $startNumber) {
+        throw "[TASK-DEFINITION-TRANSACTION] validation range cannot move backward start=$start through=$through"
+    }
+
+    return @($startNumber..$throughNumber | ForEach-Object { "D$_" })
 }
 
 function Write-JsonAtomically {
@@ -372,11 +397,13 @@ if ($Mode -eq 'Prepare') {
     [System.IO.File]::WriteAllBytes($baselinePath, [System.IO.File]::ReadAllBytes($officialPath))
     [System.IO.File]::WriteAllBytes($candidatePath, [System.IO.File]::ReadAllBytes($officialPath))
     $baselineHash = Get-Sha256 -Path $officialPath
+    $roundSequence = if ([string]::IsNullOrWhiteSpace($RoundTag)) { @() } else { @(Get-ValidationRoundSequence -StartRound $RoundTag -ThroughRound $ValidateThroughRound) }
     $manifest = [ordered]@{
         schema = 'TASK_DEFINITION_REPAIR_TRANSACTION_V1'
         ticket_id = $TicketId
         stage = $Stage
         round = $RoundTag.Trim().ToUpperInvariant()
+        round_sequence = @($roundSequence)
         operation_index = $OperationIndex
         official_path = $officialPath
         baseline_path = $baselinePath
@@ -384,6 +411,7 @@ if ($Mode -eq 'Prepare') {
         baseline_sha256 = $baselineHash
         prepared_candidate_sha256 = $baselineHash
         validated_candidate_sha256 = ''
+        validated_rounds = @()
         validation_at = ''
         validation_logs = @()
         preview_candidate_sha256 = ''
@@ -460,6 +488,14 @@ if ($Mode -eq 'Validate') {
         if ([string]::IsNullOrWhiteSpace($effectiveRound)) {
             throw '[TASK-DEFINITION-TRANSACTION] validation requires round binding'
         }
+        $storedThroughRound = ''
+        if ([string]::IsNullOrWhiteSpace($ValidateThroughRound) -and
+            $manifest.PSObject.Properties.Name -contains 'round_sequence' -and
+            @($manifest.round_sequence).Count -gt 0) {
+            $storedThroughRound = [string]@($manifest.round_sequence)[-1]
+        }
+        $effectiveThroughRound = if ([string]::IsNullOrWhiteSpace($ValidateThroughRound)) { $storedThroughRound } else { $ValidateThroughRound }
+        $roundSequence = @(Get-ValidationRoundSequence -StartRound $effectiveRound -ThroughRound $effectiveThroughRound)
         if ($effectiveOperation -gt 0) {
             $focusedLog = Invoke-Checker -Name 'focused-op' -Arguments @{
                 TaskDefinitionFile = $candidatePath
@@ -469,17 +505,23 @@ if ($Mode -eq 'Validate') {
                 RequestedOperationIndex = $effectiveOperation
             }
         }
-        $roundLog = Invoke-Checker -Name 'round' -Arguments @{
-            TaskDefinitionFile = $candidatePath
-            RepoRoot = $repoRoot
-            Policy = 'enforce'
-            RoundTag = $effectiveRound
+        $roundLogs = New-Object System.Collections.Generic.List[string]
+        foreach ($validationRound in $roundSequence) {
+            $roundLog = Invoke-Checker -Name ("round-{0}" -f $validationRound.ToLowerInvariant()) -Arguments @{
+                TaskDefinitionFile = $candidatePath
+                RepoRoot = $repoRoot
+                Policy = 'enforce'
+                RoundTag = $validationRound
+            }
+            $roundLogs.Add($roundLog)
         }
+        $manifest.round_sequence = @($roundSequence)
+        $manifest.validated_rounds = @($roundSequence)
         $manifest.validated_candidate_sha256 = Get-Sha256 -Path $candidatePath
         $manifest.validation_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-        $manifest.validation_logs = @($syntaxLog, $focusedLog, $roundLog | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $manifest.validation_logs = @(@($syntaxLog, $focusedLog) + @($roundLogs) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         Set-ManifestState -Manifest $manifest -State 'validated'
-        Write-Output ("[TASK-DEFINITION-TRANSACTION] status=validated ticket={0} candidate_sha256={1} preview_stale={2}" -f $TicketId, $manifest.validated_candidate_sha256, $manifest.preview_stale.ToString().ToLowerInvariant())
+        Write-Output ("[TASK-DEFINITION-TRANSACTION] status=validated ticket={0} candidate_sha256={1} validated_rounds={2} preview_stale={3}" -f $TicketId, $manifest.validated_candidate_sha256, ([string]::Join(',', @($manifest.validated_rounds))), $manifest.preview_stale.ToString().ToLowerInvariant())
         exit 0
     }
     catch {
@@ -523,6 +565,8 @@ if ($Mode -eq 'Promote') {
             official_path = $officialPath
             baseline_sha256 = [string]$manifest.baseline_sha256
             promoted_sha256 = $writtenHash
+            round_sequence = @($manifest.round_sequence)
+            validated_rounds = @($manifest.validated_rounds)
             validation_at = [string]$manifest.validation_at
             promoted_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             post_check_log = $postCheckLog
