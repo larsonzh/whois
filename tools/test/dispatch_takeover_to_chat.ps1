@@ -3983,7 +3983,7 @@ if ($eventNormalized -eq 'chat-session-heartbeat-timeout' -and -not $heartbeatTi
 
 $runningStatusFullMessageEn = '[FULL-RUNBOOK][STATUS-REPORT-ONLY] This scheduled running-status-report is observation-only. Use only read-only status commands supplied by the ticket and report current SESSION/A/B state, run_dir, main_round, process/monitor liveness, heartbeat, and pending incident summary. Do not perform self-heal, fault handling, main-process or guard restart, business_resume, source/script/task-definition edits, environment stabilization, or any recovery action. If an abnormal condition is observed, report it and wait for a separate incident ticket. Return handled_at after reporting; return session_closed_at only when stop monitoring is requested or A/B are terminal. Do not commit or push without explicit same-turn authorization. Status: {3}.'
 $runningStatusShortMessageEn = '[SHORT-CARD][STATUS-REPORT-ONLY] Scheduled status report only. Report observed SESSION/A/B, main_round, process/monitor liveness, heartbeat, and pending incident summary using read-only checks. Do not self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover anything from this ticket. Report anomalies and wait for a separate incident ticket. Return handled_at. Status: {3}.'
-$finalStatusSummaryMessageEn = 'A/B tasks are complete. Please take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}.'
+$finalStatusSummaryMessageEn = "A/B tasks are complete.`n`nPlease take over ticket {0} (event={1}), read {2} first, then summarize unattended execution and completion (execution window, status-ticket handling, root cause/remediation, key recovery actions, chat_heartbeat, ACK receipts, final conclusion). Include the explicit session end date/time in the final closure message. Status summary: {3}."
 $taskDefinitionFixMessageEn = 'Please take over ticket {0} (event={1}) and read {2} first. Diagnose whether the root cause is a task-static mismatch between the task definition and current source shape, then provide the minimal fix. Only task-static faults and compile/verify faults classified as code may enter this flow; every code-step fault is noncode. Keep the official task-definition file under testdata read-only while editing: run task_definition_repair_transaction.ps1 -Mode Prepare, read operation-preview.json, operation-preview.txt, and apply-patch-context.txt, and modify only the emitted candidate.json with the VS Code apply_patch editing tool. After editing, preferably run read-only -Mode Inspect to refresh the hash-bound preview and resolve zero/multiple matches, a still-matchable post-replacement pattern, or double-escape warnings, then run Validate and Promote in order. Inspect changes no candidate, official task definition, or business source and does not replace checker gates; Validate reports preview_stale=true|false as diagnostic evidence. Do not change business source code directly. Never use inline Python/PowerShell, redirection, generic string replacement, or a formatter to change task-definition semantics. Diagnose from the first structured child failure and first compiler/test error; a wrapper stack frame alone does not override structured child evidence. After editing a task-static fault, run SyntaxOnly, a focused failing-op check when available, and the current failing D round. Then follow task_static_cross_round_repair_enabled from the brief: false stops after the failing round passes; true checks and repairs each later D round in order through D4 before recovery. If the target round is known, name the stage / round / file explicitly (for example, B D4).
 
 Fix placement rules:
@@ -4025,7 +4025,7 @@ $runningStatusFullMessageZh = '[FULL-RUNBOOK][STATUS-REPORT-ONLY] 本定时 runn
 $runningStatusShortMessageZh = '[SHORT-CARD][STATUS-REPORT-ONLY] 本定时状态票只汇报运行状态。仅用只读检查汇报 SESSION/A/B、main_round、主进程/监控链存活、heartbeat 和待处理事故票摘要。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、文件修改、环境稳定化或任何恢复动作；发现异常只汇报并等待独立事故票。回传 handled_at。状态：{3}。'
 $runningStatusLowDisturbMessageEn = '[LOW-DISTURB][STATUS-REPORT-ONLY] Report observed runtime status in two lines using read-only checks: "Running normal" or a concise anomaly summary, then "handled_at: YYYY-MM-DD HH:mm:ss". Never self-heal, handle faults, restart processes/guard, run business_resume, edit files, stabilize the environment, or recover from this status ticket. Wait for a separate incident ticket for any action.'
 $runningStatusLowDisturbMessageZh = '[LOW-DISTURB][STATUS-REPORT-ONLY] 仅用只读检查汇报运行状态：正常时只回“运行正常”与 handled_at，异常时只回异常摘要与 handled_at。不得执行自愈修复、故障处理、主进程或 guard 重启、business_resume、文件修改、环境稳定化或任何恢复动作；任何处置均等待独立事故票。'
-$finalStatusSummaryMessageZh = 'A/B 任务已完成。请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。'
+$finalStatusSummaryMessageZh = "A/B 任务已完成。`n`n请接管票据 {0}（event={1}），先阅读 {2}，然后总结本次无人值守执行与收尾（执行窗口、状态票处理、根因与修复、关键恢复动作、chat_heartbeat、ACK 回执、最终结论）。最终收尾消息中必须显式写出会话结束日期时间。状态摘要：{3}。"
 $taskDefinitionFixMessageZh = '请接管票据 {0}（event={1}），先阅读 {2}。请诊断根因是否为 task-static 阶段中 task-definition 与当前源码形态不匹配，并给出最小修复。只有 task-static 故障和经分类确认为代码故障的编译/验证故障可进入本流程；所有 code-step 故障均属于 noncode。编辑期间保持 testdata 下正式任务定义只读：先执行 task_definition_repair_transaction.ps1 -Mode Prepare，读取 operation-preview.json、operation-preview.txt 与 apply-patch-context.txt，只允许使用 VS Code `apply_patch` 修改生成的 candidate.json。修改后推荐执行只读 -Mode Inspect 刷新哈希绑定预览，先排除零/多匹配、替换后 pattern 仍匹配与双重转义风险，再按顺序执行 Validate 与 Promote。Inspect 不修改 candidate、正式任务定义或业务源码，也不替代 checker 门禁；Validate 将输出 preview_stale=true|false 作为诊断证据。不得直接修改正式任务定义或业务源码。禁止用终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器修改任务定义语义。诊断必须以第一个结构化子失败和编译器/测试首错为准，外层 wrapper 摘要不能覆盖结构化子证据。修复 task-static 故障后，依次执行 SyntaxOnly、故障目标 op 快检（可定位时）和当前故障 D 轮递进严格检查，再遵循 brief 中的 task_static_cross_round_repair_enabled：false 时当前轮通过即停止，true 时按顺序逐轮检查并修复后续 D 轮到 D4，全部通过后才恢复。若已知是某个阶段某一轮（例如 B D4），要把目标 stage / round / 文件名写清楚。
 
 修复位置规则：
@@ -4477,26 +4477,6 @@ else {
         'event-review-low-disturb-text-only' { $firstMessage = $eventReviewLowDisturbMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
         default { $firstMessage = $genericRecoveryMessage -f $TicketId, $TicketEvent, $startFileRel, $dispatchReadContextText; break }
     }
-
-
-if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
-    $aTimingText = 'A elapsed={0}; start={1}; end={2}' -f $aStageElapsed, $sessionInitialLaunchAt, $aStageCompletedAt
-    if ($useChineseDispatchMessage) {
-        $firstMessage += ("`n`n最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。" -f $reviewContentRequirements, $aTimingText)
-    }
-    else {
-        $firstMessage += ("`n`nMinimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}." -f $reviewContentRequirements, $aTimingText)
-    }
-}
-elseif ($eventNormalized -eq 'chat-session-final-status') {
-    $finalTimingText = 'B elapsed={0}; B start={1}; B end={2}; A/B total elapsed={3}; session start={4}' -f $bStageElapsed, $bStageFirstStartAt, $bStageCompletedAt, $abTotalElapsed, $sessionInitialLaunchAt
-    if ($useChineseDispatchMessage) {
-        $firstMessage += ("`n`n最低总结内容：{0}。回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点：{1}。" -f $summaryContentRequirements, $finalTimingText)
-    }
-    else {
-        $firstMessage += ("`n`nMinimum summary content: {0}. The reply must reproduce the B-stage elapsed time, combined A/B elapsed time, and anchors exactly: {1}." -f $summaryContentRequirements, $finalTimingText)
-    }
-}
     if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
         $ruleSuffix = if ($useChineseDispatchMessage) { $selfHealRuleSuffixZh } else { $selfHealRuleSuffixEn }
         if (-not [string]::IsNullOrWhiteSpace($ruleSuffix)) {
@@ -4520,6 +4500,25 @@ elseif ($eventNormalized -eq 'chat-session-final-status') {
         if (-not [string]::IsNullOrWhiteSpace($resumeRuleSuffix)) {
             $firstMessage = ("{0}`n`n{1}" -f $firstMessage.TrimEnd(), $resumeRuleSuffix)
         }
+    }
+}
+
+if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
+    $aTimingText = 'A elapsed={0}; start={1}; end={2}' -f $aStageElapsed, $sessionInitialLaunchAt, $aStageCompletedAt
+    if ($useChineseDispatchMessage) {
+        $firstMessage += ("`n`n最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。" -f $reviewContentRequirements, $aTimingText)
+    }
+    else {
+        $firstMessage += ("`n`nMinimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}." -f $reviewContentRequirements, $aTimingText)
+    }
+}
+elseif ($eventNormalized -eq 'chat-session-final-status') {
+    $finalTimingText = 'B elapsed={0}; B start={1}; B end={2}; A/B total elapsed={3}; session start={4}' -f $bStageElapsed, $bStageFirstStartAt, $bStageCompletedAt, $abTotalElapsed, $sessionInitialLaunchAt
+    if ($useChineseDispatchMessage) {
+        $firstMessage += ("`n`n最低总结内容：{0}。回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点：{1}。" -f $summaryContentRequirements, $finalTimingText)
+    }
+    else {
+        $firstMessage += ("`n`nMinimum summary content: {0}. The reply must reproduce the B-stage elapsed time, combined A/B elapsed time, and anchors exactly: {1}." -f $summaryContentRequirements, $finalTimingText)
     }
 }
 

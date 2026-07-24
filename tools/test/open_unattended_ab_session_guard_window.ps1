@@ -146,6 +146,15 @@ if (-not (Test-Path -LiteralPath $powershellPath)) {
     $powershellPath = 'powershell.exe'
 }
 
+$sessionStatus = if ($settings.Contains('SESSION_FINAL_STATUS')) { ([string]$settings.SESSION_FINAL_STATUS).Trim().ToUpperInvariant() } else { '' }
+$aStatus = if ($settings.Contains('A_FINAL_STATUS')) { ([string]$settings.A_FINAL_STATUS).Trim().ToUpperInvariant() } else { '' }
+$bStatus = if ($settings.Contains('B_FINAL_STATUS')) { ([string]$settings.B_FINAL_STATUS).Trim().ToUpperInvariant() } else { '' }
+$terminalPass = ($sessionStatus -eq 'PASS' -or ($aStatus -eq 'PASS' -and $bStatus -eq 'PASS'))
+if ($terminalPass) {
+    Write-Output ("[OPEN-AB-SESSION-GUARD] mode=terminal-pass-noop session={0} a={1} b={2} start_file={3}" -f $sessionStatus, $aStatus, $bStatus, $StartFile)
+    exit 0
+}
+
 $launchMutexContext = Enter-LaunchMutex -Role 'session-guard' -StartFilePath $startFilePath
 try {
     $existingPids = @(Get-RunningStartFileProcessIdList -ScriptLeaf 'unattended_ab_session_guard.ps1' -StartFileIdentity $startFileIdentity -RepoRoot $repoRoot)

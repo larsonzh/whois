@@ -2109,7 +2109,7 @@ function New-TakeoverBrief {
     elseif ($routeGuardExpected -like 'event-review*') {
         $nextCommandPolicy = 'event-review'
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
-        if (-not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
+        if ($eventNameNormalized -ne 'chat-session-final-status' -and -not [string]::IsNullOrWhiteSpace($guardCommand)) { [void]$nextCommands.Add($guardCommand); [void]$nextCommandNames.Add('guard_command') }
     }
     else {
         if (-not [string]::IsNullOrWhiteSpace($routeGuardCommand)) { [void]$nextCommands.Add($routeGuardCommand); [void]$nextCommandNames.Add('route_guard_command') }
@@ -2154,6 +2154,9 @@ function New-TakeoverBrief {
     $firstNextCommandName = if ($nextCommandNames.Count -gt 0) { [string]$nextCommandNames[0] } else { '' }
     if ($firstNextCommandName -ne 'route_guard_command') {
         [void]$consistencyIssues.Add(('route-guard-not-first first={0}' -f $firstNextCommandName))
+    }
+    if ($eventNameNormalized -eq 'chat-session-final-status' -and ($nextCommandNames.ToArray()) -contains 'guard_command') {
+        [void]$consistencyIssues.Add('final-event-review-must-not-start-guard')
     }
 
     $routeNextCommandConsistencyPass = ($consistencyIssues.Count -eq 0)
@@ -2688,7 +2691,7 @@ while ($true) {
                 SESSION_CLOSED_REASON = 'chat-session-final-status-pass'
             }
             try {
-                $closeApplied = Set-KeyValueFileValue -Path $startFilePath -Values $closeUpdates
+                $closeApplied = Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $closeUpdates
                 Write-TriggerLog ('session_closed_set applied={0} reason={1}' -f [bool]$closeApplied, [string]$closeUpdates.SESSION_CLOSED_REASON)
             }
             catch {

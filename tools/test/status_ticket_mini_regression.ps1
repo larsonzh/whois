@@ -166,6 +166,7 @@ $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_gua
 $recoveryGraceStatePath = Resolve-RepoPath -Path 'tools/test/recovery_grace_state.ps1'
 $precheckStartFilePath = Resolve-RepoPath -Path 'tools/test/precheck_unattended_ab_start_file.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
+$sessionGuardLauncherPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_session_guard_window.ps1'
 $atomicCloseoutPath = Resolve-RepoPath -Path 'tools/test/complete_agent_ticket_closeout.ps1'
 $recoveryTransactionPath = Resolve-RepoPath -Path 'tools/test/complete_recovery_ticket_transaction.ps1'
 $ticketClosurePath = Resolve-RepoPath -Path 'tools/test/check_unattended_ticket_closure.ps1'
@@ -179,6 +180,7 @@ $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding ut
 $recoveryGraceStateText = Get-Content -LiteralPath $recoveryGraceStatePath -Raw -Encoding utf8
 $precheckStartFileText = Get-Content -LiteralPath $precheckStartFilePath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
+$sessionGuardLauncherText = Get-Content -LiteralPath $sessionGuardLauncherPath -Raw -Encoding utf8
 $atomicCloseoutText = Get-Content -LiteralPath $atomicCloseoutPath -Raw -Encoding utf8
 $recoveryTransactionText = Get-Content -LiteralPath $recoveryTransactionPath -Raw -Encoding utf8
 $ticketClosureText = Get-Content -LiteralPath $ticketClosurePath -Raw -Encoding utf8
@@ -568,6 +570,20 @@ $stageConclusionTimingContract = (
 )
 $stageConclusionTimingContractReason = if ($stageConclusionTimingContract) { 'stage-conclusion-content-and-timing-contract-present' } else { 'missing-stage-conclusion-content-or-timing-contract' }
 [void]$results.Add((Get-CaseResult -Name 'stage-conclusion-content-and-timing-contract' -Pass $stageConclusionTimingContract -Reason $stageConclusionTimingContractReason))
+$finalSummaryAppendIndex = $dispatchText.IndexOf("elseif (`$eventNormalized -eq 'chat-session-final-status') {`n    `$finalTimingText")
+$dispatchHardRuleIndex = $dispatchText.IndexOf('$noAskConfirmationHardRule =')
+$finalSummaryVisible = ($finalSummaryAppendIndex -ge 0 -and $dispatchHardRuleIndex -gt $finalSummaryAppendIndex)
+$finalSummaryVisibleReason = if ($finalSummaryVisible) { 'final-summary-requirements-appended-after-message-selection' } else { 'final-summary-requirements-still-nested-in-unreachable-message-branch' }
+[void]$results.Add((Get-CaseResult -Name 'final-summary-requirements-visible' -Pass $finalSummaryVisible -Reason $finalSummaryVisibleReason))
+$triggerUsesDefinedStartFileUpdater = $takeoverTriggerText.Contains('$closeApplied = Invoke-KeyValueFileValueUpdate -Path $startFilePath -Values $closeUpdates') -and -not $takeoverTriggerText.Contains('$closeApplied = Set-KeyValueFileValue -Path $startFilePath -Values $closeUpdates')
+$triggerUsesDefinedStartFileUpdaterReason = if ($triggerUsesDefinedStartFileUpdater) { 'terminal-close-uses-defined-start-file-updater' } else { 'terminal-close-references-undefined-start-file-updater' }
+[void]$results.Add((Get-CaseResult -Name 'terminal-close-helper-defined' -Pass $triggerUsesDefinedStartFileUpdater -Reason $triggerUsesDefinedStartFileUpdaterReason))
+$finalReviewOmitsGuardCommand = $takeoverTriggerText.Contains("if (`$eventNameNormalized -ne 'chat-session-final-status' -and -not [string]::IsNullOrWhiteSpace(`$guardCommand))") -and $takeoverTriggerText.Contains("[void]`$consistencyIssues.Add('final-event-review-must-not-start-guard')")
+$finalReviewOmitsGuardCommandReason = if ($finalReviewOmitsGuardCommand) { 'final-event-review-omits-guard-command' } else { 'final-event-review-can-request-guard-command' }
+[void]$results.Add((Get-CaseResult -Name 'final-event-review-omits-guard-command' -Pass $finalReviewOmitsGuardCommand -Reason $finalReviewOmitsGuardCommandReason))
+$guardLauncherHasTerminalPassNoop = $sessionGuardLauncherText.Contains("`$terminalPass = (`$sessionStatus -eq 'PASS' -or (`$aStatus -eq 'PASS' -and `$bStatus -eq 'PASS'))") -and $sessionGuardLauncherText.Contains('mode=terminal-pass-noop')
+$guardLauncherHasTerminalPassNoopReason = if ($guardLauncherHasTerminalPassNoop) { 'guard-launcher-terminal-pass-noop-present' } else { 'guard-launcher-terminal-pass-noop-missing' }
+[void]$results.Add((Get-CaseResult -Name 'guard-launcher-terminal-pass-noop' -Pass $guardLauncherHasTerminalPassNoop -Reason $guardLauncherHasTerminalPassNoopReason))
 $guardFiltersNoExitHostStrictly = $sessionGuardText.Contains('function Get-StageBusinessProcessSnapshot') -and $sessionGuardText.Contains('[bool]$exitEvidence.StartFileMatch') -and $sessionGuardText.Contains('$artifactFresh -and') -and $sessionGuardText.Contains('([bool]$exitEvidence.ProcessIdMatch -or $artifactMatchesCandidate)') -and $sessionGuardText.Contains("ResolvedSource = if (`$terminalExitConfirmed) { 'terminal-exit-artifact-filtered' }")
 $d1BlockStart = $sessionGuardText.IndexOf('d1_stall_detected detail=')
 $d1BlockEnd = if ($d1BlockStart -ge 0) { $sessionGuardText.IndexOf('# Log periodic stall heartbeat', $d1BlockStart) } else { -1 }

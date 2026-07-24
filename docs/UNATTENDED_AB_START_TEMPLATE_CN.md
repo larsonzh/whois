@@ -191,7 +191,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 
 补充约束：
 - 生成后建议立即执行 `tools/test/check_unattended_start_field_sync.ps1`，确认模板、active/smoke 与 reset 规则仍一致。
-- 若 `A_TASK_DEFINITION` / `B_TASK_DEFINITION` 被覆盖为新文件，启动前仍需通过 `tools/test/check_task_definition_static.ps1` 做静态体检。
+- 若 `A_TASK_DEFINITION` / `B_TASK_DEFINITION` 被覆盖为新文件，必须先返回“start-file 前初始编制”流程：使用 VS Code `apply_patch` 编辑新正式任务定义，完成 TODO-free、`-SyntaxOnly`、A 全定义检查、B 对 A 的 prerequisite 链式全定义检查及适用测试，再重新生成或预检 start-file。launch-ready 自身只做 `-SyntaxOnly`，不能替代这套编制验收。
 
 ### 四种工作模式差异（状态票据视角）
 
@@ -236,7 +236,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 
 ### 任务定义文件（从模板生成）
 
-若你记得的“从模板生成任务定义文件”流程，建议按下列命令执行（先生成，再静态体检）：
+若你记得的“从模板生成任务定义文件”流程，建议按下列命令执行。该流程发生在 start-file 生成前，属于初始任务编制：可以使用 VS Code `apply_patch` 直接编辑新建正式 JSON，不使用需要 ticket/stage/round/op 边界的运行期修复候选事务。
 
 ```powershell
 # 方式 A：最简生成（固定本地文件名，复制后强制 UTF-8 with BOM + LF）
@@ -245,11 +245,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$dst = "testdata/autopil
 # 方式 B：按窗口生成（推荐，避免覆盖历史文件，复制后强制 UTF-8 with BOM + LF）
 powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261015_20261030"; $dst = ("testdata/autopilot_code_step_tasks_{0}.json" -f $window); Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " encoding=utf8-bom eol=lf")'
 
-# 生成后必做静态体检（禁止 TODO_* 残留再进入无人值守）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -Policy enforce -FailOnWarnings
+# 填写后先分别做 JSON/基础结构装载检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "<A_TASK_DEFINITION>" -Policy enforce -SyntaxOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "<B_TASK_DEFINITION>" -Policy enforce -SyntaxOnly
 
-# 按轮次与 operation 缩小检查范围（例如 A 启动前基线）
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_local.json -Policy enforce -FailOnWarnings -RoundTag D1 -OperationIndex 1
+# 再做 A 完整全定义检查，以及 B 以前置 A 为基线的链式全定义检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "<A_TASK_DEFINITION>" -Policy enforce -FailOnWarnings
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "<B_TASK_DEFINITION>" -PrerequisiteTaskDefinitionFiles "<A_TASK_DEFINITION>" -Policy enforce -FailOnWarnings
+
+# 可选：编制失败时按轮次与 operation 缩小诊断范围；通过后仍须重跑完整检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "<A_TASK_DEFINITION>" -Policy enforce -FailOnWarnings -RoundTag D1 -OperationIndex 1
 ```
 
 补充约束：
@@ -258,13 +263,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
    - `-PrerequisiteTaskDefinitionFiles <path[]>` 可选；按顺序在内存中完整检查并应用前置定义。未传时以当前源码为基线；前置失败时阻断当前定义检查。
    - `-Policy off|warn|enforce` 默认 `enforce`。
    - `-FailOnWarnings` 开启后 warning 也按失败返回。
-   - `-RoundTag D1..D4|V1..V4` 可只检查单轮。
-   - `-OperationIndex <n>` 必须配合 `-RoundTag` 使用，用于只检查该轮第 n 个 operation。
+   - `-SyntaxOnly` 只检查文件、JSON、`targetFile` 和非空 `rounds`，不读取源码或执行 operation；它是初始编制第一步，也是 launcher 唯一执行的任务定义检查。
+   - `-RoundTag D1..D4|V1..V4` 可只检查单轮；V1-V4 没有 JSON 开发轮，跳过结果不能作为任务定义验收证据。
+   - `-OperationIndex <n>` 必须配合 `-RoundTag` 使用，用于诊断该轮第 n 个 operation，不能替代完整全定义检查。
 - 初始设计期检查 B 时，应将 A 作为 `-PrerequisiteTaskDefinitionFiles` 传入；该模拟不写源码。A PASS 后的运行期 B 检查仍以 `a_success_snapshot` 对齐后的当前源码为准，不用设计期模拟替代 snapshot。
-- 生成后请先填写 D1~D4（至少 D1~D3）任务内容，再用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION`。
+- 生成后请填写完整 D1~D4；设计上无代码目标的轮次使用最小 `type=noop`，不得保留 TODO 或用自替换 op 凑数。A/B 两份定义完成完整/链式验收后，才可用于 `A_TASK_DEFINITION` / `B_TASK_DEFINITION` 并生成 start-file。
+- 初始编制的语义修改只允许使用 VS Code `apply_patch`；模板复制与不改变 JSON 值、数组顺序或 operation 结构的编码/EOL 规范化可以使用机械命令。禁止用终端内联 Python、PowerShell 字符串替换、here-string、重定向、通用文本替换或格式化器填写任务定义。
+- start-file 生成后若尚未启动但需要改计划，应确认没有 A/B 业务进程，重新执行完整编制验收并重新生成或预检 start-file；A/B 已运行后的代码自愈必须保持正式定义只读，只修改事务 `candidate.json` 并执行 `Prepare -> Inspect -> Validate -> Promote`。
 - 任务定义 JSON 允许出现中文 `description` / `notes`，因此模板与新生成文件固定使用 UTF-8 with BOM + LF。
 - 编辑或排查 `pattern` / `replacement` 时按“JSON 源码 -> `ConvertFrom-Json` 解码字符串 -> `.NET Regex`”三层核对；checker 使用标准 PowerShell JSON 解码。合法 JSON `"\\)"` 解码为正则 `\)`，可匹配字面量 `)`；`pattern_unmatched=0` 表示解析和正则编译均已完成、仅当前有效源码零命中，不是 JSON 解码错误。应查看事务 `operation-preview.txt` 的解码视图和源码匹配，不得因零命中改造 checker 的 JSON 处理。
-- 若体检报错或 warning（启用 `-FailOnWarnings` 时），应先修复任务定义再启动 A/B。
+- 若初始编制体检报错或 warning（启用 `-FailOnWarnings` 时），使用 VS Code `apply_patch` 修复新正式定义，重跑 `-SyntaxOnly` 和完整/链式检查；不要生成 start-file，也不要伪造事故票启动候选事务。
 
 建议内容模板（复制后替换尖括号）：
 ```text
