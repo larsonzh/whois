@@ -2087,27 +2087,36 @@ if (-not [string]::IsNullOrWhiteSpace($taskTargetFile)) {
     }
 }
 
-# Clean up stale remote build processes and lock BEFORE killing local processes.
-# Order: remote kill -> remote lock cleanup -> local stale process cleanup.
-# This prevents orphaned remote builds from continuing after local one_click_release is killed.
+# Clear the remote build lock with a bounded SSH operation before local cleanup.
+$remoteLockCleanupPath = Join-Path $repoRoot 'tools\dev\clear_remote_lock.ps1'
+if (-not (Test-Path -LiteralPath $remoteLockCleanupPath)) {
+    throw ("[OPEN-AB-STAGE] remote_build_cleanup_failed reason=helper-missing path={0}" -f $remoteLockCleanupPath)
+}
+
+$remoteIp = if ($settings.Contains('REMOTE_IP')) { [string]$settings.REMOTE_IP } else { '10.0.0.199' }
+$remoteUser = if ($settings.Contains('REMOTE_USER')) { [string]$settings.REMOTE_USER } else { 'larson' }
+$remoteKeyPath = if ($settings.Contains('REMOTE_KEYPATH')) { [string]$settings.REMOTE_KEYPATH } else { '' }
+if ($remoteKeyPath -match '^/([A-Za-z])/(.+)$') {
+    $remoteKeyPath = ('{0}:\{1}' -f $Matches[1].ToUpperInvariant(), ($Matches[2] -replace '/', '\'))
+}
+$remoteCleanupArgs = @{
+    RemoteIp = $remoteIp
+    RemoteUser = $remoteUser
+    TimeoutSec = 45
+    Force = $true
+}
+if (-not [string]::IsNullOrWhiteSpace($remoteKeyPath)) {
+    $remoteCleanupArgs.KeyPath = $remoteKeyPath
+}
+
 try {
-    $sshCleanupPath = 'C:\Windows\System32\OpenSSH\ssh.exe'
-    if (Test-Path $sshCleanupPath) {
-        $remoteTarget = 'larson@10.0.0.199'
-        $remoteBase = '/home/larson/whois_remote'
-        $remoteLockDir = "$remoteBase/.remote_build.lock"
-        & $sshCleanupPath -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no $remoteTarget @"
-pkill -f 'whois_remote' 2>/dev/null || true
-sleep 1
-rm -rf '$remoteLockDir' 2>/dev/null
-echo REMOTE_CLEANUP_DONE
-"@ 2>&1 | Out-Null
-        Write-Output ("[OPEN-AB-STAGE] remote_build_cleanup host=10.0.0.199")
-    }
+    $remoteCleanupOutput = @(& $remoteLockCleanupPath @remoteCleanupArgs 2>&1 | ForEach-Object { [string]$_ })
 }
 catch {
-    Write-Output ("[OPEN-AB-STAGE] remote_build_cleanup_skipped detail={0}" -f $_.Exception.Message)
+    $remoteCleanupDetail = Convert-ToSingleLineText -Text $_.Exception.Message
+    throw ("[OPEN-AB-STAGE] remote_build_cleanup_failed host={0} detail={1}" -f $remoteIp, $remoteCleanupDetail)
 }
+Write-Output ("[OPEN-AB-STAGE] remote_build_cleanup host={0} timeout_sec=45 result=pass" -f $remoteIp)
 
 # Clean up stale one_click_release.ps1 processes from prior A stage runs
 $staleBuildName = 'one_click_release.ps1'
