@@ -2110,7 +2110,7 @@ if (-not [string]::IsNullOrWhiteSpace($remoteKeyPath)) {
 }
 
 try {
-    $remoteCleanupOutput = @(& $remoteLockCleanupPath @remoteCleanupArgs 2>&1 | ForEach-Object { [string]$_ })
+    $null = @(& $remoteLockCleanupPath @remoteCleanupArgs 2>&1 | ForEach-Object { [string]$_ })
 }
 catch {
     $remoteCleanupDetail = Convert-ToSingleLineText -Text $_.Exception.Message
