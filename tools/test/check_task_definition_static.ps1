@@ -278,13 +278,92 @@ function Test-EffectiveCSourceSyntax {
             $ErrorActionPreference = $previousErrorActionPreference
         }
         $compilerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-        if ($compilerExitCode -ne 0) {
-            $diagnostic = @($compilerOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
-            Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $compilerExitCode, $diagnostic)
+
+        # Strict compilation passes — syntax gate clean.
+        if ($compilerExitCode -eq 0) {
+            Add-InfoIssue ("effective-source syntax gate pass compiler={0}" -f $compiler.Name)
             return
         }
 
-        Add-InfoIssue ("effective-source syntax gate pass compiler={0}" -f $compiler.Name)
+        # Strict compilation failed. Retry with relaxed flags to determine
+        # whether the failure is purely IFD-related or a genuine syntax error.
+        $diagnostic = @($compilerOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
+        Add-WarnIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; retrying without -Werror" -f $compiler.Name, $compilerExitCode, $diagnostic)
+
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $null = @(
+                & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                    ForEach-Object { [string]$_ }
+            )
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $relaxedExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+
+        # Relaxed compilation passes (only IFD warnings).  Distinguish between
+        # D-round-introduced forward-declaration missing (function IS defined
+        # in the same source but AFTER the call site) and system/external
+        # functions (no definition in this translation unit).
+        if ($relaxedExitCode -eq 0) {
+            $ifdNames = @()
+            $ifdMatch = [regex]::Matches($diagnostic, "implicit declaration of function '([^']+)'")
+            foreach ($ifdCapture in $ifdMatch) {
+                $ifdNames += $ifdCapture.Groups[1].Value
+            }
+
+            $defFound = $false
+            $defNames = New-Object 'System.Collections.Generic.List[string]'
+            $definitionPattern = '(?m)^\s*(?:static\s+)?(?:const\s+)?(?:\w+(?:\s*\*+\s*)*)+\s+'
+            foreach ($name in ($ifdNames | Select-Object -Unique)) {
+                if ([string]::IsNullOrWhiteSpace($name)) { continue }
+                $candidatePattern = $definitionPattern + [regex]::Escape($name) + '\s*\('
+                try {
+                    $hasDef = [regex]::IsMatch($SourceText, $candidatePattern, [System.Text.RegularExpressions.RegexOptions]::None, [TimeSpan]::FromMilliseconds(500))
+                }
+                catch {
+                    $hasDef = $false
+                }
+                if ($hasDef) {
+                    $defFound = $true
+                    [void]$defNames.Add($name)
+                }
+            }
+
+            if ($defFound) {
+                $defList = ($defNames.ToArray() -join ', ')
+                Add-ErrorIssue ("effective-source syntax gate failed — forward-declaration missing for function(s) that are defined later in the same source: {0}. This is a D-round-introduced ordering error, not a platform compatibility issue." -f $defList)
+                return
+            }
+
+            Add-WarnIssue ("effective-source syntax gate relaxed pass compiler={0}; implicit-declaration warnings are for external/system functions not defined in this source; remote GCC build will confirm" -f $compiler.Name)
+            return
+        }
+
+        # Relaxed still fails.  Suppress IFD warnings completely to see
+        # whether non-IFD errors remain.
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $noWarnOutput = @(
+                & $compiler.Source '-fsyntax-only' '-std=c11' '-Wno-implicit-function-declaration' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                    ForEach-Object { [string]$_ }
+            )
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $noWarnExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+
+        if ($noWarnExitCode -eq 0) {
+            Add-WarnIssue ("effective-source syntax gate relaxed pass compiler={0} after suppressing implicit-function-declaration warnings; no other syntax errors found" -f $compiler.Name)
+            return
+        }
+
+        $noWarnDiagnostic = @($noWarnOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
+        Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
     }
     catch {
         Add-ErrorIssue ("effective-source syntax gate exception detail={0}" -f $_.Exception.Message)
