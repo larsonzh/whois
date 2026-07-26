@@ -50,6 +50,17 @@ function Get-LegacyStartFileToken {
     return $safe
 }
 
+function Test-CommandLineHasTrailingRedirect {
+    param([AllowEmptyString()][string]$CommandLine)
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return $false
+    }
+
+    $trimmed = $CommandLine.TrimEnd()
+    return ($trimmed.EndsWith('>'))
+}
+
 function Get-RepoScopedMutexName {
     param(
         [string]$Role,

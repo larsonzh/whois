@@ -404,6 +404,29 @@ try {
         -ExpectedOutputFragment 'postApplyAssertion failed name=required-helper-call' `
         -ExpectedCheckerExitCode 2
 
+    $implicitDeclarationCase = New-TaskCase -Name 'fail-implicit-function-declaration' -Operations @(
+        [ordered]@{
+            pattern = 'static int target\(void\)\n\{\n\treturn 1;\n\}'
+            replacement = "static int target(void)`n{`n`treturn helper();`n}`n`nstatic int helper(void)`n{`n`treturn 1;`n}"
+            idempotentContains = @('static int helper(void)')
+        }
+    ) -Assertions @([ordered]@{ name = 'helper-definition'; pattern = 'static int helper\(void\)\r?\n\{'; expectedCount = 1 })
+    Invoke-Case -Case $implicitDeclarationCase -ExpectedExitCode 2 -ExpectedFragments @('effective-source syntax gate failed', 'implicit declaration of function')
+
+    $lineEndingCase = New-TaskCase -Name 'fail-line-ending-hint' -Operations @(
+        [ordered]@{
+            pattern = 'return 1;'
+            replacement = "return 2;`r`n/* crlf-marker */"
+            idempotentContains = @('/* crlf-marker */')
+        },
+        [ordered]@{
+            pattern = 'return 2;\n/\* crlf-marker \*/'
+            replacement = "return 3;`r`n/* final-marker */"
+            idempotentContains = @('/* final-marker */')
+        }
+    ) -Assertions @([ordered]@{ name = 'final-marker'; pattern = '/\* final-marker \*/'; expectedCount = 1 })
+    Invoke-Case -Case $lineEndingCase -ExpectedExitCode 2 -ExpectedFragments @('line_ending_hint=pattern_lf_only_effective_crlf', 'compatible_pattern_match_count=1')
+
     $codeStepPassCase = New-TaskCase -Name 'pass-code-step-complete-contract' -Operations @(
         [ordered]@{ pattern = 'return 1;'; replacement = 'return 2;'; idempotentContains = @('return 2;') }
     ) -Assertions @(

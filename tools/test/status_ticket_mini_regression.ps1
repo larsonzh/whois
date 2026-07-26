@@ -1413,6 +1413,99 @@ else {
 }
 [void]$results.Add((Get-CaseResult -Name 'final-summary-transaction-runtime' -Pass $finalSummaryTransactionPass -Reason $finalSummaryTransactionReason))
 
+# A failed closeout must retain the failed step output and persist a failed
+# ledger record without inventing handled_at.
+$failedTransactionTicketId = 'T-MINI-FAILED-TRANSACTION-' + $stamp
+$failedTransactionBrief = Join-Path $globalTakeoverRoot ('takeover_{0}_{1}.md' -f $failedTransactionTicketId, $stamp)
+$failedTransactionStub = Join-Path $finalTransactionRoot 'failed_closeout_stub.ps1'
+$failedTransactionLedger = Join-Path $recoveryTransactionRepoRoot ('out\artifacts\ab_agent_queue\ai_ticket_ledger_{0}.json' -f (Get-StableStartFileToken -StartFilePath $finalTransactionStartFile))
+Write-Utf8BomText -Path $failedTransactionStub -Text @'
+[pscustomobject]@{
+    success = $false
+    reason = 'intentional-closeout-failure'
+    handled_at = ''
+} | ConvertTo-Json
+Write-Output 'failed-closeout-output-marker'
+exit 2
+'@
+$failedTransactionAtomicCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $failedTransactionStub
+Write-Utf8BomText -Path $failedTransactionBrief -Text @"
+ticket_id=$failedTransactionTicketId
+event=chat-session-final-status
+route_guard_expected=event-review
+route_guard_command=$finalTransactionRouteCommand
+business_command_stage=B
+preferred_stage=B
+next_command_order=route_guard_command|atomic_closeout_command
+atomic_closeout_command=$failedTransactionAtomicCommand
+handled_receipt_command=
+validate_receipt_command=
+ticket_closure_check_command=
+event_dedup_health_check_command=
+final_status_closeout_command=
+final_status_closeout_apply_ack_command=
+"@
+$failedTransaction = $null
+$failedTransactionLedgerRecord = $null
+$failedTransactionExitCode = 0
+try {
+    $failedTransactionRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $recoveryTransactionPath -StartFile $finalTransactionStartFile -TicketId $failedTransactionTicketId -QueuePath $finalTransactionQueue -Last 20 -AsJson 2>&1)
+    $failedTransactionExitCode = $LASTEXITCODE
+    $failedTransactionText = [string]::Join("`n", @($failedTransactionRaw | ForEach-Object { [string]$_ }))
+    $failedTransactionJsonStart = $failedTransactionText.IndexOf('{')
+    if ($failedTransactionJsonStart -lt 0) {
+        throw 'failed transaction probe did not return JSON'
+    }
+    $failedTransaction = ($failedTransactionText.Substring($failedTransactionJsonStart) | ConvertFrom-Json -ErrorAction Stop)
+    if (Test-Path -LiteralPath $failedTransactionLedger -PathType Leaf) {
+        $failedTransactionLedgerState = Get-Content -LiteralPath $failedTransactionLedger -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+        $failedTransactionLedgerRecord = @($failedTransactionLedgerState.records | Where-Object { [string]$_.ticket_id -eq $failedTransactionTicketId } | Select-Object -First 1)
+    }
+}
+catch {
+    $failedTransaction = $null
+}
+finally {
+    Remove-Item -LiteralPath $failedTransactionBrief, $failedTransactionLedger -Force -ErrorAction SilentlyContinue
+}
+$failedTransactionSteps = if ($null -ne $failedTransaction) { @($failedTransaction.steps) } else { @() }
+$failedTransactionLastStep = if ($failedTransactionSteps.Count -gt 0) { $failedTransactionSteps[-1] } else { $null }
+$failedTransactionEvidencePass = (
+    $failedTransactionExitCode -eq 2 -and
+    $null -ne $failedTransaction -and
+    -not [bool]$failedTransaction.success -and
+    [string]$failedTransaction.reason -eq 'atomic_closeout_command exited with code 1' -and
+    $failedTransactionSteps.Count -eq 3 -and
+    [string]$failedTransactionLastStep.name -eq 'atomic_closeout_command' -and
+    [int]$failedTransactionLastStep.exit_code -eq 1 -and
+    ([string]::Join("`n", @($failedTransactionLastStep.output_tail))).Contains('failed-closeout-output-marker') -and
+    [bool]$failedTransaction.failure_ledger_recorded -and
+    [string]::IsNullOrWhiteSpace([string]$failedTransaction.failure_ledger_error) -and
+    [string]::IsNullOrWhiteSpace([string]$failedTransaction.handled_at) -and
+    @($failedTransactionLedgerRecord).Count -eq 1 -and
+    [string]$failedTransactionLedgerRecord[0].status -eq 'failed'
+)
+$failedTransactionEvidenceReason = if ($failedTransactionEvidencePass) {
+    'failed-transaction-evidence-and-ledger-preserved'
+}
+elseif ($null -eq $failedTransaction) {
+    'failed-transaction-evidence-runtime-failed:no-json'
+}
+else {
+    $failedTransactionLedgerStatus = if (@($failedTransactionLedgerRecord).Count -eq 1) { [string]$failedTransactionLedgerRecord[0].status } else { 'missing' }
+    'failed-transaction-evidence-runtime-failed:exit={0};reason={1};steps={2};last_name={3};last_exit={4};tail_marker={5};ledger_recorded={6};ledger_error={7};ledger_status={8}' -f `
+        $failedTransactionExitCode,
+        (Convert-ToSingleLineText -Text ([string]$failedTransaction.reason)),
+        $failedTransactionSteps.Count,
+        (Convert-ToSingleLineText -Text ([string]$failedTransactionLastStep.name)),
+        [string]$failedTransactionLastStep.exit_code,
+        ([string]::Join("`n", @($failedTransactionLastStep.output_tail))).Contains('failed-closeout-output-marker'),
+        [bool]$failedTransaction.failure_ledger_recorded,
+        (Convert-ToSingleLineText -Text ([string]$failedTransaction.failure_ledger_error)),
+        $failedTransactionLedgerStatus
+}
+[void]$results.Add((Get-CaseResult -Name 'failed-transaction-evidence-runtime' -Pass $failedTransactionEvidencePass -Reason $failedTransactionEvidenceReason))
+
 # An auto-resume incident brief must project the internal stage restart command
 # without executing route guard, business recovery, or closeout.
 $autoResumeRowTicketId = 'T-MINI-AUTO-RESUME-ROW-' + $stamp

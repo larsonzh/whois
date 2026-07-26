@@ -270,7 +270,7 @@ function Test-EffectiveCSourceSyntax {
         try {
             $ErrorActionPreference = 'Continue'
             $compilerOutput = @(
-                & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                & $compiler.Source '-fsyntax-only' '-std=c11' '-Werror=implicit-function-declaration' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
         }
@@ -1039,6 +1039,29 @@ foreach ($roundEntry in $roundEntries) {
             }
 
             continue
+        }
+
+        if ($workingText.Contains("`r`n") -and -not $pattern.Contains("`r") -and -not $pattern.Contains('\r') -and ($pattern.Contains("`n") -or $pattern.Contains('\n'))) {
+            try {
+                $lineEndingCompatiblePattern = $pattern
+                if ($lineEndingCompatiblePattern.Contains("`n")) {
+                    $lineEndingCompatiblePattern = $lineEndingCompatiblePattern.Replace("`n", '\r?' + "`n")
+                }
+                if ($lineEndingCompatiblePattern.Contains('\n')) {
+                    $lineEndingCompatiblePattern = $lineEndingCompatiblePattern.Replace('\n', '\r?\n')
+                }
+                $lineEndingCompatibleRegex = New-TaskRegex -Pattern $lineEndingCompatiblePattern -Options ([System.Text.RegularExpressions.RegexOptions]::Singleline)
+                $lineEndingCompatibleMatchCount = $lineEndingCompatibleRegex.Matches($workingText).Count
+                if ($lineEndingCompatibleMatchCount -gt 0) {
+                    Add-InfoIssue ("round={0} op={1} line_ending_hint=pattern_lf_only_effective_crlf compatible_pattern_match_count={2}; use \r?\n where both LF and CRLF are valid" -f $roundTag, $operationOrdinal, $lineEndingCompatibleMatchCount)
+                }
+            }
+            catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+                Add-InfoIssue ("round={0} op={1} line_ending_hint_check_timeout=true timeout_ms={2}" -f $roundTag, $operationOrdinal, $RegexTimeoutMs)
+            }
+            catch {
+                Add-InfoIssue ("round={0} op={1} line_ending_hint_check_failed detail={2}" -f $roundTag, $operationOrdinal, $_.Exception.Message)
+            }
         }
 
         if (Test-OperationIdempotentMarkerPresent -Operation $operation -Text $workingText) {

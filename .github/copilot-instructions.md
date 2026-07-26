@@ -81,6 +81,12 @@
 - **相同指纹门禁三段化（2026-07-21）**：仅编译/验证阶段经结构化证据确认为代码故障时采用 `pending_review -> override_window -> hard_block` 状态机。默认预算 `CODEFIX_IDENTICAL_FP_MAX_RETRIES=3`（可按 stage 覆盖）。`task-static` 由 SyntaxOnly、目标 op 与当前轮递进严格检查判定修复有效性，不进入该状态机；`code-step` 只做绑定产物文件 I/O，任何故障均为 noncode，也不进入该状态机。第 2/3 次代码修复重启必须有有效修复证据（任务定义哈希变化 / 轮次任务定义印记变化 / 轮次源码摘要变化），否则直接进入 `hard_block`。
 - **人工修复后解锁规则（2026-07-08）**：`hard_block` 不是永久封禁。人工修复后仅在“有效修复证据 + 静态检查通过”时允许从 `hard_block` 自动回到 `pending_review` 并重置同指纹预算；证据不足时保持阻断，禁止重启。
 
+## 终端命令操作提醒（硬规则，跨模型通用）
+- **PowerShell `>>` 陷阱**：`>>` 在 PowerShell 中是**追加输出重定向操作符**（等价 `Out-File -Append`），后面必须跟文件路径，不是续行符或多行提示符。命令末尾误加 `>>` 会导致 PowerShell 阻塞等待文件名输入，直至超时或被 kill。**构造任何 `powershell -Command`、`run_in_terminal` 或内联 PowerShell 命令时，禁止在命令末尾出现孤立的 `>>`。**
+  - 正确做法：多语句用 `;`（分号）串联，例如 `cmd1; cmd2; cmd3`。
+  - 自查方法：提交命令前，检查最后非空白字符是否为 `>`，若是则删除或补全文件路径。
+  - 已知高危模型：DeepSeek V4 Flash 等低参数量模型易将 `>>` 混淆为 Shell/REPL 续行提示，需额外留意。
+
 ## 协作与文档
 - 交流用中文；代码/注释/提交信息用英文。
 - 变更输出契约、DNS/重试策略或自测流程时，请同步更新 [../docs/USAGE_CN.md](../docs/USAGE_CN.md)、[../docs/USAGE_EN.md](../docs/USAGE_EN.md)、[../RELEASE_NOTES.md](../RELEASE_NOTES.md) 与相关 RFC/黄金脚本说明。

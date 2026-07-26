@@ -4650,11 +4650,21 @@ if ($eventNormalized -ne 'running-status-report') {
     }
 }
 
+$powerShellRedirectTrapRule = if ($useChineseDispatchMessage) {
+    'PowerShell `>>` 重定向陷阱：`>>` 是追加输出重定向操作符（等价 Out-File -Append），后面必须跟文件路径，不是续行符。构造任何 PowerShell 命令时，禁止在命令末尾出现孤立的 `>>`。多语句用 `;`（分号）串联。'
+}
+else {
+    'PowerShell `>>` redirect trap: `>>` is the append-output redirection operator (equivalent to Out-File -Append), which requires a file path argument; it is NOT a line continuation marker. When constructing any PowerShell command, never place a trailing `>>` at the end. Use `;` (semicolons) to chain multiple statements.'
+}
+
 if (-not [string]::IsNullOrWhiteSpace($eventQueuePolicyHint)) {
     $firstMessage = ("{0}`n`n{1}" -f $firstMessage, $eventQueuePolicyHint).Trim()
 }
 if (-not [string]::IsNullOrWhiteSpace($machineFactCloseoutRule)) {
     $firstMessage = ("{0}`n`n{1}" -f $firstMessage, $machineFactCloseoutRule).Trim()
+}
+if (-not [string]::IsNullOrWhiteSpace($powerShellRedirectTrapRule)) {
+    $firstMessage = ("{0}`n`n{1}" -f $firstMessage, $powerShellRedirectTrapRule).Trim()
 }
 
 Write-DispatchLog ("dispatch_phase message_ready ticket={0} event={1} route_guard_expected={2} summary_len={3}" -f $TicketId, $TicketEvent, $routeGuardExpected, $runningStatusShortSummary.Length)

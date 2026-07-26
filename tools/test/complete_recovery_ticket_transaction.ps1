@@ -12,6 +12,14 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$startFileIdentityScript = Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1'
+if (-not (Test-Path -LiteralPath $startFileIdentityScript -PathType Leaf)) {
+    throw "Start-file identity helper not found: $startFileIdentityScript"
+}
+. $startFileIdentityScript
+
+$script:recoveryFailureLedgerError = ''
+
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
 
@@ -257,6 +265,7 @@ function Write-RecoveryFailureLedger {
         return $true
     }
     catch {
+        $script:recoveryFailureLedgerError = Convert-ToSingleLineText -Text $_.Exception.Message
         return $false
     }
 }
@@ -657,6 +666,10 @@ function Invoke-TransactionCommand {
         return [pscustomobject]$step
     }
 
+    if (Test-CommandLineHasTrailingRedirect -CommandLine $CommandLine) {
+        throw ("{0} command line has trailing redirect operator (> or >>); use ; (semicolons) to chain multiple statements instead" -f $Name)
+    }
+
     foreach ($blocked in @($BlockedTokens)) {
         if (Test-ListContainsToken -Values $BlockedActions -Token $blocked) {
             throw ("{0} is blocked by route guard action {1}" -f $Name, $blocked)
@@ -755,7 +768,9 @@ function Invoke-TransactionCommand {
     $step.output_tail = @($output | Select-Object -Last 12 | ForEach-Object { [string]$_ })
 
     if ($exitCode -ne 0) {
-        throw ("{0} exited with code {1}" -f $Name, $exitCode)
+        $failure = [System.Exception]::new(("{0} exited with code {1}" -f $Name, $exitCode))
+        $failure.Data['transaction_step'] = [pscustomobject]$step
+        throw $failure
     }
 
     return [pscustomobject]$step
@@ -794,6 +809,8 @@ $result = [ordered]@{
     closeout = $null
     transaction_row = $null
     task_definition_gate = $null
+    failure_ledger_recorded = $false
+    failure_ledger_error = ''
 }
 
 $totalWatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -910,10 +927,13 @@ try {
 
         $steps = New-Object 'System.Collections.Generic.List[object]'
         [void]$steps.Add((Invoke-TransactionCommand -Name 'business_command' -CommandLine $businessCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('business_command', 'business_resume') -BlockedTokens @('business_command', 'business_resume', 'stage_restart')))
+        $result.steps = @($steps.ToArray())
         [void]$steps.Add((Invoke-TransactionCommand -Name 'continue_watch_command' -CommandLine $continueWatchCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('continue_watch_command') -BlockedTokens @('continue_watch_command', 'guard_restart')))
+        $result.steps = @($steps.ToArray())
 
         if (-not [string]::IsNullOrWhiteSpace($atomicCloseoutCommand)) {
             [void]$steps.Add((Invoke-TransactionCommand -Name 'atomic_closeout_command' -CommandLine $atomicCloseoutCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
+            $result.steps = @($steps.ToArray())
             $closeoutOutput = @($steps[$steps.Count - 1].output)
             $closeoutText = [string]::Join("`n", $closeoutOutput)
             if ($closeoutText.Contains('{')) {
@@ -946,8 +966,12 @@ try {
 }
 catch {
     $result.reason = $_.Exception.Message
+    if ($_.Exception.Data.Contains('transaction_step')) {
+        $result.steps = @($result.steps) + @($_.Exception.Data['transaction_step'])
+    }
     if (-not [string]::IsNullOrWhiteSpace($startFilePathForLedger)) {
         $result.failure_ledger_recorded = [bool](Write-RecoveryFailureLedger -RepoRoot $repoRoot -StartFilePath $startFilePathForLedger -QueuePathRel $queuePathForLedger -TicketId $ticket -EventName ([string]$result.event) -Reason ([string]$result.reason))
+        $result.failure_ledger_error = $script:recoveryFailureLedgerError
     }
 }
 finally {

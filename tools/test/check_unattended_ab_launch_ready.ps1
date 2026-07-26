@@ -329,6 +329,10 @@ if ($missingKeys.Count -gt 0) {
     Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason ('missing required key(s): {0}' -f ($missingKeys -join ',')) -OutputLines @() -ExitCode 1 -StartFilePath $startFilePath
 }
 
+if ($startSettings.Contains('EXTERNAL_TRIGGER_COMMAND') -and (Test-CommandLineHasTrailingRedirect -CommandLine ([string]$startSettings.EXTERNAL_TRIGGER_COMMAND))) {
+    Write-ResultAndExit -Step 'start-file' -Status 'FAIL' -Reason 'EXTERNAL_TRIGGER_COMMAND has trailing redirect operator (> )' -OutputLines @(('EXTERNAL_TRIGGER_COMMAND={0}' -f [string]$startSettings.EXTERNAL_TRIGGER_COMMAND)) -ExitCode 1 -StartFilePath $startFilePath
+}
+
 $aTaskDefinition = [string]$startSettings.A_TASK_DEFINITION
 $bTaskDefinition = [string]$startSettings.B_TASK_DEFINITION
 $taskStaticPrecheckPolicy = [string]$startSettings.TASK_STATIC_PRECHECK_POLICY
