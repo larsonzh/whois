@@ -407,11 +407,40 @@ try {
     $implicitDeclarationCase = New-TaskCase -Name 'fail-implicit-function-declaration' -Operations @(
         [ordered]@{
             pattern = 'static int target\(void\)\n\{\n\treturn 1;\n\}'
-            replacement = "static int target(void)`n{`n`treturn helper();`n}`n`nstatic int helper(void)`n{`n`treturn 1;`n}"
-            idempotentContains = @('static int helper(void)')
+            replacement = "static int target(void)`n{`n`treturn helper() != 0;`n}`n`nstatic const char* helper(void)`n{`n`treturn `"ok`";`n}"
+            idempotentContains = @('static const char* helper(void)')
         }
-    ) -Assertions @([ordered]@{ name = 'helper-definition'; pattern = 'static int helper\(void\)\r?\n\{'; expectedCount = 1 })
-    Invoke-Case -Case $implicitDeclarationCase -ExpectedExitCode 2 -ExpectedFragments @('effective-source syntax gate failed', 'implicit declaration of function')
+    ) -Assertions @([ordered]@{ name = 'helper-definition'; pattern = 'static const char\* helper\(void\)\r?\n\{'; expectedCount = 1 })
+    Invoke-Case -Case $implicitDeclarationCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'helper@')
+
+    $latePrototypeCase = New-TaskCase -Name 'fail-late-function-prototype' -Operations @(
+        [ordered]@{
+            pattern = 'static int target\(void\)\n\{\n\treturn 1;\n\}'
+            replacement = "static int target(void)`n{`n`treturn helper();`n}`n`nstatic inline unsigned long helper(void);"
+            idempotentContains = @('static inline unsigned long helper(void);')
+        }
+    ) -Assertions @([ordered]@{ name = 'helper-prototype'; pattern = 'static inline unsigned long helper\(void\);'; expectedCount = 1 })
+    Invoke-Case -Case $latePrototypeCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'helper@')
+
+    $externalDeclarationCase = New-TaskCase -Name 'warn-external-implicit-declaration' -Operations @(
+        [ordered]@{
+            pattern = 'return 1;'
+            replacement = 'return external_api();'
+            idempotentContains = @('external_api()')
+        }
+    ) -Assertions @([ordered]@{ name = 'external-call'; pattern = 'external_api\(\)'; expectedCount = 1 })
+    Invoke-Case -Case $externalDeclarationCase -ExpectedExitCode 0 `
+        -ExpectedFragments @('IFD downgraded', 'classification=no-later-declaration-or-definition', 'summary errors=0') `
+        -AbsentFragments @('forward-declaration missing')
+
+    $multipleImplicitDeclarationsCase = New-TaskCase -Name 'fail-late-third-implicit-declaration' -Operations @(
+        [ordered]@{
+            pattern = 'static int target\(void\)\n\{\n\treturn 1;\n\}'
+            replacement = "static int target(void)`n{`n`treturn external_one() + external_two() + local_helper();`n}`n`nunsigned long local_helper(void)`n{`n`treturn 1;`n}"
+            idempotentContains = @('unsigned long local_helper(void)')
+        }
+    ) -Assertions @([ordered]@{ name = 'local-helper-definition'; pattern = 'unsigned long local_helper\(void\)\r?\n\{'; expectedCount = 1 })
+    Invoke-Case -Case $multipleImplicitDeclarationsCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'local_helper@')
 
     $lineEndingCase = New-TaskCase -Name 'fail-line-ending-hint' -Operations @(
         [ordered]@{

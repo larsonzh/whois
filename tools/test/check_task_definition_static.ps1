@@ -241,6 +241,72 @@ function Test-UnsafeNestedQuantifier {
     return $detector.IsMatch($Pattern)
 }
 
+function Get-ImplicitFunctionDiagnostics {
+    param([string[]]$CompilerOutput)
+
+    $diagnostics = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($outputLine in @($CompilerOutput)) {
+        $lineText = [string]$outputLine
+        if ($lineText -notmatch '(?:implicit declaration of function|call to undeclared function)') {
+            continue
+        }
+
+        $locationMatch = [regex]::Match($lineText, ':(?<line>\d+):(?<column>\d+):\s*(?:fatal\s+)?(?:error|warning):')
+        $nameMatch = [regex]::Match($lineText, "(?:implicit declaration of function|call to undeclared function)\s+['‘`](?<name>[A-Za-z_][A-Za-z0-9_]*)['’`]")
+        if (-not $locationMatch.Success -or -not $nameMatch.Success) {
+            continue
+        }
+
+        [void]$diagnostics.Add([pscustomobject]@{
+            Name = $nameMatch.Groups['name'].Value
+            Line = [int]$locationMatch.Groups['line'].Value
+            Column = [int]$locationMatch.Groups['column'].Value
+        })
+    }
+
+    return @($diagnostics.ToArray())
+}
+
+function Test-FunctionDeclarationAfterCall {
+    param(
+        [string]$SourceText,
+        [string]$FunctionName,
+        [int]$CallLine
+    )
+
+    if ([string]::IsNullOrWhiteSpace($FunctionName) -or $CallLine -lt 1) {
+        return $false
+    }
+
+    $lineStarts = New-Object 'System.Collections.Generic.List[int]'
+    [void]$lineStarts.Add(0)
+    for ($index = 0; $index -lt $SourceText.Length; $index++) {
+        if ($SourceText[$index] -eq "`n") {
+            [void]$lineStarts.Add($index + 1)
+        }
+    }
+    if ($CallLine -gt $lineStarts.Count) {
+        return $false
+    }
+
+    $callOffset = $lineStarts[$CallLine - 1]
+    $escapedName = [regex]::Escape($FunctionName)
+    $declarationPattern = '(?ms)^[ \t]*(?!(?:return|if|for|while|switch|sizeof|_Static_assert)\b)(?:[A-Za-z_][A-Za-z0-9_]*[ \t]*|\*+[ \t]*)+' +
+        $escapedName + '[ \t]*\([^;{}]*\)[ \t]*(?:;|\r?\n[ \t]*\{)'
+    try {
+        foreach ($match in [regex]::Matches($SourceText, $declarationPattern, [System.Text.RegularExpressions.RegexOptions]::None, [TimeSpan]::FromMilliseconds(500))) {
+            if ($match.Index -gt $callOffset) {
+                return $true
+            }
+        }
+    }
+    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+        return $false
+    }
+
+    return $false
+}
+
 function Test-EffectiveCSourceSyntax {
     param(
         [string]$SourceText,
@@ -293,7 +359,7 @@ function Test-EffectiveCSourceSyntax {
         $previousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            $null = @(
+            $relaxedOutput = @(
                 & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
@@ -303,47 +369,26 @@ function Test-EffectiveCSourceSyntax {
         }
         $relaxedExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
 
-        # Relaxed compilation passes (only IFD warnings).  Distinguish between
-        # D-round-introduced forward-declaration missing (function IS defined
-        # in the same source but AFTER the call site) and system/external
-        # functions (no definition in this translation unit).
-        if ($relaxedExitCode -eq 0) {
-            $ifdNames = @()
-            $ifdMatch = [regex]::Matches($diagnostic, "implicit declaration of function '([^']+)'")
-            foreach ($ifdCapture in $ifdMatch) {
-                $ifdNames += $ifdCapture.Groups[1].Value
-            }
-
-            $defFound = $false
-            $defNames = New-Object 'System.Collections.Generic.List[string]'
-            $definitionPattern = '(?m)^\s*(?:static\s+)?(?:const\s+)?(?:\w+(?:\s*\*+\s*)*)+\s+'
-            foreach ($name in ($ifdNames | Select-Object -Unique)) {
-                if ([string]::IsNullOrWhiteSpace($name)) { continue }
-                $candidatePattern = $definitionPattern + [regex]::Escape($name) + '\s*\('
-                try {
-                    $hasDef = [regex]::IsMatch($SourceText, $candidatePattern, [System.Text.RegularExpressions.RegexOptions]::None, [TimeSpan]::FromMilliseconds(500))
-                }
-                catch {
-                    $hasDef = $false
-                }
-                if ($hasDef) {
-                    $defFound = $true
-                    [void]$defNames.Add($name)
+        $ifdDiagnostics = @(Get-ImplicitFunctionDiagnostics -CompilerOutput $compilerOutput)
+        $lateDeclarations = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($ifdDiagnostic in $ifdDiagnostics) {
+            if (Test-FunctionDeclarationAfterCall -SourceText $SourceText -FunctionName $ifdDiagnostic.Name -CallLine $ifdDiagnostic.Line) {
+                $evidence = ("{0}@{1}:{2}" -f $ifdDiagnostic.Name, $ifdDiagnostic.Line, $ifdDiagnostic.Column)
+                if (-not $lateDeclarations.Contains($evidence)) {
+                    [void]$lateDeclarations.Add($evidence)
                 }
             }
+        }
 
-            if ($defFound) {
-                $defList = ($defNames.ToArray() -join ', ')
-                Add-ErrorIssue ("effective-source syntax gate failed — forward-declaration missing for function(s) that are defined later in the same source: {0}. This is a D-round-introduced ordering error, not a platform compatibility issue." -f $defList)
-                return
-            }
-
-            Add-WarnIssue ("effective-source syntax gate relaxed pass compiler={0}; implicit-declaration warnings are for external/system functions not defined in this source; remote GCC build will confirm" -f $compiler.Name)
+        if ($lateDeclarations.Count -gt 0) {
+            Add-ErrorIssue ("effective-source syntax gate failed forward-declaration missing; declaration-or-definition appears after call site functions={0}" -f ($lateDeclarations.ToArray() -join ','))
             return
         }
 
-        # Relaxed still fails.  Suppress IFD warnings completely to see
-        # whether non-IFD errors remain.
+        # Suppress IFD diagnostics completely to determine whether any
+        # independent syntax error remains. Some compilers treat IFD as an
+        # error even without -Werror, so relaxed exit status alone is not
+        # sufficient for classification.
         $previousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
@@ -357,13 +402,14 @@ function Test-EffectiveCSourceSyntax {
         }
         $noWarnExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
 
-        if ($noWarnExitCode -eq 0) {
-            Add-WarnIssue ("effective-source syntax gate relaxed pass compiler={0} after suppressing implicit-function-declaration warnings; no other syntax errors found" -f $compiler.Name)
+        if ($noWarnExitCode -ne 0) {
+            $noWarnDiagnostic = @($noWarnOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
+            Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
             return
         }
 
-        $noWarnDiagnostic = @($noWarnOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
-        Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
+        $classificationDetail = if ($ifdDiagnostics.Count -eq 0) { 'diagnostic-unparsed' } else { 'no-later-declaration-or-definition' }
+        Add-WarnIssue ("effective-source syntax gate IFD downgraded compiler={0} relaxed_exit={1} classification={2}; later compile stage will confirm" -f $compiler.Name, $relaxedExitCode, $classificationDetail)
     }
     catch {
         Add-ErrorIssue ("effective-source syntax gate exception detail={0}" -f $_.Exception.Message)
