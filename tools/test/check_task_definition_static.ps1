@@ -359,7 +359,7 @@ function Test-EffectiveCSourceSyntax {
         $previousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            $relaxedOutput = @(
+            $null = @(
                 & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
