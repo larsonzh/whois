@@ -433,6 +433,56 @@ try {
         -ExpectedFragments @('IFD downgraded', 'classification=no-later-declaration-or-definition', 'summary errors=0') `
         -AbsentFragments @('forward-declaration missing')
 
+    $allowlistedImplicitDeclarationCase = New-TaskCase -Name 'pass-allowlisted-implicit-declaration' -Operations @(
+        [ordered]@{
+            pattern = 'return 1;'
+            replacement = 'return strncasecmp("a", "b", 1) == 0;'
+            idempotentContains = @('strncasecmp("a", "b", 1)')
+        }
+    ) -Assertions @([ordered]@{ name = 'allowlisted-call'; pattern = 'strncasecmp\("a", "b", 1\)'; expectedCount = 1 })
+    Invoke-Case -Case $allowlistedImplicitDeclarationCase -ExpectedExitCode 0 `
+        -ExpectedFragments @('allowlisted IFD functions suppressed=strncasecmp', 'summary errors=0 warnings=0') `
+        -AbsentFragments @('IFD downgraded', 'retrying without -Werror')
+
+    $allowlistedPreexistingDirectory = Join-Path $caseRoot 'pass-allowlisted-implicit-preexisting-silent'
+    New-Item -ItemType Directory -Path $allowlistedPreexistingDirectory -Force | Out-Null
+    $allowlistedPreexistingSourcePath = Join-Path $allowlistedPreexistingDirectory 'fixture.c'
+    $allowlistedPreexistingTaskPath = Join-Path $allowlistedPreexistingDirectory 'task.json'
+    Write-Utf8NoBom -Path $allowlistedPreexistingSourcePath -Text "static int preexisting_probe(void)`n{`n`treturn strncasecmp(`"a`", `"b`", 1) == 0;`n}`n`nstatic int target(void)`n{`n`treturn 1;`n}`n"
+    $allowlistedPreexistingTask = [ordered]@{
+        schemaVersion = 1
+        name = 'pass-allowlisted-implicit-preexisting-silent'
+        targetFile = 'fixture.c'
+        qualityPolicy = [ordered]@{ operationSafetyPolicy = 'enforce' }
+        rounds = [ordered]@{
+            D1 = [ordered]@{
+                type = 'regex-patch'
+                idempotentContains = @('return 2;')
+                operations = @(
+                    [ordered]@{
+                        pattern = 'return 1;'
+                        replacement = 'return 2;'
+                        idempotentContains = @('return 2;')
+                    }
+                )
+                postApplyAssertions = @(
+                    [ordered]@{ name = 'updated-return'; pattern = 'return 2;'; expectedCount = 1 },
+                    [ordered]@{ name = 'old-return-removed'; pattern = 'return 1;'; expectedCount = 0 }
+                )
+            }
+        }
+    }
+    Write-Utf8NoBom -Path $allowlistedPreexistingTaskPath -Text ($allowlistedPreexistingTask | ConvertTo-Json -Depth 16)
+    $allowlistedPreexistingCase = [pscustomobject]@{
+        Name = 'pass-allowlisted-implicit-preexisting-silent'
+        Directory = $allowlistedPreexistingDirectory
+        SourcePath = $allowlistedPreexistingSourcePath
+        TaskPath = $allowlistedPreexistingTaskPath
+    }
+    Invoke-Case -Case $allowlistedPreexistingCase -ExpectedExitCode 0 `
+        -ExpectedFragments @('summary errors=0 warnings=0') `
+        -AbsentFragments @('allowlisted IFD functions suppressed=strncasecmp', 'IFD downgraded', 'retrying without -Werror')
+
     $multipleImplicitDeclarationsCase = New-TaskCase -Name 'fail-late-third-implicit-declaration' -Operations @(
         [ordered]@{
             pattern = 'static int target\(void\)\n\{\n\treturn 1;\n\}'

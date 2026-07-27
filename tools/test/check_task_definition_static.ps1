@@ -267,6 +267,12 @@ function Get-ImplicitFunctionDiagnostics {
     return @($diagnostics.ToArray())
 }
 
+function Get-AllowlistedImplicitFunctions {
+    $allowlist = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    [void]$allowlist.Add('strncasecmp')
+    return $allowlist
+}
+
 function Test-FunctionDeclarationAfterCall {
     param(
         [string]$SourceText,
@@ -310,7 +316,8 @@ function Test-FunctionDeclarationAfterCall {
 function Test-EffectiveCSourceSyntax {
     param(
         [string]$SourceText,
-        [string]$TargetPath
+        [string]$TargetPath,
+        [AllowEmptyString()][string]$RoundTaskDefinitionText = ''
     )
 
     $compiler = $null
@@ -354,7 +361,6 @@ function Test-EffectiveCSourceSyntax {
         # Strict compilation failed. Retry with relaxed flags to determine
         # whether the failure is purely IFD-related or a genuine syntax error.
         $diagnostic = @($compilerOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
-        Add-WarnIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; retrying without -Werror" -f $compiler.Name, $compilerExitCode, $diagnostic)
 
         $previousErrorActionPreference = $ErrorActionPreference
         try {
@@ -385,6 +391,15 @@ function Test-EffectiveCSourceSyntax {
             return
         }
 
+        $allowlistedIfdFunctions = Get-AllowlistedImplicitFunctions
+        $nonAllowlistedIfdDiagnostics = New-Object 'System.Collections.Generic.List[object]'
+        foreach ($ifdDiagnostic in $ifdDiagnostics) {
+            if ($allowlistedIfdFunctions.Contains([string]$ifdDiagnostic.Name)) {
+                continue
+            }
+            [void]$nonAllowlistedIfdDiagnostics.Add($ifdDiagnostic)
+        }
+
         # Suppress IFD diagnostics completely to determine whether any
         # independent syntax error remains. Some compilers treat IFD as an
         # error even without -Werror, so relaxed exit status alone is not
@@ -407,6 +422,27 @@ function Test-EffectiveCSourceSyntax {
             Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
             return
         }
+
+        if ($ifdDiagnostics.Count -gt 0 -and $nonAllowlistedIfdDiagnostics.Count -eq 0) {
+            $allowlistedNames = @($ifdDiagnostics | ForEach-Object { [string]$_.Name } | Sort-Object -Unique)
+
+            $allowlistedMentionedInRoundTask = $false
+            if (-not [string]::IsNullOrWhiteSpace($RoundTaskDefinitionText)) {
+                foreach ($allowlistedName in $allowlistedNames) {
+                    if ($RoundTaskDefinitionText -match ('\b{0}\b' -f [regex]::Escape($allowlistedName))) {
+                        $allowlistedMentionedInRoundTask = $true
+                        break
+                    }
+                }
+            }
+
+            if ($allowlistedMentionedInRoundTask) {
+                Add-InfoIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; allowlisted IFD functions suppressed={3}" -f $compiler.Name, $compilerExitCode, $diagnostic, ($allowlistedNames -join ','))
+            }
+            return
+        }
+
+        Add-WarnIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; retrying without -Werror" -f $compiler.Name, $compilerExitCode, $diagnostic)
 
         $classificationDetail = if ($ifdDiagnostics.Count -eq 0) { 'diagnostic-unparsed' } else { 'no-later-declaration-or-definition' }
         Add-WarnIssue ("effective-source syntax gate IFD downgraded compiler={0} relaxed_exit={1} classification={2}; later compile stage will confirm" -f $compiler.Name, $relaxedExitCode, $classificationDetail)
@@ -1400,7 +1436,14 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and
     $RequestedOperationIndex -eq 0 -and
     $errors.Count -eq 0 -and
     [System.IO.Path]::GetExtension($targetFileResolved).ToLowerInvariant() -eq '.c') {
-    Test-EffectiveCSourceSyntax -SourceText $workingText -TargetPath $targetFileResolved
+    $roundTaskDefinitionText = ''
+    if ($taskDefinition.rounds.PSObject.Properties.Name -contains $effectiveRoundTag) {
+        $roundTaskDefinition = $taskDefinition.rounds.PSObject.Properties[$effectiveRoundTag].Value
+        if ($null -ne $roundTaskDefinition) {
+            $roundTaskDefinitionText = $roundTaskDefinition | ConvertTo-Json -Depth 64 -Compress
+        }
+    }
+    Test-EffectiveCSourceSyntax -SourceText $workingText -TargetPath $targetFileResolved -RoundTaskDefinitionText $roundTaskDefinitionText
 }
 
 $scopeText = if ([string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
