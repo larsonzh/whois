@@ -49,7 +49,7 @@
 - **所有故障动作必须停机后执行（硬规则）**：任何会触发 AI 故障处理、自愈修改、自动修复、restart 或 `business_resume` 的票据与 guard 分支，必须先通过 A/B 阶段业务进程快照确认全部主进程已停止。状态字段为 `FAIL/BLOCKED`、PID 清零或存在 exit artifact 均不能单独作为离线证明；统一快照必须扫描 start-file 绑定候选进程，并仅用 start-file、PID/候选和新鲜度均匹配的终态 artifact 过滤 `-NoExit` 空宿主窗口。仍有业务进程时只记录 `fault_processing_wait` / `fault_action_ticket_wait`，不得打包修复事故、发故障动作票、修改任务定义/源码或执行恢复。`running-status-report`、A→B 阶段通知和会话终态通知可在运行中发送，但不得携带修复动作。D1 stall 必须先停止 A 进程树并由统一快照确认离线，再写 FAIL、发 `incident-captured`；禁止检测后即时 auto-restart，恢复统一走票据闭环。
 - **D 轮执行前门禁与报票时序（硬规则）**：A/B 启动入口只运行 `check_task_definition_static.ps1 -SyntaxOnly`，检查文件存在、JSON 可解析、非空 `targetFile` 与非空 `rounds`；该门禁不读取业务源码、不检查 D1-op1，也不得用 `runtime-ticket` 延迟无效任务定义。每个实际 D 轮先由独立 task-static checker 在内存副本上按顺序处理 operations：当前 op 唯一匹配、替换和安全检查通过后才推进到下一 op；首个失败立即退出，不检查后续 op 或后续轮，整轮通过后生成哈希绑定产物。code-step 仅执行读取绑定产物、验证、原子写入和写后验证。guard 必须在阶段业务进程停止后再生成 `incident-captured`。票据必须包含 stage、round、failure_phase、failure_kind、failure_category、op（可定位时）和 task-definition。
 - **阶段与代码自愈边界（硬规则）**：只有 `task-static` 故障，以及编译/验证阶段经结构化 category 和证据确认的源码编译、链接、业务逻辑或输出契约故障，才允许进入 code-fix。编译器/工具链不可用、权限、磁盘、网络、远程锁和测试基础设施故障必须进入 noncode。`code-step` 只执行“读 -> 验证 -> 原子写 -> 写后验证”；任何 code-step 故障均属于 noncode，禁止修改源码或任务定义。历史 `code-edit-failure` 也按 noncode 处理，不得作为代码自愈授权。
-- **静态检查语义（硬规则）**：独立 checker 采用顺序内存文本语义；首个 operation 失败即停止，失败 op 的 replacement 不进入内存副本，后续 op、replay、`postApplyAssertions` 和后续轮均不执行。AI 修复 task-static 故障后，可先用 `-RoundTag <Dn> -OperationIndex <n>` 快检当前 op；checker 会只读模拟 op1 至 op(n-1)。恢复前再对当前故障轮运行不带 `-OperationIndex` 的递进严格检查。checker 通过后生成绑定产物，code-step 不重复执行 checker。
+- **静态检查语义与级联失败风险（硬规则）**：独立 checker 采用顺序内存文本语义；**首个 operation 失败即停止**，失败 op 的 replacement 不进入内存副本，后续 op、replay、`postApplyAssertions` 和后续轮均不执行。这意味着**当前故障 op 之后的 op 即使也有缺陷（如括号计数错误、pattern 引用不存在代码等），在当前故障修复完成前不会被发现**。这不是回退，而是 checker 的预期行为 — 修复当前故障 op 并通过后继续检查时，后续 op 可能暴露新的失败，这是正常的，应按顺序逐一修复。AI 修复 task-static 故障后，可先用 `-RoundTag <Dn> -OperationIndex <n>` 快检当前 op；checker 会只读模拟 op1 至 op(n-1)。恢复前再对当前故障轮运行不带 `-OperationIndex` 的递进严格检查。checker 通过后生成绑定产物，code-step 不重复执行 checker。
 - **task-static 跨轮次修复开关（硬规则）**：`TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED` 默认 `false`，字段缺失、空值或非法值均按关闭。关闭时 task-static 自愈只修当前故障 D 轮，后续轮由运行时门禁检查；开启时当前故障轮通过后，按顺序逐轮检查并修复后续 D 轮直到 D4，范围内全部通过后才恢复。每轮 checker 仍首错即停。该开关只作用于 task-static 代码自愈票，不授权 code-step 或非代码故障编辑任务定义，也不扩大编译/验证故障的追加式修复边界。
   - **跨轮次修复的可执行路径**：事务工具按 ticket ID 锁定一个事务目录，但一个 candidate 可承载故障轮到 D4 的全部允许修改。Prepare 时传入 `-ValidateThroughRound D4`，在该 candidate 中按轮次顺序修复，遇到首错继续修改同一 candidate；轮次之间禁止 Promote。全部范围修复写入后执行一次 `Validate -ValidateThroughRound D4`，只有 manifest 的 `validated_rounds` 精确覆盖故障轮到 D4 才执行一次 Promote。禁止 Promote 后直接编辑正式文件或尝试第二次 Prepare；这会破坏 receipt/hash 门禁。
 - **静态检查进程安全（硬规则）**：checker 按仓库使用 named Mutex 单实例运行；锁冲突立即以 `single_instance_conflict=true` 和退出码 4 失败，不排队。正则有内部 timeout，明显嵌套量词在编译前拒绝，外层 worker 有总时限；任一 timeout 或 worker 异常均 fail-close，禁止重启。
@@ -80,12 +80,86 @@
 - **防无限循环保护（2026-07-05）**：Agent 在每次重启对应阶段前，应将当前故障的 `main_round` + `failure_fingerprint` 写入 session memory（`/memories/session/last_failure.md`）。重启后若收到新的 `incident-captured` 票据，其 `main_round` 与 `failure_fingerprint` 均与 session memory 中记录的上一次一致，则判定为**同一故障点连续失败**。此时 Agent 应停止自动重启，向用户报告修复未生效，等待人工介入。session memory 中的记录应在以下任一条件满足时清除：(a) 新的故障指纹与上次不同（修复已改变故障表现），(b) 该阶段全部 8 轮完成且未再触发同一故障。
 - **相同指纹门禁三段化（2026-07-21）**：仅编译/验证阶段经结构化证据确认为代码故障时采用 `pending_review -> override_window -> hard_block` 状态机。默认预算 `CODEFIX_IDENTICAL_FP_MAX_RETRIES=3`（可按 stage 覆盖）。`task-static` 由 SyntaxOnly、目标 op 与当前轮递进严格检查判定修复有效性，不进入该状态机；`code-step` 只做绑定产物文件 I/O，任何故障均为 noncode，也不进入该状态机。第 2/3 次代码修复重启必须有有效修复证据（任务定义哈希变化 / 轮次任务定义印记变化 / 轮次源码摘要变化），否则直接进入 `hard_block`。
 - **人工修复后解锁规则（2026-07-08）**：`hard_block` 不是永久封禁。人工修复后仅在“有效修复证据 + 静态检查通过”时允许从 `hard_block` 自动回到 `pending_review` 并重置同指纹预算；证据不足时保持阻断，禁止重启。
+- 无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入版本控制提交发布步骤。
+
+## 任务定义编辑工具选择硬规则（优先级高于一切）
+
+### 适用范围
+编辑 `testdata/autopilot_code_step_tasks_*.json` 正式任务定义，以及 `out/artifacts/task_definition_repair/<ticket>/` 下的 `candidate.json`。
+
+### 允许的工具链
+
+| 阶段 | 唯一允许的工具 | 说明 |
+|------|---------------|------|
+| 读取文件 | `read_file` | 读取 operation-preview.txt、apply-patch-context.txt、candidate.json |
+| 语义编辑 | `apply_patch` | VS Code 的 JSON-aware 结构化替换引擎；处理 JSON 转义、正则转义和字面量三层 |
+| 运行验证 | `run_in_terminal` | 仅用于调用 Inspect/Validate/Promote 等只读验证命令，不得用于编辑 JSON |
+
+### 禁止的操作（硬阻断）
+
+- ❌ **禁止使用 `run_in_terminal`** 执行内联 Python / PowerShell / sed 修改 JSON
+- ❌ **禁止使用 `create_file` 覆写** candidate.json 或正式任务定义
+- ❌ **禁止使用 `replace_string_in_file` / `multi_replace_string_in_file`** 编辑 candidate.json 或正式任务定义中的 JSON 语义
+- ❌ **禁止使用终端重定向**（`>`、`>>`）、here-string、管道拼接做任何替换
+- ❌ **禁止 `git checkout` 回滚源码或任务定义文件**
+- ❌ **禁止直接编辑正式任务定义** — 必须通过 `Prepare → Validate → Promote` 事务流程
+
+### 自检声明（每次编辑前必须执行）
+
+在调用任何编辑工具前，必须输出以下自检声明并等待工具执行结果：
+
+```
+SELF-CHECK: task-definition JSON edit.
+Target file: <path to candidate.json or official task definition>
+Allowed tool for this edit: apply_patch
+Blocked tools for this operation: run_in_terminal, create_file, replace_string_in_file, multi_replace_string_in_file
+Confirmed: I am NOT using terminal/Python/sed/regex to modify JSON.
+```
+
+### 负面示例（代理代理可能错误倾向）
+
+```text
+❌ 错误：用 replace_string_in_file 修改 candidate.json 的 pattern
+   → 结果：JSON 转义被破坏，pattern/replacement 字符串失真
+
+❌ 错误：用 run_in_terminal 执行 powershell 替换操作
+   → 结果：JSON 编码不匹配，checker 无法编译正则
+
+❌ 错误：用 git checkout 恢复源码
+   → 结果：破坏 A 快照产物，B 阶段源码基线被错误覆盖
+
+❌ 错误：用 create_file 重新写入 candidate.json
+   → 结果：丢失事务上下文，哈希绑定断裂
+```
+
+### 违规后果
+
+任何不合规编辑方式造成的 JSON 损坏、pattern 失真或任务定义不可用，由执行该错误的 Agent 全权负责恢复。同一票据内第二次违规将直接阻断整张修复票，不再允许继续自愈。
+
+### candidate.json 损坏或不可恢复时的回退方案
+
+如果 `candidate.json` 在修复过程中被严重污染（pattern/replacement 被不可逆破坏、JSON 结构断裂、哈希绑定三视图无法对齐），可以重新开始：
+
+1. 不需要人工介入 — 先执行 `-Mode Quarantine -Reason candidate-corrupted` 保留现场
+2. 票据 ID 不变，再次执行 `-Mode Prepare`，工具会用**当前正式任务定义文件**重新生成一份干净候选
+3. 基于干净候选重新开始修复流程
+
+注意：
+- 重新 Prepare 会丢失 previous candidate 中的所有未提升修改，因此如果之前有已经通过局部 checker 但尚未 Promote 的修复，需要重新做
+- 正式任务定义文件始终保持只读，绝不会被 Prepare 覆盖
+- 只要尚未执行 `-Mode Promote`，重新 Prepare 是安全的（正式文件未被修改）
 
 ## 终端命令操作提醒（硬规则，跨模型通用）
 - **PowerShell `>>` 陷阱**：`>>` 在 PowerShell 中是**追加输出重定向操作符**（等价 `Out-File -Append`），后面必须跟文件路径，不是续行符或多行提示符。命令末尾误加 `>>` 会导致 PowerShell 阻塞等待文件名输入，直至超时或被 kill。**构造任何 `powershell -Command`、`run_in_terminal` 或内联 PowerShell 命令时，禁止在命令末尾出现孤立的 `>>`。**
   - 正确做法：多语句用 `;`（分号）串联，例如 `cmd1; cmd2; cmd3`。
   - 自查方法：提交命令前，检查最后非空白字符是否为 `>`，若是则删除或补全文件路径。
   - 已知高危模型：DeepSeek V4 Flash 等低参数量模型易将 `>>` 混淆为 Shell/REPL 续行提示，需额外留意。
+
+## 临时文件与调试目录规范（硬规则）
+- 修复过程中产生的临时文件（如通过 `-OutputEffectiveTargetFile` 生成的有效源码快照、regex 调试脚本、pattern 解码测试输出等）**必须写入项目 `tmp/` 目录**（如 `tmp/checker_debug/`）
+- **禁止写入 `C:\temp`、`$env:TEMP` 或用户桌面**等系统临时目录 — 这些路径不随项目清理，且远程构建/冒烟无法访问
+- 修复完成后必须清理 `tmp/` 下对应票据的临时文件，避免工作区污染
+- 例外：编译器的临时 `.c` 文件（由 checker 自动在 `src/core/.task-static-*.c` 管理）不受此限
 
 ## 协作与文档
 - 交流用中文；代码/注释/提交信息用英文。
