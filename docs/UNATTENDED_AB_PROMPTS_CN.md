@@ -54,7 +54,7 @@
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。
-17. 无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
+17. 无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 
 执行顺序：
 1. 学习两份手册。
@@ -106,7 +106,7 @@ running-status-report 不提供或执行修复路径；不得仅凭旧 exit 证�
 
 后续轮由实际 code-step 检查。只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`；禁止通过终端内联 Python、PowerShell 多层命令、重定向、通用字符串替换或格式化器修改。先 Prepare 并读取预览，修改 candidate 后推荐用只读 Inspect 刷新哈希绑定预览，再按 Validate/Promote 完成 SyntaxOnly、目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；Validate 输出的 `preview_stale` 是诊断状态，不替代 checker 结论。pattern/replacement 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层核对；合法 JSON `"\\)"` 解码为正则 `\)`，`pattern_unmatched=0` 是有效文本零命中而非 JSON 解码失败，禁止据此修改 checker。
-无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
+无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 
 ## 3. 极简压缩版
 
@@ -137,4 +137,4 @@ Prepare 时传入 `-ValidateThroughRound D4`，在同一 candidate 中依次修�
 
 后续轮在实际 code-step 到达时检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改；先 Prepare 并读取预览，修改 candidate 后推荐只读 Inspect，再按 Validate/Promote 内置的 SyntaxOnly -> 目标 op 快检（可定位时）-> 当前故障轮递进严格检查顺序验证；Inspect 不替代门禁。pattern 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层理解；合法 `"\\)"` 会解码为 `\)`，`pattern_unmatched=0` 只代表零命中，绝非 JSON 解码失败。
-无人值守运行期间禁止执行提交与推送操作（如 git commit / git push）；仅在用户明确同轮授权后，才可进入提交/推送流程。
+无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。

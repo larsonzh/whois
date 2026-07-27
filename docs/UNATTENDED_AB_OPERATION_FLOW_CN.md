@@ -144,7 +144,7 @@ AI：
 - 运行期不得手工创建新的 `chat_heartbeat*.jsonl`、`handled_tickets/*.md` 等临时回执产物；应仅使用现有脚本输出的 ledger/heartbeat。
 - 运行期不得在未获用户明确同意时创建非 `tmp/` 新脚本，也不得偏题提出 PR、服务化改造或其他超出当前票据闭环的实施方案。
 - 任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具。禁止通过终端内联 Python、PowerShell 多层命令、here-string、重定向、通用字符串替换或格式化器修改任务定义；格式化器只允许做不改变 JSON 值、数组顺序和 operation 结构的机械格式化。start-file 生成前的初始编制直接编辑新建正式文件，并按 4.2/4.3 完成 `SyntaxOnly`、完整全轮/链式静态验收和适用测试；运行期自愈只编辑候选事务中的 `candidate.json`，并按“SyntaxOnly -> 故障目标 op 快检（可定位时）-> 当前故障 D 轮递进严格检查 -> Promote”验证。
-- 无人值守运行期间禁止执行提交与推送操作（如 `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入版本控制提交发布步骤。
+- 无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入版本控制提交发布步骤。
 
 ### 2.7 自愈修复与故障处理原则
 

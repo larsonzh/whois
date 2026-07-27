@@ -61,7 +61,7 @@
    - `Validate` 输出 `preview_stale=true|false`，仅用于说明当前 candidate SHA-256 是否仍与最近一次预览绑定；该字段不替代 SyntaxOnly、目标 op、逐轮严格检查或 Promote 门禁。
 15. 如确需临时脚本，只能放在 `tmp/` 目录，用完删除。
 16. 对 `running-status-report`，只汇报观测到的运行状态；healthy 时写“运行正常”，异常时只描述异常与待处理事故票，不提供或执行修复路径。不得仅凭历史失败证据推断需要重启 B。运行期不得手工创建 `chat_heartbeat*.jsonl`、额外 handled 回执文件，也不得在未获同意时创建非 `tmp/` 新脚本。
-17. 无人值守运行期间禁止执行提交与推送操作（如 `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
+17. 无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入提交/推送流程。
 18. 下次开工清单固定写在 `docs/RFC-whois-client-split.md` 与 `docs/RFC-address-space-preclassifier.md`；任务结束后如需回填这两份 RFC，必须先汇报结果并等待用户明确授权，再执行回填。
 
 建议执行命令（标准窗口包装器入口）：
