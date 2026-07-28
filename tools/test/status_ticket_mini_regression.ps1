@@ -254,10 +254,31 @@ if ($ContractGateOnly.IsPresent) {
         $taskStaticCheckerText.Contains('idempotentContains') -and
         $taskStaticCheckerText.Contains('postApplyAssertions') -and
         $taskStaticCheckerText.Contains('SyntaxOnly') -and
-        $taskStaticCheckerText.Contains('OperationIndex')
+        $taskStaticCheckerText.Contains('OperationIndex') -and
+        $taskStaticCheckerText.Contains('classification=missing-forward-declaration')
     )
     $checkerContractReason = if ($checkerContractPass) { 'task-static-operation-safety-contract-present' } else { 'missing-task-static-operation-safety-contract' }
     [void]$results.Add((Get-CaseResult -Name 'task-static-checker-contract' -Pass $checkerContractPass -Reason $checkerContractReason))
+
+    $checkerParseTokens = $null
+    $checkerParseErrors = $null
+    $checkerAst = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1'), [ref]$checkerParseTokens, [ref]$checkerParseErrors)
+    $declarationAfterCallFunction = $checkerAst.Find({
+        param($node)
+        return ($node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-FunctionDeclarationAfterCall')
+    }, $true)
+    $declarationAfterCallPass = $false
+    if ($null -ne $declarationAfterCallFunction) {
+        Invoke-Expression $declarationAfterCallFunction.Extent.Text
+        $lateDefinitionSource = "static int caller(void)`n{`n    return wc_preclass_action_is_hint_applied(`"hint-applied`" );`n}`n`nstatic int wc_preclass_action_is_hint_applied(const char* action) {`n    return action != 0;`n}`n"
+        $unresolvedSource = "static int caller(void)`n{`n    return unresolved_helper();`n}`n"
+        $declarationAfterCallPass = (
+            (Test-FunctionDeclarationAfterCall -SourceText $lateDefinitionSource -FunctionName 'wc_preclass_action_is_hint_applied' -CallLine 3) -and
+            -not (Test-FunctionDeclarationAfterCall -SourceText $unresolvedSource -FunctionName 'unresolved_helper' -CallLine 3)
+        )
+    }
+    $declarationAfterCallReason = if ($declarationAfterCallPass) { 'late-same-line-brace-definition-detected-and-unresolved-preserved' } else { 'late-definition-or-unresolved-classification-regressed' }
+    [void]$results.Add((Get-CaseResult -Name 'task-static-late-function-declaration' -Pass $declarationAfterCallPass -Reason $declarationAfterCallReason))
 
     $operatorContractPass = (
         $copilotInstructionsText.Contains('任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具') -and
@@ -586,6 +607,8 @@ $stageConclusionTimingContract = (
     $takeoverTriggerText.Contains("('a_stage_elapsed={0}'") -and
     $takeoverTriggerText.Contains("('b_stage_elapsed={0}'") -and
     $dispatchText.Contains('回复中必须原样包含 A 阶段总用时及起止锚点') -and
+        $dispatchText.Contains('为避免后续事件票打断，请在接票后 3 分钟内给出评审结论') -and
+        $dispatchText.Contains('To avoid interruption by later event tickets, provide the review conclusion within 3 minutes of receiving this ticket') -and
     $dispatchText.Contains('回复中必须原样包含 B 阶段总用时、A/B 合计总用时及起止锚点')
 )
 $stageConclusionTimingContractReason = if ($stageConclusionTimingContract) { 'stage-conclusion-content-and-timing-contract-present' } else { 'missing-stage-conclusion-content-or-timing-contract' }

@@ -297,8 +297,8 @@ function Test-FunctionDeclarationAfterCall {
 
     $callOffset = $lineStarts[$CallLine - 1]
     $escapedName = [regex]::Escape($FunctionName)
-    $declarationPattern = '(?ms)^[ \t]*(?!(?:return|if|for|while|switch|sizeof|_Static_assert)\b)(?:[A-Za-z_][A-Za-z0-9_]*[ \t]*|\*+[ \t]*)+' +
-        $escapedName + '[ \t]*\([^;{}]*\)[ \t]*(?:;|\r?\n[ \t]*\{)'
+    $declarationPattern = '(?ms)^[ \t]*(?!(?:return|if|for|while|switch|sizeof|_Static_assert)\b)(?:[A-Za-z_][A-Za-z0-9_]*[ \t*]+)+' +
+        $escapedName + '[ \t]*\([^;{}]*\)[ \t]*(?:;|\{|\r?\n[ \t]*\{)'
     try {
         foreach ($match in [regex]::Matches($SourceText, $declarationPattern, [System.Text.RegularExpressions.RegexOptions]::None, [TimeSpan]::FromMilliseconds(500))) {
             if ($match.Index -gt $callOffset) {
@@ -387,7 +387,7 @@ function Test-EffectiveCSourceSyntax {
         }
 
         if ($lateDeclarations.Count -gt 0) {
-            Add-ErrorIssue ("effective-source syntax gate failed forward-declaration missing; declaration-or-definition appears after call site functions={0}" -f ($lateDeclarations.ToArray() -join ','))
+            Add-ErrorIssue ("effective-source syntax gate failed classification=missing-forward-declaration; declaration-or-definition appears after call site functions={0}" -f ($lateDeclarations.ToArray() -join ','))
             return
         }
 

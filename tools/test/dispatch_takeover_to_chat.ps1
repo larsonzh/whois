@@ -4510,10 +4510,10 @@ else {
 if ($eventNormalized -eq 'a-pass-conclusion-b-started') {
     $aTimingText = 'A elapsed={0}; start={1}; end={2}' -f $aStageElapsed, $sessionInitialLaunchAt, $aStageCompletedAt
     if ($useChineseDispatchMessage) {
-        $firstMessage += ("`n`n最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。" -f $reviewContentRequirements, $aTimingText)
+        $firstMessage += ("`n`n最低评审内容：{0}。回复中必须原样包含 A 阶段总用时及起止锚点：{1}。为避免后续事件票打断，请在接票后 3 分钟内给出评审结论。" -f $reviewContentRequirements, $aTimingText)
     }
     else {
-        $firstMessage += ("`n`nMinimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}." -f $reviewContentRequirements, $aTimingText)
+        $firstMessage += ("`n`nMinimum review content: {0}. The reply must reproduce the A-stage elapsed time and anchors exactly: {1}. To avoid interruption by later event tickets, provide the review conclusion within 3 minutes of receiving this ticket." -f $reviewContentRequirements, $aTimingText)
     }
 }
 elseif ($eventNormalized -eq 'chat-session-final-status') {
