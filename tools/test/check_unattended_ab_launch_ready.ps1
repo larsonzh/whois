@@ -24,6 +24,7 @@ trap {
 
 $useDetailedOutput = $DetailedOutput.IsPresent
 $useAsJsonOutput = $AsJson.IsPresent
+$script:LaunchReadyProgress = New-Object 'System.Collections.Generic.List[object]'
 
 function Convert-ToBooleanSetting {
     param(
@@ -72,6 +73,7 @@ function Get-ResultObject {
         step = $Step
         status = $Status
         reason = $Reason
+        progress = @($script:LaunchReadyProgress.ToArray())
         output = @($OutputLines)
     }
 }
@@ -246,7 +248,7 @@ function Invoke-PowerShellScriptStep {
 
     $stepName = [System.IO.Path]::GetFileNameWithoutExtension($ScriptPath)
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=START' -f $stepName))
+    Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY-PROGRESS] step={0} status=START' -f $stepName)
     $lines = @()
     $exitCode = 1
     $process = $null
@@ -289,12 +291,28 @@ function Invoke-PowerShellScriptStep {
             Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
         }
         $stopwatch.Stop()
-        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step={0} status=DONE exit_code={1} elapsed_ms={2}' -f $stepName, $exitCode, $stopwatch.ElapsedMilliseconds))
+        Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY-PROGRESS] step={0} status=DONE exit_code={1} elapsed_ms={2}' -f $stepName, $exitCode, $stopwatch.ElapsedMilliseconds)
     }
 
     return [pscustomobject]@{
         ExitCode = $exitCode
         Lines = @($lines)
+    }
+}
+
+function Write-LaunchReadyProgress {
+    param([string]$Message)
+
+    if ($Message -match '^\[AB-LAUNCH-READY-PROGRESS\] step=(?<step>\S+) status=DONE exit_code=(?<exitCode>-?\d+) elapsed_ms=(?<elapsedMs>\d+)$') {
+        [void]$script:LaunchReadyProgress.Add([ordered]@{
+            step = [string]$Matches.step
+            exit_code = [int]$Matches.exitCode
+            elapsed_ms = [long]$Matches.elapsedMs
+        })
+    }
+
+    if (-not $useAsJsonOutput) {
+        [Console]::Out.WriteLine($Message)
     }
 }
 
@@ -362,7 +380,7 @@ catch {
 
 if ($Stage -eq 'B') {
     $bBaselineStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    [Console]::Error.WriteLine('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=START')
+    Write-LaunchReadyProgress -Message '[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=START'
     $snapshotStatusRaw = if ($startSettings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
         ([string]$startSettings.A_SUCCESS_SNAPSHOT_FINAL_STATUS).Trim()
     }
@@ -372,7 +390,7 @@ if ($Stage -eq 'B') {
 
     if ([string]::IsNullOrWhiteSpace($snapshotStatusRaw) -or $snapshotStatusRaw -match '^<.*>$') {
         $bBaselineStopwatch.Stop()
-        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
+        Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds)
         Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot is unavailable; template baseline reset requires restarting from Stage A.' -OutputLines @(
             ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
             'NEXT_ALLOWED_STAGE=A'
@@ -384,7 +402,7 @@ if ($Stage -eq 'B') {
     }
     catch {
         $bBaselineStopwatch.Stop()
-        [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
+        Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=1 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds)
         Write-ResultAndExit -Step 'b-start-baseline' -Status 'FAIL' -Reason 'A PASS snapshot final status does not exist; restart from Stage A or restore a verified A snapshot.' -OutputLines @(
             ('A_SUCCESS_SNAPSHOT_FINAL_STATUS={0}' -f $snapshotStatusRaw),
             'NEXT_ALLOWED_STAGE=A'
@@ -392,7 +410,7 @@ if ($Stage -eq 'B') {
     }
 
     $bBaselineStopwatch.Stop()
-    [Console]::Error.WriteLine(('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=0 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds))
+    Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY-PROGRESS] step=b-start-baseline status=DONE exit_code=0 elapsed_ms={0}' -f $bBaselineStopwatch.ElapsedMilliseconds)
 }
 
 $startFileLines = @(
@@ -469,9 +487,9 @@ if ($statusMiniRegressionEnabled) {
             $reason = Get-FirstMeaningfulLine -Lines $statusMiniRegression.Lines
         }
 
-        Write-Output ('[AB-LAUNCH-READY] step=status-ticket-mini-regression status=WARN reason={0}' -f $reason)
+        Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY] step=status-ticket-mini-regression status=WARN reason={0}' -f $reason)
         foreach ($line in @($statusMiniRegression.Lines)) {
-            Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+            Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY] detail={0}' -f $line)
         }
         $statusMiniRegressionSummary = 'Status-ticket mini regression warned (non-blocking).'
     }
@@ -498,9 +516,9 @@ if ($retryBudgetMiniRegressionEnabled) {
             $reason = Get-FirstMeaningfulLine -Lines $retryBudgetMiniRegression.Lines
         }
 
-        Write-Output ('[AB-LAUNCH-READY] step=retry-budget-mini-regression status=WARN reason={0}' -f $reason)
+        Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY] step=retry-budget-mini-regression status=WARN reason={0}' -f $reason)
         foreach ($line in @($retryBudgetMiniRegression.Lines)) {
-            Write-Output ('[AB-LAUNCH-READY] detail={0}' -f $line)
+            Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY] detail={0}' -f $line)
         }
         $retryBudgetMiniRegressionSummary = 'Retry-budget minimal regression warned (non-blocking).'
     }
@@ -539,7 +557,7 @@ if ($routeGuardSmokeSuiteEnabled) {
     $routeGuardSmokeSuiteSummary = 'Route-guard smoke suite passed.'
 }
 else {
-    Write-Output ('[AB-LAUNCH-READY] detail=route-guard-smoke-suite skipped guard_managed={0} ci_mode={1} configured={2}' -f [string]$GuardManagedLaunch.IsPresent, [string]$ciMode, [string]($null -ne $routeGuardSmokeSuiteConfigured))
+    Write-LaunchReadyProgress -Message ('[AB-LAUNCH-READY] detail=route-guard-smoke-suite skipped guard_managed={0} ci_mode={1} configured={2}' -f [string]$GuardManagedLaunch.IsPresent, [string]$ciMode, [string]($null -ne $routeGuardSmokeSuiteConfigured))
 }
 
 $repositoryGuardsEnabled = $false

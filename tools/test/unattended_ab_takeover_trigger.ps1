@@ -1802,7 +1802,7 @@ function New-TakeoverBrief {
     else {
         ''
     }
-    $launchReadyCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "{0}"' -f $startFileRel
+    $launchReadyCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ab_launch_ready.ps1 -StartFile "{0}" -Stage {1}' -f $startFileRel, [string]$resumePlan.stage
     $ticketClosureCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_ticket_closure.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $eventDedupHealthCheckCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_event_dedup_health.ps1 -StartFile "{0}" -AsJson' -f $startFileRel
     $finalStatusCloseoutCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_final_status_closeout.ps1 -StartFile "{0}" -AsJson' -f $startFileRel

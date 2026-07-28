@@ -280,6 +280,8 @@ if ($ContractGateOnly.IsPresent) {
         $pollText.Contains("`$order.Add('contract_gate_command')") -and
         $pollText.Contains('status_ticket_mini_regression.ps1 -ContractGateOnly') -and
         $takeoverTriggerText.Contains("('contract_gate_command={0}' -f `$contractGateCommand)") -and
+        $takeoverTriggerText.Contains('check_unattended_ab_launch_ready.ps1 -StartFile "{0}" -Stage {1}') -and
+        $takeoverTriggerText.Contains('[string]$resumePlan.stage') -and
         $takeoverContractOrderIndex -ge 0 -and
         $takeoverLaunchReadyOrderIndex -gt $takeoverContractOrderIndex
     )
@@ -337,7 +339,8 @@ if ($ContractGateOnly.IsPresent) {
             -not ([string]$transcriptResult.message).Contains('PowerShell Extension') -and
             -not ([string]$transcriptResult.message).Contains('noisy.ps1') -and
             ([string]$transcriptResult.message).Contains('business-before') -and
-            ([string]$transcriptResult.message).Contains('summary: business-after')
+            ([string]$transcriptResult.message).Contains('summary: business-after') -and
+            $dispatchText.Contains('do not run git checkout, git commit, or git push unless the user explicitly authorizes the specific command in the same turn')
         )
         $dispatchMessageIntegrityReason = if ($dispatchMessageIntegrityPass) { 'long-business-content-preserved-and-transcript-noise-filtered' } else { 'business-content-truncated-or-transcript-filter-regressed' }
     }
