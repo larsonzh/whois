@@ -89,24 +89,40 @@
 
 ### 允许的工具链
 
-| 阶段 | 唯一允许的工具 | 说明 |
-|------|---------------|------|
+| 阶段 | 工具 | 说明 |
+|------|------|------|
 | 读取文件 | `read_file` | 读取 operation-preview.txt、apply-patch-context.txt、candidate.json |
-| 语义编辑 | `apply_patch` | VS Code 的 JSON-aware 结构化替换引擎；处理 JSON 转义、正则转义和字面量三层 |
+| 语义编辑（首选） | `apply_patch` | VS Code 的 JSON-aware 结构化替换引擎；处理 JSON 转义、正则转义和字面量三层 |
+| 语义编辑（回退） | `replace_string_in_file` / `multi_replace_string_in_file` | **仅当 `apply_patch` 在当前会话中不可用时使用**。必须包含前后各至少 3-5 行上下文以确保唯一匹配；编辑后立即通过 `-Mode Inspect` 验证转义正确性 |
 | 运行验证 | `run_in_terminal` | 仅用于调用 Inspect/Validate/Promote 等只读验证命令，不得用于编辑 JSON |
 
 ### 禁止的操作（硬阻断）
 
+以下操作在任何情况下均禁止：
+
 - ❌ **禁止使用 `run_in_terminal`** 执行内联 Python / PowerShell / sed 修改 JSON
 - ❌ **禁止使用 `create_file` 覆写** candidate.json 或正式任务定义
-- ❌ **禁止使用 `replace_string_in_file` / `multi_replace_string_in_file`** 编辑 candidate.json 或正式任务定义中的 JSON 语义
 - ❌ **禁止使用终端重定向**（`>`、`>>`）、here-string、管道拼接做任何替换
 - ❌ **禁止 `git checkout` 回滚源码或任务定义文件**
 - ❌ **禁止直接编辑正式任务定义** — 必须通过 `Prepare → Validate → Promote` 事务流程
 
+### 条件允许的操作（回退策略）
+
+以下操作仅在 `apply_patch` 不可用且严格遵守安全约束时才允许：
+
+- ✅ **条件允许使用 `replace_string_in_file` / `multi_replace_string_in_file`** 编辑 candidate.json 中的 JSON 语义
+  - **约束条件**:
+    1. 必须包含唯一确定的字符串段，前后各至少 3-5 行上下文
+    2. 编辑后**必须立即**通过 `-Mode Inspect` 验证 JSON 转义和正则可编译性
+    3. 不得通过反复猜测转义层级来试错；若 Inspect 失败，仔细分析 `operation-preview.txt` 的三层编码视图后重新编辑
+    4. 若编辑导致 candidate.json 损坏，执行 `-Mode Quarantine -Reason candidate-corrupted` 后重新 `-Mode Prepare`
+  - **已知风险**: 这些工具不理解 JSON 编码层（如 pattern 中的 `\\` 在 JSON 源码中表示为 `\\\\`），替换时易破坏转义链
+
 ### 自检声明（每次编辑前必须执行）
 
-在调用任何编辑工具前，必须输出以下自检声明并等待工具执行结果：
+在调用任何编辑工具前，必须根据当时可用工具输出对应的自检声明并等待工具执行结果：
+
+#### 当 `apply_patch` 可用时：
 
 ```
 SELF-CHECK: task-definition JSON edit.
@@ -116,11 +132,31 @@ Blocked tools for this operation: run_in_terminal, create_file, replace_string_i
 Confirmed: I am NOT using terminal/Python/sed/regex to modify JSON.
 ```
 
+#### 当 `apply_patch` 不可用，回退到 `replace_string_in_file` 时：
+
+```
+SELF-CHECK: task-definition JSON edit.
+Target file: <path to candidate.json>
+apply_patch is NOT available in this session.
+Fallback tool: replace_string_in_file / multi_replace_string_in_file.
+RISK: These tools do NOT understand JSON/Regex encoding. I must:
+  1. Include at least 3-5 lines of context BEFORE and AFTER the exact target string
+  2. Only replace a UNIQUE, unambiguous string segment
+  3. Immediately run -Mode Inspect to verify JSON escaping and regex compilability
+  4. NOT blindly retry with different escaping guesses
+Blocked for editing: run_in_terminal, create_file
+Confirmed: I am NOT using terminal/Python/sed/regex to modify JSON.
+```
+
 ### 负面示例（代理代理可能错误倾向）
 
 ```text
-❌ 错误：用 replace_string_in_file 修改 candidate.json 的 pattern
+❌ 错误：在 apply_patch 可用时使用 replace_string_in_file 修改 candidate.json 的 pattern
    → 结果：JSON 转义被破坏，pattern/replacement 字符串失真
+   → 正确做法：apply_patch 可用时始终优先使用 apply_patch
+
+❌ 错误：在回退 replace_string_in_file 时不加足够上下文就替换
+   → 结果：匹配到多处导致错误替换，JSON 结构损坏
 
 ❌ 错误：用 run_in_terminal 执行 powershell 替换操作
    → 结果：JSON 编码不匹配，checker 无法编译正则
