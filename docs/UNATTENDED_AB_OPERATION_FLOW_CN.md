@@ -1948,3 +1948,29 @@ session memory 中的记录应在以下任一条件满足时清除：
 - 人工修复完成后，若检测到“有效修复证据”且静态检查通过，可自动从 `hard_block` 回到 `pending_review`，重置同指纹预算后允许重启。
 - 若无有效修复证据，保持 `hard_block`，不得重启。
 
+### 10.7 推荐修复验证节奏（减少 Validate throw 风险）
+
+从多轮 D1-D4 task-static 修复实践中总结出的稳妥三步验证法，可避免修复不完整导致事务 `Validate` 阶段的 `checker throw`：
+
+1. **Pre-check（直接 checker 验证整轮）**
+   - 修改 `candidate.json` 后，不急于走事务 `Validate`，先通过独立 checker 直接验证该轮全部 ops：
+     ```powershell
+     powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 `
+         -TaskDefinitionFile "out/artifacts/task_definition_repair/<ticket>/candidate.json" `
+         -Policy enforce -RoundTag <Dn>
+     ```
+   - 这比 `Inspect -OperationIndex` 更全面，它会顺序执行该轮所有 ops、replay、postApplyAssertions 和 C syntax gate。
+   - 首错即停，按诊断在允许编辑边界内修复后重新检查，直到该轮全通过（`summary errors=0`）。
+
+2. **Operate（事务 Validate）**
+   - Pre-check 通过后，再走事务 `Validate`：
+     ```powershell
+     powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 `
+         -Mode Validate -TaskDefinitionFile "<正式文件>" -TicketId "<ticket>" -Stage <A|B> -RoundTag <Dn> -OperationIndex <n>
+     ```
+   - 此时 checker 已经在第 1 步验证过，Validate 应该通过，不会触发 `throw`。
+
+3. **Promote（原子提升）**
+   - Validate 通过后立即执行 `-Mode Promote`，不拖延。
+
+**关键原则**：不要在未通过 checker 全轮验证时直接跑事务 `Validate`。事务 `Validate` 内部的 `throw` 不是脚本缺陷，而是 fail-close 门禁 — 它只是忠实地报告 checker 的失败结果。第 1 步的 pre-check 就是在事务外提前补齐验证，把问题消灭在提交事务 Validate 之前。
