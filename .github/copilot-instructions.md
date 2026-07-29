@@ -116,7 +116,9 @@
     2. 编辑后**必须立即**通过 `-Mode Inspect` 验证 JSON 转义和正则可编译性
     3. 不得通过反复猜测转义层级来试错；若 Inspect 失败，仔细分析 `operation-preview.txt` 的三层编码视图后重新编辑
     4. 若编辑导致 candidate.json 损坏，执行 `-Mode Quarantine -Reason candidate-corrupted` 后重新 `-Mode Prepare`
-  - **已知风险**: 这些工具不理解 JSON 编码层（如 pattern 中的 `\\` 在 JSON 源码中表示为 `\\\\`），替换时易破坏转义链
+  - **已知风险**: 
+    - 这些工具不理解 JSON 编码层（如 pattern 中的 `\\` 在 JSON 源码中表示为 `\\\\`），替换时易破坏转义链
+    - **`multi_replace_string_in_file` 风险高于 `replace_string_in_file`**：前者在一次调用中执行多处替换，任一处转义问题都会导致整体失败；且后续替换基于已修改的文件内容，前后替换可能相互干扰，排查难度更大。尽可能优先使用单次 `replace_string_in_file` 逐处修改，每修改一处后立即验证。
 
 ### 自检声明（每次编辑前必须执行）
 
@@ -157,6 +159,10 @@ Confirmed: I am NOT using terminal/Python/sed/regex to modify JSON.
 
 ❌ 错误：在回退 replace_string_in_file 时不加足够上下文就替换
    → 结果：匹配到多处导致错误替换，JSON 结构损坏
+
+❌ 错误（高发）：使用 multi_replace_string_in_file 同时修改 candidate.json 中多处
+   → 结果：任一处的转义偏差都会导致整批失败；后续替换基于已修改内容，前后干扰难以排查
+   → 正确做法：尽可能使用单次 replace_string_in_file 逐处修改，每处修改后立即 -Mode Inspect 验证
 
 ❌ 错误：用 run_in_terminal 执行 powershell 替换操作
    → 结果：JSON 编码不匹配，checker 无法编译正则

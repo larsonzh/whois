@@ -17,6 +17,7 @@ You are a specialist at editing task definition JSON files (`candidate.json` / `
   - 编辑后必须**立即**通过 `-Mode Inspect` 验证 JSON 转义正确性与正则可编译性
   - 这些工具对 JSON 转义内容的处理存在风险（pattern 中的 `\\` 序列、JSON 编码的 `\n` 等），操作前必须严格遵循自检声明流程
   - 避免通过反复猜测转义层级来试错；若第一次 Inspect 失败，仔细分析根因后再修改
+  - **`multi_replace_string_in_file` 风险显著高于 `replace_string_in_file`**：任一处转义问题都会导致整批失败；后续替换基于已修改内容，前后替换可能相互干扰，排查难度极大。**尽可能避免使用 `multi_replace_string_in_file`**，优先单次 `replace_string_in_file` 逐处修改并即时验证
 
 ### 始终禁止的操作
 
@@ -59,6 +60,7 @@ Confirmed: I am NOT using terminal/Python/sed/regex to modify JSON.
 1. 通过 `read_file` 读取 `operation-preview.txt`、`apply-patch-context.txt` 以及 `candidate.json`，理解三层编码视图
 2. **优先尝试 `apply_patch`** 进行语义修改；若该工具不可用，使用 `replace_string_in_file` / `multi_replace_string_in_file` 作为回退
    - 回退时：只替换唯一确定的字符串段，包含前后各至少 3-5 行上下文
+   - **避免使用 `multi_replace_string_in_file`**：多处替换的转义风险叠加，后续替换基于已修改内容，前后干扰难以排查。尽量用单次 `replace_string_in_file` 逐处修改，每处后即时验证
    - 避免一次性替换 JSON 中多处相似的字符串片段
 3. 修改后**立即**通过 `run_in_terminal` 执行 `-Mode Inspect` 验证 JSON 转义正确性（pattern 可编译、marker 唯一等）
    - 若 Inspect 失败，分析根因后重新编辑，不得反复盲目试错
