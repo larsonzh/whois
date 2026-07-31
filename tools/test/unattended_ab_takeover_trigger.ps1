@@ -2092,6 +2092,20 @@ function New-TakeoverBrief {
     $repairOperationText = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_operation')
     $repairOperationIndex = 0
     [void][int]::TryParse($repairOperationText, [ref]$repairOperationIndex)
+    if ($repairOperationIndex -le 0 -and $ticketFailurePhase -eq 'task-static') {
+        $operationEvidence = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_evidence')
+        $operationSource = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_source')
+        if (-not [string]::IsNullOrWhiteSpace($operationSource)) {
+            $operationSourcePath = if ([System.IO.Path]::IsPathRooted($operationSource)) { $operationSource } else { Join-Path $repoRoot $operationSource }
+            if (Test-Path -LiteralPath $operationSourcePath -PathType Leaf) {
+                $operationEvidence = [string]::Join("`n", @(Get-Content -LiteralPath $operationSourcePath -Tail 80 -ErrorAction SilentlyContinue))
+            }
+        }
+        $operationMatch = [regex]::Match($operationEvidence, '(?im)\bround=' + [regex]::Escape($repairRound) + '\s+op=(\d+)\b')
+        if ($operationMatch.Success) {
+            $repairOperationIndex = [int]$operationMatch.Groups[1].Value
+        }
+    }
     $repairTaskDefinition = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'task_definition')
     if ([string]::IsNullOrWhiteSpace($repairTaskDefinition) -and $repairStage -in @('A', 'B')) {
         $repairTaskDefinitionKey = '{0}_TASK_DEFINITION' -f $repairStage

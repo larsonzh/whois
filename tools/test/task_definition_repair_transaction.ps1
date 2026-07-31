@@ -463,6 +463,17 @@ if ($Mode -eq 'Abandon' -or $Mode -eq 'Quarantine') {
 
 if ($Mode -eq 'Inspect') {
     Assert-BaselineBinding -Manifest $manifest
+    if ($OperationIndex -gt 0 -and [int]$manifest.operation_index -eq 0) {
+        if (-not [string]::IsNullOrWhiteSpace($RoundTag) -and $RoundTag.Trim().ToUpperInvariant() -ne [string]$manifest.round) {
+            throw '[TASK-DEFINITION-TRANSACTION] Inspect operation binding round mismatch'
+        }
+        $manifest.operation_index = $OperationIndex
+        $manifest.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        Write-JsonAtomically -Path $manifestPath -Value $manifest
+    }
+    elseif ($OperationIndex -gt 0 -and [int]$manifest.operation_index -ne $OperationIndex) {
+        throw '[TASK-DEFINITION-TRANSACTION] Inspect operation binding conflicts with manifest'
+    }
     $preview = Write-OperationPreview -Manifest $manifest
     Write-Output ("[TASK-DEFINITION-TRANSACTION] status=inspected ticket={0} candidate_sha256={1} preview={2} pattern_match_count={3} post_replacement_pattern_match_count={4}" -f $TicketId, $preview.candidate_sha256, $previewJsonPath, $preview.pattern_match_count, $preview.post_replacement_pattern_match_count)
     exit 0

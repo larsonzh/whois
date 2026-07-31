@@ -327,8 +327,11 @@ function Test-EffectiveCSourceSyntax {
     param(
         [string]$SourceText,
         [string]$TargetPath,
-        [AllowEmptyString()][string]$RoundTaskDefinitionText = ''
+        [AllowEmptyString()][string]$RoundTaskDefinitionText = '',
+        [AllowEmptyString()][string]$FailureRound = ''
     )
+
+    $roundPrefix = if ([string]::IsNullOrWhiteSpace($FailureRound)) { '' } else { "round=$FailureRound " }
 
     $compiler = $null
     foreach ($compilerName in @('clang', 'gcc', 'cc')) {
@@ -339,7 +342,7 @@ function Test-EffectiveCSourceSyntax {
         }
     }
     if ($null -eq $compiler) {
-        Add-ErrorIssue 'effective-source syntax gate compiler not found candidates=clang,gcc,cc'
+        Add-ErrorIssue ("{0}effective-source syntax gate compiler not found candidates=clang,gcc,cc" -f $roundPrefix)
         return
     }
 
@@ -364,7 +367,7 @@ function Test-EffectiveCSourceSyntax {
 
         # Strict compilation passes — syntax gate clean.
         if ($compilerExitCode -eq 0) {
-            Add-InfoIssue ("effective-source syntax gate pass compiler={0}" -f $compiler.Name)
+            Add-InfoIssue ("{0}effective-source syntax gate pass compiler={1}" -f $roundPrefix, $compiler.Name)
             return
         }
 
@@ -397,7 +400,7 @@ function Test-EffectiveCSourceSyntax {
         }
 
         if ($lateDeclarations.Count -gt 0) {
-            Add-ErrorIssue ("effective-source syntax gate failed classification=missing-forward-declaration; declaration-or-definition appears after call site functions={0}" -f ($lateDeclarations.ToArray() -join ','))
+            Add-ErrorIssue ("{0}effective-source syntax gate failed classification=missing-forward-declaration; declaration-or-definition appears after call site functions={1}" -f $roundPrefix, ($lateDeclarations.ToArray() -join ','))
             return
         }
 
@@ -429,7 +432,7 @@ function Test-EffectiveCSourceSyntax {
 
         if ($noWarnExitCode -ne 0) {
             $noWarnDiagnostic = @($noWarnOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6) -join ' | '
-            Add-ErrorIssue ("effective-source syntax gate failed compiler={0} exit={1} detail={2}" -f $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
+            Add-ErrorIssue ("{0}effective-source syntax gate failed compiler={1} exit={2} detail={3}" -f $roundPrefix, $compiler.Name, $noWarnExitCode, $noWarnDiagnostic)
             return
         }
 
@@ -447,18 +450,18 @@ function Test-EffectiveCSourceSyntax {
             }
 
             if ($allowlistedMentionedInRoundTask) {
-                Add-InfoIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; allowlisted IFD functions suppressed={3}" -f $compiler.Name, $compilerExitCode, $diagnostic, ($allowlistedNames -join ','))
+                Add-InfoIssue ("{0}effective-source strict syntax gate failed compiler={1} exit={2} detail={3}; allowlisted IFD functions suppressed={4}" -f $roundPrefix, $compiler.Name, $compilerExitCode, $diagnostic, ($allowlistedNames -join ','))
             }
             return
         }
 
-        Add-WarnIssue ("effective-source strict syntax gate failed compiler={0} exit={1} detail={2}; retrying without -Werror" -f $compiler.Name, $compilerExitCode, $diagnostic)
+        Add-WarnIssue ("{0}effective-source strict syntax gate failed compiler={1} exit={2} detail={3}; retrying without -Werror" -f $roundPrefix, $compiler.Name, $compilerExitCode, $diagnostic)
 
         $classificationDetail = if ($ifdDiagnostics.Count -eq 0) { 'diagnostic-unparsed' } else { 'no-later-declaration-or-definition' }
-        Add-WarnIssue ("effective-source syntax gate IFD downgraded compiler={0} relaxed_exit={1} classification={2}; later compile stage will confirm" -f $compiler.Name, $relaxedExitCode, $classificationDetail)
+        Add-WarnIssue ("{0}effective-source syntax gate IFD downgraded compiler={1} relaxed_exit={2} classification={3}; later compile stage will confirm" -f $roundPrefix, $compiler.Name, $relaxedExitCode, $classificationDetail)
     }
     catch {
-        Add-ErrorIssue ("effective-source syntax gate exception detail={0}" -f $_.Exception.Message)
+        Add-ErrorIssue ("{0}effective-source syntax gate exception detail={1}" -f $roundPrefix, $_.Exception.Message)
     }
     finally {
         if (Test-Path -LiteralPath $temporarySource) {
@@ -1340,6 +1343,39 @@ foreach ($roundEntry in $roundEntries) {
         if ($postApplyAssertions.Count -eq 0) {
             Add-OperationSafetyIssue ("round={0} postApplyAssertions missing or empty" -f $roundTag)
         }
+        $introducedPrototypes = @{}
+        foreach ($operation in $operations) {
+            $replacementText = [string]$operation.replacement
+            foreach ($prototypeMatch in [regex]::Matches($replacementText, '(?m)^[ \t]*static[ \t]+(?=[^;{}\r\n]*\b(?<name>wc_[A-Za-z0-9_]+)[ \t]*\()[^;{}\r\n]+\)[ \t]*;[ \t]*\r?$')) {
+                $prototypeName = [string]$prototypeMatch.Groups['name'].Value
+                if (-not $introducedPrototypes.ContainsKey($prototypeName)) {
+                    $introducedPrototypes[$prototypeName] = ([string]$prototypeMatch.Value).Trim()
+                }
+            }
+        }
+        foreach ($prototypeEntry in $introducedPrototypes.GetEnumerator()) {
+            $prototypeCovered = $false
+            foreach ($assertion in $postApplyAssertions) {
+                $assertionPattern = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'pattern') { [string]$assertion.pattern } else { '' }
+                $expectedCount = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'expectedCount') { [int]$assertion.expectedCount } else { -1 }
+                if ($expectedCount -ne 1 -or [string]::IsNullOrWhiteSpace($assertionPattern)) {
+                    continue
+                }
+                try {
+                    $assertionRegex = New-TaskRegex -Pattern $assertionPattern -Options ([System.Text.RegularExpressions.RegexOptions]::Singleline)
+                    if ($assertionRegex.IsMatch([string]$prototypeEntry.Value) -and $assertionRegex.Matches($workingText).Count -eq 1) {
+                        $prototypeCovered = $true
+                        break
+                    }
+                }
+                catch {
+                    continue
+                }
+            }
+            if (-not $prototypeCovered) {
+                Add-OperationSafetyIssue ("round={0} prototype assertion missing function={1} expectedCount=1" -f $roundTag, $prototypeEntry.Key)
+            }
+        }
         foreach ($assertion in $postApplyAssertions) {
             $assertionPattern = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'pattern') { [string]$assertion.pattern } else { '' }
             $expectedCount = if ($null -ne $assertion -and $assertion.PSObject.Properties.Name -contains 'expectedCount') { [int]$assertion.expectedCount } else { -1 }
@@ -1367,6 +1403,13 @@ foreach ($roundEntry in $roundEntries) {
                 Add-InfoIssue ("round={0} postApplyAssertion pass name={1} count={2}" -f $roundTag, $assertionName, $actualCount)
             }
         }
+    }
+
+    if ($ChainRounds.IsPresent -and
+        $errors.Count -eq $roundErrorCountBefore -and
+        [System.IO.Path]::GetExtension($targetFileResolved).ToLowerInvariant() -eq '.c') {
+        $roundTaskDefinitionText = $roundTask | ConvertTo-Json -Depth 64 -Compress
+        Test-EffectiveCSourceSyntax -SourceText $workingText -TargetPath $targetFileResolved -RoundTaskDefinitionText $roundTaskDefinitionText -FailureRound $roundTag
     }
 
     if ($ChainRounds.IsPresent -and $errors.Count -gt $roundErrorCountBefore) {
@@ -1488,6 +1531,7 @@ if ($EnableFingerprintCheck.IsPresent) {
 if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and
     $RequestedOperationIndex -eq 0 -and
     $errors.Count -eq 0 -and
+    -not $ChainRounds.IsPresent -and
     [System.IO.Path]::GetExtension($targetFileResolved).ToLowerInvariant() -eq '.c') {
     $roundTaskDefinitionText = ''
     if ($taskDefinition.rounds.PSObject.Properties.Name -contains $effectiveRoundTag) {

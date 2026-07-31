@@ -814,6 +814,7 @@ $result = [ordered]@{
     closeout = $null
     transaction_row = $null
     task_definition_gate = $null
+    compatibility_warnings = @()
     failure_ledger_recorded = $false
     failure_ledger_error = ''
 }
@@ -957,12 +958,24 @@ try {
 
         [void]$steps.Add((Invoke-TransactionCommand -Name 'ticket_closure_check_command' -CommandLine $ticketClosureCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
         [void]$steps.Add((Invoke-TransactionCommand -Name 'event_dedup_health_check_command' -CommandLine $eventDedupHealthCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
-        [void]$steps.Add((Invoke-TransactionCommand -Name 'final_status_closeout_command' -CommandLine $finalStatusCloseoutCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
+        $finalStatusStep = Invoke-TransactionCommand -Name 'final_status_closeout_command' -CommandLine $finalStatusCloseoutCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')
+        [void]$steps.Add($finalStatusStep)
+        if (-not $finalStatusStep.skipped -and @($finalStatusStep.output).Count -gt 0) {
+            try {
+                $finalStatusResult = Convert-CommandOutputToJson -Output @($finalStatusStep.output) -Step 'final-status-closeout'
+                if (($finalStatusResult.PSObject.Properties.Name -contains 'pass') -and -not [bool]$finalStatusResult.pass) {
+                    $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned pass=false')
+                }
+            }
+            catch {
+                $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned no parseable JSON result')
+            }
+        }
         [void]$steps.Add((Invoke-TransactionCommand -Name 'final_status_closeout_apply_ack_command' -CommandLine $finalStatusCloseoutApplyAckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
 
         $result.steps = @($steps.ToArray())
         $result.success = $true
-        $result.reason = 'transaction-complete'
+        $result.reason = if (@($result.compatibility_warnings).Count -gt 0) { 'transaction-complete-with-compatibility-warnings' } else { 'transaction-complete' }
         }
     }
     finally {

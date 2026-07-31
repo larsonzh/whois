@@ -263,6 +263,14 @@ if ($ContractGateOnly.IsPresent) {
     $checkerContractReason = if ($checkerContractPass) { 'task-static-operation-safety-contract-present' } else { 'missing-task-static-operation-safety-contract' }
     [void]$results.Add((Get-CaseResult -Name 'task-static-checker-contract' -Pass $checkerContractPass -Reason $checkerContractReason))
 
+    $focusedRepairPass = $takeoverTriggerText.Contains("`$operationMatch = [regex]::Match(`$operationEvidence") -and $takeoverTriggerText.Contains("Get-Content -LiteralPath `$operationSourcePath -Tail 80") -and $taskDefinitionRepairTransactionText.Contains("if (`$OperationIndex -gt 0 -and [int]`$manifest.operation_index -eq 0)") -and $taskDefinitionRepairTransactionText.Contains("`$manifest.operation_index = `$OperationIndex")
+    $focusedRepairReason = if ($focusedRepairPass) { 'task-definition-focused-operation-recovery-present' } else { 'missing-task-definition-focused-operation-recovery' }
+    [void]$results.Add((Get-CaseResult -Name 'task-definition-focused-operation-recovery' -Pass $focusedRepairPass -Reason $focusedRepairReason))
+
+    $prototypeAssertionPass = $taskStaticCheckerText.Contains('prototype assertion missing function={1} expectedCount=1') -and $taskStaticCheckerText.Contains('$introducedPrototypes')
+    $prototypeAssertionReason = if ($prototypeAssertionPass) { 'task-definition-prototype-assertion-gate-present' } else { 'missing-task-definition-prototype-assertion-gate' }
+    [void]$results.Add((Get-CaseResult -Name 'task-definition-prototype-assertion-gate' -Pass $prototypeAssertionPass -Reason $prototypeAssertionReason))
+
     $checkerParseTokens = $null
     $checkerParseErrors = $null
     $checkerAst = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1'), [ref]$checkerParseTokens, [ref]$checkerParseErrors)
@@ -392,6 +400,10 @@ if ($ContractGateOnly.IsPresent) {
     $warmWindowIsolationReason = if ($warmWindowIsolationPass) { 'recovery-transaction-excludes-contract-regression' } else { 'contract-regression-entered-recovery-transaction' }
     [void]$results.Add((Get-CaseResult -Name 'recovery-warm-window-isolation' -Pass $warmWindowIsolationPass -Reason $warmWindowIsolationReason))
 
+    $compatibilityWarningPass = $recoveryTransactionText.Contains('compatibility_warnings') -and $recoveryTransactionText.Contains('transaction-complete-with-compatibility-warnings')
+    $compatibilityWarningReason = if ($compatibilityWarningPass) { 'recovery-compatibility-warning-projection-present' } else { 'missing-recovery-compatibility-warning-projection' }
+    [void]$results.Add((Get-CaseResult -Name 'recovery-compatibility-warning-projection' -Pass $compatibilityWarningPass -Reason $compatibilityWarningReason))
+
     $contractFailedCases = @($results | Where-Object { -not [bool]$_.pass })
     $contractPass = ($contractFailedCases.Count -eq 0)
     $contractStopwatch.Stop()
@@ -516,6 +528,7 @@ $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-co
 # Event tickets close through one machine-verified command; missing command data must fail closed.
 $atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false') -and $atomicCloseoutText.Contains('[ValidateRange(10, 600)][int]$AcknowledgeTimeoutSec = 120') -and $atomicCloseoutText.Contains('acknowledge timed out after {0}ms')
 $recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command') -and $recoveryTransactionText.Contains('stage_main_process_verified') -and $recoveryTransactionText.Contains('business_command did not start stage-{0} main process within {1}ms') -and $recoveryTransactionText.Contains('business_command launcher exited before stage-{0} main process started') -and $recoveryTransactionText.Contains('-RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath') -and $recoveryTransactionText.Contains('$launcherExitedAtMs') -and $recoveryTransactionText.Contains('[ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240') -and $recoveryTransactionText.Contains('[switch]$ShowBusinessCommandWindow') -and $recoveryTransactionText.Contains('if ($ShowBusinessCommandWindow.IsPresent) { ''Normal'' } else { ''Hidden'' }') -and $recoveryTransactionText.Contains('business_command_window_style={0}') -and $recoveryTransactionText.Contains('business_command_verify_timeout_ms={0}') -and $recoveryTransactionText.Contains('latest_{0}_exit.json') -and $recoveryTransactionText.Contains('Test-ProcessFilteredByTerminalExitArtifact') -and $recoveryTransactionText.Contains('Write-RecoveryFailureLedger') -and $recoveryTransactionText.Contains('failure_ledger_recorded') -and $recoveryTransactionText.Contains('Assert-TaskStaticRepairPromoted') -and $recoveryTransactionText.Contains("`$manifestState -ne 'promoted'") -and $recoveryTransactionText.Contains('task-static recovery promotion receipt/hash gate failed') -and $recoveryTransactionText.Contains('task-static recovery static gate failed round={0}') -and $pollText.Contains('$ackOnlyMode') -and $pollText.Contains('ack_only_mode = [bool]$ackOnlyMode')
+$recoveryTransactionVerifiesFacts = $recoveryTransactionVerifiesFacts -and $recoveryTransactionText.Contains('compatibility_warnings') -and $recoveryTransactionText.Contains('transaction-complete-with-compatibility-warnings')
 $ps51FormatGuardUsesAst = $ps51FormatGuardText.Contains('[System.Management.Automation.Language.Parser]::ParseFile') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.BinaryExpressionAst]') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.TokenKind]::Format') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.IfStatementAst]')
 $ps51FormatGuardProbeRoot = Join-Path $outDir 'ps51_format_guard_runtime'
 $ps51FormatGuardBadRoot = Join-Path $ps51FormatGuardProbeRoot 'bad'

@@ -85,6 +85,7 @@ function Invoke-Transaction {
         [string]$TicketId,
         [string]$Mode,
         [int]$ExpectedExitCode,
+        [ValidateRange(0, 256)][int]$OperationIndex = 1,
         [AllowEmptyString()][string]$ValidateThroughRound = '',
         [switch]$ChainRounds,
         [AllowEmptyString()][string]$RoundTag = 'D1'
@@ -92,7 +93,7 @@ function Invoke-Transaction {
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $transactionScript, '-Mode', $Mode, '-TaskDefinitionFile', $Fixture.TaskPath, '-TicketId', $TicketId, '-Stage', 'A', '-RoundTag', $RoundTag, '-OperationIndex', '1', '-ArtifactRoot', $Fixture.ArtifactRoot)
+        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $transactionScript, '-Mode', $Mode, '-TaskDefinitionFile', $Fixture.TaskPath, '-TicketId', $TicketId, '-Stage', 'A', '-RoundTag', $RoundTag, '-OperationIndex', [string]$OperationIndex, '-ArtifactRoot', $Fixture.ArtifactRoot)
         if (-not [string]::IsNullOrWhiteSpace($ValidateThroughRound)) {
             $arguments += @('-ValidateThroughRound', $ValidateThroughRound)
         }
@@ -316,6 +317,17 @@ try {
     Assert-True -Condition ([string]$inspectManifest.preview_candidate_sha256 -eq (Get-FileHash -LiteralPath $inspectCandidatePath -Algorithm SHA256).Hash) -Message 'inspect did not refresh candidate hash binding'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=inspect-zero-match-refresh status=pass'
 
+    $lateBindFixture = New-Fixture -Name 'inspect-late-operation-binding'
+    $lateBindPrepareOutput = Invoke-Transaction -Fixture $lateBindFixture -TicketId 'T-INSPECT-LATE-BIND' -Mode Prepare -ExpectedExitCode 0 -OperationIndex 0
+    Assert-True -Condition (($lateBindPrepareOutput -join "`n") -match 'preview_unavailable=true') -Message 'unfocused Prepare should report unavailable preview'
+    $lateBindDir = Join-Path $lateBindFixture.ArtifactRoot 'T-INSPECT-LATE-BIND'
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $lateBindDir 'operation-preview.json'))) -Message 'unfocused Prepare unexpectedly generated preview'
+    [void](Invoke-Transaction -Fixture $lateBindFixture -TicketId 'T-INSPECT-LATE-BIND' -Mode Inspect -ExpectedExitCode 0 -OperationIndex 1)
+    $lateBindManifest = Get-Content -LiteralPath (Join-Path $lateBindDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([int]$lateBindManifest.operation_index -eq 1) -Message 'Inspect did not persist late operation binding'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $lateBindDir 'operation-preview.json')) -Message 'late-bound Inspect did not generate preview'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=inspect-late-operation-binding status=pass'
+
     $multiFixture = New-Fixture -Name 'multi-match'
     Write-Utf8Bom -Path $multiFixture.SourcePath -Text "static int target(void)`n{`n    return 1;`n    return 1;`n}`n"
     $multiOutput = Invoke-Transaction -Fixture $multiFixture -TicketId 'T-MULTI' -Mode Prepare -ExpectedExitCode 0
@@ -342,7 +354,7 @@ try {
     Assert-True -Condition ($escapeDecoded.Contains('possible_double_escape=true')) -Message 'decoded sidecar should expose double escape warning'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=double-escape-warning status=pass'
 
-    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=13 fail=0'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=14 fail=0'
 }
 finally {
     Remove-Item -LiteralPath $caseRoot -Recurse -Force -ErrorAction SilentlyContinue

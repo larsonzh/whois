@@ -59,11 +59,18 @@ function Invoke-Case {
         [int]$WorkerTimeoutMs = 30000
     )
 
-    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
-        -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 `
-        -RegexTimeoutMs $RegexTimeoutMs -WorkerTimeoutMs $WorkerTimeoutMs 2>&1 | `
-        ForEach-Object { [string]$_ })
-    $exitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+            -TaskDefinitionFile $Case.TaskPath -RepoRoot $Case.Directory -Policy enforce -RoundTag D1 `
+            -RegexTimeoutMs $RegexTimeoutMs -WorkerTimeoutMs $WorkerTimeoutMs 2>&1 | `
+            ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($exitCode -ne $ExpectedExitCode) {
         throw "case=$($Case.Name) expected_exit=$ExpectedExitCode actual_exit=$exitCode output=$($output -join ' | ')"
     }
@@ -610,6 +617,68 @@ try {
     }
     Write-Output '[TASK-SAFETY-REGRESSION] case=round-chain-first-failure-stops status=pass exit=2'
 
+    $roundSyntaxDirectory = Join-Path $caseRoot 'round-chain-syntax-stop'
+    New-Item -ItemType Directory -Path $roundSyntaxDirectory -Force | Out-Null
+    Write-Utf8NoBom -Path (Join-Path $roundSyntaxDirectory 'fixture.c') -Text "static int target(void)`n{`n`treturn 1;`n}`n"
+    $roundSyntaxTaskPath = Join-Path $roundSyntaxDirectory 'task.json'
+    $roundSyntaxTask = [ordered]@{
+        schemaVersion = 1
+        name = 'round-chain-syntax-stop'
+        targetFile = 'fixture.c'
+        qualityPolicy = [ordered]@{ operationSafetyPolicy = 'enforce' }
+        rounds = [ordered]@{
+            D1 = [ordered]@{
+                type = 'regex-patch'
+                idempotentContains = @('static const char* wc_late_helper(void)')
+                operations = @([ordered]@{
+                    pattern = 'return 1;\r?\n\}'
+                    replacement = "return wc_late_helper() != 0;`n}`n`nstatic const char* wc_late_helper(void)`n{`n`treturn `"ok`";`n}"
+                    idempotentContains = @('static const char* wc_late_helper(void)')
+                })
+                postApplyAssertions = @([ordered]@{
+                    name = 'late-helper-definition'
+                    pattern = 'static const char\* wc_late_helper\(void\)\r?\n\{'
+                    expectedCount = 1
+                })
+            }
+            D2 = [ordered]@{ type = 'noop'; description = 'Must not be reached after D1 syntax failure.' }
+            D3 = [ordered]@{ type = 'noop'; description = 'Must not be reached after D1 syntax failure.' }
+            D4 = [ordered]@{ type = 'noop'; description = 'Must not be reached after D1 syntax failure.' }
+        }
+    }
+    Write-Utf8NoBom -Path $roundSyntaxTaskPath -Text ($roundSyntaxTask | ConvertTo-Json -Depth 16)
+    $roundSyntaxOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $roundSyntaxTaskPath -RepoRoot $roundSyntaxDirectory -Policy enforce `
+        -RoundTag D1 -ChainRounds 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 2 -or
+        -not ($roundSyntaxOutput -match 'round=D1 effective-source syntax gate failed classification=missing-forward-declaration') -or
+        -not ($roundSyntaxOutput -match 'round=D1 chain_stop=true reason=round-failed') -or
+        ($roundSyntaxOutput -match 'round=D2')) {
+        throw "case=round-chain-syntax-first-failure-stops unexpected output=$($roundSyntaxOutput -join ' | ')"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=round-chain-syntax-first-failure-stops status=pass exit=2'
+
+    $prototypeOperation = [ordered]@{
+        pattern = '\Astatic int target'
+        replacement = "static int wc_helper(void);`n`nstatic int target"
+        idempotentContains = @('static int wc_helper(void);')
+    }
+    $prototypeMissingAssertion = New-TaskCase -Name 'prototype-assertion-missing' `
+        -Operations @($prototypeOperation) `
+        -Assertions @([ordered]@{ name = 'target-definition'; pattern = 'static int target\(void\)'; expectedCount = 1 })
+    Invoke-Case -Case $prototypeMissingAssertion -ExpectedExitCode 2 `
+        -ExpectedFragments @('prototype assertion missing function=wc_helper expectedCount=1')
+
+    $prototypeCovered = New-TaskCase -Name 'prototype-assertion-covered' `
+        -Operations @($prototypeOperation) `
+        -Assertions @(
+            [ordered]@{ name = 'helper-prototype'; pattern = 'static int wc_helper\(void\);'; expectedCount = 1 },
+            [ordered]@{ name = 'target-definition'; pattern = 'static int target\(void\)'; expectedCount = 1 }
+        )
+    Invoke-Case -Case $prototypeCovered -ExpectedExitCode 0 `
+        -ExpectedFragments @('postApplyAssertion pass name=helper-prototype count=1') `
+        -AbsentFragments @('prototype assertion missing')
+
     foreach ($invalidChainCase in @(
         [pscustomobject]@{ Name = 'missing-round'; Args = @('-ChainRounds'); Fragment = 'ChainRounds requires RoundTag D1-D4' },
         [pscustomobject]@{ Name = 'v-round'; Args = @('-RoundTag', 'V1', '-ChainRounds'); Fragment = 'ChainRounds requires RoundTag D1-D4' },
@@ -670,6 +739,7 @@ try {
     Write-Output '[TASK-SAFETY-REGRESSION] case=prerequisite-chain-fail-blocks-main status=pass exit=2'
 
     Write-Output '[TASK-SAFETY-REGRESSION] result=pass'
+    $global:LASTEXITCODE = 0
 }
 finally {
     if (Test-Path -LiteralPath $caseRoot) {
