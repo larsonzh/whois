@@ -411,7 +411,7 @@ try {
             idempotentContains = @('static const char* helper(void)')
         }
     ) -Assertions @([ordered]@{ name = 'helper-definition'; pattern = 'static const char\* helper\(void\)\r?\n\{'; expectedCount = 1 })
-    Invoke-Case -Case $implicitDeclarationCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'helper@')
+    Invoke-Case -Case $implicitDeclarationCase -ExpectedExitCode 2 -ExpectedFragments @('missing-forward-declaration', 'helper@')
 
     $latePrototypeCase = New-TaskCase -Name 'fail-late-function-prototype' -Operations @(
         [ordered]@{
@@ -420,7 +420,7 @@ try {
             idempotentContains = @('static inline unsigned long helper(void);')
         }
     ) -Assertions @([ordered]@{ name = 'helper-prototype'; pattern = 'static inline unsigned long helper\(void\);'; expectedCount = 1 })
-    Invoke-Case -Case $latePrototypeCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'helper@')
+    Invoke-Case -Case $latePrototypeCase -ExpectedExitCode 2 -ExpectedFragments @('missing-forward-declaration', 'helper@')
 
     $externalDeclarationCase = New-TaskCase -Name 'warn-external-implicit-declaration' -Operations @(
         [ordered]@{
@@ -490,7 +490,7 @@ try {
             idempotentContains = @('unsigned long local_helper(void)')
         }
     ) -Assertions @([ordered]@{ name = 'local-helper-definition'; pattern = 'unsigned long local_helper\(void\)\r?\n\{'; expectedCount = 1 })
-    Invoke-Case -Case $multipleImplicitDeclarationsCase -ExpectedExitCode 2 -ExpectedFragments @('forward-declaration missing', 'local_helper@')
+    Invoke-Case -Case $multipleImplicitDeclarationsCase -ExpectedExitCode 2 -ExpectedFragments @('missing-forward-declaration', 'local_helper@')
 
     $lineEndingCase = New-TaskCase -Name 'fail-line-ending-hint' -Operations @(
         [ordered]@{
@@ -549,6 +549,90 @@ try {
         throw "case=$($targetedCase.Name) targeted op check failed output=$($targetedOutput -join ' | ')"
     }
     Invoke-Case -Case $targetedCase -ExpectedExitCode 2 -ExpectedFragments @('op=2 operation idempotentContains missing or empty')
+
+    $roundChainDirectory = Join-Path $caseRoot 'round-chain'
+    New-Item -ItemType Directory -Path $roundChainDirectory -Force | Out-Null
+    $roundChainSource = Join-Path $roundChainDirectory 'fixture.txt'
+    $roundChainTask = Join-Path $roundChainDirectory 'task.json'
+    $roundChainEffective = Join-Path $roundChainDirectory 'effective.txt'
+    Write-Utf8NoBom -Path $roundChainSource -Text "token-0`n"
+    $roundChainDefinition = [ordered]@{
+        schemaVersion = 1
+        name = 'round-chain'
+        targetFile = 'fixture.txt'
+        qualityPolicy = [ordered]@{ operationSafetyPolicy = 'enforce' }
+        rounds = [ordered]@{}
+    }
+    foreach ($roundSpec in @(
+        [pscustomobject]@{ Tag = 'D1'; Before = 'token-0'; After = 'token-1' },
+        [pscustomobject]@{ Tag = 'D2'; Before = 'token-1'; After = 'token-2' },
+        [pscustomobject]@{ Tag = 'D3'; Before = 'token-2'; After = 'token-3' },
+        [pscustomobject]@{ Tag = 'D4'; Before = 'token-3'; After = 'token-4' }
+    )) {
+        $roundChainDefinition.rounds[$roundSpec.Tag] = [ordered]@{
+            type = 'regex-patch'
+            idempotentContains = @($roundSpec.After)
+            operations = @([ordered]@{
+                pattern = [regex]::Escape($roundSpec.Before)
+                replacement = $roundSpec.After
+                idempotentContains = @($roundSpec.After)
+            })
+            postApplyAssertions = @(
+                [ordered]@{ name = 'new-token'; pattern = [regex]::Escape($roundSpec.After); expectedCount = 1 },
+                [ordered]@{ name = 'old-token-removed'; pattern = [regex]::Escape($roundSpec.Before); expectedCount = 0 }
+            )
+        }
+    }
+    Write-Utf8NoBom -Path $roundChainTask -Text ($roundChainDefinition | ConvertTo-Json -Depth 16)
+
+    $roundChainOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $roundChainTask -RepoRoot $roundChainDirectory -Policy enforce `
+        -RoundTag D1 -ChainRounds -OutputEffectiveTargetFile $roundChainEffective 2>&1 | ForEach-Object { [string]$_ })
+    $roundChainEffectiveText = if (Test-Path -LiteralPath $roundChainEffective) { Get-Content -LiteralPath $roundChainEffective -Raw } else { '' }
+    if ($LASTEXITCODE -ne 0 -or $roundChainEffectiveText -ne "token-4`n" -or
+        -not ($roundChainOutput -match 'scope=D1-D4:chain') -or
+        -not ($roundChainOutput -match 'round=D4 chain_mode=true chain_tag=chain-next')) {
+        throw "case=round-chain-effective-source unexpected output=$($roundChainOutput -join ' | ') effective=$roundChainEffectiveText"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=round-chain-effective-source status=pass exit=0'
+
+    $roundChainFailure = Get-Content -LiteralPath $roundChainTask -Raw | ConvertFrom-Json
+    $roundChainFailure.rounds.D2.operations[0].pattern = 'missing-token'
+    $roundChainFailurePath = Join-Path $roundChainDirectory 'task-failure.json'
+    Write-Utf8NoBom -Path $roundChainFailurePath -Text ($roundChainFailure | ConvertTo-Json -Depth 16)
+    $roundChainFailureOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checker `
+        -TaskDefinitionFile $roundChainFailurePath -RepoRoot $roundChainDirectory -Policy enforce `
+        -RoundTag D1 -ChainRounds 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 2 -or -not ($roundChainFailureOutput -match 'round=D2.*pattern_unmatched=0') -or
+        -not ($roundChainFailureOutput -match 'round=D2 chain_stop=true reason=round-failed') -or
+        ($roundChainFailureOutput -match 'round=D3 chain_mode=true')) {
+        throw "case=round-chain-first-failure-stops unexpected output=$($roundChainFailureOutput -join ' | ')"
+    }
+    Write-Output '[TASK-SAFETY-REGRESSION] case=round-chain-first-failure-stops status=pass exit=2'
+
+    foreach ($invalidChainCase in @(
+        [pscustomobject]@{ Name = 'missing-round'; Args = @('-ChainRounds'); Fragment = 'ChainRounds requires RoundTag D1-D4' },
+        [pscustomobject]@{ Name = 'v-round'; Args = @('-RoundTag', 'V1', '-ChainRounds'); Fragment = 'ChainRounds requires RoundTag D1-D4' },
+        [pscustomobject]@{ Name = 'focused-op'; Args = @('-RoundTag', 'D1', '-OperationIndex', '1', '-ChainRounds'); Fragment = 'ChainRounds requires a full-round check' }
+    )) {
+        $invalidChainArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $checker,
+            '-TaskDefinitionFile', $roundChainTask, '-RepoRoot', $roundChainDirectory, '-Policy', 'enforce') + @($invalidChainCase.Args)
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $invalidChainOutput = @(& powershell @invalidChainArguments 2>&1 | ForEach-Object { [string]$_ })
+            $invalidChainExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $normalizedInvalidChainOutput = (($invalidChainOutput -join '') -replace '\s+', '')
+        $normalizedInvalidChainFragment = ([string]$invalidChainCase.Fragment -replace '\s+', '')
+        if ($invalidChainExitCode -eq 0 -or -not $normalizedInvalidChainOutput.Contains($normalizedInvalidChainFragment)) {
+            throw "case=round-chain-$($invalidChainCase.Name)-blocked unexpected output=$($invalidChainOutput -join ' | ')"
+        }
+        Write-Output "[TASK-SAFETY-REGRESSION] case=round-chain-$($invalidChainCase.Name)-blocked status=pass exit=$invalidChainExitCode"
+    }
 
     $chainDirectory = Join-Path $caseRoot 'prerequisite-chain'
     New-Item -ItemType Directory -Path $chainDirectory -Force | Out-Null

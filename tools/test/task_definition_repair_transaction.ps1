@@ -7,7 +7,8 @@
     [ValidateSet('', 'D1', 'D2', 'D3', 'D4')][string]$ValidateThroughRound = '',
     [ValidateRange(0, 256)][int]$OperationIndex = 0,
     [AllowEmptyString()][string]$ArtifactRoot = '',
-    [AllowEmptyString()][string]$Reason = ''
+    [AllowEmptyString()][string]$Reason = '',
+    [switch]$ChainRounds
 )
 
 Set-StrictMode -Version Latest
@@ -198,6 +199,7 @@ function Write-OperationPreview {
     $simulation = New-Object System.Collections.Generic.List[object]
     $regexOptions = [System.Text.RegularExpressions.RegexOptions]::Singleline
     $regexTimeout = [TimeSpan]::FromMilliseconds(2000)
+
     for ($index = 0; $index -lt ($effectiveOperation - 1); $index++) {
         $operation = $operations[$index]
         $pattern = [string]$operation.pattern
@@ -397,6 +399,9 @@ if ($Mode -eq 'Prepare') {
     [System.IO.File]::WriteAllBytes($baselinePath, [System.IO.File]::ReadAllBytes($officialPath))
     [System.IO.File]::WriteAllBytes($candidatePath, [System.IO.File]::ReadAllBytes($officialPath))
     $baselineHash = Get-Sha256 -Path $officialPath
+    if ($ChainRounds.IsPresent -and ($RoundTag -notmatch '^D[1-4]$' -or $ValidateThroughRound -ne 'D4')) {
+        throw '[TASK-DEFINITION-TRANSACTION] ChainRounds Prepare requires RoundTag D1-D4 and ValidateThroughRound D4'
+    }
     $roundSequence = if ([string]::IsNullOrWhiteSpace($RoundTag)) { @() } else { @(Get-ValidationRoundSequence -StartRound $RoundTag -ThroughRound $ValidateThroughRound) }
     $manifest = [ordered]@{
         schema = 'TASK_DEFINITION_REPAIR_TRANSACTION_V1'
@@ -404,6 +409,7 @@ if ($Mode -eq 'Prepare') {
         stage = $Stage
         round = $RoundTag.Trim().ToUpperInvariant()
         round_sequence = @($roundSequence)
+        chain_rounds = $ChainRounds.IsPresent
         operation_index = $OperationIndex
         official_path = $officialPath
         baseline_path = $baselinePath
@@ -496,6 +502,13 @@ if ($Mode -eq 'Validate') {
         }
         $effectiveThroughRound = if ([string]::IsNullOrWhiteSpace($ValidateThroughRound)) { $storedThroughRound } else { $ValidateThroughRound }
         $roundSequence = @(Get-ValidationRoundSequence -StartRound $effectiveRound -ThroughRound $effectiveThroughRound)
+        $manifestChainRounds = ($manifest.PSObject.Properties.Name -contains 'chain_rounds' -and [bool]$manifest.chain_rounds)
+        if ($ChainRounds.IsPresent -ne $manifestChainRounds) {
+            throw "[TASK-DEFINITION-TRANSACTION] ChainRounds binding mismatch prepared=$manifestChainRounds requested=$($ChainRounds.IsPresent)"
+        }
+        if ($manifestChainRounds -and $effectiveThroughRound -ne 'D4') {
+            throw '[TASK-DEFINITION-TRANSACTION] ChainRounds Validate requires ValidateThroughRound D4'
+        }
         if ($effectiveOperation -gt 0) {
             $focusedLog = Invoke-Checker -Name 'focused-op' -Arguments @{
                 TaskDefinitionFile = $candidatePath
@@ -506,14 +519,26 @@ if ($Mode -eq 'Validate') {
             }
         }
         $roundLogs = New-Object System.Collections.Generic.List[string]
-        foreach ($validationRound in $roundSequence) {
-            $roundLog = Invoke-Checker -Name ("round-{0}" -f $validationRound.ToLowerInvariant()) -Arguments @{
+        if ($manifestChainRounds) {
+            $chainRoundLog = Invoke-Checker -Name 'chain-rounds' -Arguments @{
                 TaskDefinitionFile = $candidatePath
                 RepoRoot = $repoRoot
                 Policy = 'enforce'
-                RoundTag = $validationRound
+                RoundTag = $effectiveRound
+                ChainRounds = $true
             }
-            $roundLogs.Add($roundLog)
+            $roundLogs.Add($chainRoundLog)
+        }
+        else {
+            foreach ($validationRound in $roundSequence) {
+                $roundLog = Invoke-Checker -Name ("round-{0}" -f $validationRound.ToLowerInvariant()) -Arguments @{
+                    TaskDefinitionFile = $candidatePath
+                    RepoRoot = $repoRoot
+                    Policy = 'enforce'
+                    RoundTag = $validationRound
+                }
+                $roundLogs.Add($roundLog)
+            }
         }
         $manifest.round_sequence = @($roundSequence)
         $manifest.validated_rounds = @($roundSequence)
@@ -533,6 +558,18 @@ if ($Mode -eq 'Validate') {
 if ($Mode -eq 'Promote') {
     if ([string]$manifest.state -ne 'validated') {
         throw "[TASK-DEFINITION-TRANSACTION] promote requires validated state actual=$($manifest.state)"
+    }
+    $expectedValidatedRounds = @($manifest.round_sequence | ForEach-Object { ([string]$_).Trim().ToUpperInvariant() })
+    $actualValidatedRounds = @($manifest.validated_rounds | ForEach-Object { ([string]$_).Trim().ToUpperInvariant() })
+    if ($expectedValidatedRounds.Count -lt 1 -or
+        [string]::Join(',', $actualValidatedRounds) -ne [string]::Join(',', $expectedValidatedRounds)) {
+        throw ("[TASK-DEFINITION-TRANSACTION] promote validation coverage incomplete expected={0} actual={1}" -f
+            ([string]::Join(',', $expectedValidatedRounds)),
+            ([string]::Join(',', $actualValidatedRounds)))
+    }
+    $manifestChainRounds = ($manifest.PSObject.Properties.Name -contains 'chain_rounds' -and [bool]$manifest.chain_rounds)
+    if ($manifestChainRounds -and $expectedValidatedRounds[-1] -ne 'D4') {
+        throw "[TASK-DEFINITION-TRANSACTION] promote chain coverage must end at D4 actual=$([string]::Join(',', $expectedValidatedRounds))"
     }
     Assert-BaselineBinding -Manifest $manifest
     if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {

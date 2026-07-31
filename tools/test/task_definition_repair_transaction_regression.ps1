@@ -85,14 +85,19 @@ function Invoke-Transaction {
         [string]$TicketId,
         [string]$Mode,
         [int]$ExpectedExitCode,
-        [AllowEmptyString()][string]$ValidateThroughRound = ''
+        [AllowEmptyString()][string]$ValidateThroughRound = '',
+        [switch]$ChainRounds,
+        [AllowEmptyString()][string]$RoundTag = 'D1'
     )
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $transactionScript, '-Mode', $Mode, '-TaskDefinitionFile', $Fixture.TaskPath, '-TicketId', $TicketId, '-Stage', 'A', '-RoundTag', 'D1', '-OperationIndex', '1', '-ArtifactRoot', $Fixture.ArtifactRoot)
+        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $transactionScript, '-Mode', $Mode, '-TaskDefinitionFile', $Fixture.TaskPath, '-TicketId', $TicketId, '-Stage', 'A', '-RoundTag', $RoundTag, '-OperationIndex', '1', '-ArtifactRoot', $Fixture.ArtifactRoot)
         if (-not [string]::IsNullOrWhiteSpace($ValidateThroughRound)) {
             $arguments += @('-ValidateThroughRound', $ValidateThroughRound)
+        }
+        if ($ChainRounds.IsPresent) {
+            $arguments += '-ChainRounds'
         }
         $output = @(& powershell.exe @arguments 2>&1 | ForEach-Object { [string]$_ })
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
@@ -101,7 +106,14 @@ function Invoke-Transaction {
         $ErrorActionPreference = $previousErrorActionPreference
     }
     if ($exitCode -ne $ExpectedExitCode) {
-        throw "mode=$Mode ticket=$TicketId expected_exit=$ExpectedExitCode actual_exit=$exitCode output=$($output -join ' | ')"
+        $validationLogTail = @()
+        $ticketArtifactDirectory = Join-Path $Fixture.ArtifactRoot $TicketId
+        if (Test-Path -LiteralPath $ticketArtifactDirectory -PathType Container) {
+            foreach ($validationLog in @(Get-ChildItem -LiteralPath $ticketArtifactDirectory -Filter 'validation-*.log' -File -ErrorAction SilentlyContinue)) {
+                $validationLogTail += @((Get-Content -LiteralPath $validationLog.FullName -Tail 8 -ErrorAction SilentlyContinue) | ForEach-Object { [string]$_ })
+            }
+        }
+        throw "mode=$Mode ticket=$TicketId expected_exit=$ExpectedExitCode actual_exit=$exitCode output=$($output -join ' | ') validation_tail=$($validationLogTail -join ' | ')"
     }
     return @($output)
 }
@@ -121,6 +133,35 @@ function Set-CandidateOperation {
     $candidate.rounds.D1.operations[0].pattern = $Pattern
     $candidate.rounds.D1.operations[0].replacement = $Replacement
     Write-Utf8Bom -Path $CandidatePath -Text (($candidate | ConvertTo-Json -Depth 16) + "`n")
+}
+
+function Set-ChainedRoundFixture {
+    param([object]$Fixture)
+
+    Write-Utf8Bom -Path $Fixture.SourcePath -Text "static int target(void)`n{`n    return 0;`n}`n"
+    $task = Get-Content -LiteralPath $Fixture.TaskPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $task.rounds = [pscustomobject][ordered]@{}
+    foreach ($roundSpec in @(
+        [pscustomobject]@{ Tag = 'D1'; Before = 'return 0;'; After = 'return 1;' },
+        [pscustomobject]@{ Tag = 'D2'; Before = 'return 1;'; After = 'return 2;' },
+        [pscustomobject]@{ Tag = 'D3'; Before = 'return 2;'; After = 'return 3;' },
+        [pscustomobject]@{ Tag = 'D4'; Before = 'return 3;'; After = 'return 4;' }
+    )) {
+        $task.rounds | Add-Member -NotePropertyName $roundSpec.Tag -NotePropertyValue ([pscustomobject][ordered]@{
+            type = 'regex-patch'
+            idempotentContains = @($roundSpec.After)
+            operations = @([pscustomobject][ordered]@{
+                pattern = [regex]::Escape($roundSpec.Before)
+                replacement = $roundSpec.After
+                idempotentContains = @($roundSpec.After)
+            })
+            postApplyAssertions = @(
+                [pscustomobject][ordered]@{ name = 'new-token'; pattern = [regex]::Escape($roundSpec.After); expectedCount = 1 },
+                [pscustomobject][ordered]@{ name = 'old-token-removed'; pattern = [regex]::Escape($roundSpec.Before); expectedCount = 0 }
+            )
+        })
+    }
+    Write-Utf8Bom -Path $Fixture.TaskPath -Text (($task | ConvertTo-Json -Depth 16) + "`n")
 }
 
 try {
@@ -168,6 +209,56 @@ try {
     Assert-True -Condition ([string]::Join(',', @($crossRoundReceipt.validated_rounds)) -eq 'D1,D2,D3,D4') -Message 'promotion receipt cross-round coverage mismatch'
     Assert-True -Condition ((Get-FileHash -LiteralPath $crossRoundFixture.TaskPath -Algorithm SHA256).Hash.ToLowerInvariant() -eq [string]$crossRoundReceipt.promoted_sha256) -Message 'cross-round promoted hash mismatch'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=cross-round-single-promote status=pass'
+
+    $chainFixture = New-Fixture -Name 'chain-rounds'
+    Set-ChainedRoundFixture -Fixture $chainFixture
+    [void](Invoke-Transaction -Fixture $chainFixture -TicketId 'T-CHAIN' -Mode Prepare -ExpectedExitCode 0 -ValidateThroughRound D4 -ChainRounds)
+    $chainDir = Join-Path $chainFixture.ArtifactRoot 'T-CHAIN'
+    $chainPreparedManifest = Get-Content -LiteralPath (Join-Path $chainDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([bool]$chainPreparedManifest.chain_rounds) -Message 'chain mode was not bound in manifest'
+    [void](Invoke-Transaction -Fixture $chainFixture -TicketId 'T-CHAIN' -Mode Validate -ExpectedExitCode 1 -ValidateThroughRound D4)
+    $chainFailedManifest = Get-Content -LiteralPath (Join-Path $chainDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([string]$chainFailedManifest.state -eq 'validation_failed') -Message 'chain binding mismatch should fail validation'
+    $chainFailedManifest.state = 'prepared'
+    $chainFailedManifest.detail = ''
+    Write-Utf8Bom -Path (Join-Path $chainDir 'manifest.json') -Text (($chainFailedManifest | ConvertTo-Json -Depth 16) + "`n")
+    [void](Invoke-Transaction -Fixture $chainFixture -TicketId 'T-CHAIN' -Mode Validate -ExpectedExitCode 0 -ValidateThroughRound D4 -ChainRounds)
+    $chainValidatedManifest = Get-Content -LiteralPath (Join-Path $chainDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([string]::Join(',', @($chainValidatedManifest.validated_rounds)) -eq 'D1,D2,D3,D4') -Message 'chain validation coverage mismatch'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $chainDir 'validation-chain-rounds.log')) -Message 'single chain validation log missing'
+    Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $chainDir 'validation-round-d2.log'))) -Message 'chain validation must not use isolated later-round logs'
+    $chainValidationLog = Get-Content -LiteralPath (Join-Path $chainDir 'validation-chain-rounds.log') -Raw -Encoding utf8
+    Assert-True -Condition ($chainValidationLog.Contains('scope=D1-D4:chain')) -Message 'chain validation log missing chain scope'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=chain-binding-and-single-check status=pass'
+
+    $incompleteChainFixture = New-Fixture -Name 'incomplete-chain-promotion'
+    Set-ChainedRoundFixture -Fixture $incompleteChainFixture
+    $incompleteChainOriginalHash = (Get-FileHash -LiteralPath $incompleteChainFixture.TaskPath -Algorithm SHA256).Hash
+    [void](Invoke-Transaction -Fixture $incompleteChainFixture -TicketId 'T-INCOMPLETE-CHAIN' -Mode Prepare -ExpectedExitCode 0 -ValidateThroughRound D4 -ChainRounds)
+    [void](Invoke-Transaction -Fixture $incompleteChainFixture -TicketId 'T-INCOMPLETE-CHAIN' -Mode Validate -ExpectedExitCode 0 -ValidateThroughRound D4 -ChainRounds)
+    $incompleteChainDir = Join-Path $incompleteChainFixture.ArtifactRoot 'T-INCOMPLETE-CHAIN'
+    $incompleteChainManifestPath = Join-Path $incompleteChainDir 'manifest.json'
+    $incompleteChainManifest = Get-Content -LiteralPath $incompleteChainManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $incompleteChainManifest.validated_rounds = @('D1')
+    Write-Utf8Bom -Path $incompleteChainManifestPath -Text (($incompleteChainManifest | ConvertTo-Json -Depth 16) + "`n")
+    [void](Invoke-Transaction -Fixture $incompleteChainFixture -TicketId 'T-INCOMPLETE-CHAIN' -Mode Promote -ExpectedExitCode 1 -ValidateThroughRound D4 -ChainRounds)
+    Assert-True -Condition ((Get-FileHash -LiteralPath $incompleteChainFixture.TaskPath -Algorithm SHA256).Hash -eq $incompleteChainOriginalHash) -Message 'incomplete chain coverage changed official task definition'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $incompleteChainDir 'candidate.json')) -Message 'incomplete chain coverage should retain candidate'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=incomplete-chain-promotion-blocked status=pass'
+
+    $inspectChainFixture = New-Fixture -Name 'inspect-chain-baseline'
+    Set-ChainedRoundFixture -Fixture $inspectChainFixture
+    $inspectChainTask = Get-Content -LiteralPath $inspectChainFixture.TaskPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $inspectChainTask.rounds.D3.operations[0].pattern = 'return 0;'
+    $inspectChainTask.rounds.D3.operations[0].replacement = 'return 3;'
+    $inspectChainTask.rounds.D3.operations[0].idempotentContains = @('return 3;')
+    Write-Utf8Bom -Path $inspectChainFixture.TaskPath -Text (($inspectChainTask | ConvertTo-Json -Depth 16) + "`n")
+    [void](Invoke-Transaction -Fixture $inspectChainFixture -TicketId 'T-INSPECT-CHAIN' -Mode Prepare -ExpectedExitCode 0 -RoundTag D3 -ValidateThroughRound D4 -ChainRounds)
+    $inspectChainDir = Join-Path $inspectChainFixture.ArtifactRoot 'T-INSPECT-CHAIN'
+    $inspectChainPreview = Get-Content -LiteralPath (Join-Path $inspectChainDir 'operation-preview.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ([int]$inspectChainPreview.pattern_match_count -eq 1) -Message 'chain Inspect must start from current fault-round source without replaying earlier rounds'
+    Assert-True -Condition (@($inspectChainPreview.prerequisite_simulation).Count -eq 0) -Message 'chain Inspect must only simulate earlier ops in the fault round'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=chain-inspect-current-source-baseline status=pass'
 
     $invalidFixture = New-Fixture -Name 'invalid-candidate'
     $invalidOfficialHash = (Get-FileHash -LiteralPath $invalidFixture.TaskPath -Algorithm SHA256).Hash
@@ -251,7 +342,7 @@ try {
     Assert-True -Condition ($escapeDecoded.Contains('possible_double_escape=true')) -Message 'decoded sidecar should expose double escape warning'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=double-escape-warning status=pass'
 
-    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=10 fail=0'
+    Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] summary pass=13 fail=0'
 }
 finally {
     Remove-Item -LiteralPath $caseRoot -Recurse -Force -ErrorAction SilentlyContinue

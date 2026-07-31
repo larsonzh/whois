@@ -312,7 +312,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Promote -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage A -RoundTag D3 -OperationIndex 8
 ```
 
-开启跨轮修复时，Prepare 与 Validate 命令都增加 `-ValidateThroughRound D4`。整个故障轮到 D4 的允许修改都写入同一个 `candidate.json`；轮次之间不得 Promote。全部范围修复写入后只执行一次 Validate，再且仅再执行一次 Promote。默认不传该参数时保持单轮事务行为。
+开启跨轮修复时，Prepare 与 Validate 命令都增加 `-ChainRounds` 和 `-ValidateThroughRound D4`。整个故障轮到 D4 的允许修改都写入同一个 `candidate.json`；轮次之间不得 Promote。全部范围修复写入后只执行一次 Validate，再且仅再执行一次 Promote。默认不传 `-ChainRounds` 时保持单轮事务行为。
+
+轮次归属硬规则：无论跨轮修复开启或关闭，某个 D 轮自身的任务定义问题只能在该轮 `rounds.<Dn>.operations` 内通过修改、追加、插入或删除 op 解决；不得修改其他轮次的 op 来修复、绕过或吸收本轮问题。跨轮模式允许同一 candidate 依次承载多个轮次各自的修复，但不允许把一个轮次的问题转移到另一个轮次；只有链式 checker 已确认前一轮收敛并将首错推进到后续轮，才允许修改该后续轮。
+
+两种模式的固定操作方式：
+
+- **跨轮次修复关闭**：以故障票发生轮次的当前源码为基线，只编辑、检查、Validate 和 Promote 该故障轮；不预演、不修改后续轮，恢复后由运行时门禁处理后续轮。
+- **跨轮次修复开启**：以故障票发生轮次的当前源码作为整条链的起点，但后续轮的源码基线必须来自同一次 checker 中上一轮应用后的链式内存文本。每次修复后都从故障轮执行 `check_task_definition_static.ps1 ... -RoundTag <故障轮> -ChainRounds`；checker 自动重放已收敛轮并停在首个未收敛轮。只修该首错所属轮，然后再次从故障轮重跑完整链。上一轮未收敛时禁止检查或修复下一轮，禁止单独以原始故障轮源码检查后续轮。
+- **跨轮 Promote 门禁**：只有从故障轮到 D4 的完整链式 Validate 成功，且 manifest 的 `validated_rounds` 与 Prepare 绑定的完整轮次序列精确一致时才允许 Promote。Promote 会再次核对覆盖范围；只通过某一轮、缺少任一后续轮或覆盖顺序不一致均直接阻断，正式任务定义保持不变。
+
+跨轮修复示例（故障轮 D1，修复范围 D1-D4，链式迭代检查）：
+
+```powershell
+# 1. 跨轮准备
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Prepare -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D1 -OperationIndex 1 -ValidateThroughRound D4 -ChainRounds
+
+# 2. 修改 candidate.json；每次只修链式 checker 当前首错所属轮
+
+# 2.1 每次编辑后都从原故障轮重跑链，直到 D4 全部收敛
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "out/artifacts/task_definition_repair/<TICKET>/candidate.json" -Policy enforce -RoundTag D1 -ChainRounds
+
+# 3. 跨轮验证（checker 内部完成 D1→D2→D3→D4 链式迭代）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Validate -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D1 -ValidateThroughRound D4 -ChainRounds
+
+# 4. 原子提升
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Promote -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D1 -ValidateThroughRound D4 -ChainRounds
+```
+
+跨轮修复示例（故障轮 D4，修复范围仅 D4，链式迭代退化为单轮）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Prepare -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D4 -OperationIndex 1 -ChainRounds
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Validate -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D4 -ChainRounds
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Promote -TaskDefinitionFile <TASK.json> -TicketId <TICKET> -Stage B -RoundTag D4 -ChainRounds
+```
 
 事务目录默认位于 `out/artifacts/task_definition_repair/<ticket-id>/`：
 
@@ -326,7 +360,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 
 生命周期规则：
 
-- task-static 修复的完成事实只能由同票据事务证明：`manifest.state=promoted`，非空的 `validated_candidate_sha256` 与 `promoted_sha256` 相等，正式任务定义 SHA-256 与 promoted hash 相等，`promotion-receipt.json` 存在且 `success=true`、ticket/hash 匹配。单轮模式再次严格检查当前故障轮；跨轮模式还要求 manifest/receipt 的 `validated_rounds` 精确覆盖故障轮到 D4，并逐轮严格复检正式文件。局部 checker/Inspect PASS、candidate 已编辑、preview 已刷新或聊天中声称“已修复”均不是完成证据。
+- task-static 修复的完成事实只能由同票据事务证明：`manifest.state=promoted`，非空的 `validated_candidate_sha256` 与 `promoted_sha256` 相等，正式任务定义 SHA-256 与 promoted hash 相等，`promotion-receipt.json` 存在且 `success=true`、ticket/hash 匹配。单轮模式再次严格检查当前故障轮；跨轮模式还要求 manifest/receipt 的 `validated_rounds` 精确覆盖故障轮到 D4，并从故障轮执行一次 `-ChainRounds` 严格复检正式文件。局部 checker/Inspect PASS、candidate 已编辑、preview 已刷新或聊天中声称“已修复”均不是完成证据。
 - 上述门禁全部满足前不得执行 `recovery_transaction_command`、`stage_restart`、`business_resume` 或成功 handled 收尾。`prepared`、`validation_failed`、`promotion_failed`、`quarantined`、`abandoned`、receipt 缺失或哈希不一致必须 fail-close；可继续修复的非终态事务继续修改 candidate，终态事务重新 Prepare 新 ticket/事务，无法继续时只报告阻塞。
 - 提升、写后哈希、写后 `SyntaxOnly` 和 receipt 全部成功后，删除 `candidate.json` 与 `baseline.json`，保留 manifest、验证日志和 promotion receipt。
 - 验证失败、正式基线漂移、候选验证后漂移或提升失败时，正式文件保持或恢复原状，候选现场保留。
@@ -700,6 +734,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - `-RoundTag D1..D4|V1..V4`：可选，只检查指定轮次。V1-V4 没有 JSON 开发轮定义，checker 只报告跳过，不能用作任务定义验收证据。
 - `-OperationIndex <n>`：可选，只检查指定轮次中的第 n 个 operation；必须与 `-RoundTag` 一起使用。
 - `-BaselineTargetFile <path>`、`-OutputEffectiveTargetFile <path>`：运行时独立 checker/runner 用于绑定当前轮源码基线并输出有效源码；初始人工编制通常不应指定。
+- `-ChainRounds`：可选，开启跨轮链式迭代。与 `-RoundTag Dn` 联用时，checker 以当前源码为基线，从 Dn 开始按顺序在内存中应用 Dn→D4 的全部 operations，并完成完整安全契约检查；未开启时仅检查指定单轮。
 - `-StartFilePath <path>`、`-Stage A|B`、`-EnableFingerprintCheck`：运行期恢复边界与指纹检查参数；start-file 尚未生成的初始编制阶段不使用。
 
 初始编制示例：
@@ -714,6 +749,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 # A 正式文件最终全定义验收
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
+
+# 跨轮链式迭代检查：以当前源码为基线，从 D1 开始顺序迭代 D1→D2→D3→D4
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings -RoundTag D1 -ChainRounds
 
 # B 以 A 全定义的内存结果为设计期基线；不写业务源码
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -PrerequisiteTaskDefinitionFiles testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
@@ -834,7 +872,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 - `TASK_STATIC_PRECHECK_FAILURE_MODE=runtime-ticket`（允许启动监控链；启动预检只打印结果，不发票；D1 整轮静态失败且主进程停止后才进入自愈票链）
 - `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false`（默认只修当前 task-static 故障轮；缺失、空值或非法值也按关闭）
 
-`TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED` 只控制 task-static 代码自愈工单的检查/修复范围，不改变 checker 的单轮首错即停语义，也不改变运行时 D 轮管线。关闭时，默认单轮事务只验证当前故障轮，后续轮由运行时门禁检查；开启时，使用同一 candidate 按顺序修复故障轮到 D4，并通过 `Validate -ValidateThroughRound D4` 一次验证完整序列，全部通过后只 Promote 一次。该开关不授权 code-step 或非代码故障编辑任务定义，也不扩大编译/验证代码故障的追加式修复边界。takeover brief/work order 必须同步输出开关值、`repair_validate_through_round` 和一致的 `task_definition_check_order`。
+`TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED` 只控制 task-static 代码自愈工单的检查/修复范围，不改变 checker 的首错即停语义，也不改变运行时 D 轮管线。关闭时，默认单轮事务只验证当前故障轮，后续轮由运行时门禁检查；开启时，使用同一 candidate 按顺序修复故障轮到 D4，并通过 `Validate -ValidateThroughRound D4 -ChainRounds` 在一次 checker 调用中验证完整内存序列，全部通过后只 Promote 一次。该开关不授权 code-step 或非代码故障编辑任务定义，也不扩大编译/验证代码故障的追加式修复边界。takeover brief/work order 必须同步输出开关值、`repair_validate_through_round` 和一致的 `task_definition_check_order`。
 
 所有故障动作统一停机门禁：
 - guard 在进入 `FAIL/BLOCKED` 故障处理、生成任何可修复/重启类票据或执行 auto-fix/recovery 前，必须通过 A/B 统一业务进程快照确认全部主进程已停止。
@@ -1806,7 +1844,7 @@ AI 在自愈修复中变更完成所在阶段任务定义文件里对应开发�
 2. **目标 op 快检**：task-static 故障可用 `-RoundTag <Dn> -OperationIndex <n>` 顺序模拟只读前置 op，只检查目标 op。
 3. **当前故障轮递进严格检查**：重启前运行不带 `-OperationIndex` 的 `-RoundTag <Dn>`。checker 从 op1 开始，当前 op 通过才推进内存副本；首错立即停止。仅当本轮全部 op 通过才执行 replay 与 `postApplyAssertions`。
 
-当 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false` 时，不要求恢复前检查后续 D 轮，未来轮由运行时门禁检查。当该开关为 `true` 时，恢复前必须由同一候选事务验证故障轮到 D4，并以 manifest/receipt 的 `validated_rounds` 和正式文件逐轮复检作为门禁。
+当 `TASK_STATIC_CROSS_ROUND_REPAIR_ENABLED=false` 时，不要求恢复前检查后续 D 轮，未来轮由运行时门禁检查。当该开关为 `true` 时，恢复前必须由同一候选事务以 `-ChainRounds` 验证故障轮到 D4，并以 manifest/receipt 的 `validated_rounds` 和正式文件链式复检作为门禁。
 
 修改或追加 operation 时，必须同步维护所在轮的 `postApplyAssertions`。断言变更仅可描述允许编辑范围内 operation 产生的结构结果，不得借机改变前置只读 op 的既有契约；若现有断言仍准确，则保持不动。
 
@@ -1955,18 +1993,29 @@ session memory 中的记录应在以下任一条件满足时清除：
 1. **Pre-check（直接 checker 验证整轮）**
    - 修改 `candidate.json` 后，不急于走事务 `Validate`，先通过独立 checker 直接验证该轮全部 ops：
      ```powershell
+     # 单轮 pre-check
      powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 `
          -TaskDefinitionFile "out/artifacts/task_definition_repair/<ticket>/candidate.json" `
          -Policy enforce -RoundTag <Dn>
+
+     # 跨轮 pre-check（链式迭代 D1→D2→D3→D4）
+     powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 `
+         -TaskDefinitionFile "out/artifacts/task_definition_repair/<ticket>/candidate.json" `
+         -Policy enforce -RoundTag <Dn> -ChainRounds
      ```
-   - 这比 `Inspect -OperationIndex` 更全面，它会顺序执行该轮所有 ops、replay、postApplyAssertions 和 C syntax gate。
+   - 这比 `Inspect -OperationIndex` 更全面，它会顺序执行该轮所有 ops、replay、postApplyAssertions 和 C syntax gate。跨轮 pre-check 还会在内存中依次应用前置轮次所有 ops，模拟运行时 code-step 链式效果。
    - 首错即停，按诊断在允许编辑边界内修复后重新检查，直到该轮全通过（`summary errors=0`）。
 
 2. **Operate（事务 Validate）**
    - Pre-check 通过后，再走事务 `Validate`：
      ```powershell
+     # 单轮 Validate
      powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 `
          -Mode Validate -TaskDefinitionFile "<正式文件>" -TicketId "<ticket>" -Stage <A|B> -RoundTag <Dn> -OperationIndex <n>
+
+     # 跨轮 Validate（checker 内部完成 D1→D4 链式迭代）
+     powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 `
+         -Mode Validate -TaskDefinitionFile "<正式文件>" -TicketId "<ticket>" -Stage <A|B> -RoundTag <Dn> -ValidateThroughRound D4 -ChainRounds
      ```
    - 此时 checker 已经在第 1 步验证过，Validate 应该通过，不会触发 `throw`。
 

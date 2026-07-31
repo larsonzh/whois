@@ -16,7 +16,8 @@
     [switch]$SkipSingleInstance,
     [ValidateRange(1000, 300000)][int]$WorkerTimeoutMs = 30000,
     [switch]$InternalWorker,
-    [AllowEmptyString()][string]$WorkerExitCodeFile = ''
+    [AllowEmptyString()][string]$WorkerExitCodeFile = '',
+    [switch]$ChainRounds
 )
 
 Set-StrictMode -Version Latest
@@ -177,6 +178,15 @@ if (-not [string]::IsNullOrWhiteSpace($RoundTag)) {
 
 if ($RequestedOperationIndex -gt 0 -and [string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
     throw '[TASK-STATIC-CHECK] OperationIndex requires RoundTag'
+}
+
+if ($ChainRounds.IsPresent) {
+    if ($effectiveRoundTag -notmatch '^D[1-4]$') {
+        throw '[TASK-STATIC-CHECK] ChainRounds requires RoundTag D1-D4'
+    }
+    if ($RequestedOperationIndex -gt 0) {
+        throw '[TASK-STATIC-CHECK] ChainRounds requires a full-round check; run the focused OperationIndex check separately'
+    }
 }
 
 $taskDefinitionCandidate = if ([System.IO.Path]::IsPathRooted($TaskDefinitionFile)) {
@@ -1009,6 +1019,8 @@ if (-not $prerequisiteChainFailed) {
     $roundEntries = @($taskDefinition.rounds.PSObject.Properties | Sort-Object Name)
 }
 $roundFound = $false
+$chainStartNumber = if ($ChainRounds.IsPresent) { [int]$effectiveRoundTag.Substring(1) } else { 0 }
+$chainRoundsVisited = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 
 if ($roundEntries.Count -eq 0 -and -not $prerequisiteChainFailed) {
     Add-ErrorIssue 'rounds section is empty'
@@ -1016,11 +1028,28 @@ if ($roundEntries.Count -eq 0 -and -not $prerequisiteChainFailed) {
 
 foreach ($roundEntry in $roundEntries) {
     $roundTag = [string]$roundEntry.Name
-    if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and $roundTag.Trim().ToUpperInvariant() -ne $effectiveRoundTag) {
-        continue
+    if (-not [string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
+        if ($ChainRounds.IsPresent) {
+            if ($roundTag -notmatch '^D[1-4]$') {
+                continue
+            }
+            $roundNumber = [int]$roundTag.Substring(1)
+            if ($roundNumber -lt $chainStartNumber -or $roundNumber -gt 4) {
+                continue
+            }
+        }
+        else {
+            if ($roundTag.Trim().ToUpperInvariant() -ne $effectiveRoundTag) {
+                continue
+            }
+        }
     }
 
     $roundFound = $true
+    if ($ChainRounds.IsPresent) {
+        [void]$chainRoundsVisited.Add($roundTag)
+    }
+    $roundErrorCountBefore = $errors.Count
     $roundTask = $roundEntry.Value
     $roundType = Get-RoundTaskType -RoundTask $roundTask
 
@@ -1034,8 +1063,17 @@ foreach ($roundEntry in $roundEntries) {
         $operations = @($roundTask.operations)
     }
 
+    if ($ChainRounds.IsPresent) {
+        $isFirstChainRound = ($roundNumber -eq $chainStartNumber)
+        $chainTag = if ($isFirstChainRound) { 'chain-start' } else { 'chain-next' }
+        Add-InfoIssue ("round={0} chain_mode=true chain_tag={1} operation_index=0" -f $roundTag, $chainTag)
+    }
+
     if ($operations.Count -eq 0) {
         Add-ErrorIssue ("round={0} regex-patch missing operations" -f $roundTag)
+        if ($ChainRounds.IsPresent) {
+            break
+        }
         continue
     }
 
@@ -1330,6 +1368,21 @@ foreach ($roundEntry in $roundEntries) {
             }
         }
     }
+
+    if ($ChainRounds.IsPresent -and $errors.Count -gt $roundErrorCountBefore) {
+        Add-InfoIssue ("round={0} chain_stop=true reason=round-failed" -f $roundTag)
+        break
+    }
+}
+
+if ($ChainRounds.IsPresent -and $errors.Count -eq 0) {
+    foreach ($requiredRoundNumber in $chainStartNumber..4) {
+        $requiredRound = "D$requiredRoundNumber"
+        if (-not $chainRoundsVisited.Contains($requiredRound)) {
+            Add-ErrorIssue ("chain round missing round={0}" -f $requiredRound)
+            break
+        }
+    }
 }
 
 if (-not $prerequisiteChainFailed -and -not [string]::IsNullOrWhiteSpace($effectiveRoundTag) -and -not $roundFound) {
@@ -1451,6 +1504,9 @@ $scopeText = if ([string]::IsNullOrWhiteSpace($effectiveRoundTag)) {
 }
 elseif ($RequestedOperationIndex -gt 0) {
     ("{0}:op{1}" -f $effectiveRoundTag, $RequestedOperationIndex)
+}
+elseif ($ChainRounds.IsPresent) {
+    ("{0}-D4:chain" -f $effectiveRoundTag)
 }
 else {
     $effectiveRoundTag

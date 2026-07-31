@@ -50,7 +50,7 @@
 10. running-status-report 只汇报观测状态，禁止输出或执行修复路径；不得仅凭旧 exit 日志、旧 latest_b_exit.json 或历史失败摘要推断需要重启 B，异常等待独立事故票。
 11. 运行期静默等待 guard/trigger/dispatch 投送到会话的事件驱动票或状态票；收到后严格按票据 `next_command_order` 执行其中所有无需用户确认的预授权操作，不得遗漏。事件票最终只执行一次 `atomic_closeout_command`，仅当其退出码和全部 JSON 机器事实门禁通过后才继续静默等待；旧分步回执字段不得逐条执行。不得自行定时调用 heartbeat 或 `poll_agent_tickets.ps1`，不得创建任何定时巡检监控脚本、轮询循环、后台 job、watcher、常驻内存命令或长时间跨轮次巡检命令。3 分钟仅是收尾目标；恢复事务运行时等待其自然退出，不得按 3 分钟或 240 秒墙钟主动终止，是否失败仅按退出码与 JSON 机器事实判定。
 12. 若收到的工单指出 strict、heartbeat/poll/dispatch 链路异常，按该工单允许边界处理；若文档冲突、字段异常、入口行为异常、是否应重启或是否应修复不明确，先汇报，不要自作主张。
-13. 只有 task-static 故障，以及编译/验证阶段经证据分类确认为代码故障的事故，才允许进入代码自愈；编译/验证阶段的权限、磁盘、网络、远程锁、工具链不可用或测试基础设施故障必须进入 noncode。code-step 仅执行“读绑定产物 -> 验证 -> 原子写 -> 写后验证”，任何 code-step 故障均属于 noncode，禁止修改源码或任务定义。不允许直接手改源码做自愈；只能在被允许的代码修复票中修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。独立 task-static checker 首错即停，全部通过后生成哈希绑定产物；code-step 不重复 checker，只校验并原子应用该产物。task-static 与 code-step 均不进入相同指纹状态机；该状态机仅约束编译/验证阶段经结构化证据确认的代码故障重启。只有当前故障轮通过才允许同阶段重启或 resume；`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
+13. 只有 task-static 故障，以及编译/验证阶段经证据分类确认为代码故障的事故，才允许进入代码自愈；编译/验证阶段的权限、磁盘、网络、远程锁、工具链不可用或测试基础设施故障必须进入 noncode。code-step 仅执行“读绑定产物 -> 验证 -> 原子写 -> 写后验证”，任何 code-step 故障均属于 noncode，禁止修改源码或任务定义。不允许直接手改源码做自愈；只能在被允许的代码修复票中修改当前阶段任务定义。保持 `qualityPolicy.operationSafetyPolicy=enforce`：每个 op 使用由自身 replacement 唯一产生的 marker，replacement 后 pattern 必须收敛，函数替换必须消费完整原函数体；新 helper 必须有唯一 definition、所需 prototype 和真实 call site，并用 `postApplyAssertions` 声明精确计数。设计时确无代码目标的 D 轮才可使用不含 operations/marker/assertions 的最小 `type=noop`；禁止自替换 op，禁止把失败或运行时已被前置轮吸收的 `regex-patch` 改成 `noop`，后者必须保留 regex-patch 并用逐 op 幂等证据证明 `absorbed-by-prior-round` / `idempotent-replay`。若改动了任务定义，先运行 `-SyntaxOnly`，可定位时用 `-RoundTag <Dn> -OperationIndex <n>` 快检故障 op，再让当前故障轮通过不带 `-OperationIndex` 的递进严格检查。独立 task-static checker 首错即停，全部通过后生成哈希绑定产物；code-step 不重复 checker，只校验并原子应用该产物。task-static 与 code-step 均不进入相同指纹状态机；该状态机仅约束编译/验证阶段经结构化证据确认的代码故障重启。单轮模式要求当前故障轮通过；跨轮模式要求从故障轮到 D4 的完整链通过，只有 brief 选定范围全部通过才允许同阶段重启或 resume；`single_instance_conflict`、正则 timeout 或 worker timeout 均为硬失败。
 14. 不允许手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本。
 15. 任务结束后如需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，必须先汇报结果并等待用户明确授权。
 16. 不允许擅自修改主流程脚本、入口脚本或监控链脚本；除非用户明确授权修复。
@@ -98,11 +98,15 @@ running-status-report 不提供或执行修复路径；不得仅凭旧 exit 证�
 若文档冲突、start-file 字段异常、入口行为异常、是否应重启不明确、是否应修复不明确，先汇报；不要猜。运行期自愈保持正式任务定义只读，只改当前阶段候选事务 `candidate.json` 中允许范围，不直接改正式定义或源码；设计时空轮才用不含 operations/marker/assertions 的 `type=noop`，不得用自替换 op，也不得把失败或运行时已吸收的 regex-patch 改成 noop 绕门禁，运行时吸收必须保留 regex-patch 并以 `absorbed-by-prior-round` / `idempotent-replay` 证明。候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查。
 
 跨轮次修复（task_static_cross_round_repair_enabled=true）：
-- Prepare 时传入 `-ValidateThroughRound D4`，只创建一个事务 candidate。
-- 在该 candidate 中从当前故障轮开始按顺序修复到 D4；遇到后续轮首错时继续修改同一 candidate，轮次之间禁止 Promote。
-- 全部范围修复写入后只执行一次 `Validate -ValidateThroughRound D4`；manifest 的 `validated_rounds` 必须精确覆盖故障轮到 D4。
-- 全序列通过后只执行一次 Promote；恢复门禁要求 manifest/receipt 的 `validated_rounds` 一致、哈希匹配，并逐轮复检正式定义。
+- Prepare 时传入 `-ValidateThroughRound D4 -ChainRounds`，只创建一个事务 candidate。
+- 每次编辑后都从工单故障轮执行 brief 的 `task_definition_checker_command`；该命令带 `-ChainRounds`，用同一链式内存源码重放已收敛轮并停在首个未收敛轮。只修改首错所属轮，禁止跳过该轮、单独检查后续轮或修改其他轮来绕过本轮问题。
+- 全部范围修复写入后只执行一次 `Validate -ValidateThroughRound D4 -ChainRounds`；manifest 的 `validated_rounds` 必须精确覆盖故障轮到 D4。
+- 全序列通过后只执行一次 Promote；Promote 自身再次核对 Prepare 绑定的完整轮次序列与 `validated_rounds` 完全一致，任一轮缺失即阻断。恢复门禁还要求 manifest/receipt 的 `validated_rounds` 一致、哈希匹配，并从故障轮执行一次链式复检正式定义。
 - 禁止 Promote 后直接编辑正式文件或为同一 ticket 再次 Prepare。
+
+单轮次修复（task_static_cross_round_repair_enabled=false）：只使用故障轮当前源码基线，只修改、检查、Validate 和 Promote 故障轮；不得修改或预演其他轮。无论开关状态如何，每个 D 轮的问题都只能在该轮 operations 内通过修改、追加、插入或删除 op 解决，禁止修改其他轮的 op 来修复、吸收或绕过。
+
+brief 会按开关、stage、故障轮、故障 op 和任务定义文件生成完整的 `task_definition_prepare_command`、`task_definition_inspect_command`（有 op 时）、`task_definition_checker_command`、`task_definition_validate_command` 与 `task_definition_promote_command`。直接使用这些命令，不得手工重拼参数。
 
 后续轮由实际 code-step 检查。只能重启当前票据对应阶段的主进程，不得串阶段；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`；禁止通过终端内联 Python、PowerShell 多层命令、重定向、通用字符串替换或格式化器修改。先 Prepare 并读取预览，修改 candidate 后推荐用只读 Inspect 刷新哈希绑定预览，再按 Validate/Promote 完成 SyntaxOnly、目标 op 快检（可定位时）和当前故障 D 轮递进严格检查；Validate 输出的 `preview_stale` 是诊断状态，不替代 checker 结论。pattern/replacement 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层核对；合法 JSON `"\\)"` 解码为正则 `\)`，`pattern_unmatched=0` 是有效文本零命中而非 JSON 解码失败，禁止据此修改 checker。
@@ -133,7 +137,7 @@ low-disturb 的 running-status-report 正常时只回“运行正常”+ handled
 运行期自愈保持正式任务定义只读，只改当前阶段事务 `candidate.json` 中允许范围，不直改正式定义或源码；设计时空轮才用最小 `type=noop`，禁用自替换 op，失败或运行时已吸收的 regex-patch 不得改成 noop，吸收场景仍用 `absorbed-by-prior-round` / `idempotent-replay` 证据；候选修改后按 Validate/Promote 完成 SyntaxOnly、目标 op 快检和当前故障轮严格检查。
 
 跨轮次修复（task_static_cross_round_repair_enabled=true）：
-Prepare 时传入 `-ValidateThroughRound D4`，在同一 candidate 中依次修复当前故障轮到 D4，轮次之间禁止 Promote。全部范围修复写入后执行一次 `Validate -ValidateThroughRound D4`，确认 `validated_rounds` 完整后只执行一次 Promote；禁止 Promote 后直接编辑正式文件或重复 Prepare。
+Prepare 时传入 `-ValidateThroughRound D4 -ChainRounds`，在同一 candidate 中依次修复当前故障轮到 D4，轮次之间禁止 Promote。全部范围修复写入后执行一次 `Validate -ValidateThroughRound D4 -ChainRounds`，确认 `validated_rounds` 完整后只执行一次 Promote；禁止 Promote 后直接编辑正式文件或重复 Prepare。
 
 后续轮在实际 code-step 到达时检查；不得手工创建 chat_heartbeat*.jsonl、额外 handled 回执文件，或在未获同意时创建非 tmp 新脚本；若需回填 docs/RFC-whois-client-split.md 与 docs/RFC-address-space-preclassifier.md，先汇报结果并等待用户授权；未经用户明确授权，不修改主流程脚本、入口脚本或监控链脚本。
 任务定义 JSON 的语义修改只允许使用 VS Code `apply_patch`，禁止终端内联 Python/PowerShell、重定向、通用字符串替换或格式化器代改；先 Prepare 并读取预览，修改 candidate 后推荐只读 Inspect，再按 Validate/Promote 内置的 SyntaxOnly -> 目标 op 快检（可定位时）-> 当前故障轮递进严格检查顺序验证；Inspect 不替代门禁。pattern 按 JSON -> `ConvertFrom-Json` -> `.NET Regex` 三层理解；合法 `"\\)"` 会解码为 `\)`，`pattern_unmatched=0` 只代表零命中，绝非 JSON 解码失败。

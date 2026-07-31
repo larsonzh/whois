@@ -1949,14 +1949,14 @@ function New-TakeoverBrief {
         'incident-auto-resume-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
+            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after every edit rerun one -ChainRounds checker from the failing round; fix only its first unresolved round and repeat until D4 passes' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
             'code-fix: keep the official task definition read-only; run task_definition_repair_transaction.ps1 Prepare, read operation-preview.* and apply-patch-context.txt, use VS Code apply_patch only on candidate.json for {0}/{1}, then preferably run read-only Inspect to refresh the hash-bound preview before Validate and Promote; preview_stale is diagnostic and does not replace checker gates; diagnose the first structured child/compiler/test failure; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
         'incident-manual-code-fix' {
             $stageText = if ([string]::IsNullOrWhiteSpace($ticketPreferredStage)) { 'unknown-stage' } else { $ticketPreferredStage.ToUpperInvariant() }
             $roundText = if ([string]::IsNullOrWhiteSpace((Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')))) { 'unknown-round' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
-            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after the failing round passes, check and repair each later D round through D4 in order before restart' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
+            $repairScopeText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'after every edit rerun one -ChainRounds checker from the failing round; fix only its first unresolved round and repeat until D4 passes' } else { 'check only the current failing D round before restart; later rounds remain runtime-gated' }
             'code-fix: keep the official task definition read-only; run task_definition_repair_transaction.ps1 Prepare, read operation-preview.* and apply-patch-context.txt, use VS Code apply_patch only on candidate.json for {0}/{1}, then preferably run read-only Inspect to refresh the hash-bound preview before Validate and Promote; preview_stale is diagnostic and does not replace checker gates; diagnose the first structured child/compiler/test failure; {2}; do not edit business source directly' -f $stageText, $roundText, $repairScopeText
             break
         }
@@ -2087,9 +2087,50 @@ function New-TakeoverBrief {
     }
     $statusTicketActionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'report-only; read-only observation and handled receipt; no self-heal/fault-handling/restart/recovery/edit' } else { 'not-applicable' }
     $scriptFaultActionPolicy = if ($routeGuardExpected -eq 'incident-script-diagnose-only') { 'diagnose-only; no file edits, process control, restart, resume, environment mutation, or new scripts' } else { 'self-heal-enabled-or-not-applicable' }
-    $taskDefinitionCheckOrder = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'keep one candidate; run SyntaxOnly and the focused failing op; repair each scoped D round in order through D4; run one Validate -ValidateThroughRound D4; then Promote exactly once after all scoped rounds pass' } else { 'run SyntaxOnly; check failed op with -RoundTag/-OperationIndex when locatable; then Validate and Promote only the current failing D round' }
-    $repairValidateThroughRound = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'D4' } else { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant() }
+    $repairRound = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'main_round')).ToUpperInvariant()
+    $repairStage = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'preferred_stage')).ToUpperInvariant()
+    $repairOperationText = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'failure_operation')
+    $repairOperationIndex = 0
+    [void][int]::TryParse($repairOperationText, [ref]$repairOperationIndex)
+    $repairTaskDefinition = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'task_definition')
+    if ([string]::IsNullOrWhiteSpace($repairTaskDefinition) -and $repairStage -in @('A', 'B')) {
+        $repairTaskDefinitionKey = '{0}_TASK_DEFINITION' -f $repairStage
+        if ($Settings.Contains($repairTaskDefinitionKey)) {
+            $repairTaskDefinition = Convert-ToSingleLineText -Text ([string]$Settings[$repairTaskDefinitionKey])
+        }
+    }
+    $repairChainMode = ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static')
+    $repairValidateThroughRound = if ($repairChainMode) { 'D4' } else { $repairRound }
+    $taskDefinitionCheckOrder = if ($repairChainMode) { 'keep one candidate; after every edit rerun one checker from the failing round with -ChainRounds; never check a later round from the original fault-round source alone; the chain must stop at the first unresolved round; edit only that round; repeat until D4 passes; then run one full Validate and one Promote' } else { 'run SyntaxOnly; check the failed op when locatable; check, Validate, and Promote only the current failing D round' }
     $taskDefinitionPromotionGateText = if ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static') { 'require one same-ticket candidate validated from the failing D round through D4; manifest/receipt validated_rounds must cover that exact sequence; Promote exactly once; hashes must match official; every scoped official round strict check must pass' } else { 'require same-ticket promoted manifest and successful receipt; validated/promoted/official hashes must match; current failing round strict check must pass' }
+    $repairCommandStatus = 'not-applicable'
+    $repairCandidatePath = ''
+    $repairPrepareCommand = ''
+    $repairInspectCommand = ''
+    $repairCheckerCommand = ''
+    $repairValidateCommand = ''
+    $repairPromoteCommand = ''
+    if ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix') -and
+        $repairStage -in @('A', 'B') -and
+        $repairRound -match '^D[1-4]$' -and
+        -not [string]::IsNullOrWhiteSpace($repairTaskDefinition)) {
+        $repairCommandStatus = if ($repairOperationIndex -gt 0) { 'ready' } else { 'ready-without-focused-operation' }
+        $repairCandidatePath = 'out/artifacts/task_definition_repair/{0}/candidate.json' -f $ticketId
+        $repairOperationArgument = if ($repairOperationIndex -gt 0) { ' -OperationIndex {0}' -f $repairOperationIndex } else { '' }
+        $repairChainArguments = if ($repairChainMode) { ' -ValidateThroughRound D4 -ChainRounds' } else { '' }
+        $repairBaseArguments = '-TaskDefinitionFile "{0}" -TicketId "{1}" -Stage {2} -RoundTag {3}{4}{5}' -f $repairTaskDefinition, $ticketId, $repairStage, $repairRound, $repairOperationArgument, $repairChainArguments
+        $repairPrepareCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Prepare {0}' -f $repairBaseArguments
+        if ($repairOperationIndex -gt 0) {
+            $repairInspectCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Inspect {0}' -f $repairBaseArguments
+        }
+        $repairCheckerChainArgument = if ($repairChainMode) { ' -ChainRounds' } else { '' }
+        $repairCheckerCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile "{0}" -Policy enforce -RoundTag {1}{2}' -f $repairCandidatePath, $repairRound, $repairCheckerChainArgument
+        $repairValidateCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Validate {0}' -f $repairBaseArguments
+        $repairPromoteCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction.ps1 -Mode Promote {0}' -f $repairBaseArguments
+    }
+    elseif ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
+        $repairCommandStatus = 'blocked-missing-stage-round-or-task-definition'
+    }
     $atomicCloseoutExecutionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'not-applicable-readonly-status-ticket' } else { 'exactly-once-per-event-ticket-after-handling-no-retry' }
 
     $ticketTimingFields = [ordered]@{
@@ -2122,7 +2163,17 @@ function New-TakeoverBrief {
         ('route_guard_expected={0}' -f $routeGuardExpected),
         ('script_self_heal_enabled={0}' -f [bool]$scriptSelfHealEnabled),
         ('task_static_cross_round_repair_enabled={0}' -f [bool]$taskStaticCrossRoundRepairEnabled),
+        ('task_definition_repair_mode={0}' -f $(if ($repairChainMode) { 'cross-round-chain' } else { 'single-round' })),
         ('repair_validate_through_round={0}' -f $repairValidateThroughRound),
+        ('task_definition_file={0}' -f $repairTaskDefinition),
+        ('task_definition_failure_operation={0}' -f $(if ($repairOperationIndex -gt 0) { $repairOperationIndex } else { '' })),
+        ('task_definition_repair_command_status={0}' -f $repairCommandStatus),
+        ('task_definition_candidate_path={0}' -f $repairCandidatePath),
+        ('task_definition_prepare_command={0}' -f $repairPrepareCommand),
+        ('task_definition_inspect_command={0}' -f $repairInspectCommand),
+        ('task_definition_checker_command={0}' -f $repairCheckerCommand),
+        ('task_definition_validate_command={0}' -f $repairValidateCommand),
+        ('task_definition_promote_command={0}' -f $repairPromoteCommand),
         ('script_fault_action_policy={0}' -f $scriptFaultActionPolicy),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),
@@ -2134,7 +2185,7 @@ function New-TakeoverBrief {
         ('task_definition_execution_engine={0}' -f 'independent task-static checker validates ops, replay, and postApplyAssertions and produces a hash-bound artifact; code-step only validates and atomically applies it'),
         ('task_definition_retry_scope={0}' -f 'checker reruns within one repair ticket are not limited; identical-fingerprint retry budget counts main-process relaunch failures only'),
         ('task_definition_noop_policy={0}' -f 'noop is design-time empty-round only; absorbed-by-prior-round/idempotent-replay must remain regex-patch with replacement-owned markers'),
-        ('task_definition_edit_boundary={0}' -f 'respect cross-round and in-round read-only boundaries; V1-V4 may only append operations to D4'),
+        ('task_definition_edit_boundary={0}' -f 'a defect found in one D round must be fixed only by changing that same round operations; never move or work around the defect by changing another round; V1-V4 may only append operations to D4'),
         ('task_definition_promotion_gate={0}' -f $taskDefinitionPromotionGateText),
         ('same_stage_restart_policy={0}' -f 'only after task_definition_promotion_gate passes, restart only the ticket stage through open_unattended_ab_stage_window.ps1'),
         ('guard_state={0}' -f $guardState),

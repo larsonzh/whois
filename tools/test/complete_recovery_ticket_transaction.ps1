@@ -382,8 +382,13 @@ function Assert-TaskStaticRepairPromoted {
     }
 
     $checkerPath = Join-Path $PSScriptRoot 'check_task_definition_static.ps1'
-    foreach ($validationRound in $expectedRounds) {
-        $checkerOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkerPath -TaskDefinitionFile $officialPath -Policy enforce -RoundTag $validationRound 2>&1)
+    $recheckRounds = if ($crossRoundEnabled) { @($round) } else { @($round) }
+    foreach ($validationRound in $recheckRounds) {
+        $checkerArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $checkerPath, '-TaskDefinitionFile', $officialPath, '-Policy', 'enforce', '-RoundTag', $validationRound)
+        if ($crossRoundEnabled) {
+            $checkerArguments += '-ChainRounds'
+        }
+        $checkerOutput = @(& powershell @checkerArguments 2>&1)
         $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
         if ($checkerExitCode -ne 0) {
             $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
