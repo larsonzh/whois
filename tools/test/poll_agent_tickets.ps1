@@ -2484,7 +2484,8 @@ if ($acknowledgeTicketSet.Count -gt 0) {
 
         $record = Convert-ToLedgerRecord -InputRecord $ledgerRecords[$ticketId] -FallbackTicketId $ticketId
         $statusName = Convert-ToSingleLineText -Text ([string]$record.status)
-        if ($statusName -in @('done', 'failed', 'stale_by_restart', 'stale_status_superseded')) {
+        $isRecoverableTransactionFailure = ($statusName -eq 'failed' -and (Convert-ToSingleLineText -Text ([string]$record.note)) -eq 'recovery-transaction-failed')
+        if ($statusName -in @('done', 'stale_by_restart', 'stale_status_superseded') -or ($statusName -eq 'failed' -and -not $isRecoverableTransactionFailure)) {
             continue
         }
 

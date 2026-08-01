@@ -21,6 +21,11 @@ function Write-Utf8Bom {
     [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($true))
 }
 
+function Write-Utf8NoBom {
+    param([string]$Path, [AllowEmptyString()][string]$Text)
+    [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($false))
+}
+
 function New-Fixture {
     param(
         [string]$Name,
@@ -167,10 +172,16 @@ function Set-ChainedRoundFixture {
 
 try {
     $successFixture = New-Fixture -Name 'success'
+    $successTaskText = [System.IO.File]::ReadAllText($successFixture.TaskPath).Replace("`n", "`r`n")
+    Write-Utf8NoBom -Path $successFixture.TaskPath -Text $successTaskText
     $successOriginal = [System.IO.File]::ReadAllBytes($successFixture.TaskPath)
     [void](Invoke-Transaction -Fixture $successFixture -TicketId 'T-SUCCESS' -Mode Prepare -ExpectedExitCode 0)
     $successDir = Join-Path $successFixture.ArtifactRoot 'T-SUCCESS'
-    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'candidate.json')) -Message 'success candidate missing after prepare'
+    $successCandidatePath = Join-Path $successDir 'candidate.json'
+    Assert-True -Condition (Test-Path -LiteralPath $successCandidatePath) -Message 'success candidate missing after prepare'
+    $successCandidateBytes = [System.IO.File]::ReadAllBytes($successCandidatePath)
+    Assert-True -Condition ($successCandidateBytes.Length -ge 3 -and $successCandidateBytes[0] -eq 0xEF -and $successCandidateBytes[1] -eq 0xBB -and $successCandidateBytes[2] -eq 0xBF) -Message 'prepared candidate is missing UTF-8 BOM'
+    Assert-True -Condition (-not [System.IO.File]::ReadAllText($successCandidatePath).Contains("`r")) -Message 'prepared candidate is not LF-normalized'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'operation-preview.json')) -Message 'operation preview json missing after prepare'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'operation-preview.txt')) -Message 'decoded operation preview missing after prepare'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'apply-patch-context.txt')) -Message 'apply_patch context missing after prepare'
@@ -190,6 +201,8 @@ try {
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $successDir 'candidate.json'))) -Message 'candidate not cleaned after promote'
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $successDir 'baseline.json'))) -Message 'baseline not cleaned after promote'
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $successDir 'promotion-receipt.json')) -Message 'promotion receipt missing'
+    $successReceipt = Get-Content -LiteralPath (Join-Path $successDir 'promotion-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Assert-True -Condition ((Get-FileHash -LiteralPath $successFixture.TaskPath -Algorithm SHA256).Hash.ToLowerInvariant() -eq [string]$successReceipt.promoted_sha256) -Message 'canonical promoted hash mismatch'
     Write-Output '[TASK-DEFINITION-TRANSACTION-REGRESSION] case=success-promote-cleanup status=pass'
 
     $crossRoundFixture = New-Fixture -Name 'cross-round' -IncludeAllRounds

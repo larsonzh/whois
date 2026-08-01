@@ -19,6 +19,11 @@ if (-not (Test-Path -LiteralPath $startFileIdentityScript -PathType Leaf)) {
 . $startFileIdentityScript
 
 $script:recoveryFailureLedgerError = ''
+$script:recoveryJournalPath = ''
+$script:recoveryJournal = $null
+$script:recoveryMutex = $null
+$script:recoveryMutexAcquired = $false
+$script:powerShellExe = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source
 
 function Convert-ToSingleLineText {
     param([AllowEmptyString()][string]$Text)
@@ -182,6 +187,134 @@ function Convert-ToRecoveryRepoRelativePath {
     }
 }
 
+function Get-TextSha256 {
+    param([AllowEmptyString()][string]$Text)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))).Replace('-', '').ToLowerInvariant())
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Write-RecoveryJournal {
+    if ([string]::IsNullOrWhiteSpace($script:recoveryJournalPath) -or $null -eq $script:recoveryJournal) {
+        return
+    }
+
+    $script:recoveryJournal.updated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $json = $script:recoveryJournal | ConvertTo-Json -Depth 12
+    $tempPath = $script:recoveryJournalPath + '.tmp'
+    [System.IO.File]::WriteAllText($tempPath, $json, [System.Text.UTF8Encoding]::new($true))
+    Move-Item -LiteralPath $tempPath -Destination $script:recoveryJournalPath -Force
+}
+
+function Initialize-RecoveryJournal {
+    param(
+        [string]$RepoRoot,
+        [string]$StartFilePath,
+        [string]$TicketId
+    )
+
+    $stableToken = Get-StableStartFileToken -StartFilePath $StartFilePath
+    $journalDir = Join-Path $RepoRoot ("out\artifacts\ab_agent_queue\recovery_transactions\{0}" -f $stableToken)
+    New-Item -ItemType Directory -Path $journalDir -Force | Out-Null
+    $script:recoveryJournalPath = Join-Path $journalDir ("{0}.json" -f $TicketId)
+
+    $mutexToken = Get-TextSha256 -Text ("{0}|{1}" -f $stableToken, $TicketId)
+    $script:recoveryMutex = [System.Threading.Mutex]::new($false, ("Local\whois-recovery-{0}" -f $mutexToken))
+    try {
+        $script:recoveryMutexAcquired = $script:recoveryMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $script:recoveryMutexAcquired = $true
+    }
+    if (-not $script:recoveryMutexAcquired) {
+        throw 'another recovery transaction is already active for this ticket'
+    }
+
+    if (Test-Path -LiteralPath $script:recoveryJournalPath -PathType Leaf) {
+        $script:recoveryJournal = Get-Content -LiteralPath $script:recoveryJournalPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+        if ([string]$script:recoveryJournal.ticket_id -ne $TicketId) {
+            throw 'recovery journal ticket mismatch'
+        }
+        return
+    }
+
+    $script:recoveryJournal = [pscustomobject]@{
+        schema = 'AB_RECOVERY_STEP_JOURNAL_V1'
+        ticket_id = $TicketId
+        start_file = (Convert-ToRecoveryRepoRelativePath -RepoRoot $RepoRoot -Path $StartFilePath)
+        created_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        updated_at = ''
+        steps = @()
+    }
+    Write-RecoveryJournal
+}
+
+function Start-RecoveryJournalStep {
+    param(
+        [string]$Name,
+        [string]$CommandLine
+    )
+
+    if ($null -eq $script:recoveryJournal) {
+        return $null
+    }
+
+    $commandHash = Get-TextSha256 -Text $CommandLine
+    $existing = @($script:recoveryJournal.steps | Where-Object { [string]$_.name -eq $Name } | Select-Object -First 1)
+    if ($existing.Count -gt 0) {
+        $record = $existing[0]
+        if ([string]$record.command_sha256 -ne $commandHash) {
+            throw ("recovery step command changed after checkpoint: {0}" -f $Name)
+        }
+        if ([string]$record.status -eq 'succeeded') {
+            return $record
+        }
+        if ([string]$record.status -eq 'running') {
+            throw ("recovery step has an ambiguous prior execution and will not be replayed: {0}" -f $Name)
+        }
+        $record.status = 'running'
+        $record.started_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        $record.completed_at = ''
+        $record.step = $null
+    }
+    else {
+        $record = [pscustomobject]@{
+            name = $Name
+            command_sha256 = $commandHash
+            status = 'running'
+            started_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            completed_at = ''
+            step = $null
+        }
+        $script:recoveryJournal.steps = @($script:recoveryJournal.steps) + @($record)
+    }
+    Write-RecoveryJournal
+    return $null
+}
+
+function Complete-RecoveryJournalStep {
+    param(
+        [string]$Name,
+        [string]$Status,
+        [AllowNull()][object]$Step
+    )
+
+    if ($null -eq $script:recoveryJournal) {
+        return
+    }
+
+    $record = @($script:recoveryJournal.steps | Where-Object { [string]$_.name -eq $Name } | Select-Object -First 1)[0]
+    $record.status = $Status
+    $record.completed_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $record.step = $Step
+    Write-RecoveryJournal
+}
+
 function Write-RecoveryFailureLedger {
     param(
         [string]$RepoRoot,
@@ -241,22 +374,22 @@ function Write-RecoveryFailureLedger {
             $record = [pscustomobject]@{
                 ticket_id = $ticket
                 event = (Convert-ToSingleLineText -Text $EventName)
-                status = 'failed'
-                claimed_at = ''
+                status = 'claimed'
+                claimed_at = $nowText
                 executed_at = ''
                 watch_resumed_at = ''
                 handled_at = ''
-                failed_at = $nowText
-                note = 'recovery-transaction-failed'
-                failure_reason = $reasonText
+                failed_at = ''
+                note = 'recovery-transaction-failure-recorded'
+                failure_reason = ''
+                recovery_failure_at = $nowText
+                recovery_failure_reason = $reasonText
             }
             $records = @($records + $record)
         }
         else {
-            $record | Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
-            $record | Add-Member -NotePropertyName 'failed_at' -NotePropertyValue $nowText -Force
-            $record | Add-Member -NotePropertyName 'note' -NotePropertyValue 'recovery-transaction-failed' -Force
-            $record | Add-Member -NotePropertyName 'failure_reason' -NotePropertyValue $reasonText -Force
+            $record | Add-Member -NotePropertyName 'recovery_failure_at' -NotePropertyValue $nowText -Force
+            $record | Add-Member -NotePropertyName 'recovery_failure_reason' -NotePropertyValue $reasonText -Force
         }
 
         $ledger | Add-Member -NotePropertyName 'updated_at' -NotePropertyValue $nowText -Force
@@ -388,7 +521,7 @@ function Assert-TaskStaticRepairPromoted {
         if ($crossRoundEnabled) {
             $checkerArguments += '-ChainRounds'
         }
-        $checkerOutput = @(& powershell @checkerArguments 2>&1)
+        $checkerOutput = @(& $script:powerShellExe @checkerArguments 2>&1)
         $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
         if ($checkerExitCode -ne 0) {
             $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
@@ -663,6 +796,7 @@ function Invoke-TransactionCommand {
         elapsed_ms = 0
         output = @()
         output_tail = @()
+        replayed = $false
     }
 
     if ([string]::IsNullOrWhiteSpace($CommandLine)) {
@@ -693,6 +827,12 @@ function Invoke-TransactionCommand {
     }
 
     if ($Name -eq 'business_command') {
+        $checkpoint = Start-RecoveryJournalStep -Name $Name -CommandLine $CommandLine
+        if ($null -ne $checkpoint) {
+            $replayedStep = $checkpoint.step
+            $replayedStep | Add-Member -NotePropertyName 'replayed' -NotePropertyValue $true -Force
+            return $replayedStep
+        }
         $stage = Get-BusinessCommandStage -CommandLine $CommandLine
         if (Test-StageMainProcessRunning -Stage $stage) {
             $pidText = Get-StageMainProcessIdText -Stage $stage
@@ -701,6 +841,7 @@ function Invoke-TransactionCommand {
             $step.exit_code = 0
             $step.output = @($step.skip_reason, ('stage_main_pids={0}' -f $pidText))
             $step.output_tail = @($step.skip_reason, ('stage_main_pids={0}' -f $pidText))
+            Complete-RecoveryJournalStep -Name $Name -Status 'succeeded' -Step ([pscustomobject]$step)
             return [pscustomobject]$step
         }
 
@@ -709,7 +850,7 @@ function Invoke-TransactionCommand {
         $launcherOutputBase = Join-Path ([System.IO.Path]::GetTempPath()) ("whois-recovery-launcher-{0}" -f ([System.Guid]::NewGuid().ToString('N')))
         $launcherStdoutPath = $launcherOutputBase + '.stdout.log'
         $launcherStderrPath = $launcherOutputBase + '.stderr.log'
-        $launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle $launcherWindowStyle -RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath -PassThru
+        $launcher = Start-Process -FilePath $script:powerShellExe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $CommandLine) -WindowStyle $launcherWindowStyle -RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath -PassThru
         $verifyTimeoutMs = $BusinessCommandVerifyTimeoutSec * 1000
         $verifiedPidText = ''
         $launcherExitedAtMs = -1
@@ -759,11 +900,18 @@ function Invoke-TransactionCommand {
         $step.elapsed_ms = [int][Math]::Min([int]::MaxValue, $watch.ElapsedMilliseconds)
         $step.output = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_window_style={0}' -f $launcherWindowStyle), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
         $step.output_tail = @('business_command_started_detached', ('launcher_pid={0}' -f $launcher.Id), ('business_command_window_style={0}' -f $launcherWindowStyle), ('business_command_verify_timeout_ms={0}' -f $verifyTimeoutMs), ('stage_main_pids={0}' -f $verifiedPidText), 'stage_main_process_verified')
+        Complete-RecoveryJournalStep -Name $Name -Status 'succeeded' -Step ([pscustomobject]$step)
         return [pscustomobject]$step
     }
 
+    $checkpoint = Start-RecoveryJournalStep -Name $Name -CommandLine $CommandLine
+    if ($null -ne $checkpoint) {
+        $replayedStep = $checkpoint.step
+        $replayedStep | Add-Member -NotePropertyName 'replayed' -NotePropertyValue $true -Force
+        return $replayedStep
+    }
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
-    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -Command $CommandLine 2>&1)
+    $output = @(& $script:powerShellExe -NoProfile -ExecutionPolicy Bypass -Command $CommandLine 2>&1)
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     $watch.Stop()
 
@@ -773,11 +921,13 @@ function Invoke-TransactionCommand {
     $step.output_tail = @($output | Select-Object -Last 12 | ForEach-Object { [string]$_ })
 
     if ($exitCode -ne 0) {
+        Complete-RecoveryJournalStep -Name $Name -Status 'failed' -Step ([pscustomobject]$step)
         $failure = [System.Exception]::new(("{0} exited with code {1}" -f $Name, $exitCode))
         $failure.Data['transaction_step'] = [pscustomobject]$step
         throw $failure
     }
 
+    Complete-RecoveryJournalStep -Name $Name -Status 'succeeded' -Step ([pscustomobject]$step)
     return [pscustomobject]$step
 }
 
@@ -829,6 +979,7 @@ try {
     try {
         $startFilePathForLedger = Resolve-RepoPath -RepoRoot $repoRoot -Path $StartFile
         $queuePathForLedger = if ([string]::IsNullOrWhiteSpace($QueuePath)) { 'out\artifacts\ab_agent_queue\agent_tickets.jsonl' } else { $QueuePath }
+        Initialize-RecoveryJournal -RepoRoot $repoRoot -StartFilePath $startFilePathForLedger -TicketId $ticket
         $row = $null
         try {
             $queueForBrief = $QueuePath
@@ -854,7 +1005,7 @@ try {
             '-AsJson'
             )
             if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $pollArgs += @('-QueuePath', $QueuePath) }
-            $pollOutput = @(& powershell @pollArgs 2>&1)
+            $pollOutput = @(& $script:powerShellExe @pollArgs 2>&1)
             $pollExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
             if ($pollExitCode -ne 0) {
                 throw ("poll exited with code {0}" -f $pollExitCode)
@@ -890,7 +1041,7 @@ try {
             throw 'route_guard_command is empty'
         }
 
-        $routeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -Command $routeCommand 2>&1)
+        $routeOutput = @(& $script:powerShellExe -NoProfile -ExecutionPolicy Bypass -Command $routeCommand 2>&1)
         $routeExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
         if ($routeExitCode -ne 0) {
             throw ("route guard exited with code {0}" -f $routeExitCode)
@@ -995,6 +1146,12 @@ catch {
 finally {
     $totalWatch.Stop()
     $result.elapsed_ms = [int][Math]::Min([int]::MaxValue, $totalWatch.ElapsedMilliseconds)
+    if ($script:recoveryMutexAcquired -and $null -ne $script:recoveryMutex) {
+        try { $script:recoveryMutex.ReleaseMutex() } catch { }
+    }
+    if ($null -ne $script:recoveryMutex) {
+        $script:recoveryMutex.Dispose()
+    }
 }
 
 Write-TransactionResult -Result $result -Json:$AsJson

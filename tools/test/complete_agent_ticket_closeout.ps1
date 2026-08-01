@@ -13,6 +13,7 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$powerShellExe = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source
 
 function Convert-CommandOutputToJson {
     param(
@@ -68,7 +69,7 @@ function Invoke-PowerShellWithTimeout {
     $stderrPath = [System.IO.Path]::GetTempFileName()
     $process = $null
     try {
-        $process = Start-Process -FilePath 'powershell' -ArgumentList (Join-ProcessArgumentList -Arguments $Arguments) -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -NoNewWindow -PassThru
+        $process = Start-Process -FilePath $powerShellExe -ArgumentList (Join-ProcessArgumentList -Arguments $Arguments) -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -NoNewWindow -PassThru
         $completed = $process.WaitForExit($TimeoutSec * 1000)
         if (-not $completed) {
             try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
@@ -216,7 +217,7 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $validateArgs += @('-QueuePath', $QueuePath) }
         if (-not [string]::IsNullOrWhiteSpace($LedgerPath)) { $validateArgs += @('-LedgerPath', $LedgerPath) }
 
-        $validateOutput = @(& powershell @validateArgs 2>&1)
+        $validateOutput = @(& $powerShellExe @validateArgs 2>&1)
         $validateExitCode = $LASTEXITCODE
         $validation = Convert-CommandOutputToJson -Output $validateOutput -Step 'receipt-validation'
         $result.receipt_valid = ($validateExitCode -eq 0 -and [bool]$validation.success -and [bool]$validation.handled_at_format_valid)
@@ -233,7 +234,7 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $closureArgs += @('-QueuePath', $QueuePath) }
         if (-not [string]::IsNullOrWhiteSpace($LedgerPath)) { $closureArgs += @('-LedgerPath', $LedgerPath) }
         if (-not [string]::IsNullOrWhiteSpace($TakeoverRoot)) { $closureArgs += @('-TakeoverRoot', $TakeoverRoot) }
-        $closureOutput = @(& powershell @closureArgs 2>&1)
+        $closureOutput = @(& $powerShellExe @closureArgs 2>&1)
         $closureExitCode = $LASTEXITCODE
         $closure = Convert-CommandOutputToJson -Output $closureOutput -Step 'closure-check'
         $result.closure_pass = ($closureExitCode -eq 0 -and [bool]$closure.pass)

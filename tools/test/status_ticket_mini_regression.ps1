@@ -404,6 +404,15 @@ if ($ContractGateOnly.IsPresent) {
     $compatibilityWarningReason = if ($compatibilityWarningPass) { 'recovery-compatibility-warning-projection-present' } else { 'missing-recovery-compatibility-warning-projection' }
     [void]$results.Add((Get-CaseResult -Name 'recovery-compatibility-warning-projection' -Pass $compatibilityWarningPass -Reason $compatibilityWarningReason))
 
+    $recoveryHasDurableStepJournal = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_STEP_JOURNAL_V1'") -and $recoveryTransactionText.Contains('command_sha256 = $commandHash') -and $recoveryTransactionText.Contains("[string]`$record.status -eq 'succeeded'") -and $recoveryTransactionText.Contains('recovery step has an ambiguous prior execution and will not be replayed')
+    $recoveryHasTicketMutex = $recoveryTransactionText.Contains('[System.Threading.Mutex]::new') -and $recoveryTransactionText.Contains('another recovery transaction is already active for this ticket')
+    $recoveryFailurePreservesBusinessStatus = $recoveryTransactionText.Contains("status = 'claimed'") -and $recoveryTransactionText.Contains("'recovery_failure_at'") -and $recoveryTransactionText.Contains("'recovery_failure_reason'") -and -not $recoveryTransactionText.Contains("-NotePropertyName 'status' -NotePropertyValue 'failed'")
+    $pollUnlocksOnlyLegacyRecoveryFailures = $pollText.Contains("`$isRecoverableTransactionFailure = (`$statusName -eq 'failed'") -and $pollText.Contains("[string]`$record.note)) -eq 'recovery-transaction-failed'")
+    $childPowerShellIsResolved = $recoveryTransactionText.Contains('(Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source') -and $atomicCloseoutText.Contains('(Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source') -and -not [regex]::IsMatch($recoveryTransactionText, '&\s+powershell(?:\s|@)') -and -not [regex]::IsMatch($atomicCloseoutText, '&\s+powershell(?:\s|@)') -and -not $atomicCloseoutText.Contains("-FilePath 'powershell'")
+    $recoveryExactlyOncePass = $recoveryHasDurableStepJournal -and $recoveryHasTicketMutex -and $recoveryFailurePreservesBusinessStatus -and $pollUnlocksOnlyLegacyRecoveryFailures -and $childPowerShellIsResolved
+    $recoveryExactlyOnceReason = if ($recoveryExactlyOncePass) { 'recovery-exactly-once-and-ledger-isolation-present' } else { 'missing-recovery-exactly-once-or-ledger-isolation-contract' }
+    [void]$results.Add((Get-CaseResult -Name 'recovery-exactly-once-ledger-isolation' -Pass $recoveryExactlyOncePass -Reason $recoveryExactlyOnceReason))
+
     $contractFailedCases = @($results | Where-Object { -not [bool]$_.pass })
     $contractPass = ($contractFailedCases.Count -eq 0)
     $contractStopwatch.Stop()

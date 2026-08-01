@@ -43,6 +43,18 @@ function Get-Sha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Set-CanonicalTaskDefinitionEncoding {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
+    $text = $utf8.GetString([System.IO.File]::ReadAllBytes($Path))
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
+        $text = $text.Substring(1)
+    }
+    $text = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+    [System.IO.File]::WriteAllText($Path, $text, [System.Text.UTF8Encoding]::new($true))
+}
+
 function Get-ValidationRoundSequence {
     param(
         [Parameter(Mandatory = $true)][string]$StartRound,
@@ -398,7 +410,9 @@ if ($Mode -eq 'Prepare') {
     New-Item -ItemType Directory -Path $transactionDir -Force | Out-Null
     [System.IO.File]::WriteAllBytes($baselinePath, [System.IO.File]::ReadAllBytes($officialPath))
     [System.IO.File]::WriteAllBytes($candidatePath, [System.IO.File]::ReadAllBytes($officialPath))
+    Set-CanonicalTaskDefinitionEncoding -Path $candidatePath
     $baselineHash = Get-Sha256 -Path $officialPath
+    $preparedCandidateHash = Get-Sha256 -Path $candidatePath
     if ($ChainRounds.IsPresent -and ($RoundTag -notmatch '^D[1-4]$' -or $ValidateThroughRound -ne 'D4')) {
         throw '[TASK-DEFINITION-TRANSACTION] ChainRounds Prepare requires RoundTag D1-D4 and ValidateThroughRound D4'
     }
@@ -415,7 +429,7 @@ if ($Mode -eq 'Prepare') {
         baseline_path = $baselinePath
         candidate_path = $candidatePath
         baseline_sha256 = $baselineHash
-        prepared_candidate_sha256 = $baselineHash
+        prepared_candidate_sha256 = $preparedCandidateHash
         validated_candidate_sha256 = ''
         validated_rounds = @()
         validation_at = ''
@@ -489,6 +503,7 @@ if ($Mode -eq 'Validate') {
         if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {
             throw '[TASK-DEFINITION-TRANSACTION] candidate task definition missing'
         }
+        Set-CanonicalTaskDefinitionEncoding -Path $candidatePath
         $currentCandidateHash = Get-Sha256 -Path $candidatePath
         $manifest.preview_stale = ($currentCandidateHash -ne [string]$manifest.preview_candidate_sha256)
         Write-JsonAtomically -Path $manifestPath -Value $manifest
