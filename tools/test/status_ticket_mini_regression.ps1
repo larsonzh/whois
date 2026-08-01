@@ -406,10 +406,11 @@ if ($ContractGateOnly.IsPresent) {
 
     $recoveryHasDurableStepJournal = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_STEP_JOURNAL_V1'") -and $recoveryTransactionText.Contains('command_sha256 = $commandHash') -and $recoveryTransactionText.Contains("[string]`$record.status -eq 'succeeded'") -and $recoveryTransactionText.Contains('recovery step has an ambiguous prior execution and will not be replayed')
     $recoveryHasTicketMutex = $recoveryTransactionText.Contains('[System.Threading.Mutex]::new') -and $recoveryTransactionText.Contains('another recovery transaction is already active for this ticket')
-    $recoveryFailurePreservesBusinessStatus = $recoveryTransactionText.Contains("status = 'claimed'") -and $recoveryTransactionText.Contains("'recovery_failure_at'") -and $recoveryTransactionText.Contains("'recovery_failure_reason'") -and -not $recoveryTransactionText.Contains("-NotePropertyName 'status' -NotePropertyValue 'failed'")
+    $recoveryFailureCreatesFailedAudit = $recoveryTransactionText.Contains("status = 'failed'") -and $recoveryTransactionText.Contains('failed_at = $nowText') -and $recoveryTransactionText.Contains("note = 'recovery-transaction-failure-recorded'") -and $recoveryTransactionText.Contains('failure_reason = $reasonText')
+    $recoveryFailurePreservesBusinessStatus = $recoveryTransactionText.Contains("'recovery_failure_at'") -and $recoveryTransactionText.Contains("'recovery_failure_reason'") -and -not $recoveryTransactionText.Contains("-NotePropertyName 'status'") -and -not $recoveryTransactionText.Contains("-NotePropertyName 'failed_at'") -and -not $recoveryTransactionText.Contains("-NotePropertyName 'failure_reason'")
     $pollUnlocksOnlyLegacyRecoveryFailures = $pollText.Contains("`$isRecoverableTransactionFailure = (`$statusName -eq 'failed'") -and $pollText.Contains("[string]`$record.note)) -eq 'recovery-transaction-failed'")
     $childPowerShellIsResolved = $recoveryTransactionText.Contains('(Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source') -and $atomicCloseoutText.Contains('(Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source') -and -not [regex]::IsMatch($recoveryTransactionText, '&\s+powershell(?:\s|@)') -and -not [regex]::IsMatch($atomicCloseoutText, '&\s+powershell(?:\s|@)') -and -not $atomicCloseoutText.Contains("-FilePath 'powershell'")
-    $recoveryExactlyOncePass = $recoveryHasDurableStepJournal -and $recoveryHasTicketMutex -and $recoveryFailurePreservesBusinessStatus -and $pollUnlocksOnlyLegacyRecoveryFailures -and $childPowerShellIsResolved
+    $recoveryExactlyOncePass = $recoveryHasDurableStepJournal -and $recoveryHasTicketMutex -and $recoveryFailureCreatesFailedAudit -and $recoveryFailurePreservesBusinessStatus -and $pollUnlocksOnlyLegacyRecoveryFailures -and $childPowerShellIsResolved
     $recoveryExactlyOnceReason = if ($recoveryExactlyOncePass) { 'recovery-exactly-once-and-ledger-isolation-present' } else { 'missing-recovery-exactly-once-or-ledger-isolation-contract' }
     [void]$results.Add((Get-CaseResult -Name 'recovery-exactly-once-ledger-isolation' -Pass $recoveryExactlyOncePass -Reason $recoveryExactlyOnceReason))
 
@@ -1563,7 +1564,12 @@ $failedTransactionEvidencePass = (
     [string]::IsNullOrWhiteSpace([string]$failedTransaction.failure_ledger_error) -and
     [string]::IsNullOrWhiteSpace([string]$failedTransaction.handled_at) -and
     @($failedTransactionLedgerRecord).Count -eq 1 -and
-    [string]$failedTransactionLedgerRecord[0].status -eq 'failed'
+    [string]$failedTransactionLedgerRecord[0].status -eq 'failed' -and
+    -not [string]::IsNullOrWhiteSpace([string]$failedTransactionLedgerRecord[0].failed_at) -and
+    [string]$failedTransactionLedgerRecord[0].note -eq 'recovery-transaction-failure-recorded' -and
+    [string]$failedTransactionLedgerRecord[0].failure_reason -eq 'atomic_closeout_command exited with code 1' -and
+    -not [string]::IsNullOrWhiteSpace([string]$failedTransactionLedgerRecord[0].recovery_failure_at) -and
+    [string]$failedTransactionLedgerRecord[0].recovery_failure_reason -eq 'atomic_closeout_command exited with code 1'
 )
 $failedTransactionEvidenceReason = if ($failedTransactionEvidencePass) {
     'failed-transaction-evidence-and-ledger-preserved'

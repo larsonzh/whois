@@ -374,14 +374,14 @@ function Write-RecoveryFailureLedger {
             $record = [pscustomobject]@{
                 ticket_id = $ticket
                 event = (Convert-ToSingleLineText -Text $EventName)
-                status = 'claimed'
-                claimed_at = $nowText
+                status = 'failed'
+                claimed_at = ''
                 executed_at = ''
                 watch_resumed_at = ''
                 handled_at = ''
-                failed_at = ''
+                failed_at = $nowText
                 note = 'recovery-transaction-failure-recorded'
-                failure_reason = ''
+                failure_reason = $reasonText
                 recovery_failure_at = $nowText
                 recovery_failure_reason = $reasonText
             }
