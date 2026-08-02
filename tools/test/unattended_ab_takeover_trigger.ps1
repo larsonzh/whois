@@ -837,9 +837,10 @@ function Write-TriggerLog {
 
     $line = "[AB-TAKEOVER-TRIGGER] timestamp={0} {1}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), (Convert-ToSingleLineText -Text $Message)
     Write-Output $line
-    $maxAttempts = 5
+    $maxAttempts = 8
     $written = $false
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    $lastWriteError = $null
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $stream = $null
         $writer = $null
         try {
@@ -851,8 +852,9 @@ function Write-TriggerLog {
             break
         }
         catch {
+            $lastWriteError = $_.Exception.GetBaseException()
             if ($attempt -lt $maxAttempts) {
-                Start-Sleep -Milliseconds (120 * $attempt)
+                Start-Sleep -Milliseconds ([Math]::Min(500, 100 * $attempt))
             }
         }
         finally {
@@ -885,7 +887,10 @@ function Write-TriggerLog {
     if ($shouldWarn) {
         $script:TriggerLogWriteFailureKey = $script:TriggerLogPath
         $script:TriggerLogWriteFailureLastAt = $now
-        Write-Warning ("[AB-TAKEOVER-TRIGGER] log_write_failed path={0}" -f $script:TriggerLogPath)
+        $errorType = if ($null -ne $lastWriteError) { $lastWriteError.GetType().FullName } else { 'unknown' }
+        $errorHResult = if ($null -ne $lastWriteError) { $lastWriteError.HResult } else { 0 }
+        $errorMessage = if ($null -ne $lastWriteError) { Convert-ToSingleLineText -Text $lastWriteError.Message } else { 'unknown' }
+        Write-Warning ("[AB-TAKEOVER-TRIGGER] log_write_failed path={0} attempts={1} error_type={2} hresult={3} detail={4}" -f $script:TriggerLogPath, $maxAttempts, $errorType, $errorHResult, $errorMessage)
     }
 }
 

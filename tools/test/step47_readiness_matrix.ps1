@@ -69,11 +69,16 @@ foreach ($case in $cases) {
 
     Write-Output ("[STEP47] running query={0}" -f $query)
     $raw = & $BinaryPath --debug --retry-metrics $query 2>&1
+    $queryExitCode = $LASTEXITCODE
+    if ($null -eq $queryExitCode) {
+        $queryExitCode = 0
+    }
     $lines = ConvertTo-NormalizedLine -Raw $raw
     $lines | Out-File -FilePath $logPath -Encoding utf8
 
     $text = ($lines -join "`n")
 
+    $queryHeaderPresent = [regex]::IsMatch($text, '(?m)^=== Query:')
     $viaHost = Get-FirstMatchValue -Text $text -Pattern '(?m)^=== Query:.* via (?<v>[^ ]+) @' -GroupName 'v'
     $authoritative = Get-FirstMatchValue -Text $text -Pattern '(?m)^=== Authoritative RIR: (?<v>[^ @=]+)' -GroupName 'v'
     $action = Get-FirstMatchValue -Text $text -Pattern '(?m)^\[PRECLASS-DECISION\][^\r\n]*action=(?<v>[^\s]+)' -GroupName 'v'
@@ -96,9 +101,12 @@ foreach ($case in $cases) {
     }
     $targetGap = $authoritative -ne $case.ExpectedTarget
     $decisionOk = ($action -eq "hint-bypassed" -and $routeChange -eq "0")
+    $outputComplete = ($queryHeaderPresent -and -not [string]::IsNullOrWhiteSpace($authoritative))
 
     $rows += [pscustomobject]@{
         Query = $query
+        QueryExitCode = $queryExitCode
+        OutputComplete = $outputComplete
         ClassGroup = $case.ClassGroup
         PreclassClass = $preclassClass
         PreclassRir = $preclassRir
@@ -124,13 +132,21 @@ $rows | Format-Table -AutoSize | Out-String | Out-File -FilePath $summaryTxt -En
 $currentMismatchCount = @($rows | Where-Object { -not $_.CurrentMatch }).Count
 $decisionMismatchCount = @($rows | Where-Object { -not $_.DecisionOk }).Count
 $targetGapCount = @($rows | Where-Object { $_.TargetGap }).Count
+$queryExitNonzeroCount = @($rows | Where-Object { $_.QueryExitCode -ne 0 }).Count
+$outputIncompleteCount = @($rows | Where-Object { -not $_.OutputComplete }).Count
 
 Write-Output ("[STEP47] summary_csv={0}" -f $summaryCsv)
 Write-Output ("[STEP47] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[STEP47] current_mismatch={0} decision_mismatch={1} target_gap={2}" -f $currentMismatchCount, $decisionMismatchCount, $targetGapCount)
+Write-Output ("[STEP47] query_exit_nonzero={0} output_incomplete={1}" -f $queryExitNonzeroCount, $outputIncompleteCount)
 
 $exitCode = 0
-if ($currentMismatchCount -gt 0 -or $decisionMismatchCount -gt 0) {
+if ($queryExitNonzeroCount -gt 0 -or $outputIncompleteCount -gt 0) {
+    # Exit 3 distinguishes a retryable query execution/incomplete-output failure
+    # from a complete response that violates the Step47 semantic contract.
+    $exitCode = 3
+}
+elseif ($currentMismatchCount -gt 0 -or $decisionMismatchCount -gt 0) {
     $exitCode = 1
 }
 elseif ($FailOnTargetGap -and $targetGapCount -gt 0) {

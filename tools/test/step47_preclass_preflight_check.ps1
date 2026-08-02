@@ -155,11 +155,12 @@ $common = @(
 )
 
 $results = @()
+$retryableStepRegex = '(?m)^\[STEP47-CHECK\] step=readiness status=fail exit=3$|^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$'
 
 $results += (Invoke-Case -Name "baseline-disabled" -CaseArgs $common -ExpectPass $true -MustMatchRegex @(
     '(?m)^\[STEP47-CHECK\] preclass_gate=disabled$',
     '(?m)^\[STEP47-CHECK\] result=pass$'
-) | Select-Object -Last 1)
+) -RetryOnFailCount 1 -RetryIfRegex $retryableStepRegex | Select-Object -Last 1)
 
 $results += (Invoke-Case -Name "gate-enabled-valid-threshold" -CaseArgs ($common + @(
     "-RunPreclassP1Gate",
@@ -168,7 +169,7 @@ $results += (Invoke-Case -Name "gate-enabled-valid-threshold" -CaseArgs ($common
     '(?m)^\[STEP47-CHECK\] preclass_gate=enabled',
     '(?m)^\[STEP47-CHECK\] step=preclass-p1-gate status=pass',
     '(?m)^\[STEP47-CHECK\] result=pass$'
-) -RetryOnFailCount 1 -RetryIfRegex '(?m)^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$' | Select-Object -Last 1)
+) -RetryOnFailCount 1 -RetryIfRegex $retryableStepRegex | Select-Object -Last 1)
 
 $results += (Invoke-Case -Name "gate-enabled-consistency-chain" -CaseArgs ($common + @(
     "-RunPreclassTableGuard",
@@ -182,7 +183,7 @@ $results += (Invoke-Case -Name "gate-enabled-consistency-chain" -CaseArgs ($comm
     '(?m)^\[STEP47-CHECK\] step=preclass-min-matrix status=pass',
     '(?m)^\[STEP47-CHECK\] step=preclass-p1-gate status=pass',
     '(?m)^\[STEP47-CHECK\] result=pass$'
-) -RetryOnFailCount 1 -RetryIfRegex '(?m)^\[STEP47-CHECK\] step=rollback status=fail|^\[STEP47-ROLLBACK\] result=fail$' | Select-Object -Last 1)
+) -RetryOnFailCount 1 -RetryIfRegex $retryableStepRegex | Select-Object -Last 1)
 
 $results += (Invoke-Case -Name "gate-enabled-missing-threshold" -CaseArgs ($common + @(
     "-RunPreclassP1Gate",
