@@ -137,6 +137,19 @@ function Convert-CommandOutputToJson {
     }
 }
 
+function Get-RequiredNativeExitCode {
+    param(
+        [AllowNull()][object]$Value,
+        [string]$Step
+    )
+
+    if ($null -eq $Value) {
+        throw ("{0} did not provide a process exit code" -f $Step)
+    }
+
+    return [int]$Value
+}
+
 function Read-KeyValueFile {
     param([string]$Path)
 
@@ -522,7 +535,7 @@ function Assert-TaskStaticRepairPromoted {
             $checkerArguments += '-ChainRounds'
         }
         $checkerOutput = @(& $script:powerShellExe @checkerArguments 2>&1)
-        $checkerExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        $checkerExitCode = Get-RequiredNativeExitCode -Value $LASTEXITCODE -Step ("task-static checker round={0}" -f $validationRound)
         if ($checkerExitCode -ne 0) {
             $checkerTail = Convert-ToSingleLineText -Text ([string]::Join(' | ', @($checkerOutput | Select-Object -Last 8 | ForEach-Object { [string]$_ })))
             throw ("task-static recovery static gate failed round={0} exit={1} output={2}" -f $validationRound, $checkerExitCode, $checkerTail)
@@ -912,13 +925,22 @@ function Invoke-TransactionCommand {
     }
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $output = @(& $script:powerShellExe -NoProfile -ExecutionPolicy Bypass -Command $CommandLine 2>&1)
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    $nativeExitCode = $LASTEXITCODE
     $watch.Stop()
 
-    $step.exit_code = $exitCode
     $step.elapsed_ms = [int][Math]::Min([int]::MaxValue, $watch.ElapsedMilliseconds)
     $step.output = @($output | ForEach-Object { [string]$_ })
     $step.output_tail = @($output | Select-Object -Last 12 | ForEach-Object { [string]$_ })
+
+    if ($null -eq $nativeExitCode) {
+        Complete-RecoveryJournalStep -Name $Name -Status 'failed' -Step ([pscustomobject]$step)
+        $failure = [System.Exception]::new(("{0} did not provide a process exit code" -f $Name))
+        $failure.Data['transaction_step'] = [pscustomobject]$step
+        throw $failure
+    }
+
+    $exitCode = [int]$nativeExitCode
+    $step.exit_code = $exitCode
 
     if ($exitCode -ne 0) {
         Complete-RecoveryJournalStep -Name $Name -Status 'failed' -Step ([pscustomobject]$step)
@@ -954,6 +976,7 @@ $result = [ordered]@{
     schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'
     generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     success = $false
+    exit_code = 2
     reason = 'not-started'
     ticket_id = $ticket
     event = ''
@@ -1006,7 +1029,7 @@ try {
             )
             if (-not [string]::IsNullOrWhiteSpace($QueuePath)) { $pollArgs += @('-QueuePath', $QueuePath) }
             $pollOutput = @(& $script:powerShellExe @pollArgs 2>&1)
-            $pollExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+            $pollExitCode = Get-RequiredNativeExitCode -Value $LASTEXITCODE -Step 'poll'
             if ($pollExitCode -ne 0) {
                 throw ("poll exited with code {0}" -f $pollExitCode)
             }
@@ -1042,7 +1065,7 @@ try {
         }
 
         $routeOutput = @(& $script:powerShellExe -NoProfile -ExecutionPolicy Bypass -Command $routeCommand 2>&1)
-        $routeExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        $routeExitCode = Get-RequiredNativeExitCode -Value $LASTEXITCODE -Step 'route guard'
         if ($routeExitCode -ne 0) {
             throw ("route guard exited with code {0}" -f $routeExitCode)
         }
@@ -1105,24 +1128,23 @@ try {
         else {
             [void]$steps.Add((Invoke-TransactionCommand -Name 'handled_receipt_command' -CommandLine $handledReceiptCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
             [void]$steps.Add((Invoke-TransactionCommand -Name 'validate_receipt_command' -CommandLine $validateReceiptCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
-        }
-
-        [void]$steps.Add((Invoke-TransactionCommand -Name 'ticket_closure_check_command' -CommandLine $ticketClosureCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
-        [void]$steps.Add((Invoke-TransactionCommand -Name 'event_dedup_health_check_command' -CommandLine $eventDedupHealthCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
-        $finalStatusStep = Invoke-TransactionCommand -Name 'final_status_closeout_command' -CommandLine $finalStatusCloseoutCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')
-        [void]$steps.Add($finalStatusStep)
-        if (-not $finalStatusStep.skipped -and @($finalStatusStep.output).Count -gt 0) {
-            try {
-                $finalStatusResult = Convert-CommandOutputToJson -Output @($finalStatusStep.output) -Step 'final-status-closeout'
-                if (($finalStatusResult.PSObject.Properties.Name -contains 'pass') -and -not [bool]$finalStatusResult.pass) {
-                    $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned pass=false')
+            [void]$steps.Add((Invoke-TransactionCommand -Name 'ticket_closure_check_command' -CommandLine $ticketClosureCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
+            [void]$steps.Add((Invoke-TransactionCommand -Name 'event_dedup_health_check_command' -CommandLine $eventDedupHealthCheckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
+            $finalStatusStep = Invoke-TransactionCommand -Name 'final_status_closeout_command' -CommandLine $finalStatusCloseoutCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')
+            [void]$steps.Add($finalStatusStep)
+            if (-not $finalStatusStep.skipped -and @($finalStatusStep.output).Count -gt 0) {
+                try {
+                    $finalStatusResult = Convert-CommandOutputToJson -Output @($finalStatusStep.output) -Step 'final-status-closeout'
+                    if (($finalStatusResult.PSObject.Properties.Name -contains 'pass') -and -not [bool]$finalStatusResult.pass) {
+                        $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned pass=false')
+                    }
+                }
+                catch {
+                    $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned no parseable JSON result')
                 }
             }
-            catch {
-                $result.compatibility_warnings = @($result.compatibility_warnings) + @('final_status_closeout_command returned no parseable JSON result')
-            }
+            [void]$steps.Add((Invoke-TransactionCommand -Name 'final_status_closeout_apply_ack_command' -CommandLine $finalStatusCloseoutApplyAckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
         }
-        [void]$steps.Add((Invoke-TransactionCommand -Name 'final_status_closeout_apply_ack_command' -CommandLine $finalStatusCloseoutApplyAckCommand -AllowedActions $allowedActions -BlockedActions $blockedActions -AllowedTokens @('handled_at') -BlockedTokens @('handled_at')))
 
         $result.steps = @($steps.ToArray())
         $result.success = $true
@@ -1146,6 +1168,7 @@ catch {
 finally {
     $totalWatch.Stop()
     $result.elapsed_ms = [int][Math]::Min([int]::MaxValue, $totalWatch.ElapsedMilliseconds)
+    $result.exit_code = if ($result.success) { 0 } else { 2 }
     if ($script:recoveryMutexAcquired -and $null -ne $script:recoveryMutex) {
         try { $script:recoveryMutex.ReleaseMutex() } catch { }
     }
@@ -1155,6 +1178,4 @@ finally {
 }
 
 Write-TransactionResult -Result $result -Json:$AsJson
-if (-not $result.success) {
-    exit 2
-}
+exit ([int]$result.exit_code)

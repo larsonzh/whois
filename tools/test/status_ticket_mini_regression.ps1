@@ -538,7 +538,7 @@ $passiveTicketWaitReason = if ($passiveTicketWaitPass) { 'passive-ticket-wait-co
 # Event tickets close through one machine-verified command; missing command data must fail closed.
 $atomicCloseoutVerifiesFacts = $atomicCloseoutText.Contains("schema = 'AB_AGENT_TICKET_CLOSEOUT_V1'") -and $atomicCloseoutText.Contains('ticket is absent from persisted processed_ids') -and $atomicCloseoutText.Contains('persisted handled receipt is invalid') -and $atomicCloseoutText.Contains('ticket closure check returned pass=false') -and $atomicCloseoutText.Contains('[ValidateRange(10, 600)][int]$AcknowledgeTimeoutSec = 120') -and $atomicCloseoutText.Contains('acknowledge timed out after {0}ms')
 $recoveryTransactionVerifiesFacts = $recoveryTransactionText.Contains("schema = 'AB_RECOVERY_TICKET_TRANSACTION_V1'") -and $recoveryTransactionText.Contains('route_guard_command is empty') -and $recoveryTransactionText.Contains('atomic closeout machine-fact gate failed') -and $recoveryTransactionText.Contains('business_command') -and $recoveryTransactionText.Contains('continue_watch_command') -and $recoveryTransactionText.Contains('stage_main_process_verified') -and $recoveryTransactionText.Contains('business_command did not start stage-{0} main process within {1}ms') -and $recoveryTransactionText.Contains('business_command launcher exited before stage-{0} main process started') -and $recoveryTransactionText.Contains('-RedirectStandardOutput $launcherStdoutPath -RedirectStandardError $launcherStderrPath') -and $recoveryTransactionText.Contains('$launcherExitedAtMs') -and $recoveryTransactionText.Contains('[ValidateRange(30, 900)][int]$BusinessCommandVerifyTimeoutSec = 240') -and $recoveryTransactionText.Contains('[switch]$ShowBusinessCommandWindow') -and $recoveryTransactionText.Contains('if ($ShowBusinessCommandWindow.IsPresent) { ''Normal'' } else { ''Hidden'' }') -and $recoveryTransactionText.Contains('business_command_window_style={0}') -and $recoveryTransactionText.Contains('business_command_verify_timeout_ms={0}') -and $recoveryTransactionText.Contains('latest_{0}_exit.json') -and $recoveryTransactionText.Contains('Test-ProcessFilteredByTerminalExitArtifact') -and $recoveryTransactionText.Contains('Write-RecoveryFailureLedger') -and $recoveryTransactionText.Contains('failure_ledger_recorded') -and $recoveryTransactionText.Contains('Assert-TaskStaticRepairPromoted') -and $recoveryTransactionText.Contains("`$manifestState -ne 'promoted'") -and $recoveryTransactionText.Contains('task-static recovery promotion receipt/hash gate failed') -and $recoveryTransactionText.Contains('task-static recovery static gate failed round={0}') -and $pollText.Contains('$ackOnlyMode') -and $pollText.Contains('ack_only_mode = [bool]$ackOnlyMode')
-$recoveryTransactionVerifiesFacts = $recoveryTransactionVerifiesFacts -and $recoveryTransactionText.Contains('compatibility_warnings') -and $recoveryTransactionText.Contains('transaction-complete-with-compatibility-warnings')
+$recoveryTransactionVerifiesFacts = $recoveryTransactionVerifiesFacts -and $recoveryTransactionText.Contains('compatibility_warnings') -and $recoveryTransactionText.Contains('transaction-complete-with-compatibility-warnings') -and $recoveryTransactionText.Contains('function Get-RequiredNativeExitCode') -and $recoveryTransactionText.Contains('exit_code = 2') -and $recoveryTransactionText.Contains('exit ([int]$result.exit_code)') -and -not $recoveryTransactionText.Contains('if ($null -eq $LASTEXITCODE) { 0 }')
 $ps51FormatGuardUsesAst = $ps51FormatGuardText.Contains('[System.Management.Automation.Language.Parser]::ParseFile') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.BinaryExpressionAst]') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.TokenKind]::Format') -and $ps51FormatGuardText.Contains('[System.Management.Automation.Language.IfStatementAst]')
 $ps51FormatGuardProbeRoot = Join-Path $outDir 'ps51_format_guard_runtime'
 $ps51FormatGuardBadRoot = Join-Path $ps51FormatGuardProbeRoot 'bad'
@@ -1441,12 +1441,12 @@ business_command_stage=B
 preferred_stage=B
 next_command_order=route_guard_command|guard_command|atomic_closeout_command
 atomic_closeout_command=$finalTransactionAtomicCommand
-handled_receipt_command=
-validate_receipt_command=
-ticket_closure_check_command=
-event_dedup_health_check_command=
-final_status_closeout_command=
-final_status_closeout_apply_ack_command=
+handled_receipt_command=exit 91
+validate_receipt_command=exit 91
+ticket_closure_check_command=exit 91
+event_dedup_health_check_command=exit 91
+final_status_closeout_command=exit 91
+final_status_closeout_apply_ack_command=exit 91
 "@
 Write-Utf8BomText -Path $finalTransactionBrief -Text $finalTransactionBriefText
 $finalTransaction = $null
@@ -1472,9 +1472,11 @@ if ($null -ne $finalTransaction) {
     $finalTransactionBusinessStep = @($finalTransaction.steps | Where-Object { [string]$_.name -eq 'business_command' } | Select-Object -First 1)
 }
 $finalTransactionBusinessSkipped = ($finalTransactionBusinessStep.Count -eq 1 -and [bool]$finalTransactionBusinessStep[0].skipped -and [string]$finalTransactionBusinessStep[0].skip_reason -eq 'empty-command')
-$finalSummaryTransactionPass = ($finalTransactionExitCode -eq 0 -and $null -ne $finalTransaction -and [bool]$finalTransaction.success -and [string]$finalTransaction.route_classification -eq 'event-review' -and $finalTransactionBusinessSkipped -and [bool]$finalTransaction.closeout.processed -and [string]$finalTransaction.closeout.ledger_status -eq 'done' -and [bool]$finalTransaction.closeout.receipt_valid -and [bool]$finalTransaction.closeout.closure_pass -and -not [string]::IsNullOrWhiteSpace([string]$finalTransaction.handled_at))
+$finalTransactionStepNames = if ($null -ne $finalTransaction) { @($finalTransaction.steps | ForEach-Object { [string]$_.name }) } else { @() }
+$finalTransactionAtomicOnly = ([string]::Join(',', $finalTransactionStepNames) -eq 'business_command,continue_watch_command,atomic_closeout_command')
+$finalSummaryTransactionPass = ($finalTransactionExitCode -eq 0 -and $null -ne $finalTransaction -and [int]$finalTransaction.exit_code -eq $finalTransactionExitCode -and [bool]$finalTransaction.success -and [string]$finalTransaction.route_classification -eq 'event-review' -and $finalTransactionBusinessSkipped -and $finalTransactionAtomicOnly -and [bool]$finalTransaction.closeout.processed -and [string]$finalTransaction.closeout.ledger_status -eq 'done' -and [bool]$finalTransaction.closeout.receipt_valid -and [bool]$finalTransaction.closeout.closure_pass -and -not [string]::IsNullOrWhiteSpace([string]$finalTransaction.handled_at))
 $finalSummaryTransactionReason = if ($finalSummaryTransactionPass) {
-    'final-summary-transaction-skips-business-and-closes'
+    'final-summary-transaction-skips-business-and-legacy-steps-and-closes'
 }
 elseif ($null -eq $finalTransaction) {
     'final-summary-transaction-runtime-failed:no-json'
@@ -1490,7 +1492,7 @@ else {
         $finalTransactionReceiptValid = [bool]$finalTransaction.closeout.receipt_valid
         $finalTransactionClosurePass = [bool]$finalTransaction.closeout.closure_pass
     }
-    'final-summary-transaction-runtime-failed:exit={0};success={1};reason={2};route={3};business_skipped={4};processed={5};ledger={6};receipt={7};closure={8}' -f $finalTransactionExitCode, [bool]$finalTransaction.success, (Convert-ToSingleLineText -Text ([string]$finalTransaction.reason)), (Convert-ToSingleLineText -Text ([string]$finalTransaction.route_classification)), $finalTransactionBusinessSkipped, $finalTransactionProcessed, $finalTransactionLedgerStatus, $finalTransactionReceiptValid, $finalTransactionClosurePass
+    'final-summary-transaction-runtime-failed:exit={0};success={1};reason={2};route={3};business_skipped={4};atomic_only={5};steps={6};processed={7};ledger={8};receipt={9};closure={10}' -f $finalTransactionExitCode, [bool]$finalTransaction.success, (Convert-ToSingleLineText -Text ([string]$finalTransaction.reason)), (Convert-ToSingleLineText -Text ([string]$finalTransaction.route_classification)), $finalTransactionBusinessSkipped, $finalTransactionAtomicOnly, ([string]::Join(',', $finalTransactionStepNames)), $finalTransactionProcessed, $finalTransactionLedgerStatus, $finalTransactionReceiptValid, $finalTransactionClosurePass
 }
 [void]$results.Add((Get-CaseResult -Name 'final-summary-transaction-runtime' -Pass $finalSummaryTransactionPass -Reason $finalSummaryTransactionReason))
 
@@ -1554,6 +1556,7 @@ $failedTransactionLastStep = if ($failedTransactionSteps.Count -gt 0) { $failedT
 $failedTransactionEvidencePass = (
     $failedTransactionExitCode -eq 2 -and
     $null -ne $failedTransaction -and
+    [int]$failedTransaction.exit_code -eq $failedTransactionExitCode -and
     -not [bool]$failedTransaction.success -and
     [string]$failedTransaction.reason -eq 'atomic_closeout_command exited with code 1' -and
     $failedTransactionSteps.Count -eq 3 -and
