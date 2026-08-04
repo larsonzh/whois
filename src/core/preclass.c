@@ -118,15 +118,19 @@ static int wc_preclass_confidence_token_matches(const char* confidence, const ch
 	return confidence && *confidence && token && strcmp(confidence, token) == 0;
 }
 
+static const char* wc_preclass_confidence_low_literal(void);
+static const char* wc_preclass_confidence_medium_literal(void);
+static const char* wc_preclass_confidence_high_literal(void);
+
 static int wc_preclass_confidence_token_level(const char* confidence)
 {
 	if (!confidence || !*confidence)
 		return 0;
-	if (wc_preclass_confidence_token_matches(confidence, "high"))
+	if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_high_literal()))
 		return 3;
-	if (wc_preclass_confidence_token_matches(confidence, "medium"))
+	if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_medium_literal()))
 		return 2;
-	if (wc_preclass_confidence_token_matches(confidence, "low"))
+	if (wc_preclass_confidence_token_matches(confidence, wc_preclass_confidence_low_literal()))
 		return 1;
 	return 0;
 }
@@ -310,17 +314,33 @@ static const char* wc_preclass_route_change_normalized_literal(void)
 	return "route-change-normalized";
 }
 
-static int wc_preclass_action_allows_route_change(const char* action)
+static const char* wc_preclass_observe_only_action_literal(void);
+
+static int wc_preclass_action_is_preclass_short_circuit(const char* action)
 {
-	if (!wc_preclass_has_text_value(action))
-		return 0;
-	if (wc_preclass_token_equals(action, wc_preclass_action_hint_applied_literal()))
-		return 1;
-	if (wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal()))
-		return 1;
-	if (wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal()))
-		return 1;
-	return 0;
+	return wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal());
+}
+
+static int wc_preclass_action_is_step47_short_circuit(const char* action)
+{
+	return wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal());
+}
+
+static int wc_preclass_action_is_hint_applied(const char* action)
+{
+	return wc_preclass_token_equals(action, wc_preclass_action_hint_applied_literal());
+}
+
+static int wc_preclass_action_route_change_allowed(const char* action)
+{
+	return wc_preclass_action_is_hint_applied(action) ||
+		wc_preclass_action_is_preclass_short_circuit(action) ||
+		wc_preclass_action_is_step47_short_circuit(action);
+}
+
+static int wc_preclass_action_route_change_not_allowed(const char* action)
+{
+	return !wc_preclass_action_route_change_allowed(action);
 }
 
 static const char* wc_preclass_action_source_default_literal(void)
@@ -584,27 +604,27 @@ static int wc_preclass_route_change_enabled_for_decision(const wc_preclass_decis
 	return out_fields->route_change == wc_preclass_route_change_enabled_flag();
 }
 
-static int wc_preclass_route_change_should_be_blocked(const wc_preclass_decision_fields_t* out_fields)
+static int wc_preclass_route_change_policy_applies(const wc_preclass_decision_fields_t* out_fields)
 {
 	return wc_preclass_route_change_enabled_for_decision(out_fields) &&
-		!wc_preclass_action_allows_route_change(out_fields->action);
+		wc_preclass_action_route_change_not_allowed(out_fields->action);
 }
 
-static void wc_preclass_apply_route_change_block(wc_preclass_decision_fields_t* out_fields)
+static void wc_preclass_route_change_policy_apply(wc_preclass_decision_fields_t* out_fields)
 {
 	out_fields->route_change = wc_preclass_route_change_block_reset();
 	out_fields->fallback_reason = wc_preclass_route_change_fallback_apply(out_fields->fallback_reason);
 }
 
-static int wc_preclass_route_change_block_required(wc_preclass_decision_fields_t* out_fields)
+static void wc_preclass_apply_route_change_block_or_skip(wc_preclass_decision_fields_t* out_fields)
 {
-	return wc_preclass_route_change_should_be_blocked(out_fields);
+	if (wc_preclass_route_change_policy_applies(out_fields))
+		wc_preclass_route_change_policy_apply(out_fields);
 }
 
 static void wc_preclass_apply_route_change_policy(wc_preclass_decision_fields_t* out_fields)
 {
-	if (wc_preclass_route_change_block_required(out_fields))
-		wc_preclass_apply_route_change_block(out_fields);
+	wc_preclass_apply_route_change_block_or_skip(out_fields);
 }
 
 static void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out_fields)
@@ -617,7 +637,7 @@ static void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out
 	out_fields->route_change = wc_preclass_default_route_change();
 }
 
-static const char* wc_preclass_normalized_query_for_match(int query_is_cidr, const char* cidr_base, const char* query)
+static const char* wc_preclass_normalize_query_for_kind(int query_is_cidr, const char* cidr_base, const char* query)
 {
 	return query_is_cidr ? cidr_base : query;
 }
@@ -679,7 +699,7 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		cidr_base,
 		sizeof(cidr_base),
 		&cidr_prefix);
-	const char* normalized = wc_preclass_normalized_query_for_match(query_is_cidr, cidr_base, query);
+	const char* normalized = wc_preclass_normalize_query_for_kind(query_is_cidr, cidr_base, query);
 	if (normalized && wc_client_is_valid_ip_address(normalized))
 		out_fields->match_layer = wc_preclass_match_layer_for_query_kind(query_is_cidr);
 
@@ -1285,6 +1305,46 @@ static const char* wc_preclass_family_non_ip_literal(void)
 	return "non-ip";
 }
 
+static int wc_preclass_lookup_row_and_assign_v4(struct in_addr addr4,
+		const char** family,
+		const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence)
+{
+	const wc_preclass_table_row_t* row;
+	unsigned char b[4];
+	uint32_t ip;
+	memcpy(b, &addr4, sizeof(b));
+	ip = (((uint32_t)b[0]) << 24) |
+		(((uint32_t)b[1]) << 16) |
+		(((uint32_t)b[2]) << 8) |
+		((uint32_t)b[3]);
+	if (!wc_preclass_lookup_row_v4(ip, &row))
+		return 0;
+	*family = wc_preclass_family_v4_literal();
+	wc_preclass_assign_from_row(row, cls, rir, reason, confidence);
+	return 1;
+}
+
+static int wc_preclass_lookup_row_and_assign_v6(struct in6_addr addr6,
+		const char** family,
+		const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence)
+{
+	const wc_preclass_table_row_t* row;
+	const unsigned char* b = addr6.s6_addr;
+	uint64_t hi = wc_preclass_read_be64(b);
+	uint64_t lo = wc_preclass_read_be64(b + 8);
+	if (!wc_preclass_lookup_row_v6(hi, lo, &row))
+		return 0;
+	*family = wc_preclass_family_v6_literal();
+	wc_preclass_assign_from_row(row, cls, rir, reason, confidence);
+	return 1;
+}
+
 static int wc_preclass_lookup_table(const char* normalized,
 		const char** family,
 		const char** cls,
@@ -1299,31 +1359,11 @@ static int wc_preclass_lookup_table(const char* normalized,
 		return 0;
 
 	if (inet_pton(AF_INET, normalized, &addr4) == 1) {
-		const wc_preclass_table_row_t* row;
-		unsigned char b[4];
-		uint32_t ip;
-		memcpy(b, &addr4, sizeof(b));
-		ip = (((uint32_t)b[0]) << 24) |
-			(((uint32_t)b[1]) << 16) |
-			(((uint32_t)b[2]) << 8) |
-			((uint32_t)b[3]);
-		if (!wc_preclass_lookup_row_v4(ip, &row))
-			return 0;
-		*family = wc_preclass_family_v4_literal();
-		wc_preclass_assign_from_row(row, cls, rir, reason, confidence);
-		return 1;
+		return wc_preclass_lookup_row_and_assign_v4(addr4, family, cls, rir, reason, confidence);
 	}
 
 	if (inet_pton(AF_INET6, normalized, &addr6) == 1) {
-		const wc_preclass_table_row_t* row;
-		const unsigned char* b = addr6.s6_addr;
-		uint64_t hi = wc_preclass_read_be64(b);
-		uint64_t lo = wc_preclass_read_be64(b + 8);
-		if (!wc_preclass_lookup_row_v6(hi, lo, &row))
-			return 0;
-		*family = wc_preclass_family_v6_literal();
-		wc_preclass_assign_from_row(row, cls, rir, reason, confidence);
-		return 1;
+		return wc_preclass_lookup_row_and_assign_v6(addr6, family, cls, rir, reason, confidence);
 	}
 
 	return 0;
@@ -1407,7 +1447,7 @@ static const char* wc_preclass_v6_documentation_reason_literal(void)
 
 static const char* wc_preclass_v4_reserved_future_use_reason_literal(void)
 {
-	return "V4_FUTURE_USE_240_4";
+	return wc_preclass_class_special_literal();
 }
 
 static void wc_preclass_set_reserved_none_tuple(const char** cls,
@@ -1497,6 +1537,16 @@ static const char* wc_preclass_v6_link_local_reason_literal(void)
 	return "V6_LINK_LOCAL_FE80_10";
 }
 
+static const char* wc_preclass_v4_multicast_reason_literal(void)
+{
+	return "V4_MULTICAST_224_4";
+}
+
+static const char* wc_preclass_v6_multicast_reason_literal(void)
+{
+	return "V6_MULTICAST_FF00_8";
+}
+
 static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)
 {
 	wc_preclass_apply_v6_named_special_result(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());
@@ -1520,10 +1570,10 @@ static int wc_preclass_v6_is_global_unicast_2000_3(const unsigned char* b)
 static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)
 {
 	*family = wc_preclass_family_non_ip_literal();
-	*cls = "unknown";
-	*rir = "unknown";
+	*cls = wc_preclass_class_unknown_literal();
+	*rir = wc_preclass_rir_unknown_literal();
 	*reason = "NON_IP_INPUT";
-	*confidence = "low";
+	*confidence = wc_preclass_confidence_low_literal();
 }
 
 void wc_preclass_classify_ip(const char* normalized,
@@ -1584,7 +1634,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 		if (b[0] >= 224 && b[0] <= 239) {
-			wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, "V4_MULTICAST_224_4");
+			wc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal());
 			return;
 		}
 
@@ -1610,7 +1660,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 		if (wc_preclass_v6_is_multicast(b)) {
-			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, "V6_MULTICAST_FF00_8");
+			wc_preclass_set_v6_branch_special_result(cls, rir, reason, confidence, wc_preclass_v6_multicast_reason_literal());
 			return;
 		}
 		if (wc_preclass_v6_is_documentation_2001_db8_32(b)) {

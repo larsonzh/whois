@@ -59,7 +59,7 @@
       ],
       "operations": [
         {
-          "pattern": "static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)",
+          "pattern": "(?<!V6_MULTICAST_FF00_8\";[\\r\\n]+\\}[\\r\\n]+)static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)",
           "replacement": "static const char* wc_preclass_v4_multicast_reason_literal(void)\r\n{\r\n\treturn \"V4_MULTICAST_224_4\";\r\n}\r\n\r\nstatic const char* wc_preclass_v6_multicast_reason_literal(void)\r\n{\r\n\treturn \"V6_MULTICAST_FF00_8\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)",
           "idempotentContains": [
             "static const char* wc_preclass_v4_multicast_reason_literal(void)"
@@ -123,11 +123,16 @@
           "name": "d2-hint-applied-call-site",
           "pattern": "if \\(wc_preclass_action_is_hint_applied\\(action\\)\\)",
           "expectedCount": 1
+        },
+        {
+          "name": "d2-observe-only-action-literal-prototype",
+          "pattern": "static const char\\* wc_preclass_observe_only_action_literal\\(void\\);",
+          "expectedCount": 1
         }
       ],
       "operations": [
         {
-          "pattern": "static int wc_preclass_action_allows_route_change\\(const char\\* action\\)",
+          "pattern": "(?<!wc_preclass_action_hint_applied_literal\\(\\)\\);[\\r\\n]+\\}[\\r\\n]+)static int wc_preclass_action_allows_route_change\\(const char\\* action\\)",
           "replacement": "static int wc_preclass_action_is_observe_only(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_observe_only_action_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_hint_applied(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_hint_applied_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_allows_route_change(const char* action)",
           "idempotentContains": [
             "static int wc_preclass_action_is_observe_only(const char* action)"
@@ -155,10 +160,10 @@
           ]
         },
         {
-          "pattern": "return wc_preclass_action_is_observe_only\\(action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only",
-          "replacement": "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only",
+          "pattern": "return \"route-change-normalized\";\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_action_is_observe_only\\(const char\\* action\\)",
+          "replacement": "return \"route-change-normalized\";\r\n}\r\n\r\nstatic const char* wc_preclass_observe_only_action_literal(void);\r\n\r\nstatic int wc_preclass_action_is_observe_only(const char* action)",
           "idempotentContains": [
-            "return 0;\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only"
+            "static const char* wc_preclass_observe_only_action_literal(void);"
           ]
         }
       ]
@@ -190,6 +195,21 @@
           "name": "d3-non-ip-reason-helper-definition",
           "pattern": "static const char\\* wc_preclass_non_ip_reason_literal\\(void\\)",
           "expectedCount": 1
+        },
+        {
+          "name": "d3-confidence-low-literal-prototype",
+          "pattern": "static const char\\* wc_preclass_confidence_low_literal\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-confidence-medium-literal-prototype",
+          "pattern": "static const char\\* wc_preclass_confidence_medium_literal\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-confidence-high-literal-prototype",
+          "pattern": "static const char\\* wc_preclass_confidence_high_literal\\(void\\);",
+          "expectedCount": 1
         }
       ],
       "operations": [
@@ -215,10 +235,17 @@
           ]
         },
         {
-          "pattern": "static void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,",
+          "pattern": "(?<!NON_IP_INPUT\";[\\r\\n]+\\}[\\r\\n]+)static void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,",
           "replacement": "static const char* wc_preclass_non_ip_reason_literal(void)\r\n{\r\n\treturn \"NON_IP_INPUT\";\r\n}\r\n\r\nstatic void wc_preclass_set_v6_branch_special_result(const char** cls,",
           "idempotentContains": [
             "static const char* wc_preclass_non_ip_reason_literal(void)"
+          ]
+        },
+        {
+          "pattern": "return confidence && \\*confidence && token && strcmp\\(confidence, token\\) == 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_confidence_token_level\\(const char\\* confidence\\)",
+          "replacement": "return confidence && *confidence && token && strcmp(confidence, token) == 0;\r\n}\r\n\r\nstatic const char* wc_preclass_confidence_low_literal(void);\r\nstatic const char* wc_preclass_confidence_medium_literal(void);\r\nstatic const char* wc_preclass_confidence_high_literal(void);\r\n\r\nstatic int wc_preclass_confidence_token_level(const char* confidence)",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_low_literal(void);"
           ]
         }
       ]
@@ -255,7 +282,7 @@
       ],
       "operations": [
         {
-          "pattern": "static int wc_preclass_action_is_observe_only\\(const char\\* action\\)",
+          "pattern": "(?<!wc_preclass_action_step47_short_circuit_literal\\(\\)\\);[\\r\\n]+\\}[\\r\\n]+)static int wc_preclass_action_is_observe_only\\(const char\\* action\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_token_equals\\(action, wc_preclass_observe_only_action_literal\\(\\)\\);\\r?\\n\\}",
           "replacement": "static int wc_preclass_action_is_preclass_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_preclass_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_step47_short_circuit(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_action_step47_short_circuit_literal());\r\n}\r\n\r\nstatic int wc_preclass_action_is_observe_only(const char* action)\r\n{\r\n\treturn wc_preclass_token_equals(action, wc_preclass_observe_only_action_literal());\r\n}",
           "idempotentContains": [
             "static int wc_preclass_action_is_preclass_short_circuit(const char* action)"
@@ -269,7 +296,7 @@
           ]
         },
         {
-          "pattern": "void wc_preclass_resolve_decision_fields\\(const char\\* query,\\r?\\n\\t\\tconst char\\* decision_action,\\r?\\n\\t\\tint route_change,\\r?\\n\\t\\tint preclass_disabled,\\r?\\n\\t\\twc_preclass_decision_fields_t\\* out_fields\\)\\r?\\n\\{\\r?\\n\\tif \\(!out_fields\\)\\r?\\n\\t\\treturn;",
+          "pattern": "(?<!wc_preclass_parse_cidr_query\\(query, cidr_base, base_len, out_prefix\\);[\\r\\n]+\\}[\\r\\n]+)void wc_preclass_resolve_decision_fields\\(const char\\* query,\\r?\\n\\t\\tconst char\\* decision_action,\\r?\\n\\t\\tint route_change,\\r?\\n\\t\\tint preclass_disabled,\\r?\\n\\t\\twc_preclass_decision_fields_t\\* out_fields\\)\\r?\\n\\{\\r?\\n\\tif \\(!out_fields\\)\\r?\\n\\t\\treturn;",
           "replacement": "static int wc_preclass_decision_cidr_query_matches(const char* query, char* cidr_base, size_t base_len, int* out_prefix)\r\n{\r\n\treturn wc_preclass_parse_cidr_query(query, cidr_base, base_len, out_prefix);\r\n}\r\n\r\nvoid wc_preclass_resolve_decision_fields(const char* query,\r\n\t\tconst char* decision_action,\r\n\t\tint route_change,\r\n\t\tint preclass_disabled,\r\n\t\twc_preclass_decision_fields_t* out_fields)\r\n{\r\n\tif (!out_fields)\r\n\t\treturn;",
           "idempotentContains": [
             "static int wc_preclass_decision_cidr_query_matches(const char* query, char* cidr_base, size_t base_len, int* out_prefix)"
