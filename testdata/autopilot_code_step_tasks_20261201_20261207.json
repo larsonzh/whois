@@ -1,0 +1,265 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-d1-d4-20261201-20261207",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist A for serial #29: v4 inline byte-predicate helpers, RIR-hint predicate consolidation, v4 special-result setter chain and reason-name literal reuse"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 5,
+    "description": "Checklist A continues ultra-high-density consolidation: v4 private/multicast predicates, RIR-hint predicate, special-result setter chain and reason-name literal reuse",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extract inline v4 private-192.168 and multicast-224/239 byte predicates into named helpers and replace inline byte comparisons in classify_ip",
+      "idempotentContains": [
+        "static int wc_preclass_v4_is_private_192_168(const unsigned char* b)",
+        "static int wc_preclass_v4_is_multicast_224_239(const unsigned char* b)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-private-192-168-helper-definition",
+          "pattern": "static int wc_preclass_v4_is_private_192_168\\(const unsigned char\\* b\\)\\r?\\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-multicast-224-239-helper-definition",
+          "pattern": "static int wc_preclass_v4_is_multicast_224_239\\(const unsigned char\\* b\\)\\r?\\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-inline-192-168-comparison-removed",
+          "pattern": "if \\(b\\[0\\] == 192 && b\\[1\\] == 168\\) \\{",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-inline-224-239-comparison-removed",
+          "pattern": "if \\(b\\[0\\] >= 224 && b\\[0\\] <= 239\\) \\{",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-private-192-168-call-site",
+          "pattern": "if \\(wc_preclass_v4_is_private_192_168\\(b\\)\\) \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-multicast-224-239-call-site",
+          "pattern": "if \\(wc_preclass_v4_is_multicast_224_239\\(b\\)\\) \\{",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "(?<!return b\\[0\\] >= 224 && b\\[0\\] <= 239;[\\r\\n]+\\}[\\r\\n]+)static int wc_preclass_v4_is_loopback\\(const unsigned char\\* b\\)",
+          "replacement": "static int wc_preclass_v4_is_private_192_168(const unsigned char* b)\r\n{\r\n\treturn b[0] == 192 && b[1] == 168;\r\n}\r\n\r\nstatic int wc_preclass_v4_is_multicast_224_239(const unsigned char* b)\r\n{\r\n\treturn b[0] >= 224 && b[0] <= 239;\r\n}\r\n\r\nstatic int wc_preclass_v4_is_loopback(const unsigned char* b)",
+          "idempotentContains": [
+            "static int wc_preclass_v4_is_private_192_168(const unsigned char* b)\r\n{\r\n\treturn b[0] == 192 && b[1] == 168;\r\n}"
+          ]
+        },
+        {
+          "pattern": "if \\(b\\[0\\] == 192 && b\\[1\\] == 168\\) \\{\\r?\\n\\t\\t\\twc_preclass_set_v4_private_range_result\\(cls, rir, reason, confidence, wc_preclass_v4_private_192_reason_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_v4_is_private_192_168(b)) {\r\n\t\t\twc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, wc_preclass_v4_private_192_reason_literal());",
+          "idempotentContains": [
+            "if (wc_preclass_v4_is_private_192_168(b)) {\r\n\t\t\twc_preclass_set_v4_private_range_result(cls, rir, reason, confidence, wc_preclass_v4_private_192_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "if \\(b\\[0\\] >= 224 && b\\[0\\] <= 239\\) \\{\\r?\\n\\t\\t\\twc_preclass_set_v4_branch_special_result\\(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_v4_is_multicast_224_239(b)) {\r\n\t\t\twc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal());",
+          "idempotentContains": [
+            "if (wc_preclass_v4_is_multicast_224_239(b)) {\r\n\t\t\twc_preclass_set_v4_branch_special_result(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal());"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Introduce a reusable RIR-hint presence predicate and route both duplicated inline comparisons through it",
+      "idempotentContains": [
+        "static int wc_preclass_rir_hint_present(const char* guessed_rir)",
+        "return wc_preclass_rir_hint_present(guessed_rir);"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-rir-hint-present-helper-definition",
+          "pattern": "static int wc_preclass_rir_hint_present\\(const char\\* guessed_rir\\)\\r?\\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-has-rir-hint-value-simplified",
+          "pattern": "static int wc_preclass_has_rir_hint_value\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_hint_present\\(guessed_rir\\);\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-apply-allocated-hint-simplified",
+          "pattern": "static int wc_preclass_apply_allocated_hint_from_rir\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_hint_present\\(guessed_rir\\);\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-legacy-has-rir-hint-inline-removed",
+          "pattern": "static int wc_preclass_has_rir_hint_value\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_has_text_value\\(guessed_rir\\) &&\\r?\\n\\t\\tstrcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0;\\r?\\n\\}",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static int wc_preclass_has_rir_hint_value\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_has_text_value\\(guessed_rir\\) &&\\r?\\n\\t\\tstrcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_rir_hint_present(const char* guessed_rir)\r\n{\r\n\treturn wc_preclass_has_text_value(guessed_rir) &&\r\n\t\tstrcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0;\r\n}\r\n\r\nstatic int wc_preclass_has_rir_hint_value(const char* guessed_rir)\r\n{\r\n\treturn wc_preclass_rir_hint_present(guessed_rir);\r\n}",
+          "idempotentContains": [
+            "static int wc_preclass_rir_hint_present(const char* guessed_rir)\r\n{\r\n\treturn wc_preclass_has_text_value(guessed_rir) &&\r\n\t\tstrcmp(guessed_rir, wc_preclass_rir_unknown_compare_literal()) != 0;\r\n}"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_apply_allocated_hint_from_rir\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn guessed_rir && \\*guessed_rir && strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\) != 0;\\r?\\n\\}",
+          "replacement": "static int wc_preclass_apply_allocated_hint_from_rir(const char* guessed_rir)\r\n{\r\n\treturn wc_preclass_rir_hint_present(guessed_rir);\r\n}",
+          "idempotentContains": [
+            "static int wc_preclass_apply_allocated_hint_from_rir(const char* guessed_rir)\r\n{\r\n\treturn wc_preclass_rir_hint_present(guessed_rir);\r\n}"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Consolidate v4 special-result setter chain by routing setter bodies directly to the common special tuple setter and removing the redundant named middle layer",
+      "idempotentContains": [
+        "wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-named-middle-layer-removed",
+          "pattern": "static void wc_preclass_apply_v4_named_special_result\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-special-result-setter-direct-call",
+          "pattern": "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-private-range-setter-direct-call",
+          "pattern": "static void wc_preclass_set_v4_private_range_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence, const char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-branch-special-setter-preserved",
+          "pattern": "static void wc_preclass_set_v4_branch_special_result\\(",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v4_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_v4_named_special_result\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v4_special_result(const char** cls,\r\n\t\tconst char** rir,\r\n\t\tconst char** reason,\r\n\t\tconst char** confidence,\r\n\t\tconst char* reason_value)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}",
+          "idempotentContains": [
+            "static void wc_preclass_set_v4_special_result(const char** cls,\r\n\t\tconst char** rir,\r\n\t\tconst char** reason,\r\n\t\tconst char** confidence,\r\n\t\tconst char* reason_value)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_v4_private_range_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence, const char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_v4_named_special_result\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v4_private_range_result(const char** cls, const char** rir, const char** reason, const char** confidence, const char* reason_value)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}",
+          "idempotentContains": [
+            "static void wc_preclass_set_v4_private_range_result(const char** cls, const char** rir, const char** reason, const char** confidence, const char* reason_value)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_apply_v4_named_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v4_branch_special_result",
+          "replacement": "static void wc_preclass_set_v4_branch_special_result",
+          "idempotentContains": [
+            "static void wc_preclass_set_v4_branch_special_result"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Consolidate v6 special-result setter chain by routing branch and loopback setter bodies directly to the common special tuple setter and removing the redundant named middle layer",
+      "idempotentContains": [
+        "wc_preclass_set_v6_loopback_result",
+        "wc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-named-middle-layer-removed",
+          "pattern": "static void wc_preclass_apply_v6_named_special_result\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-branch-setter-direct-call",
+          "pattern": "static void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,\\r?\\n        const char\\*\\* rir,\\r?\\n        const char\\*\\* reason,\\r?\\n        const char\\*\\* confidence,\\r?\\n        const char\\* reason_value\\)\\r?\\n\\{\\r?\\n    wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-loopback-setter-direct-call",
+          "pattern": "static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal\\(\\)\\);\\r?\\n\\}",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_v6_branch_special_result\\(const char\\*\\* cls,\\r?\\n        const char\\*\\* rir,\\r?\\n        const char\\*\\* reason,\\r?\\n        const char\\*\\* confidence,\\r?\\n        const char\\* reason_value\\)\\r?\\n\\{\\r?\\n    wc_preclass_apply_v6_named_special_result\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v6_branch_special_result(const char** cls,\r\n        const char** rir,\r\n        const char** reason,\r\n        const char** confidence,\r\n        const char* reason_value)\r\n{\r\n    wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_branch_special_result(const char** cls,\r\n        const char** rir,\r\n        const char** reason,\r\n        const char** confidence,\r\n        const char* reason_value)\r\n{\r\n    wc_preclass_set_special_tuple(cls, rir, reason, confidence, reason_value);\r\n}"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_v6_loopback_result\\(const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_v6_named_special_result\\(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal\\(\\)\\);\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());\r\n}",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_loopback_result(const char** cls, const char** rir, const char** reason, const char** confidence)\r\n{\r\n\twc_preclass_set_special_tuple(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal());\r\n}"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_apply_v6_named_special_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_special_tuple\\(cls, rir, reason, confidence, reason_value\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_branch_special_result",
+          "replacement": "static void wc_preclass_set_v6_branch_special_result",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_branch_special_result"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-04：新增串行第 29/30 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2026-12-01 ~ 2026-12-15`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20261201_20261207.json`、`testdata/autopilot_code_step_tasks_20261208_20261215.json`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见文内第 29/30 份清单段与启动文件段）。
 - 2026-08-04：串行第 27/28 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2026-11-16 ~ 2026-11-30`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260803-193007，B run=out/artifacts/dev_verify_multiround/20260804-015535）；期间 2 起 task-static 自愈（A-D1 / B-D1）均闭环；收尾删除 8 个未使用 static 函数，最终 Strict 远程构建冒烟同步 + 黄金校验无告警通过（详见文内第 27/28 份回填段与启动文件段）。
 - 2026-07-23：A/B launch-ready 与任务定义修复恢复热路径收敛：启动默认仅运行 task-definition SyntaxOnly、字段同步、changed-file 编码、进程、SSH 与远端锁门禁，完整 status-ticket/retry-budget/route-guard/repository 回归改为 start-file 显式 opt-in，并移除 fastmode A/B 的重复 status-ticket 回归；Stage A dry-run 实测由约 8 分 35 秒降至约 31 秒。任务定义修复票改用 `status_ticket_mini_regression.ps1 -ContractGateOnly` 快速强锚点，墙钟约 5 秒，执行顺序固定为 route guard -> contract gate -> launch-ready -> recovery transaction，确保完整回归不进入主进程重启后的三分钟原子收尾温窗。Stage B 缺少 A PASS snapshot 时保留前置 fail-fast，并输出 baseline START/DONE 进度。
 - 2026-07-23：retry-budget minimal regression 复用一次 session-floor seed，并通过 ack-only fast path 覆盖 yes/missing/no，移除每 case 重复 select；poll 子进程从 9 次降为 4 次，本机实测由 92.2 秒降至 46.9 秒，ledger 结果契约不变。
@@ -8419,3 +8420,84 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - [x] Strict 远程编译冒烟同步 + 黄金校验（`lto-auto`，默认）：`out/artifacts/20260804-101426`（修复前，`有告警`：7 条未使用 static 函数 warning，构建仍 PASS、`Golden PASS`、`referral check PASS`，`duration=283s`）。
 - [x] Strict 远程编译冒烟同步 + 黄金校验（`lto-auto`，默认）：`out/artifacts/20260804-103402`（修复后），`无告警 + lto 无告警 + Local hash verify=PASS + Golden PASS + referral check=PASS`，`duration=280s`。
 - [x] 告警消除：收尾删除 `src/core/preclass.c` 中 8 个未使用 static 函数（B 阶段整合后遗留），clang `-Wall -Wextra` 本地检查无未使用函数告警，语言服务器无错误。
+
+
+**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-12-01 ~ 2026-12-07，串行第 29 份，Checklist A，草案，待执行）**：
+
+> 注：本清单在第 27 份 A 的 very-high 基础上继续推进 `preclass.c` 的 v4 inline byte-predicate、RIR-hint predicate、v4/v6 special-result setter 链与 reason-name literal 再抽象。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20261201_20261207.json`。
+> 状态：草案（已编制并通过全定义静态验收 + 链式检查 + 编译验证，待用户确认与启动授权）。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在第 28 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+
+**开发四轮（D1~D4，超高密度）**：
+1. [ ] D1：Extract inline v4 private-192.168 and multicast-224/239 byte predicates into named helpers and replace inline byte comparisons in classify_ip.
+2. [ ] D2：Introduce a reusable RIR-hint presence predicate and route both duplicated inline comparisons through it.
+3. [ ] D3：Consolidate v4 special-result setter chain by routing setter bodies directly to the common special tuple setter and removing the redundant named middle layer.
+4. [ ] D4：Consolidate v6 special-result setter chain by routing branch and loopback setter bodies directly to the common special tuple setter and removing the redundant named middle layer.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**编制期验收（已完成，2026-08-04）**：
+- [x] `-SyntaxOnly` 装载检查：PASS。
+- [x] 全定义静态检查（无 RoundTag）：`errors=0 warnings=0`，D1~D4 全部 op 唯一命中、marker 自有、replacement 收敛、replay 稳定、断言精确。
+- [x] 专项安全回归 `task_definition_safety_regression.ps1`：全 case PASS。
+- [x] 链式检查 `-RoundTag D1 -ChainRounds`：`errors=0 warnings=0`。
+- [x] 有效源码 clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
+
+
+**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2026-12-08 ~ 2026-12-15，串行第 30 份，Checklist B，草案，待执行）**：
+
+> 注：Checklist B 仅在 Checklist A（串行第 29 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点放在 v6 global-unicast reason 局部引用、non-ip 默认 reason 字面量、unknown-hint 默认 tuple 复用与 reason-name registry literal 提取。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20261208_20261215.json`。
+> 状态：草案（已编制并以 A 为前置定义通过链式静态验收 + 编译验证，待用户确认与启动授权）。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+
+**开发四轮（D1~D4，超高密度跟进）**：
+1. [ ] D1：Introduce a local reason_value reference in v6 global-unicast result to eliminate repeated reason literal helper calls.
+2. [ ] D2：Unify non-ip default reason literal reference and reuse the classified tuple helper for unknown-hint default tuple.
+3. [ ] D3：Extract V4 registry reason literal helpers and route reason_name V4 cases through them.
+4. [ ] D4：Route remaining V6 reason_name cases through the extracted V6 registry literal helpers and the pre-existing v6 global-unicast reason helper.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**编制期验收（已完成，2026-08-04）**：
+- [x] `-SyntaxOnly` 装载检查：PASS。
+- [x] 以 A 为前置任务定义的链式全定义静态检查（`-PrerequisiteTaskDefinitionFiles`）：`errors=0 warnings=0`，D1~D4 全部 op 唯一命中、marker 自有、replacement 收敛、断言精确。
+- [x] 链式有效源码（A+B 全部轮次应用）clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
+
+
+**对应任务启动文件（2026-12-01 ~ 2026-12-15，草案，待生成）**：
+
+- 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20261201-20261215.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20261201_20261207.json`
+  - B：`testdata/autopilot_code_step_tasks_20261208_20261215.json`
+- 当前窗口：`WINDOW=2026-12-01 ~ 2026-12-15`
+- 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
+- 状态：待用户确认后生成并通过统一启动前检查（`check_unattended_ab_launch_ready.ps1`）。

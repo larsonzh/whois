@@ -1,0 +1,303 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-followup-d1-d4-20261208-20261215",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist B for serial #30: v6 global-unicast reason local reference, non-ip default reason unification, unknown-hint tuple reuse and reason-name literal extraction"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist B keeps state-only continuation and focuses on v6 global-unicast reason reference, non-ip reason literal, unknown-hint default tuple and reason-name registry literal helpers",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce a local reason_value reference in v6 global-unicast result to eliminate repeated reason literal helper calls",
+      "idempotentContains": [
+        "const char* reason_value = wc_preclass_v6_global_unicast_reason_literal();",
+        "reason_value, wc_preclass_confidence_medium_literal());",
+        "reason_value, wc_preclass_confidence_low_literal());"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-reason-value-local-declared",
+          "pattern": "const char\\* reason_value = wc_preclass_v6_global_unicast_reason_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-known-tuple-uses-local",
+          "pattern": "wc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-unknown-tuple-uses-local",
+          "pattern": "wc_preclass_apply_unknown_rir_tuple\\(rir, reason, confidence, reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-inline-reason-call-reduced",
+          "pattern": "wc_preclass_v6_global_unicast_reason_literal\\(\\)\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);\\r?\\n\\t\\*reason = wc_preclass_v6_global_unicast_reason_literal\\(\\);\\r?\\n\\tconst char\\* guessed_rir = wc_guess_rir\\(normalized\\);",
+          "replacement": "\tconst char* reason_value = wc_preclass_v6_global_unicast_reason_literal();\r\n\t*cls = wc_preclass_class_allocated_literal();\r\n\t*reason = reason_value;\r\n\tconst char* guessed_rir = wc_guess_rir(normalized);",
+          "idempotentContains": [
+            "const char* reason_value = wc_preclass_v6_global_unicast_reason_literal();\r\n\t*cls = wc_preclass_class_allocated_literal();\r\n\t*reason = reason_value;"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, wc_preclass_v6_global_unicast_reason_literal\\(\\), wc_preclass_confidence_medium_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_unknown_rir_tuple\\(rir, reason, confidence, wc_preclass_v6_global_unicast_reason_literal\\(\\), wc_preclass_confidence_low_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, reason_value, wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, reason_value, wc_preclass_confidence_low_literal());"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Unify non-ip default reason literal reference and reuse the classified tuple helper for unknown-hint default tuple",
+      "idempotentContains": [
+        "*reason = wc_preclass_reason_non_ip_input_literal();",
+        "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence,\r\n\t\twc_preclass_class_unknown_literal(),"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-non-ip-reason-helper-call",
+          "pattern": "\\*reason = wc_preclass_reason_non_ip_input_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-non-ip-inline-literal-removed",
+          "pattern": "\\*reason = \"NON_IP_INPUT\";",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-unknown-hint-tuple-reused",
+          "pattern": "wc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence,\\r?\\n\\t\\twc_preclass_class_unknown_literal\\(\\),",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-unknown-hint-local-vars-removed",
+          "pattern": "const char\\* class_value = wc_preclass_class_unknown_literal\\(\\);",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "\\t\\*reason = \"NON_IP_INPUT\";\\r?\\n\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\}",
+          "replacement": "\t*reason = wc_preclass_reason_non_ip_input_literal();\r\n\t*confidence = wc_preclass_confidence_low_literal();\r\n}",
+          "idempotentContains": [
+            "*reason = wc_preclass_reason_non_ip_input_literal();\r\n\t*confidence = wc_preclass_confidence_low_literal();\r\n}"
+          ]
+        },
+        {
+          "pattern": "\\{\\r?\\n\\tconst char\\* class_value = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\tconst char\\* rir_value = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\tconst char\\* reason_value = wc_preclass_unknown_hint_default_reason_literal\\(\\);\\r?\\n\\tconst char\\* confidence_value = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\t\\*cls = class_value;\\r?\\n\\t\\*rir = rir_value;\\r?\\n\\t\\*reason = reason_value;\\r?\\n\\t\\*confidence = confidence_value;\\r?\\n\\}",
+          "replacement": "{\r\n\twc_preclass_apply_classified_tuple(cls, rir, reason, confidence,\r\n\t\twc_preclass_class_unknown_literal(),\r\n\t\twc_preclass_rir_unknown_literal(),\r\n\t\twc_preclass_unknown_hint_default_reason_literal(),\r\n\t\twc_preclass_confidence_low_literal());\r\n}",
+          "idempotentContains": [
+            "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence,\r\n\t\twc_preclass_class_unknown_literal(),"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extract V4 registry reason literal helpers and route reason_name V4 cases through them",
+      "idempotentContains": [
+        "static const char* wc_preclass_reason_v4_allocated_registry_literal(void)",
+        "static const char* wc_preclass_reason_v4_unknown_registry_literal(void)",
+        "return wc_preclass_reason_v4_allocated_registry_literal();"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-v4-allocated-registry-helper-definition",
+          "pattern": "static const char\\* wc_preclass_reason_v4_allocated_registry_literal\\(void\\)\\r?\\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-unknown-registry-helper-definition",
+          "pattern": "static const char\\* wc_preclass_reason_v4_unknown_registry_literal\\(void\\)\\r?\\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-allocated-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-legacy-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-reserved-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-unknown-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-v4-inline-case-removed",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "(?<!return \"V6_UNKNOWN_REGISTRY\";[\\r\\n]+\\}[\\r\\n]+)static const char\\* wc_preclass_reason_name\\(uint16_t reason_id\\)",
+          "replacement": "static const char* wc_preclass_reason_v4_allocated_registry_literal(void)\r\n{\r\n\treturn \"V4_ALLOCATED_REGISTRY\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_v4_legacy_registry_literal(void)\r\n{\r\n\treturn \"V4_LEGACY_REGISTRY\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_v4_reserved_registry_literal(void)\r\n{\r\n\treturn \"V4_RESERVED_REGISTRY\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_v4_unknown_registry_literal(void)\r\n{\r\n\treturn \"V4_UNKNOWN_REGISTRY\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_v6_reserved_ietf_literal(void)\r\n{\r\n\treturn \"V6_RESERVED_IETF\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_v6_unknown_registry_literal(void)\r\n{\r\n\treturn \"V6_UNKNOWN_REGISTRY\";\r\n}\r\n\r\nstatic const char* wc_preclass_reason_name(uint16_t reason_id)",
+          "idempotentContains": [
+            "static const char* wc_preclass_reason_v4_allocated_registry_literal(void)\r\n{\r\n\treturn \"V4_ALLOCATED_REGISTRY\";\r\n}"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal();"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal();"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal();"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal();"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Route remaining V6 reason_name cases through the extracted V6 registry literal helpers and the pre-existing v6 global-unicast reason helper",
+      "idempotentContains": [
+        "return wc_preclass_v6_global_unicast_reason_literal();",
+        "return wc_preclass_reason_v6_reserved_ietf_literal();",
+        "return wc_preclass_reason_v6_unknown_registry_literal();"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-v6-global-unicast-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-v6-reserved-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-v6-unknown-case-helper-call",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-v6-reserved-inline-case-removed",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-unknown-inline-case-removed",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-global-unicast-inline-case-removed",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal();"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal();"
+          ]
+        },
+        {
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal();",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal();"
+          ]
+        }
+      ]
+    }
+  }
+}
