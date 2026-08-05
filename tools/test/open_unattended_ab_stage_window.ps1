@@ -2770,6 +2770,9 @@ if ($Stage -eq 'A') {
 else {
     $statusUpdates['B_FINAL_STATUS'] = 'RUNNING'
     $statusUpdates['B_LAUNCH_PID'] = [string]$processInfo.Id
+    if (-not $settings.Contains('B_TASK_FIRST_START_AT') -or [string]::IsNullOrWhiteSpace([string]$settings.B_TASK_FIRST_START_AT)) {
+        $statusUpdates['B_TASK_FIRST_START_AT'] = $stageLaunchTime.ToString('yyyy-MM-dd HH:mm:ss')
+    }
     $statusUpdates['B_LAUNCH_TOKEN'] = $stageLaunchToken
     $statusUpdates['AB_HANDOVER_STATE'] = 'A_TO_B_COMPLETE'
     $statusUpdates['AB_HANDOVER_COMPLETED_AT'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')

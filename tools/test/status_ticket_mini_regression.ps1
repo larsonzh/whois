@@ -639,6 +639,9 @@ $stageConclusionTimingContract = (
     $sessionGuardText.Contains("review_content_requirements = 'State the A-stage final conclusion") -and
     $sessionGuardText.Contains("timing_basis = 'A elapsed uses SESSION_INITIAL_LAUNCH_AT") -and
     $sessionGuardText.Contains('$ticket.a_stage_elapsed_seconds = $aElapsedSeconds') -and
+    $stageWindowText.Contains("if (-not `$settings.Contains('B_TASK_FIRST_START_AT')") -and
+    $stageWindowText.Contains("`$statusUpdates['B_TASK_FIRST_START_AT'] = `$stageLaunchTime.ToString('yyyy-MM-dd HH:mm:ss')") -and
+    $operationFlowText.Contains('B 阶段总用时按 `B_TASK_FIRST_START_AT`') -and
     $takeoverTriggerText.Contains("summary_content_requirements = 'State final SESSION/A/B conclusions") -and
     $takeoverTriggerText.Contains("timing_basis = 'B elapsed uses B_TASK_FIRST_START_AT") -and
     $takeoverTriggerText.Contains('ab_total_elapsed_seconds = $abElapsedSeconds') -and

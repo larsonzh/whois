@@ -857,6 +857,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 阶段结论票必须携带可直接投影到聊天回复的最低内容要求和确定性耗时，dispatch 不得在投递时重新计算：
 - `a-pass-conclusion-b-started` 的评审回复至少包含 A 阶段最终结论、关键检查点与最终证据、重要事故/恢复及结果、B 已启动，以及 A 阶段总用时和起止锚点。A 阶段总用时按 `SESSION_INITIAL_LAUNCH_AT` 到该评审票 `created_at` 计算。
 - `chat-session-final-status` 的总结回复至少包含 SESSION/A/B 最终结论、执行时间线、重要事故/根因/修复与恢复动作、状态票和 ACK/heartbeat 结果、会话结束时间，以及 B 阶段总用时和 A/B 两阶段合计总用时。B 阶段总用时按 `B_TASK_FIRST_START_AT` 到总结票 `created_at` 计算；A/B 合计总用时按 `SESSION_INITIAL_LAUNCH_AT` 到同一结束时间计算。
+- `B_TASK_FIRST_START_AT` 由标准 stage window 在 B 主进程通过启动探测后写入 start-file，使用该次 launch 的时间锚点且仅在字段为空时写入；同一会话内 B 阶段重启不得覆盖，开始新 A/B 会话时由 start-file reset 清空。
 - `SESSION_INITIAL_LAUNCH_AT` 是当前 start-file 会话的首次启动时间，只写一次，统计会包含 launcher/preflight、阶段交接和恢复等待；它不是纯 A worker 运行时间。全新独立 A/B 任务必须由模板重建 start-file 并重新生成该值；同一会话内的恢复不得清空它。
 - 任一基准时间缺失或格式非法时，对应格式化耗时必须输出 `unknown`、秒数输出 `-1`，不得伪造或用当前时间替代起点。
 
