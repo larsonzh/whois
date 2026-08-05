@@ -1,0 +1,241 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-followup-d1-d4-20261223-20261231",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist B for serial #32: consolidate v4 reserved-future-use setter chain, deduplicate unknown-hint reason helpers, remove hint value wrapper layer and rir unknown hint wrapper"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist B continues consolidation: reserved-future-use setter chain, unknown-hint reason deduplication, hint value wrapper removal and rir unknown hint wrapper removal",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Consolidate the v4 reserved-future-use setter chain by removing the reserved-none-tuple middle layer and routing directly to the none-confidence tuple setter",
+      "idempotentContains": [
+        "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_reserved_literal(), wc_preclass_v4_reserved_future_use_reason_literal());"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-reserved-none-tuple-removed",
+          "pattern": "static void wc_preclass_set_reserved_none_tuple\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-reserved-future-use-direct-call",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_reserved_literal\\(\\), wc_preclass_v4_reserved_future_use_reason_literal\\([)]{2};",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-reserved-setter-call-removed",
+          "pattern": "wc_preclass_set_reserved_none_tuple\\(",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static void wc_preclass_set_reserved_none_tuple\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_reserved_literal\\(\\)\\, reason_value\\)\\;\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v4_reserved_future_use_result",
+          "replacement": "static void wc_preclass_set_v4_reserved_future_use_result",
+          "idempotentContains": [
+            "static void wc_preclass_set_v4_reserved_future_use_result"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_v4_reserved_future_use_result\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\twc_preclass_set_reserved_none_tuple\\(\\r?\\n\\t\\tcls,\\r?\\n\\t\\trir,\\r?\\n\\t\\treason,\\r?\\n\\t\\tconfidence,\\r?\\n\\t\\twc_preclass_v4_reserved_future_use_reason_literal\\(\\)\\)\\;\\r?\\n\\}",
+          "replacement": "static void wc_preclass_set_v4_reserved_future_use_result(const char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\twc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_reserved_literal(), wc_preclass_v4_reserved_future_use_reason_literal());\n}",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_reserved_literal(), wc_preclass_v4_reserved_future_use_reason_literal());"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Remove the duplicate unknown-hint reason helper and route its call site to the base no-rir-hint value literal",
+      "idempotentContains": [
+        "wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_value_literal());"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-v6-unknown-hint-reason-removed",
+          "pattern": "static const char\\* wc_preclass_v6_unknown_hint_reason_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-v6-unknown-hint-call-routed",
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_value_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-v6-unknown-hint-call-removed",
+          "pattern": "wc_preclass_v6_unknown_hint_reason_literal\\(\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_v6_unknown_hint_reason_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_no_rir_hint_value_literal\\(\\)\\;\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_unknown_hint_result",
+          "replacement": "static void wc_preclass_set_v6_unknown_hint_result",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_unknown_hint_result"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_unknown_hint_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_value_literal());",
+          "idempotentContains": [
+            "wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_value_literal());"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Remove the rir-hint/no-rir-hint value wrapper literals and route their call sites through the base reason literal helpers",
+      "idempotentContains": [
+        "wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_literal(), wc_preclass_confidence_medium_hint_literal());",
+        "return wc_preclass_reason_no_rir_hint_literal();"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-rir-hint-value-wrapper-removed",
+          "pattern": "static const char\\* wc_preclass_reason_rir_hint_value_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-no-rir-hint-value-wrapper-removed",
+          "pattern": "static const char\\* wc_preclass_reason_no_rir_hint_value_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-known-tuple-base-literal",
+          "pattern": "wc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_literal\\(\\)\\, wc_preclass_confidence_medium_hint_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-unknown-hint-tuple-base-literal",
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-default-reason-base-literal",
+          "pattern": "return wc_preclass_reason_no_rir_hint_literal\\(\\)\\;\\r?\\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-value-wrapper-calls-removed",
+          "pattern": "wc_preclass_reason_rir_hint_value_literal\\(|wc_preclass_reason_no_rir_hint_value_literal\\(",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_reason_rir_hint_value_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_rir_hint_literal\\(\\)\\;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_reason_no_rir_hint_value_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_no_rir_hint_literal\\(\\)\\;\\r?\\n\\}\\r?\\n\\r?\\n\\r?\\n\\r?\\nstatic void wc_preclass_set_allocated_hint",
+          "replacement": "static void wc_preclass_set_allocated_hint",
+          "idempotentContains": [
+            "static void wc_preclass_set_allocated_hint"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_value_literal\\(\\)\\, wc_preclass_confidence_medium_hint_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_literal(), wc_preclass_confidence_medium_hint_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_literal(), wc_preclass_confidence_medium_hint_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_value_literal\\(\\)\\);",
+          "replacement": "wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal());",
+          "idempotentContains": [
+            "wc_preclass_set_unknown_hint_tuple(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal());"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_unknown_hint_default_reason_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_no_rir_hint_value_literal\\(\\)\\;",
+          "replacement": "static const char* wc_preclass_unknown_hint_default_reason_literal(void)\n{\n\treturn wc_preclass_reason_no_rir_hint_literal();",
+          "idempotentContains": [
+            "return wc_preclass_reason_no_rir_hint_literal();"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Remove the rir-unknown-hint wrapper literal and route the compare literal directly to the base rir unknown literal",
+      "idempotentContains": [
+        "return wc_preclass_rir_unknown_literal();"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-rir-unknown-hint-wrapper-removed",
+          "pattern": "static const char\\* wc_preclass_rir_unknown_hint_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-compare-literal-base-call",
+          "pattern": "static const char\\* wc_preclass_rir_unknown_compare_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_unknown_literal\\(\\)\\;\\r?\\n\\}",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "static const char\\* wc_preclass_rir_unknown_compare_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_unknown_hint_literal\\(\\)\\;\\r?\\n\\}",
+          "replacement": "static const char* wc_preclass_rir_unknown_compare_literal(void)\n{\n\treturn wc_preclass_rir_unknown_literal();\n}",
+          "idempotentContains": [
+            "return wc_preclass_rir_unknown_literal();"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_rir_unknown_hint_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_unknown_literal\\(\\)\\;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_confidence_medium_hint_literal",
+          "replacement": "static const char* wc_preclass_confidence_medium_hint_literal",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_medium_hint_literal"
+          ]
+        }
+      ]
+    }
+  }
+}
