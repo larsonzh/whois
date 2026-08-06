@@ -1,0 +1,343 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-followup-d1-d4-20270123-20270131",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist B for serial #36: finish match-layer literal dedup, remove pure-forward tuple/query-kind helpers and inline the special-result tuple setter into the none-confidence tuple setter"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist B continues consolidation: match-layer final dedup, tuple/query-kind helper flattening and special-result setter inlining",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Finish the match-layer literal dedup by routing wc_preclass_match_layer_from_query_kind directly through the compare literals and removing the wc_preclass_match_layer_cidr_literal and wc_preclass_match_layer_ip_literal definitions and forward declarations",
+      "idempotentContains": [
+        "return wc_preclass_match_layer_cidr_compare_literal();\n\treturn wc_preclass_match_layer_ip_compare_literal();",
+        "static int wc_preclass_match_layer_from_query_kind_normalized(int query_is_cidr)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-cidr-literal-removed",
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-ip-literal-removed",
+          "pattern": "static const char\\* wc_preclass_match_layer_ip_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-query-kind-base-literals",
+          "pattern": "return wc_preclass_match_layer_cidr_compare_literal\\(\\);\\r?\\n\\treturn wc_preclass_match_layer_ip_compare_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-compare-literals-preserved",
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_compare_literal\\(void\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-cidr-ip-literal-calls-removed",
+          "pattern": "wc_preclass_match_layer_cidr_literal\\(\\)|wc_preclass_match_layer_ip_literal\\(\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "return wc_preclass_match_layer_cidr_literal\\(\\);\\r?\\n\\treturn wc_preclass_match_layer_ip_literal\\(\\);",
+          "replacement": "return wc_preclass_match_layer_cidr_compare_literal();\n\treturn wc_preclass_match_layer_ip_compare_literal();",
+          "idempotentContains": [
+            "return wc_preclass_match_layer_cidr_compare_literal();\n\treturn wc_preclass_match_layer_ip_compare_literal();"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_match_layer_cidr_compare_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_match_layer_ip_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_match_layer_ip_compare_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_apply_disabled_decision_fields\\(wc_preclass_decision_fields_t\\* out_fields\\)",
+          "replacement": "static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)",
+          "idempotentContains": [
+            "static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\);\\r?\\nstatic const char\\* wc_preclass_match_layer_ip_literal\\(void\\);\\r?\\n\\r?\\nstatic int wc_preclass_match_layer_from_query_kind_normalized\\(int query_is_cidr\\)",
+          "replacement": "static int wc_preclass_match_layer_from_query_kind_normalized(int query_is_cidr)",
+          "idempotentContains": [
+            "static int wc_preclass_match_layer_from_query_kind_normalized(int query_is_cidr)"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Remove the pure-forward wc_preclass_set_unknown_hint_tuple by routing its two call sites directly through wc_preclass_apply_classified_tuple, and remove wc_preclass_match_layer_from_query_kind_normalized by routing its single call site to the direct query_is_cidr condition",
+      "idempotentContains": [
+        "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());",
+        "if (query_is_cidr)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-set-unknown-hint-tuple-removed",
+          "pattern": "static void wc_preclass_set_unknown_hint_tuple\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-unknown-hint-if-unknown-class-base",
+          "pattern": "wc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-v6-unknown-hint-result-base",
+          "pattern": "wc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), wc_preclass_reason_no_rir_hint_literal\\(\\), wc_preclass_confidence_low_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-query-kind-normalized-removed",
+          "pattern": "static int wc_preclass_match_layer_from_query_kind_normalized\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-query-kind-base-cond",
+          "pattern": "if \\(query_is_cidr\\)\\r?\\n\\t\\treturn wc_preclass_match_layer_cidr_compare_literal\\(\\);",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, reason_value\\);",
+          "replacement": "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_unknown_hint_tuple\\(cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_unknown_hint_tuple\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_unknown_hint_result\\(const char\\*\\* cls,",
+          "replacement": "static void wc_preclass_set_v6_unknown_hint_result(const char** cls,",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_unknown_hint_result(const char** cls,"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_match_layer_from_query_kind_normalized\\(query_is_cidr\\)\\)",
+          "replacement": "if (query_is_cidr)",
+          "idempotentContains": [
+            "if (query_is_cidr)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_match_layer_from_query_kind_normalized\\(int query_is_cidr\\)\\r?\\n\\{\\r?\\n\\treturn query_is_cidr \\? 1 : 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_match_layer_from_query_kind\\(int query_is_cidr\\)",
+          "replacement": "static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)",
+          "idempotentContains": [
+            "static const char* wc_preclass_match_layer_from_query_kind(int query_is_cidr)"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the special-result tuple setter for the 8 v4 call sites in wc_preclass_classify_ip by routing them directly through wc_preclass_apply_none_confidence_tuple with the class-special literal",
+      "idempotentContains": [
+        "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_multicast_reason_literal());",
+        "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_limited_broadcast_reason_literal());"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-v4-special-tuple-calls-inlined",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_[a-z0-9_]+_reason_literal\\(\\)\\);",
+          "expectedCount": 8
+        },
+        {
+          "name": "d3-v4-special-tuple-calls-removed",
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_limited_broadcast_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_limited_broadcast_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_limited_broadcast_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_this_network_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_this_network_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_this_network_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_private_10_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_10_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_10_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_loopback_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_loopback_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_loopback_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_link_local_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_link_local_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_link_local_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_private_172_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_172_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_172_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_private_192_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_192_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_192_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v4_multicast_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_multicast_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_multicast_reason_literal());"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the special-result tuple setter for the 5 v6 call sites in wc_preclass_classify_ip directly through wc_preclass_apply_none_confidence_tuple and remove the now-unused wc_preclass_set_special_tuple definition",
+      "idempotentContains": [
+        "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_documentation_reason_literal());",
+        "static const char* wc_preclass_v4_limited_broadcast_reason_literal(void)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-v6-special-tuple-calls-inlined",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v6_[a-z0-9_]+_reason_literal\\(\\)\\);",
+          "expectedCount": 5
+        },
+        {
+          "name": "d4-v6-special-tuple-calls-removed",
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-special-tuple-setter-removed",
+          "pattern": "static void wc_preclass_set_special_tuple\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-none-confidence-tuple-preserved",
+          "pattern": "static void wc_preclass_apply_none_confidence_tuple\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-all-special-tuple-calls-removed",
+          "pattern": "wc_preclass_set_special_tuple\\(cls",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_loopback_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_loopback_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_loopback_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_unique_local_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_unique_local_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_unique_local_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_link_local_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_link_local_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_link_local_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_multicast_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_multicast_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_multicast_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_special_tuple\\(cls, rir, reason, confidence, wc_preclass_v6_documentation_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_documentation_reason_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_documentation_reason_literal());"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_special_tuple\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\twc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), reason_value\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v4_limited_broadcast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v4_limited_broadcast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v4_limited_broadcast_reason_literal(void)"
+          ]
+        }
+      ]
+    }
+  }
+}

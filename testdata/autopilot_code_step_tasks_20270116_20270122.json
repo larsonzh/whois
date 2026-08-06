@@ -1,0 +1,398 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-d1-d4-20270116-20270122",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist A for serial #35: remove decision-action-field wrapper chain, unify the three none literals and remove rir/unknown-hint wrapper helpers"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 5,
+    "description": "Checklist A continues ultra-high-density consolidation: decision-action-field wrapper removal, none-literal unification and rir/unknown-hint wrapper removal",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Remove the decision-action-field wrapper chain by routing the two wc_preclass_apply_decision_action_fields call sites directly through the base literals/helpers and deleting the decision_action_source_literal, decision_action_source, decision_none_fallback_reason and apply_decision_none_fallback wrappers",
+      "idempotentContains": [
+        "out_fields->action_source = wc_preclass_action_source_decision_value_literal();",
+        "static void wc_preclass_apply_decision_action_fields(const char* decision_action,"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-decision-action-source-literal-removed",
+          "pattern": "static const char\\* wc_preclass_decision_action_source_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-decision-action-source-removed",
+          "pattern": "static const char\\* wc_preclass_decision_action_source\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-decision-none-fallback-reason-removed",
+          "pattern": "static const char\\* wc_preclass_decision_none_fallback_reason\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-apply-decision-none-fallback-removed",
+          "pattern": "static const char\\* wc_preclass_apply_decision_none_fallback\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-action-source-base-literal",
+          "pattern": "out_fields->action_source = wc_preclass_action_source_decision_value_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-fallback-reason-base-call",
+          "pattern": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason\\(wc_preclass_decision_none_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-wrapper-calls-removed",
+          "pattern": "wc_preclass_decision_action_source_literal\\(\\)|wc_preclass_decision_action_source\\(\\)|wc_preclass_decision_none_fallback_reason\\(\\)|wc_preclass_apply_decision_none_fallback\\(\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-match-layer-cidr-forward-declaration",
+          "pattern": "static const char\\* wc_preclass_match_layer_cidr_literal\\(void\\);",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "out_fields->action_source = wc_preclass_decision_action_source\\(\\);",
+          "replacement": "out_fields->action_source = wc_preclass_action_source_decision_value_literal();",
+          "idempotentContains": [
+            "out_fields->action_source = wc_preclass_action_source_decision_value_literal();"
+          ]
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_apply_decision_none_fallback\\(\\);",
+          "replacement": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_decision_none_literal());",
+          "idempotentContains": [
+            "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_decision_none_literal());"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_decision_action_source_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_action_source_decision_value_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_disabled_fallback_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_disabled_fallback_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_disabled_fallback_reason_literal(void)"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_decision_action_source\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_decision_action_source_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_decision_none_fallback_reason\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_normalize_fallback_reason\\(wc_preclass_decision_none_literal\\(\\)\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_match_layer_cidr_literal\\(void\\);",
+          "replacement": "static const char* wc_preclass_match_layer_cidr_literal(void);",
+          "idempotentContains": [
+            "static const char* wc_preclass_match_layer_cidr_literal(void);"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_apply_decision_none_fallback\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_decision_none_fallback_reason\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_apply_decision_action_fields\\(const char\\* decision_action,",
+          "replacement": "static void wc_preclass_apply_decision_action_fields(const char* decision_action,",
+          "idempotentContains": [
+            "static void wc_preclass_apply_decision_action_fields(const char* decision_action,"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Unify the three none literals by routing their call sites through wc_preclass_fallback_none_value_literal and deleting wc_preclass_fallback_none_literal and wc_preclass_decision_none_literal; remove the rir-hint wrapper helpers wc_preclass_has_rir_hint_value and wc_preclass_apply_allocated_hint_from_rir by routing their call sites directly through wc_preclass_rir_hint_present",
+      "idempotentContains": [
+        "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_fallback_none_value_literal());",
+        "static const char* wc_preclass_v6_global_unicast_reason_literal(void)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-fallback-none-literal-removed",
+          "pattern": "static const char\\* wc_preclass_fallback_none_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-decision-none-literal-removed",
+          "pattern": "static const char\\* wc_preclass_decision_none_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-has-rir-hint-value-removed",
+          "pattern": "static int wc_preclass_has_rir_hint_value\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-apply-allocated-hint-from-rir-removed",
+          "pattern": "static int wc_preclass_apply_allocated_hint_from_rir\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-fallback-none-value-literal-preserved",
+          "pattern": "static const char\\* wc_preclass_fallback_none_value_literal\\(void\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-route-change-fallback-base",
+          "pattern": "strcmp\\(fallback_reason, wc_preclass_fallback_none_value_literal\\(\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-fallback-base-call",
+          "pattern": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason\\(wc_preclass_fallback_none_value_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-rir-hint-present-calls",
+          "pattern": "if \\(wc_preclass_rir_hint_present\\(guessed_rir\\)\\)",
+          "expectedCount": 2
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "strcmp\\(fallback_reason, wc_preclass_fallback_none_literal\\(\\)\\)",
+          "replacement": "strcmp(fallback_reason, wc_preclass_fallback_none_value_literal())",
+          "idempotentContains": [
+            "strcmp(fallback_reason, wc_preclass_fallback_none_value_literal())"
+          ]
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason\\(wc_preclass_decision_none_literal\\(\\)\\);",
+          "replacement": "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_fallback_none_value_literal());",
+          "idempotentContains": [
+            "out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_fallback_none_value_literal());"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_fallback_none_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_fallback_none_value_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_decision_none_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"none\";\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_route_change_fallback\\(const char\\* fallback_reason\\)",
+          "replacement": "static const char* wc_preclass_route_change_fallback(const char* fallback_reason)",
+          "idempotentContains": [
+            "static const char* wc_preclass_route_change_fallback(const char* fallback_reason)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_has_rir_hint_value\\(guessed_rir\\)\\)",
+          "replacement": "if (wc_preclass_rir_hint_present(guessed_rir))",
+          "idempotentContains": [
+            "if (wc_preclass_rir_hint_present(guessed_rir))"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_has_rir_hint_value\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_hint_present\\(guessed_rir\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v6_global_unicast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_global_unicast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_global_unicast_reason_literal(void)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_apply_allocated_hint_from_rir\\(guessed_rir\\)\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);",
+          "replacement": "if (wc_preclass_rir_hint_present(guessed_rir)) {\n\t\t*cls = wc_preclass_class_allocated_literal();",
+          "idempotentContains": [
+            "if (wc_preclass_rir_hint_present(guessed_rir)) {\n\t\t*cls = wc_preclass_class_allocated_literal();"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_apply_allocated_hint_from_rir\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_hint_present\\(guessed_rir\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,",
+          "idempotentContains": [
+            "static void wc_preclass_set_allocated_hint(const char* normalized,"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Remove the unknown-hint wrapper helpers wc_preclass_v6_unknown_hint_required, wc_preclass_unknown_hint_default_reason_literal and wc_preclass_apply_v4_unknown_hint_if_needed by routing their call sites directly through the base helpers, including routing the v4 unknown-hint path through the public wc_preclass_apply_allocated_hint_if_unknown_class",
+      "idempotentContains": [
+        "if (wc_preclass_is_unknown_class_value(*cls))",
+        "wc_preclass_apply_allocated_hint_if_unknown_class(normalized, *cls, cls, rir, reason, confidence);"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-v6-unknown-hint-required-removed",
+          "pattern": "static int wc_preclass_v6_unknown_hint_required\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-unknown-hint-default-reason-removed",
+          "pattern": "static const char\\* wc_preclass_unknown_hint_default_reason_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-apply-v4-unknown-hint-if-needed-removed",
+          "pattern": "static void wc_preclass_apply_v4_unknown_hint_if_needed\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-v6-unknown-hint-base-call",
+          "pattern": "if \\(wc_preclass_is_unknown_class_value\\(\\*cls\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-unknown-hint-default-reason-calls-removed",
+          "pattern": "wc_preclass_unknown_hint_default_reason_literal\\(\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-apply-allocated-hint-base-call",
+          "pattern": "wc_preclass_apply_allocated_hint_if_unknown_class\\(normalized, \\*cls, cls, rir, reason, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-default-tuple-reason-base",
+          "pattern": "wc_preclass_rir_unknown_literal\\(\\),\\r?\\n\\t\\twc_preclass_reason_no_rir_hint_literal\\(\\),",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_v6_unknown_hint_required\\(\\*cls\\)\\)",
+          "replacement": "if (wc_preclass_is_unknown_class_value(*cls))",
+          "idempotentContains": [
+            "if (wc_preclass_is_unknown_class_value(*cls))"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v6_unknown_hint_required\\(const char\\* cls\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_is_unknown_class_value\\(cls\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_v6_unknown_hint_result\\(const char\\*\\* cls,",
+          "replacement": "static void wc_preclass_set_v6_unknown_hint_result(const char** cls,",
+          "idempotentContains": [
+            "static void wc_preclass_set_v6_unknown_hint_result(const char** cls,"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_rir_unknown_literal\\(\\),\\r?\\n\\t\\twc_preclass_unknown_hint_default_reason_literal\\(\\),",
+          "replacement": "wc_preclass_rir_unknown_literal(),\n\t\twc_preclass_reason_no_rir_hint_literal(),",
+          "idempotentContains": [
+            "wc_preclass_rir_unknown_literal(),\n\t\twc_preclass_reason_no_rir_hint_literal(),"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_unknown_rir_tuple\\(rir, reason, confidence, wc_preclass_unknown_hint_default_reason_literal\\(\\), wc_preclass_confidence_low_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_apply_v4_unknown_hint_if_needed\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(wc_preclass_is_unknown_class_value\\(\\*cls\\)\\)\\r?\\n\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_unknown_hint_default_reason_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_reason_no_rir_hint_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_apply_unknown_hint_default_tuple\\(const char\\*\\* cls,",
+          "replacement": "void wc_preclass_apply_unknown_hint_default_tuple(const char** cls,",
+          "idempotentContains": [
+            "void wc_preclass_apply_unknown_hint_default_tuple(const char** cls,"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_v4_unknown_hint_if_needed\\(normalized, cls, rir, reason, confidence\\);",
+          "replacement": "wc_preclass_apply_allocated_hint_if_unknown_class(normalized, *cls, cls, rir, reason, confidence);",
+          "idempotentContains": [
+            "wc_preclass_apply_allocated_hint_if_unknown_class(normalized, *cls, cls, rir, reason, confidence);"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Remove the rir-unknown compare wrapper literal wc_preclass_rir_unknown_compare_literal by routing its three call sites directly through the base wc_preclass_rir_unknown_literal",
+      "idempotentContains": [
+        "strcmp(guessed_rir, wc_preclass_rir_unknown_literal())",
+        "static int wc_preclass_is_unknown_class_value(const char* cls)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-rir-unknown-compare-removed",
+          "pattern": "static const char\\* wc_preclass_rir_unknown_compare_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-rir-hint-present-base",
+          "pattern": "strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-unknown-rir-tuple-base",
+          "pattern": "\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\*reason = reason_value;",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-unknown-hint-tuple-base",
+          "pattern": "wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-rir-unknown-literal-preserved",
+          "pattern": "static const char\\* wc_preclass_rir_unknown_literal\\(void\\)",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "strcmp\\(guessed_rir, wc_preclass_rir_unknown_compare_literal\\(\\)\\)",
+          "replacement": "strcmp(guessed_rir, wc_preclass_rir_unknown_literal())",
+          "idempotentContains": [
+            "strcmp(guessed_rir, wc_preclass_rir_unknown_literal())"
+          ]
+        },
+        {
+          "pattern": "\\*rir = wc_preclass_rir_unknown_compare_literal\\(\\);",
+          "replacement": "*rir = wc_preclass_rir_unknown_literal();",
+          "idempotentContains": [
+            "*rir = wc_preclass_rir_unknown_literal();"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_compare_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "replacement": "wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_rir_unknown_compare_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_is_unknown_class_value\\(const char\\* cls\\)",
+          "replacement": "static int wc_preclass_is_unknown_class_value(const char* cls)",
+          "idempotentContains": [
+            "static int wc_preclass_is_unknown_class_value(const char* cls)"
+          ]
+        }
+      ]
+    }
+  }
+}
