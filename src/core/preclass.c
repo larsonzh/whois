@@ -247,46 +247,9 @@ static int wc_preclass_token_equals(const char* lhs, const char* rhs)
 	return wc_preclass_has_text_value(lhs) && rhs && strcmp(lhs, rhs) == 0;
 }
 
-static int wc_preclass_match_layer_is_cidr_literal(const char* match_layer)
-{
-	return wc_preclass_token_equals(match_layer, wc_preclass_match_layer_cidr_compare_literal());
-}
-
-static int wc_preclass_match_layer_is_ip_literal(const char* match_layer)
-{
-	return wc_preclass_token_equals(match_layer, wc_preclass_match_layer_ip_compare_literal());
-}
-
-static const char* wc_preclass_match_layer_non_ip_label_literal(void)
-{
-	return wc_preclass_non_ip_literal();
-}
-
 static const char* wc_preclass_action_source_decision_value_literal(void)
 {
 	return "decision";
-}
-
-static const char* wc_preclass_match_layer_output_label(const char* match_layer)
-{
-	if (wc_preclass_match_layer_is_cidr_literal(match_layer))
-		return wc_preclass_match_layer_cidr_compare_literal();
-	if (wc_preclass_match_layer_is_ip_literal(match_layer))
-		return wc_preclass_match_layer_ip_compare_literal();
-	return NULL;
-}
-
-static const char* wc_preclass_input_label_from_match_layer(const char* match_layer)
-{
-	const char* label = wc_preclass_match_layer_output_label(match_layer);
-	if (label && *label)
-		return label;
-	return wc_preclass_match_layer_non_ip_label_literal();
-}
-
-static int wc_preclass_has_decision_action(const char* decision_action)
-{
-	return wc_preclass_has_text_value(decision_action);
 }
 
 static const char* wc_preclass_action_hint_applied_literal(void)
@@ -333,11 +296,6 @@ static int wc_preclass_action_route_change_allowed(const char* action)
 		wc_preclass_action_is_step47_short_circuit(action);
 }
 
-static int wc_preclass_action_route_change_not_allowed(const char* action)
-{
-	return !wc_preclass_action_route_change_allowed(action);
-}
-
 static const char* wc_preclass_action_source_default_literal(void)
 {
 	return "default";
@@ -355,21 +313,6 @@ static const char* wc_preclass_normalize_fallback_reason(const char* fallback_re
 	return fallback_reason;
 }
 
-static int wc_preclass_route_change_enabled_flag(void)
-{
-	return 1;
-}
-
-static int wc_preclass_route_change_disabled_flag(void)
-{
-	return 0;
-}
-
-static int wc_preclass_normalize_route_change_flag(int route_change)
-{
-	return route_change != 0 ? wc_preclass_route_change_enabled_flag() : wc_preclass_route_change_disabled_flag();
-}
-
 static const char* wc_preclass_observe_only_action_literal(void)
 {
 	return "observe-only";
@@ -380,14 +323,9 @@ static const char* wc_preclass_hint_disabled_action_value_literal(void)
 	return "hint-disabled";
 }
 
-static int wc_preclass_decision_action_missing(const char* decision_action)
-{
-	return !wc_preclass_has_text_value(decision_action);
-}
-
 static const char* wc_preclass_normalize_decision_action(const char* decision_action)
 {
-	if (wc_preclass_decision_action_missing(decision_action))
+	if (!wc_preclass_has_text_value(decision_action))
 		return wc_preclass_observe_only_action_literal();
 	return decision_action;
 }
@@ -426,7 +364,7 @@ static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fiel
 	out_fields->action = wc_preclass_hint_disabled_action_value_literal();
 	out_fields->action_source = wc_preclass_policy_action_source_literal();
 	out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal();
-	out_fields->route_change = wc_preclass_route_change_disabled_flag();
+	out_fields->route_change = 0;
 }
 
 static void wc_preclass_apply_decision_action_fields(const char* decision_action,
@@ -437,55 +375,24 @@ static void wc_preclass_apply_decision_action_fields(const char* decision_action
 	out_fields->fallback_reason = wc_preclass_normalize_fallback_reason(wc_preclass_fallback_none_value_literal());
 }
 
-static int wc_preclass_route_change_enabled_for_decision(const wc_preclass_decision_fields_t* out_fields)
-{
-	if (!out_fields)
-		return 0;
-	return out_fields->route_change == wc_preclass_route_change_enabled_flag();
-}
-
-static int wc_preclass_route_change_policy_applies(const wc_preclass_decision_fields_t* out_fields)
-{
-	return wc_preclass_route_change_enabled_for_decision(out_fields) &&
-		wc_preclass_action_route_change_not_allowed(out_fields->action);
-}
-
-static void wc_preclass_route_change_policy_apply(wc_preclass_decision_fields_t* out_fields)
-{
-	out_fields->route_change = wc_preclass_route_change_disabled_flag();
-	out_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);
-}
-
-static void wc_preclass_apply_route_change_block_or_skip(wc_preclass_decision_fields_t* out_fields)
-{
-	if (wc_preclass_route_change_policy_applies(out_fields))
-		wc_preclass_route_change_policy_apply(out_fields);
-}
-
 static void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out_fields)
 {
 	out_fields->action = wc_preclass_observe_only_action_literal();
 	out_fields->action_source = wc_preclass_action_source_default_literal();
-	out_fields->match_layer = wc_preclass_match_layer_non_ip_label_literal();
+	out_fields->match_layer = wc_preclass_non_ip_literal();
 	out_fields->fallback_reason = wc_preclass_default_fallback_reason_literal();
-	out_fields->input_label = wc_preclass_match_layer_non_ip_label_literal();
-	out_fields->route_change = wc_preclass_route_change_disabled_flag();
-}
-
-static const char* wc_preclass_normalize_query_for_kind(int query_is_cidr, const char* cidr_base, const char* query)
-{
-	return query_is_cidr ? cidr_base : query;
-}
-
-static int wc_preclass_should_apply_decision_action(const char* decision_action)
-{
-	return wc_preclass_has_decision_action(decision_action);
+	out_fields->input_label = wc_preclass_non_ip_literal();
+	out_fields->route_change = 0;
 }
 
 static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)
 {
-	out_fields->route_change = wc_preclass_normalize_route_change_flag(route_change);
-	wc_preclass_apply_route_change_block_or_skip(out_fields);
+	out_fields->route_change = route_change != 0 ? 1 : 0;
+	if (out_fields && out_fields->route_change == 1 &&
+		!wc_preclass_action_route_change_allowed(out_fields->action)) {
+			out_fields->route_change = 0;
+			out_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);
+		}
 }
 
 static int wc_preclass_query_missing(const char* query)
@@ -501,11 +408,6 @@ static int wc_preclass_preclass_disabled_enabled(int preclass_disabled)
 static int wc_preclass_decision_fields_missing(wc_preclass_decision_fields_t* out_fields)
 {
 	return !out_fields;
-}
-
-static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)
-{
-	return wc_preclass_match_layer_from_query_kind(query_is_cidr);
 }
 
 void wc_preclass_resolve_decision_fields(const char* query,
@@ -534,18 +436,23 @@ void wc_preclass_resolve_decision_fields(const char* query,
 		cidr_base,
 		sizeof(cidr_base),
 		&cidr_prefix);
-	const char* normalized = wc_preclass_normalize_query_for_kind(query_is_cidr, cidr_base, query);
+	const char* normalized = query_is_cidr ? cidr_base : query;
 	if (normalized && wc_client_is_valid_ip_address(normalized))
-		out_fields->match_layer = wc_preclass_match_layer_for_query_kind(query_is_cidr);
+		out_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);
 
-	out_fields->input_label = wc_preclass_input_label_from_match_layer(out_fields->match_layer);
+	if (wc_preclass_token_equals(out_fields->match_layer, wc_preclass_match_layer_cidr_compare_literal()))
+		out_fields->input_label = wc_preclass_match_layer_cidr_compare_literal();
+	else if (wc_preclass_token_equals(out_fields->match_layer, wc_preclass_match_layer_ip_compare_literal()))
+		out_fields->input_label = wc_preclass_match_layer_ip_compare_literal();
+	else
+		out_fields->input_label = wc_preclass_non_ip_literal();
 
 	if (wc_preclass_preclass_disabled_enabled(preclass_disabled)) {
 		wc_preclass_apply_disabled_decision_fields(out_fields);
 		return;
 	}
 
-	if (wc_preclass_should_apply_decision_action(decision_action)) {
+	if (wc_preclass_has_text_value(decision_action)) {
 		wc_preclass_apply_decision_action_fields(decision_action, out_fields);
 	}
 
@@ -681,17 +588,6 @@ static void wc_preclass_apply_known_rir_tuple(const char** rir,
 	*confidence = confidence_value;
 }
 
-static void wc_preclass_apply_unknown_rir_tuple(const char** rir,
-		const char** reason,
-		const char** confidence,
-		const char* reason_value,
-		const char* confidence_value)
-{
-	*rir = wc_preclass_rir_unknown_literal();
-	*reason = reason_value;
-	*confidence = confidence_value;
-}
-
 static void wc_preclass_set_v6_global_unicast_result(const char* normalized,
 		const char** cls,
 		const char** rir,
@@ -705,7 +601,7 @@ static void wc_preclass_set_v6_global_unicast_result(const char* normalized,
 	if (wc_preclass_rir_hint_present(guessed_rir)) {
 		wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal());
 	} else {
-		wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, reason_value, wc_preclass_confidence_low_literal());
+		wc_preclass_apply_known_rir_tuple(rir, reason, confidence, wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());
 	}
 }
 
@@ -732,15 +628,6 @@ static void wc_preclass_apply_none_confidence_tuple(const char** cls,
 		const char* reason_value)
 {
 	wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, class_value, wc_preclass_rir_none_literal(), reason_value, wc_preclass_confidence_high_literal());
-}
-
-static void wc_preclass_set_v6_unknown_hint_result(const char** cls,
-		const char** rir,
-		const char** reason,
-		const char** confidence)
-{
-	if (wc_preclass_is_unknown_class_value(*cls))
-		wc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());
 }
 
 void wc_preclass_apply_unknown_hint_default_tuple(const char** cls,
@@ -789,7 +676,7 @@ static void wc_preclass_set_allocated_hint(const char* normalized,
 		wc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, wc_preclass_reason_rir_hint_literal(), wc_preclass_confidence_medium_literal());
 		return;
 	}
-	wc_preclass_apply_unknown_rir_tuple(rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());
+	wc_preclass_apply_known_rir_tuple(rir, reason, confidence, wc_preclass_rir_unknown_literal(), wc_preclass_reason_no_rir_hint_literal(), wc_preclass_confidence_low_literal());
 		*cls = wc_preclass_class_unknown_literal();
 }
 
@@ -1369,7 +1256,7 @@ void wc_preclass_classify_ip(const char* normalized,
 			return;
 		}
 
-		wc_preclass_set_v6_unknown_hint_result(cls, rir, reason, confidence);
+		wc_preclass_apply_unknown_hint_if_unknown_class(*cls, cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal());
 		return;
 	}
 }
