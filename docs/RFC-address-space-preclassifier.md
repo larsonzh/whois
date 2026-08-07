@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-07：新增串行第 37/38 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-02-01 ~ 2027-02-15`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270201_20270207.json`、`testdata/autopilot_code_step_tasks_20270208_20270215.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270201-20270215.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见 23.95~23.97）。
 - 2026-08-07：串行第 35/36 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-01-16 ~ 2027-01-31`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260807-011902，B run=out/artifacts/dev_verify_multiround/20260807-061242）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260807-121102`，289s）（详见 23.92~23.94）。
 - 2026-08-07：新增串行第 35/36 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-01-16 ~ 2027-01-31`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270116_20270122.json`、`testdata/autopilot_code_step_tasks_20270123_20270131.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270116-20270131.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见 23.92~23.94）。
 - 2026-08-07：串行第 33/34 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-01-01 ~ 2027-01-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260806-065714，B run=out/artifacts/dev_verify_multiround/20260806-120749）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260807-001732`，293s）（详见 23.89~23.91）。
@@ -3437,4 +3438,92 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 **本期额外验证（2026-08-07，收尾）**：
 - [x] Strict 远程编译冒烟同步 + 黄金校验（`lto-auto`，默认）：`out/artifacts/20260807-121102`，`无告警 + lto 无告警 + Local hash verify=PASS + Golden PASS + referral check=PASS`，`duration=289s`。
+
+#### 23.95 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-01 ~ 2027-02-07，串行第 37 份，Checklist A，草案）
+
+> 注：本清单在第 36 份 B 的 very-high 基础上继续推进 `preclass.c` 的 decision-field 小包装/常量归一化：match-layer 谓词内联、non-ip 标签纯转发移除、route-change 常量内联与 decision-action 谓词移除。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270201_20270207.json`。
+> 回填状态：2026-08-07 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在第 36 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
+6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+
+**开发四轮（D1~D4，超高密度）**：
+1. [ ] D1：Inline the match-layer predicate helpers `wc_preclass_match_layer_is_cidr_literal`/`wc_preclass_match_layer_is_ip_literal` directly into `wc_preclass_match_layer_output_label`, then remove the pure-forward `wc_preclass_match_layer_non_ip_label_literal` wrapper by routing its three call sites directly through `wc_preclass_non_ip_literal`.
+2. [ ] D2：Remove the decision-action predicate wrapper chain by routing the `wc_preclass_should_apply_decision_action` and `wc_preclass_decision_action_missing` call sites directly through `wc_preclass_has_text_value`, then delete the `has_decision_action`/`should_apply_decision_action`/`decision_action_missing` wrapper definitions.
+3. [ ] D3：Inline the route-change constant flag helpers `wc_preclass_route_change_enabled_flag`/`wc_preclass_route_change_disabled_flag` into literal 1/0 at their four call sites and the `wc_preclass_normalize_route_change_flag` ternary into its single call site, then delete the three flag helper definitions.
+4. [ ] D4：Remove the pure-forward `wc_preclass_match_layer_for_query_kind` wrapper by routing its single call site directly through `wc_preclass_match_layer_from_query_kind` and inline the `wc_preclass_normalize_query_for_kind` ternary into its single call site, then delete both wrapper definitions.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**执行回填（Checklist A，本期）**：
+- （待运行后回填：A 阶段终态、运行目录、事故与自愈记录。）
+
+**编制期验收（已完成，2026-08-07）**：
+- [x] `-SyntaxOnly` 装载检查：PASS。
+- [x] 全定义静态检查（无 RoundTag）：`errors=0 warnings=0`，D1~D4 全部 op 唯一命中、marker 自有、replacement 收敛、replay 稳定、断言精确。
+- [x] 链式检查 `-RoundTag D1 -ChainRounds`：`errors=0 warnings=0`。
+- [x] 专项安全回归 `task_definition_safety_regression.ps1`：全 case PASS。
+- [x] 有效源码 clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
+
+#### 23.96 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-08 ~ 2027-02-15，串行第 38 份，Checklist B，草案）
+
+> 注：Checklist B 仅在 Checklist A（串行第 37 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点放在 RIR/unknown-hint tuple 归一化、route-change 决策链扁平化与 match-layer 输入标签链内联。
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270208_20270215.json`。
+> 回填状态：2026-08-07 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+
+**八轮通用约束（开跑前确认）**：
+1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+
+**开发四轮（D1~D4，超高密度跟进）**：
+1. [ ] D1：Normalize the RIR/unknown-hint tuple writing by routing the two `wc_preclass_apply_unknown_rir_tuple` call sites directly through `wc_preclass_apply_known_rir_tuple` with the rir-unknown literal and delete the `apply_unknown_rir_tuple` definition; route the `set_v6_unknown_hint_result` call site directly through the public `wc_preclass_apply_unknown_hint_if_unknown_class` and delete the `set_v6_unknown_hint_result` definition.
+2. [ ] D2：Inline the route-change predicate helpers `wc_preclass_action_route_change_not_allowed` and `wc_preclass_route_change_enabled_for_decision` directly into `wc_preclass_route_change_policy_applies`, then delete both helper definitions.
+3. [ ] D3：Flatten the route-change decision chain by inlining the full policy-applies/apply logic directly into the `wc_preclass_apply_route_change_block_or_skip` call site inside `wc_preclass_apply_route_change_finalize`, then delete the three adjacent helper definitions `wc_preclass_route_change_policy_applies`, `wc_preclass_route_change_policy_apply` and `wc_preclass_apply_route_change_block_or_skip`.
+4. [ ] D4：Flatten the match-layer input-label chain by inlining the full output/input label logic directly into the `wc_preclass_input_label_from_match_layer` call site inside `wc_preclass_resolve_decision_fields`, then delete the two adjacent helper definitions `wc_preclass_match_layer_output_label` and `wc_preclass_input_label_from_match_layer`.
+
+**复检四轮（V1~V4）**：
+1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [ ] V2 噪声窗口复检：`RoundPass=True`。
+3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+
+**执行回填（Checklist B，本期）**：
+- （待运行后回填：B 阶段终态、运行目录、事故与自愈记录。）
+
+**编制期验收（已完成，2026-08-07）**：
+- [x] `-SyntaxOnly` 装载检查：PASS。
+- [x] 以 A 为前置任务定义的链式全定义静态检查（`-PrerequisiteTaskDefinitionFiles`）：`errors=0 warnings=0`，D1~D4 全部 op 唯一命中、marker 自有、replacement 收敛、断言精确。
+- [x] 链式检查 `-RoundTag D1 -ChainRounds`（A 前置）：`errors=0 warnings=0`。
+- [x] 专项安全回归 `task_definition_safety_regression.ps1`：全 case PASS。
+- [x] 链式有效源码（A+B 全部轮次应用）clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
+
+#### 23.97 对应任务启动文件（2026-08-07，草案）
+
+- 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20270201-20270215.md`
+- 绑定文件：
+  - A：`testdata/autopilot_code_step_tasks_20270201_20270207.json`
+  - B：`testdata/autopilot_code_step_tasks_20270208_20270215.json`
+- 当前窗口：`WINDOW=2027-02-01 ~ 2027-02-15`
+- 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
+- 预检基线：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`（A 阶段 launch-ready PASS；B 阶段按设计等待 A PASS snapshot 后由 stage window 启动）。
+- 当前终态：（未运行，A/B/SESSION 均为 NOT_RUN）。
+- 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
 

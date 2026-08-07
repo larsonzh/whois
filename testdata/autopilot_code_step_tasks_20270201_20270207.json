@@ -1,0 +1,371 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-d1-d4-20270201-20270207",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist A for serial #37: inline match-layer predicates, remove non-ip label pure-forward wrapper, inline route-change flag constants and remove decision-action predicate wrappers"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 5,
+    "description": "Checklist A continues ultra-high-density consolidation: match-layer predicate inlining, non-ip label removal and decision-action/route-change wrapper flattening",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the two match-layer predicate helpers wc_preclass_match_layer_is_cidr_literal and wc_preclass_match_layer_is_ip_literal directly into wc_preclass_match_layer_output_label, then remove the pure-forward wc_preclass_match_layer_non_ip_label_literal wrapper by routing its three call sites directly through wc_preclass_non_ip_literal",
+      "idempotentContains": [
+        "static int wc_preclass_match_layer_is_cidr_literal(const char* match_layer)",
+        "static int wc_preclass_match_layer_is_ip_literal(const char* match_layer)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-match-layer-is-cidr-removed",
+          "pattern": "static int wc_preclass_match_layer_is_cidr_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-match-layer-is-ip-removed",
+          "pattern": "static int wc_preclass_match_layer_is_ip_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-non-ip-label-removed",
+          "pattern": "static const char\\* wc_preclass_match_layer_non_ip_label_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-token-equals-cidr-inline",
+          "pattern": "if \\(wc_preclass_token_equals\\(match_layer, wc_preclass_match_layer_cidr_compare_literal\\(\\)\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-token-equals-ip-inline",
+          "pattern": "if \\(wc_preclass_token_equals\\(match_layer, wc_preclass_match_layer_ip_compare_literal\\(\\)\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-non-ip-literal-calls",
+          "pattern": "out_fields->match_layer = wc_preclass_non_ip_literal\\(\\);|out_fields->input_label = wc_preclass_non_ip_literal\\(\\);|return wc_preclass_non_ip_literal\\(\\);",
+          "expectedCount": 3
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_match_layer_is_cidr_literal\\(match_layer\\)\\)",
+          "replacement": "if (wc_preclass_token_equals(match_layer, wc_preclass_match_layer_cidr_compare_literal()))",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(match_layer, wc_preclass_match_layer_cidr_compare_literal()))"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_match_layer_is_ip_literal\\(match_layer\\)\\)",
+          "replacement": "if (wc_preclass_token_equals(match_layer, wc_preclass_match_layer_ip_compare_literal()))",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(match_layer, wc_preclass_match_layer_ip_compare_literal()))"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_match_layer_is_cidr_literal\\(const char\\* match_layer\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_token_equals\\(match_layer, wc_preclass_match_layer_cidr_compare_literal\\(\\)\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_match_layer_is_ip_literal\\(const char\\* match_layer\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_token_equals\\(match_layer, wc_preclass_match_layer_ip_compare_literal\\(\\)\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_match_layer_non_ip_label_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_non_ip_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_action_source_decision_value_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_action_source_decision_value_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_action_source_decision_value_literal(void)"
+          ]
+        },
+        {
+          "pattern": "return wc_preclass_match_layer_non_ip_label_literal\\(\\);",
+          "replacement": "return wc_preclass_non_ip_literal();",
+          "idempotentContains": [
+            "return wc_preclass_non_ip_literal();"
+          ]
+        },
+        {
+          "pattern": "out_fields->match_layer = wc_preclass_match_layer_non_ip_label_literal\\(\\);",
+          "replacement": "out_fields->match_layer = wc_preclass_non_ip_literal();",
+          "idempotentContains": [
+            "out_fields->match_layer = wc_preclass_non_ip_literal();"
+          ]
+        },
+        {
+          "pattern": "out_fields->input_label = wc_preclass_match_layer_non_ip_label_literal\\(\\);",
+          "replacement": "out_fields->input_label = wc_preclass_non_ip_literal();",
+          "idempotentContains": [
+            "out_fields->input_label = wc_preclass_non_ip_literal();"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Remove the decision-action predicate wrapper chain by routing the wc_preclass_should_apply_decision_action and wc_preclass_decision_action_missing call sites directly through wc_preclass_has_text_value, then delete the has_decision_action, should_apply_decision_action and decision_action_missing wrapper definitions",
+      "idempotentContains": [
+        "static int wc_preclass_has_decision_action(const char* decision_action)",
+        "static int wc_preclass_should_apply_decision_action(const char* decision_action)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-has-decision-action-removed",
+          "pattern": "static int wc_preclass_has_decision_action\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-should-apply-removed",
+          "pattern": "static int wc_preclass_should_apply_decision_action\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-decision-action-missing-removed",
+          "pattern": "static int wc_preclass_decision_action_missing\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-resolve-has-text-value",
+          "pattern": "if \\(wc_preclass_has_text_value\\(decision_action\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-normalize-missing-inline",
+          "pattern": "if \\(!wc_preclass_has_text_value\\(decision_action\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-wrapper-calls-removed",
+          "pattern": "wc_preclass_should_apply_decision_action\\(\\)|wc_preclass_decision_action_missing\\(\\)|wc_preclass_has_decision_action\\(\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_should_apply_decision_action\\(decision_action\\)\\)",
+          "replacement": "if (wc_preclass_has_text_value(decision_action))",
+          "idempotentContains": [
+            "if (wc_preclass_has_text_value(decision_action))"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_decision_action_missing\\(decision_action\\)\\)",
+          "replacement": "if (!wc_preclass_has_text_value(decision_action))",
+          "idempotentContains": [
+            "if (!wc_preclass_has_text_value(decision_action))"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_has_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_has_text_value\\(decision_action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_action_hint_applied_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_action_hint_applied_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_action_hint_applied_literal(void)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_should_apply_decision_action\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_has_decision_action\\(decision_action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_apply_route_change_finalize\\(int route_change, wc_preclass_decision_fields_t\\* out_fields\\)",
+          "replacement": "static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)",
+          "idempotentContains": [
+            "static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_decision_action_missing\\(const char\\* decision_action\\)\\r?\\n\\{\\r?\\n\\treturn !wc_preclass_has_text_value\\(decision_action\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_normalize_decision_action\\(const char\\* decision_action\\)",
+          "replacement": "static const char* wc_preclass_normalize_decision_action(const char* decision_action)",
+          "idempotentContains": [
+            "static const char* wc_preclass_normalize_decision_action(const char* decision_action)"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the route-change constant flag helpers wc_preclass_route_change_enabled_flag and wc_preclass_route_change_disabled_flag into literal 1/0 at their four call sites and the wc_preclass_normalize_route_change_flag ternary into its single call site, then delete the three flag helper definitions",
+      "idempotentContains": [
+        "static int wc_preclass_route_change_enabled_flag(void)",
+        "static int wc_preclass_normalize_route_change_flag(int route_change)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-route-change-enabled-flag-removed",
+          "pattern": "static int wc_preclass_route_change_enabled_flag\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-route-change-disabled-flag-removed",
+          "pattern": "static int wc_preclass_route_change_disabled_flag\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-normalize-route-change-flag-removed",
+          "pattern": "static int wc_preclass_normalize_route_change_flag\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-enabled-compare-inline",
+          "pattern": "out_fields->route_change == 1;",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-disabled-assign-inline",
+          "pattern": "out_fields->route_change = 0;",
+          "expectedCount": 3
+        },
+        {
+          "name": "d3-normalize-ternary-inline",
+          "pattern": "out_fields->route_change = route_change != 0 \\? 1 : 0;",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-flag-calls-removed",
+          "pattern": "wc_preclass_route_change_enabled_flag\\(\\)|wc_preclass_route_change_disabled_flag\\(\\)|wc_preclass_normalize_route_change_flag\\(\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "out_fields->route_change == wc_preclass_route_change_enabled_flag\\(\\);",
+          "replacement": "out_fields->route_change == 1;",
+          "idempotentContains": [
+            "out_fields->route_change == 1;"
+          ]
+        },
+        {
+          "pattern": "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal\\(\\);\\r?\\n\\tout_fields->route_change = wc_preclass_route_change_disabled_flag\\(\\);",
+          "replacement": "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal();\n\tout_fields->route_change = 0;",
+          "idempotentContains": [
+            "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal();\n\tout_fields->route_change = 0;"
+          ]
+        },
+        {
+          "pattern": "out_fields->route_change = wc_preclass_route_change_disabled_flag\\(\\);\\r?\\n\\tout_fields->fallback_reason = wc_preclass_route_change_fallback\\(out_fields->fallback_reason\\);",
+          "replacement": "out_fields->route_change = 0;\n\tout_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);",
+          "idempotentContains": [
+            "out_fields->route_change = 0;\n\tout_fields->fallback_reason = wc_preclass_route_change_fallback(out_fields->fallback_reason);"
+          ]
+        },
+        {
+          "pattern": "out_fields->input_label = wc_preclass_non_ip_literal\\(\\);\\r?\\n\\tout_fields->route_change = wc_preclass_route_change_disabled_flag\\(\\);",
+          "replacement": "out_fields->input_label = wc_preclass_non_ip_literal();\n\tout_fields->route_change = 0;",
+          "idempotentContains": [
+            "out_fields->input_label = wc_preclass_non_ip_literal();\n\tout_fields->route_change = 0;"
+          ]
+        },
+        {
+          "pattern": "out_fields->route_change = wc_preclass_normalize_route_change_flag\\(route_change\\);",
+          "replacement": "out_fields->route_change = route_change != 0 ? 1 : 0;",
+          "idempotentContains": [
+            "out_fields->route_change = route_change != 0 ? 1 : 0;"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_route_change_enabled_flag\\(void\\)\\r?\\n\\{\\r?\\n\\treturn 1;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_route_change_disabled_flag\\(void\\)\\r?\\n\\{\\r?\\n\\treturn 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_normalize_route_change_flag\\(int route_change\\)\\r?\\n\\{\\r?\\n\\treturn route_change != 0 \\? wc_preclass_route_change_enabled_flag\\(\\) : wc_preclass_route_change_disabled_flag\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_observe_only_action_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_observe_only_action_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_only_action_literal(void)"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Remove the pure-forward wc_preclass_match_layer_for_query_kind wrapper by routing its single call site directly through wc_preclass_match_layer_from_query_kind and inlining the wc_preclass_normalize_query_for_kind ternary into its single call site, then delete both wrapper definitions",
+      "idempotentContains": [
+        "static const char* wc_preclass_match_layer_for_query_kind(int query_is_cidr)",
+        "static const char* wc_preclass_normalize_query_for_kind(int query_is_cidr, const char* cidr_base, const char* query)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-match-layer-for-query-kind-removed",
+          "pattern": "static const char\\* wc_preclass_match_layer_for_query_kind\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-normalize-query-for-kind-removed",
+          "pattern": "static const char\\* wc_preclass_normalize_query_for_kind\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-match-layer-from-query-kind-call",
+          "pattern": "out_fields->match_layer = wc_preclass_match_layer_from_query_kind\\(query_is_cidr\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-normalized-ternary-inline",
+          "pattern": "const char\\* normalized = query_is_cidr \\? cidr_base : query;",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-wrapper-calls-removed",
+          "pattern": "wc_preclass_match_layer_for_query_kind\\(\\)|wc_preclass_normalize_query_for_kind\\(\\)",
+          "expectedCount": 0
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "out_fields->match_layer = wc_preclass_match_layer_for_query_kind\\(query_is_cidr\\);",
+          "replacement": "out_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);",
+          "idempotentContains": [
+            "out_fields->match_layer = wc_preclass_match_layer_from_query_kind(query_is_cidr);"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_match_layer_for_query_kind\\(int query_is_cidr\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_match_layer_from_query_kind\\(query_is_cidr\\);\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "void wc_preclass_resolve_decision_fields(const char* query,",
+          "idempotentContains": [
+            "void wc_preclass_resolve_decision_fields(const char* query,"
+          ]
+        },
+        {
+          "pattern": "const char\\* normalized = wc_preclass_normalize_query_for_kind\\(query_is_cidr, cidr_base, query\\);",
+          "replacement": "const char* normalized = query_is_cidr ? cidr_base : query;",
+          "idempotentContains": [
+            "const char* normalized = query_is_cidr ? cidr_base : query;"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_normalize_query_for_kind\\(int query_is_cidr, const char\\* cidr_base, const char\\* query\\)\\r?\\n\\{\\r?\\n\\treturn query_is_cidr \\? cidr_base : query;\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_apply_route_change_finalize\\(int route_change, wc_preclass_decision_fields_t\\* out_fields\\)",
+          "replacement": "static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)",
+          "idempotentContains": [
+            "static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclass_decision_fields_t* out_fields)"
+          ]
+        }
+      ]
+    }
+  }
+}
