@@ -1,0 +1,387 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-followup-d1-d4-20270223-20270301",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist B for serial #40: inline single-use v4/v6 special-case predicates directly into wc_preclass_classify_ip and delete their adjacent definitions in source order"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 4,
+    "description": "Checklist B continues consolidation: inline the single-use v4/v6 special-case byte predicates into classify_ip and delete the now-unused definitions in source adjacency order",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the v4 special-case predicates wc_preclass_v4_is_limited_broadcast, wc_preclass_v4_is_future_use and wc_preclass_v4_is_this_network into their classify_ip call sites and delete the three adjacent definitions, keeping the wc_preclass_v4_is_private_10_8 signature as the unique anchor",
+      "idempotentContains": [
+        "static int wc_preclass_v4_is_limited_broadcast(const unsigned char* b)",
+        "static int wc_preclass_v4_is_this_network(const unsigned char* b)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-v4-limited-broadcast-removed",
+          "pattern": "static int wc_preclass_v4_is_limited_broadcast\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-v4-future-use-removed",
+          "pattern": "static int wc_preclass_v4_is_future_use\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-v4-this-network-removed",
+          "pattern": "static int wc_preclass_v4_is_this_network\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-limited-broadcast-inline",
+          "pattern": "if \\(b\\[0\\] == 255 && b\\[1\\] == 255 && b\\[2\\] == 255 && b\\[3\\] == 255\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-future-use-inline",
+          "pattern": "if \\(b\\[0\\] >= 240\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-this-network-inline",
+          "pattern": "if \\(b\\[0\\] == 0\\)",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_v4_is_limited_broadcast\\(b\\)\\)",
+          "replacement": "if (b[0] == 255 && b[1] == 255 && b[2] == 255 && b[3] == 255)",
+          "idempotentContains": [
+            "if (b[0] == 255 && b[1] == 255 && b[2] == 255 && b[3] == 255)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_future_use\\(b\\)\\)",
+          "replacement": "if (b[0] >= 240)",
+          "idempotentContains": [
+            "if (b[0] >= 240)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_this_network\\(b\\)\\)",
+          "replacement": "if (b[0] == 0)",
+          "idempotentContains": [
+            "if (b[0] == 0)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v4_is_limited_broadcast\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 255 && b\\[1\\] == 255 && b\\[2\\] == 255 && b\\[3\\] == 255;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_future_use\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] >= 240;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_this_network\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_private_10_8\\(const unsigned char\\* b\\)",
+          "replacement": "static int wc_preclass_v4_is_private_10_8(const unsigned char* b)",
+          "idempotentContains": [
+            "static int wc_preclass_v4_is_private_10_8(const unsigned char* b)"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline the v4 special-case predicates wc_preclass_v4_is_private_10_8, wc_preclass_v4_is_private_192_168 and wc_preclass_v4_is_multicast_224_239 into their classify_ip call sites and delete the three adjacent definitions, keeping the wc_preclass_v4_is_loopback signature as the unique anchor",
+      "idempotentContains": [
+        "static int wc_preclass_v4_is_private_10_8(const unsigned char* b)",
+        "static int wc_preclass_v4_is_multicast_224_239(const unsigned char* b)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-v4-private-10-removed",
+          "pattern": "static int wc_preclass_v4_is_private_10_8\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-v4-private-192-removed",
+          "pattern": "static int wc_preclass_v4_is_private_192_168\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-v4-multicast-removed",
+          "pattern": "static int wc_preclass_v4_is_multicast_224_239\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-private-10-inline",
+          "pattern": "if \\(b\\[0\\] == 10\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-private-192-inline",
+          "pattern": "if \\(b\\[0\\] == 192 && b\\[1\\] == 168\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-multicast-inline",
+          "pattern": "if \\(b\\[0\\] >= 224 && b\\[0\\] <= 239\\)",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_v4_is_private_10_8\\(b\\)\\)",
+          "replacement": "if (b[0] == 10)",
+          "idempotentContains": [
+            "if (b[0] == 10)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_private_192_168\\(b\\)\\)",
+          "replacement": "if (b[0] == 192 && b[1] == 168)",
+          "idempotentContains": [
+            "if (b[0] == 192 && b[1] == 168)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_multicast_224_239\\(b\\)\\)",
+          "replacement": "if (b[0] >= 224 && b[0] <= 239)",
+          "idempotentContains": [
+            "if (b[0] >= 224 && b[0] <= 239)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v4_is_private_10_8\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 10;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_private_192_168\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 192 && b\\[1\\] == 168;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_multicast_224_239\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] >= 224 && b\\[0\\] <= 239;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_loopback\\(const unsigned char\\* b\\)",
+          "replacement": "static int wc_preclass_v4_is_loopback(const unsigned char* b)",
+          "idempotentContains": [
+            "static int wc_preclass_v4_is_loopback(const unsigned char* b)"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the v4 special-case predicates wc_preclass_v4_is_loopback, wc_preclass_v4_is_link_local_169_254 and wc_preclass_v4_is_private_172_16_31 into their classify_ip call sites and delete their definitions (loopback standalone with the v6_link_local_reason_literal anchor; link_local and private_172 adjacent with the v6_is_unique_local_fc00_7 anchor)",
+      "idempotentContains": [
+        "static int wc_preclass_v4_is_loopback(const unsigned char* b)",
+        "static int wc_preclass_v4_is_link_local_169_254(const unsigned char* b)",
+        "static int wc_preclass_v4_is_private_172_16_31(const unsigned char* b)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-v4-loopback-removed",
+          "pattern": "static int wc_preclass_v4_is_loopback\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-v4-link-local-removed",
+          "pattern": "static int wc_preclass_v4_is_link_local_169_254\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-v4-private-172-removed",
+          "pattern": "static int wc_preclass_v4_is_private_172_16_31\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-loopback-inline",
+          "pattern": "if \\(b\\[0\\] == 127\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-link-local-inline",
+          "pattern": "if \\(b\\[0\\] == 169 && b\\[1\\] == 254\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-private-172-inline",
+          "pattern": "if \\(b\\[0\\] == 172 && b\\[1\\] >= 16 && b\\[1\\] <= 31\\)",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_v4_is_loopback\\(b\\)\\)",
+          "replacement": "if (b[0] == 127)",
+          "idempotentContains": [
+            "if (b[0] == 127)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v4_is_loopback\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 127;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v6_link_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_link_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_link_local_reason_literal(void)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_link_local_169_254\\(b\\)\\)",
+          "replacement": "if (b[0] == 169 && b[1] == 254)",
+          "idempotentContains": [
+            "if (b[0] == 169 && b[1] == 254)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v4_is_private_172_16_31\\(b\\)\\)",
+          "replacement": "if (b[0] == 172 && b[1] >= 16 && b[1] <= 31)",
+          "idempotentContains": [
+            "if (b[0] == 172 && b[1] >= 16 && b[1] <= 31)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v4_is_link_local_169_254\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 169 && b\\[1\\] == 254;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v4_is_private_172_16_31\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 172 && b\\[1\\] >= 16 && b\\[1\\] <= 31;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v6_is_unique_local_fc00_7\\(const unsigned char\\* b\\)",
+          "replacement": "static int wc_preclass_v6_is_unique_local_fc00_7(const unsigned char* b)",
+          "idempotentContains": [
+            "static int wc_preclass_v6_is_unique_local_fc00_7(const unsigned char* b)"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the v6 special-case predicates wc_preclass_v6_is_unique_local_fc00_7, wc_preclass_v6_is_documentation_2001_db8_32, wc_preclass_v6_is_link_local, wc_preclass_v6_is_multicast and wc_preclass_v6_is_global_unicast_2000_3 into their classify_ip call sites and delete their definitions (unique_local and documentation adjacent with the v4_private_192_reason_literal anchor; link_local, multicast and global_unicast adjacent with the set_non_ip_defaults anchor)",
+      "idempotentContains": [
+        "static int wc_preclass_v6_is_unique_local_fc00_7(const unsigned char* b)",
+        "static int wc_preclass_v6_is_documentation_2001_db8_32(const unsigned char* b)",
+        "static int wc_preclass_v6_is_link_local(const unsigned char* b)",
+        "static int wc_preclass_v6_is_global_unicast_2000_3(const unsigned char* b)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-v6-unique-local-removed",
+          "pattern": "static int wc_preclass_v6_is_unique_local_fc00_7\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-documentation-removed",
+          "pattern": "static int wc_preclass_v6_is_documentation_2001_db8_32\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-link-local-removed",
+          "pattern": "static int wc_preclass_v6_is_link_local\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-multicast-removed",
+          "pattern": "static int wc_preclass_v6_is_multicast\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v6-global-unicast-removed",
+          "pattern": "static int wc_preclass_v6_is_global_unicast_2000_3\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-unique-local-inline",
+          "pattern": "if \\(\\(b\\[0\\] & 0xFE\\) == 0xFC\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-documentation-inline",
+          "pattern": "if \\(b\\[0\\] == 0x20 && b\\[1\\] == 0x01 && b\\[2\\] == 0x0d && b\\[3\\] == 0xb8\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-link-local-inline",
+          "pattern": "if \\(b\\[0\\] == 0xFE && \\(b\\[1\\] & 0xC0\\) == 0x80\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-multicast-inline",
+          "pattern": "if \\(b\\[0\\] == 0xFF\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-global-unicast-inline",
+          "pattern": "if \\(\\(b\\[0\\] & 0xE0\\) == 0x20\\)",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_v6_is_unique_local_fc00_7\\(b\\)\\)",
+          "replacement": "if ((b[0] & 0xFE) == 0xFC)",
+          "idempotentContains": [
+            "if ((b[0] & 0xFE) == 0xFC)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v6_is_documentation_2001_db8_32\\(b\\)\\)",
+          "replacement": "if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8)",
+          "idempotentContains": [
+            "if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v6_is_link_local\\(b\\)\\)",
+          "replacement": "if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80)",
+          "idempotentContains": [
+            "if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v6_is_multicast\\(b\\)\\)",
+          "replacement": "if (b[0] == 0xFF)",
+          "idempotentContains": [
+            "if (b[0] == 0xFF)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_v6_is_global_unicast_2000_3\\(b\\)\\)",
+          "replacement": "if ((b[0] & 0xE0) == 0x20)",
+          "idempotentContains": [
+            "if ((b[0] & 0xE0) == 0x20)"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_v4_private_192_reason_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"V4_PRIVATE_192_168_16\";\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v6_is_unique_local_fc00_7\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn \\(b\\[0\\] & 0xFE\\) == 0xFC;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v6_is_documentation_2001_db8_32\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 0x20 && b\\[1\\] == 0x01 && b\\[2\\] == 0x0d && b\\[3\\] == 0xb8;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v6_link_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v4_private_192_reason_literal(void)\n{\n\treturn \"V4_PRIVATE_192_168_16\";\n}\n\nstatic const char* wc_preclass_v6_link_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v4_private_192_reason_literal(void)\n{\n\treturn \"V4_PRIVATE_192_168_16\";\n}\n\nstatic const char* wc_preclass_v6_link_local_reason_literal(void)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_v6_is_link_local\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 0xFE && \\(b\\[1\\] & 0xC0\\) == 0x80;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v6_is_multicast\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn b\\[0\\] == 0xFF;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_v6_is_global_unicast_2000_3\\(const unsigned char\\* b\\)\\r?\\n\\{\\r?\\n\\treturn \\(b\\[0\\] & 0xE0\\) == 0x20;\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_non_ip_defaults\\(const char\\*\\* family, const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)",
+          "replacement": "static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)",
+          "idempotentContains": [
+            "static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)"
+          ]
+        }
+      ]
+    }
+  }
+}

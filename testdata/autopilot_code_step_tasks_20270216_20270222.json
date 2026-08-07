@@ -1,0 +1,402 @@
+﻿{
+  "schemaVersion": 1,
+  "name": "next-phase-ultra-high-density-d1-d4-20270216-20270222",
+  "targetFile": "src/core/preclass.c",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce",
+    "notes": "Checklist A for serial #39: remove observation/confidence layer pure-forward wrappers, inline small single-use predicates and inline family literal helpers"
+  },
+  "executionHints": {
+    "devVerifyStride": 2,
+    "moreCodePerRoundEnabled": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 5,
+    "description": "Checklist A continues ultra-high-density consolidation: observation-layer wrapper removal, confidence-token helper inlining, unknown-class/rir-hint predicate inlining and family literal flattening",
+    "notes": "Optional metadata for checklist policy and run-profile alignment",
+    "d1ResetRequirement": {
+      "requiredWhenRunIncludesD1": true,
+      "wrapperEntryFlag": "-ResetCodeStepState",
+      "directCodeStepTokens": [
+        "-Reset",
+        "-ResetStateOnly"
+      ],
+      "notes": "When run range includes D1, use explicit reset to avoid stale code-step invocation state"
+    }
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Remove the observation-layer pure-forward wrappers by routing wc_preclass_observation_codes directly through wc_preclass_confidence_token_level and the non-ip fallback, routing wc_preclass_observe_confidence_code directly through wc_preclass_confidence_token_level, then deleting the observe_confidence_rank, observe_reason_code and confidence_rank_from_level wrapper definitions",
+      "idempotentContains": [
+        "static int wc_preclass_observe_confidence_rank(const char* confidence)",
+        "static const char* wc_preclass_observe_reason_code(const char* reason)",
+        "static int wc_preclass_confidence_rank_from_level(int level)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d1-observe-confidence-rank-removed",
+          "pattern": "static int wc_preclass_observe_confidence_rank\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-observe-reason-code-removed",
+          "pattern": "static const char\\* wc_preclass_observe_reason_code\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-confidence-rank-from-level-removed",
+          "pattern": "static int wc_preclass_confidence_rank_from_level\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d1-confidence-rank-direct",
+          "pattern": "\\*confidence_rank = wc_preclass_confidence_token_level\\(confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-reason-code-fallback-inline",
+          "pattern": "\\*reason_code = \\(!reason \\|\\| !\\*reason\\) \\? wc_preclass_reason_non_ip_input_literal\\(\\) : reason;",
+          "expectedCount": 1
+        },
+        {
+          "name": "d1-observe-code-level-direct",
+          "pattern": "int level = wc_preclass_confidence_token_level\\(confidence\\);",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "\\*confidence_rank = wc_preclass_observe_confidence_rank\\(confidence\\);",
+          "replacement": "*confidence_rank = wc_preclass_confidence_token_level(confidence);",
+          "idempotentContains": [
+            "*confidence_rank = wc_preclass_confidence_token_level(confidence);"
+          ]
+        },
+        {
+          "pattern": "\\*reason_code = wc_preclass_observe_reason_code\\(reason\\);",
+          "replacement": "*reason_code = (!reason || !*reason) ? wc_preclass_reason_non_ip_input_literal() : reason;",
+          "idempotentContains": [
+            "*reason_code = (!reason || !*reason) ? wc_preclass_reason_non_ip_input_literal() : reason;"
+          ]
+        },
+        {
+          "pattern": "int level = wc_preclass_confidence_rank_from_level\\(\\r?\\n\\t\\twc_preclass_confidence_token_level\\(confidence\\)\\);",
+          "replacement": "int level = wc_preclass_confidence_token_level(confidence);",
+          "idempotentContains": [
+            "int level = wc_preclass_confidence_token_level(confidence);"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_observe_confidence_rank\\(const char\\* confidence\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_confidence_token_level\\(confidence\\);\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_observation_codes\\(const char\\* reason,",
+          "replacement": "void wc_preclass_observation_codes(const char* reason,",
+          "idempotentContains": [
+            "void wc_preclass_observation_codes(const char* reason,"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_observe_reason_code\\(const char\\* reason\\)\\r?\\n\\{\\r?\\n\\tif \\(!reason \\|\\| !\\*reason\\)\\r?\\n\\t\\treturn wc_preclass_reason_non_ip_input_literal\\(\\);\\r?\\n\\treturn reason;\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_reason_has_observe_prefix\\(const char\\* reason, const char\\* prefix, size_t prefix_len\\)",
+          "replacement": "static int wc_preclass_reason_has_observe_prefix(const char* reason, const char* prefix, size_t prefix_len)",
+          "idempotentContains": [
+            "static int wc_preclass_reason_has_observe_prefix(const char* reason, const char* prefix, size_t prefix_len)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_confidence_rank_from_level\\(int level\\)\\r?\\n\\{\\r?\\n\\tif \\(level >= 3\\)\\r?\\n\\t\\treturn 3;\\r?\\n\\tif \\(level == 2\\)\\r?\\n\\t\\treturn 2;\\r?\\n\\tif \\(level == 1\\)\\r?\\n\\t\\treturn 1;\\r?\\n\\treturn 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_observe_confidence_code\\(const char\\* confidence\\)",
+          "replacement": "static const char* wc_preclass_observe_confidence_code(const char* confidence)",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_confidence_code(const char* confidence)"
+          ]
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline wc_preclass_reason_has_observe_prefix into its single call site inside wc_preclass_observe_reason_key and inline wc_preclass_confidence_token_matches into the three call sites inside wc_preclass_confidence_token_level, then delete both helper definitions",
+      "idempotentContains": [
+        "static int wc_preclass_reason_has_observe_prefix(const char* reason, const char* prefix, size_t prefix_len)",
+        "static int wc_preclass_confidence_token_matches(const char* confidence, const char* token)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d2-reason-has-observe-prefix-removed",
+          "pattern": "static int wc_preclass_reason_has_observe_prefix\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-confidence-token-matches-removed",
+          "pattern": "static int wc_preclass_confidence_token_matches\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d2-prefix-inline",
+          "pattern": "if \\(reason && \\*reason && prefix && \\*prefix &&\\r?\\n\\t\\tstrncmp\\(reason, prefix, prefix_len\\) == 0 &&\\r?\\n\\t\\treason\\[prefix_len\\] != '\\\\0'\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-high-inline",
+          "pattern": "if \\(confidence && \\*confidence && strcmp\\(confidence, wc_preclass_confidence_high_literal\\(\\)\\) == 0\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-medium-inline",
+          "pattern": "if \\(confidence && \\*confidence && strcmp\\(confidence, wc_preclass_confidence_medium_literal\\(\\)\\) == 0\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-low-inline",
+          "pattern": "if \\(confidence && \\*confidence && strcmp\\(confidence, wc_preclass_confidence_low_literal\\(\\)\\) == 0\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "d2-confidence-low-literal-prototype",
+          "pattern": "static const char\\* wc_preclass_confidence_low_literal\\(void\\);",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_reason_has_observe_prefix\\(reason, prefix, prefix_len\\)\\)",
+          "replacement": "if (reason && *reason && prefix && *prefix &&\n\t\tstrncmp(reason, prefix, prefix_len) == 0 &&\n\t\treason[prefix_len] != '\\0')",
+          "idempotentContains": [
+            "if (reason && *reason && prefix && *prefix &&\n\t\tstrncmp(reason, prefix, prefix_len) == 0 &&\n\t\treason[prefix_len] != '\\0')"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, wc_preclass_confidence_high_literal\\(\\)\\)\\)",
+          "replacement": "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_high_literal()) == 0)",
+          "idempotentContains": [
+            "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_high_literal()) == 0)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, wc_preclass_confidence_medium_literal\\(\\)\\)\\)",
+          "replacement": "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_medium_literal()) == 0)",
+          "idempotentContains": [
+            "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_medium_literal()) == 0)"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_confidence_token_matches\\(confidence, wc_preclass_confidence_low_literal\\(\\)\\)\\)",
+          "replacement": "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_low_literal()) == 0)",
+          "idempotentContains": [
+            "if (confidence && *confidence && strcmp(confidence, wc_preclass_confidence_low_literal()) == 0)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_reason_has_observe_prefix\\(const char\\* reason, const char\\* prefix, size_t prefix_len\\)\\r?\\n\\{\\r?\\n\\treturn reason && \\*reason &&\\r?\\n\\t\\tprefix && \\*prefix &&\\r?\\n\\t\\tstrncmp\\(reason, prefix, prefix_len\\) == 0 &&\\r?\\n\\t\\treason\\[prefix_len\\] != '\\\\0';\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_observe_reason_key\\(const char\\* reason\\)",
+          "replacement": "static const char* wc_preclass_observe_reason_key(const char* reason)",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_reason_key(const char* reason)"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_confidence_token_matches\\(const char\\* confidence, const char\\* token\\)\\r?\\n\\{\\r?\\n\\treturn confidence && \\*confidence && token && strcmp\\(confidence, token\\) == 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_confidence_low_literal\\(void\\);",
+          "replacement": "static const char* wc_preclass_confidence_low_literal(void);",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_low_literal(void);"
+          ]
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline wc_preclass_is_unknown_class_value into its two call sites through wc_preclass_token_equals and inline wc_preclass_rir_hint_present into its two call sites through wc_preclass_has_text_value, then delete both predicate definitions",
+      "idempotentContains": [
+        "static int wc_preclass_is_unknown_class_value(const char* cls)",
+        "static int wc_preclass_rir_hint_present(const char* guessed_rir)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d3-is-unknown-class-value-removed",
+          "pattern": "static int wc_preclass_is_unknown_class_value\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-rir-hint-present-removed",
+          "pattern": "static int wc_preclass_rir_hint_present\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d3-unknown-class-inline-unknown-hint",
+          "pattern": "if \\(wc_preclass_token_equals\\(current_class, wc_preclass_class_unknown_literal\\(\\)\\)\\)\\r?\\n\\t\\twc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-unknown-class-inline-allocated-hint",
+          "pattern": "if \\(wc_preclass_token_equals\\(current_class, wc_preclass_class_unknown_literal\\(\\)\\)\\)\\r?\\n\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-rir-hint-inline-v6-global",
+          "pattern": "if \\(wc_preclass_has_text_value\\(guessed_rir\\) && strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\twc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d3-rir-hint-inline-allocated",
+          "pattern": "if \\(wc_preclass_has_text_value\\(guessed_rir\\) && strcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(wc_preclass_is_unknown_class_value\\(current_class\\)\\)\\r?\\n\\t\\twc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal()))\n\t\twc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal()))\n\t\twc_preclass_apply_classified_tuple(cls, rir, reason, confidence, wc_preclass_class_unknown_literal(), wc_preclass_rir_unknown_literal(), reason_value, wc_preclass_confidence_low_literal());"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_is_unknown_class_value\\(current_class\\)\\)\\r?\\n\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);",
+          "replacement": "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal()))\n\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal()))\n\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_rir_hint_present\\(guessed_rir\\)\\) \\{\\r?\\n\\t\\twc_preclass_apply_known_rir_tuple\\(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_has_text_value(guessed_rir) && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\twc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal());",
+          "idempotentContains": [
+            "if (wc_preclass_has_text_value(guessed_rir) && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\twc_preclass_apply_known_rir_tuple(rir, reason, confidence, guessed_rir, reason_value, wc_preclass_confidence_medium_literal());"
+          ]
+        },
+        {
+          "pattern": "if \\(wc_preclass_rir_hint_present\\(guessed_rir\\)\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_allocated_literal\\(\\);",
+          "replacement": "if (wc_preclass_has_text_value(guessed_rir) && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();",
+          "idempotentContains": [
+            "if (wc_preclass_has_text_value(guessed_rir) && strcmp(guessed_rir, wc_preclass_rir_unknown_literal()) != 0) {\n\t\t*cls = wc_preclass_class_allocated_literal();"
+          ]
+        },
+        {
+          "pattern": "static int wc_preclass_is_unknown_class_value\\(const char\\* cls\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_token_equals\\(cls, wc_preclass_class_unknown_literal\\(\\)\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_rir_hint_present\\(const char\\* guessed_rir\\)\\r?\\n\\{\\r?\\n\\treturn wc_preclass_has_text_value\\(guessed_rir\\) &&\\r?\\n\\t\\tstrcmp\\(guessed_rir, wc_preclass_rir_unknown_literal\\(\\)\\) != 0;\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v6_global_unicast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_global_unicast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_global_unicast_reason_literal(void)"
+          ]
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the family literal helpers wc_preclass_family_v4_literal, wc_preclass_family_v6_literal and wc_preclass_family_non_ip_literal into their five call sites (lookup_row_and_assign_v4, lookup_row_and_assign_v6, classify_ip v4/v6 branches and set_non_ip_defaults), then delete the three helper definitions",
+      "idempotentContains": [
+        "static const char* wc_preclass_family_v4_literal(void)",
+        "static const char* wc_preclass_family_v6_literal(void)",
+        "static const char* wc_preclass_family_non_ip_literal(void)"
+      ],
+      "noOpPolicy": {
+        "allowedClasses": [
+          "absorbed-by-prior-round",
+          "idempotent-replay"
+        ]
+      },
+      "postApplyAssertions": [
+        {
+          "name": "d4-family-v4-literal-removed",
+          "pattern": "static const char\\* wc_preclass_family_v4_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-family-v6-literal-removed",
+          "pattern": "static const char\\* wc_preclass_family_v6_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-family-non-ip-literal-removed",
+          "pattern": "static const char\\* wc_preclass_family_non_ip_literal\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-v4-assign-inline",
+          "pattern": "\\*family = \"v4\";\\r?\\n\\twc_preclass_assign_from_row\\(row, cls, rir, reason, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-v6-assign-inline",
+          "pattern": "\\*family = \"v6\";\\r?\\n\\twc_preclass_assign_from_row\\(row, cls, rir, reason, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-v4-classify-inline",
+          "pattern": "\\*family = \"v4\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "d4-v6-classify-inline",
+          "pattern": "\\*family = \"v6\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "d4-non-ip-inline",
+          "pattern": "\\*family = \"non-ip\";",
+          "expectedCount": 1
+        }
+      ],
+      "operations": [
+        {
+          "pattern": "if \\(!wc_preclass_lookup_row_v4\\(ip, &row\\)\\)\\r?\\n\\t\\treturn 0;\\r?\\n\\t\\*family = wc_preclass_family_v4_literal\\(\\);",
+          "replacement": "if (!wc_preclass_lookup_row_v4(ip, &row))\n\t\treturn 0;\n\t*family = \"v4\";",
+          "idempotentContains": [
+            "if (!wc_preclass_lookup_row_v4(ip, &row))\n\t\treturn 0;\n\t*family = \"v4\";"
+          ]
+        },
+        {
+          "pattern": "if \\(!wc_preclass_lookup_row_v6\\(hi, lo, &row\\)\\)\\r?\\n\\t\\treturn 0;\\r?\\n\\t\\*family = wc_preclass_family_v6_literal\\(\\);",
+          "replacement": "if (!wc_preclass_lookup_row_v6(hi, lo, &row))\n\t\treturn 0;\n\t*family = \"v6\";",
+          "idempotentContains": [
+            "if (!wc_preclass_lookup_row_v6(hi, lo, &row))\n\t\treturn 0;\n\t*family = \"v6\";"
+          ]
+        },
+        {
+          "pattern": "memcpy\\(b, &addr4, sizeof\\(b\\)\\);\\r?\\n\\t\\t\\*family = wc_preclass_family_v4_literal\\(\\);",
+          "replacement": "memcpy(b, &addr4, sizeof(b));\n\t\t*family = \"v4\";",
+          "idempotentContains": [
+            "memcpy(b, &addr4, sizeof(b));\n\t\t*family = \"v4\";"
+          ]
+        },
+        {
+          "pattern": "const unsigned char\\* b = addr6.s6_addr;\\r?\\n\\t\\t\\*family = wc_preclass_family_v6_literal\\(\\);",
+          "replacement": "const unsigned char* b = addr6.s6_addr;\n\t\t*family = \"v6\";",
+          "idempotentContains": [
+            "const unsigned char* b = addr6.s6_addr;\n\t\t*family = \"v6\";"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_non_ip_defaults\\(const char\\*\\* family, const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*family = wc_preclass_family_non_ip_literal\\(\\);",
+          "replacement": "static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)\n{\n\t*family = \"non-ip\";",
+          "idempotentContains": [
+            "static void wc_preclass_set_non_ip_defaults(const char** family, const char** cls, const char** rir, const char** reason, const char** confidence)\n{\n\t*family = \"non-ip\";"
+          ]
+        },
+        {
+          "pattern": "static const char\\* wc_preclass_family_v4_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"v4\";\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_family_v6_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"v6\";\\r?\\n\\}\\r?\\n\\r?\\nstatic const char\\* wc_preclass_family_non_ip_literal\\(void\\)\\r?\\n\\{\\r?\\n\\treturn \"non-ip\";\\r?\\n\\}\\r?\\n\\r?\\nstatic int wc_preclass_lookup_row_and_assign_v4\\(struct in_addr addr4,",
+          "replacement": "static int wc_preclass_lookup_row_and_assign_v4(struct in_addr addr4,",
+          "idempotentContains": [
+            "static int wc_preclass_lookup_row_and_assign_v4(struct in_addr addr4,"
+          ]
+        }
+      ]
+    }
+  }
+}
