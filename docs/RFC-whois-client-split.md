@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-10：串行第 41/42 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-02 ~ 2027-03-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260809-114503，B run=out/artifacts/dev_verify_multiround/20260809-201456）；全程 0 起事故、无自愈、无重启，一次通过；A 阶段于 2026-08-09 20:15:07 完成（0d 08:30:42），B 阶段于 2026-08-10 02:52:12 完成（0d 06:37:48），会话结束 2026-08-10 02:52:12；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260810-053425`，212s）（详见文内第 41/42 份清单段与启动文件段）。
 - 2026-08-09：新增串行第 41/42 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-03-02 ~ 2027-03-15`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270302_20270308.json`、`testdata/autopilot_code_step_tasks_20270309_20270315.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270302-20270315.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式有效源码编译验证均通过（详见文内第 41/42 份清单段与启动文件段）。
 - 2026-08-09：串行第 39/40 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-02-16 ~ 2027-03-01`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260808-064045，B run=out/artifacts/dev_verify_multiround/20260809-004856）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260809-090641`，279s）（详见文内第 39/40 份回填段与启动文件段）。
 - 2026-08-08：新增串行第 39/40 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-02-16 ~ 2027-03-01`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270216_20270222.json`、`testdata/autopilot_code_step_tasks_20270223_20270301.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270216-20270301.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见文内第 39/40 份清单段与启动文件段）。
@@ -9064,36 +9065,40 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
 
 
-**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-03-02 ~ 2027-03-08，串行第 41 份，Checklist A，草案）**：
+**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-03-02 ~ 2027-03-08，串行第 41 份，Checklist A，已完成）**：
 
 > 注：本清单在第 40 份 B 基础上继续推进 `preclass.c` 的 decision 字段层小包装移除：action 谓词、normalize/match-layer、apply-decision-action helper 与 guard 谓词全部内联到唯一调用点后删除定义。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270302_20270308.json`。
-> 回填状态：2026-08-09 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+> 回填状态：2026-08-10 已完成运行回填，A 阶段一次通过，无人工干预（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在第 40 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
-3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
-6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+1. [x] 串行约束：仅在第 40 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+6. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [x] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [x] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
 
 **开发四轮（D1~D4，超高密度）**：
-1. [ ] D1：Inline the three action predicates `wc_preclass_action_is_hint_applied` / `wc_preclass_action_is_preclass_short_circuit` / `wc_preclass_action_is_step47_short_circuit` into `wc_preclass_action_route_change_allowed` and delete the three predicate definitions.
-2. [ ] D2：Inline `wc_preclass_action_route_change_allowed`, `wc_preclass_route_change_fallback` and `wc_preclass_normalize_fallback_reason` into their single call sites and delete the three definitions.
-3. [ ] D3：Inline `wc_preclass_normalize_decision_action` and `wc_preclass_match_layer_from_query_kind`, inline `wc_preclass_apply_decision_action_fields` into `wc_preclass_resolve_decision_fields` and delete the three definitions.
-4. [ ] D4：Inline `wc_preclass_query_missing`, `wc_preclass_preclass_disabled_enabled` and `wc_preclass_decision_fields_missing` into `wc_preclass_resolve_decision_fields` and delete the three definitions.
+1. [x] D1：Inline the three action predicates `wc_preclass_action_is_hint_applied` / `wc_preclass_action_is_preclass_short_circuit` / `wc_preclass_action_is_step47_short_circuit` into `wc_preclass_action_route_change_allowed` and delete the three predicate definitions.
+2. [x] D2：Inline `wc_preclass_action_route_change_allowed`, `wc_preclass_route_change_fallback` and `wc_preclass_normalize_fallback_reason` into their single call sites and delete the three definitions.
+3. [x] D3：Inline `wc_preclass_normalize_decision_action` and `wc_preclass_match_layer_from_query_kind`, inline `wc_preclass_apply_decision_action_fields` into `wc_preclass_resolve_decision_fields` and delete the three definitions.
+4. [x] D4：Inline `wc_preclass_query_missing`, `wc_preclass_preclass_disabled_enabled` and `wc_preclass_decision_fields_missing` into `wc_preclass_resolve_decision_fields` and delete the three definitions.
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-**执行回填（Checklist A，本期）**：
-- （待运行后回填：A 阶段终态、运行目录、事故与自愈记录。）
+**执行回填（Checklist A，本期，2026-08-10）**：
+- **A 阶段终态**：`A_FINAL_STATUS=PASS`，`Result=pass`、`ExitCode=0`、`CompletedRoundCount=8`（D1~D4 + V1~V4）、`FailedRoundTags=[]`（无失败轮次）。
+- **A 运行目录**：`out/artifacts/dev_verify_multiround/20260809-114503`（`final_status.json`、`summary.csv`、`a_success_snapshot/` 已固化）。
+- **启动方式**：`open_unattended_ab_stage_window.ps1 -Stage A -StartMonitors`（外部 PowerShell 窗口），launch-ready PASS、网络预检 PASS、远端锁 absent。
+- **事故与自愈**：无（`incident_dir` 为空），未触发代码/脚本自愈、未发生阶段重启。
+- **A 阶段耗时**：`0d 08:30:42`（start=2026-08-09 11:44:25，end=2026-08-09 20:15:07，含 launcher/preflight）。
 
 **编制期验收（已完成，2026-08-09）**：
 - [x] `-SyntaxOnly` 装载检查：PASS。
@@ -9101,36 +9106,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - [x] 有效源码 clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
 
 
-**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-03-09 ~ 2027-03-15，串行第 42 份，Checklist B，草案）**：
+**下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-03-09 ~ 2027-03-15，串行第 42 份，Checklist B，已完成）**：
 
 > 注：Checklist B 仅在 Checklist A（串行第 41 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点将 apply/assign 组装层小包装内联：tuple setters、v6 结果 helper、v6 loopback 谓词、row 映射与 `read_be64`。**2026-08-09 将串行第 43/44 份收尾合并进本清单 D4**：内联 `set_non_ip_defaults` 与 unknown/allocated hint helpers、删除死代码 `apply_unknown_hint_default_tuple` 与冗余 `set_allocated_hint` 前向声明。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270309_20270315.json`。
-> 回填状态：2026-08-09 已编制任务定义并通过编制期静态验收（含合并收尾后的链式复检），尚未运行（草案）。
+> 回填状态：2026-08-10 已完成运行回填，B 阶段一次通过，无人工干预（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
-3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
-4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
-7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+1. [x] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [x] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [x] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
 
 **开发四轮（D1~D4，超高密度跟进）**：
-1. [ ] D1：Inline `wc_preclass_apply_known_rir_tuple` into its four call sites (two in `wc_preclass_set_v6_global_unicast_result`, two in `wc_preclass_set_allocated_hint`) and delete its definition.
-2. [ ] D2：Inline `wc_preclass_apply_classified_tuple` into its three call sites (in `wc_preclass_apply_none_confidence_tuple`, `wc_preclass_apply_unknown_hint_default_tuple` and `wc_preclass_apply_unknown_hint_if_unknown_class`) and delete its definition.
-3. [ ] D3：Inline `wc_preclass_set_v6_global_unicast_result` into `wc_preclass_classify_ip` and inline `wc_preclass_v6_is_loopback` into its call site, then delete both definitions.
-4. [ ] D4：Inline `wc_preclass_assign_from_row` into `wc_preclass_lookup_row_and_assign_v4/v6` and inline `wc_preclass_read_be64` into `wc_preclass_lookup_row_and_assign_v6` hi/lo, then delete both definitions; merge-delete the adjacent `apply_unknown_hint_default_tuple` / `apply_unknown_hint_if_unknown_class` / `apply_allocated_hint_if_unknown_class` definitions in a single op and remove the now-redundant `set_allocated_hint` forward declaration (name-mapping helpers remain).
+1. [x] D1：Inline `wc_preclass_apply_known_rir_tuple` into its four call sites (two in `wc_preclass_set_v6_global_unicast_result`, two in `wc_preclass_set_allocated_hint`) and delete its definition.
+2. [x] D2：Inline `wc_preclass_apply_classified_tuple` into its three call sites (in `wc_preclass_apply_none_confidence_tuple`, `wc_preclass_apply_unknown_hint_default_tuple` and `wc_preclass_apply_unknown_hint_if_unknown_class`) and delete its definition.
+3. [x] D3：Inline `wc_preclass_set_v6_global_unicast_result` into `wc_preclass_classify_ip` and inline `wc_preclass_v6_is_loopback` into its call site, then delete both definitions.
+4. [x] D4：Inline `wc_preclass_assign_from_row` into `wc_preclass_lookup_row_and_assign_v4/v6` and inline `wc_preclass_read_be64` into `wc_preclass_lookup_row_and_assign_v6` hi/lo, then delete both definitions; merge-delete the adjacent `apply_unknown_hint_default_tuple` / `apply_unknown_hint_if_unknown_class` / `apply_allocated_hint_if_unknown_class` definitions in a single op and remove the now-redundant `set_allocated_hint` forward declaration (name-mapping helpers remain).
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
-**执行回填（Checklist B，本期）**：
-- （待运行后回填：B 阶段终态、运行目录、事故与自愈记录。）
+**执行回填（Checklist B，本期，2026-08-10）**：
+- **B 阶段终态**：`B_FINAL_STATUS=PASS`，`Result=pass`、`ExitCode=0`、`CompletedRoundCount=8`（D1~D4 + V1~V4）、`FailedRoundTags=[]`（无失败轮次）。
+- **B 运行目录**：`out/artifacts/dev_verify_multiround/20260809-201456`（`final_status.json`、`summary.csv` 已生成）。
+- **启动方式**：以 A 成功快照为基线，`open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors`；A→B 交接正常（`a-pass-conclusion-b-started` 事件评审闭环）。
+- **事故与自愈**：无（`incident_dir` 为空），未触发代码/脚本自愈、未发生阶段重启。
+- **B 阶段耗时**：`0d 06:37:48`（B start=2026-08-09 20:14:25，B end=2026-08-10 02:52:12）。
+- **A/B 合计耗时**：`0d 15:07:48`（session start=2026-08-09 11:44:25，至 B 收尾 2026-08-10 02:52:12）。
 
 **编制期验收（已完成，2026-08-09）**：
 - [x] `-SyntaxOnly` 装载检查：PASS。
@@ -9139,7 +9149,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - [x] 链式有效源码（A+B 全部轮次应用）clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
 
 
-**对应任务启动文件（2026-08-09，草案）**：
+**对应任务启动文件（2026-08-10，已完成回填）**：
 
 - 启动文件路径：`testdata/unattended_start/active/unattended_ab_start_20270302-20270315.md`
 - 绑定文件：
@@ -9148,5 +9158,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 当前窗口：`WINDOW=2027-03-02 ~ 2027-03-15`
 - 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
 - 预检基线：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`（A 阶段 launch-ready PASS；B 阶段按设计等待 A PASS snapshot 后由 stage window 启动）。
-- 当前终态：（未运行，A/B/SESSION 均为 NOT_RUN）。
+- 当前终态：**SESSION=PASS、A=PASS、B=PASS**（A/B 均一次通过，无人工干预）。
+  - A 运行目录：`out/artifacts/dev_verify_multiround/20260809-114503`（A elapsed=0d 08:30:42，start=2026-08-09 11:44:25，end=2026-08-09 20:15:07）。
+  - B 运行目录：`out/artifacts/dev_verify_multiround/20260809-201456`（B elapsed=0d 06:37:48，start=2026-08-09 20:14:25，end=2026-08-10 02:52:12；A/B 合计 0d 15:07:48）。
+  - 会话结束：2026-08-10 02:52:12（`chat-session-final-status` 事件评审闭环）。
 - 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
+- **Strict 远程冒烟同步 + 黄金校验（2026-08-10）**：
+  - 命令：`tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' ... -O lto-auto -G 1 ...`（Strict Version，`WHOIS_STRICT_VERSION=1`）。
+  - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 212s。
+  - 产物目录：`out/artifacts/20260810-053425/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/143.128.0.0/*.log`）。
