@@ -9103,9 +9103,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 **下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-03-09 ~ 2027-03-15，串行第 42 份，Checklist B，草案）**：
 
-> 注：Checklist B 仅在 Checklist A（串行第 41 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点将 apply/assign 组装层小包装内联：tuple setters、v6 结果 helper、v6 loopback 谓词、row 映射与 `read_be64`。
+> 注：Checklist B 仅在 Checklist A（串行第 41 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点将 apply/assign 组装层小包装内联：tuple setters、v6 结果 helper、v6 loopback 谓词、row 映射与 `read_be64`。**2026-08-09 将串行第 43/44 份收尾合并进本清单 D4**：内联 `set_non_ip_defaults` 与 unknown/allocated hint helpers、删除死代码 `apply_unknown_hint_default_tuple` 与冗余 `set_allocated_hint` 前向声明。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270309_20270315.json`。
-> 回填状态：2026-08-09 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+> 回填状态：2026-08-09 已编制任务定义并通过编制期静态验收（含合并收尾后的链式复检），尚未运行（草案）。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
@@ -9121,7 +9121,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 1. [ ] D1：Inline `wc_preclass_apply_known_rir_tuple` into its four call sites (two in `wc_preclass_set_v6_global_unicast_result`, two in `wc_preclass_set_allocated_hint`) and delete its definition.
 2. [ ] D2：Inline `wc_preclass_apply_classified_tuple` into its three call sites (in `wc_preclass_apply_none_confidence_tuple`, `wc_preclass_apply_unknown_hint_default_tuple` and `wc_preclass_apply_unknown_hint_if_unknown_class`) and delete its definition.
 3. [ ] D3：Inline `wc_preclass_set_v6_global_unicast_result` into `wc_preclass_classify_ip` and inline `wc_preclass_v6_is_loopback` into its call site, then delete both definitions.
-4. [ ] D4：Inline `wc_preclass_assign_from_row` into `wc_preclass_lookup_row_and_assign_v4/v6` and inline `wc_preclass_read_be64` into `wc_preclass_lookup_row_and_assign_v6` hi/lo, then delete both definitions (name-mapping helpers remain).
+4. [ ] D4：Inline `wc_preclass_assign_from_row` into `wc_preclass_lookup_row_and_assign_v4/v6` and inline `wc_preclass_read_be64` into `wc_preclass_lookup_row_and_assign_v6` hi/lo, then delete both definitions; merge-delete the adjacent `apply_unknown_hint_default_tuple` / `apply_unknown_hint_if_unknown_class` / `apply_allocated_hint_if_unknown_class` definitions in a single op and remove the now-redundant `set_allocated_hint` forward declaration (name-mapping helpers remain).
 
 **复检四轮（V1~V4）**：
 1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。

@@ -8,14 +8,14 @@
     "disableUnknownNoOpBudgetGate": false,
     "taskDesignQualityPolicy": "enforce",
     "operationSafetyPolicy": "enforce",
-    "notes": "Checklist B for serial #42: remove apply/assign layer small wrappers by inlining the tuple setters, the v6 result helper, the v6 loopback predicate and the row assignment mapper into their single call sites and deleting their definitions"
+    "notes": "Checklist B for serial #42 (merged 43/44 cleanup): remove apply/assign layer small wrappers by inlining the tuple setters, the v6 result helper, the v6 loopback predicate and the row assignment mapper into their single call sites and deleting their definitions; additionally inline set_non_ip_defaults and the unknown/allocated hint helpers into classify_ip, delete the dead apply_unknown_hint_default_tuple and the now-redundant set_allocated_hint forward declaration"
   },
   "executionHints": {
     "devVerifyStride": 2,
     "moreCodePerRoundEnabled": true,
     "dRoundChangeDensity": "very-high",
     "minOperationsPerDRound": 4,
-    "description": "Checklist B continues ultra-high-density consolidation: apply/assign layer wrapper removal around classify_ip, lookup_row_and_assign_v4/v6 and the name mapping helpers",
+    "description": "Checklist B continues ultra-high-density consolidation: apply/assign layer wrapper removal around classify_ip, lookup_row_and_assign_v4/v6 and the name mapping helpers; D4 also folds in the 43/44 cleanup (dead apply_unknown_hint_default_tuple, single-use hint helpers and redundant prototype)",
     "notes": "Optional metadata for checklist policy and run-profile alignment",
     "d1ResetRequirement": {
       "requiredWhenRunIncludesD1": true,
@@ -172,10 +172,10 @@
           ]
         },
         {
-          "pattern": "wc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
-          "replacement": "*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_low_literal();",
+          "pattern": "if \\(wc_preclass_token_equals\\(current_class, wc_preclass_class_unknown_literal\\(\\)\\)\\)\\r?\\n\\t\\twc_preclass_apply_classified_tuple\\(cls, rir, reason, confidence, wc_preclass_class_unknown_literal\\(\\), wc_preclass_rir_unknown_literal\\(\\), reason_value, wc_preclass_confidence_low_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal())) {\n\t\t*cls = wc_preclass_class_unknown_literal();\n\t\t*rir = wc_preclass_rir_unknown_literal();\n\t\t*reason = reason_value;\n\t\t*confidence = wc_preclass_confidence_low_literal();\n\t}",
           "idempotentContains": [
-            "*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = reason_value;\n\t*confidence = wc_preclass_confidence_low_literal();"
+            "if (wc_preclass_token_equals(current_class, wc_preclass_class_unknown_literal())) {\n\t\t*cls = wc_preclass_class_unknown_literal();\n\t\t*rir = wc_preclass_rir_unknown_literal();\n\t\t*reason = reason_value;\n\t\t*confidence = wc_preclass_confidence_low_literal();\n\t}"
           ]
         },
         {
@@ -265,7 +265,7 @@
     },
     "D4": {
       "type": "regex-patch",
-      "description": "Inline wc_preclass_assign_from_row into its two call sites inside wc_preclass_lookup_row_and_assign_v4 and wc_preclass_lookup_row_and_assign_v6 and delete its definition; inline wc_preclass_read_be64 into its two call sites inside wc_preclass_lookup_row_and_assign_v6 and delete its definition, keeping the lookup_row_and_assign_v4 signature and the WC_PRECLASS_CLASS_ID_UNKNOWN enum as unique anchors",
+      "description": "Inline wc_preclass_assign_from_row into its two call sites inside wc_preclass_lookup_row_and_assign_v4 and wc_preclass_lookup_row_and_assign_v6 and delete its definition; inline wc_preclass_read_be64 into its two call sites inside wc_preclass_lookup_row_and_assign_v6 and delete its definition; then finish the apply/assign layer: inline set_non_ip_defaults and the unknown/allocated hint helpers into wc_preclass_classify_ip, merge-delete the adjacent apply_unknown_hint_default_tuple / apply_unknown_hint_if_unknown_class / apply_allocated_hint_if_unknown_class definitions in a single op and remove the now-redundant set_allocated_hint forward declaration, keeping the lookup_row_and_assign_v4, WC_PRECLASS_CLASS_ID_UNKNOWN enum, classify_ip and set_allocated_hint definition signatures as unique anchors",
       "idempotentContains": [
         "*cls = wc_preclass_class_name(row->class_id);",
         "uint64_t hi = (((uint64_t)b[0]) << 56) |",
@@ -322,6 +322,46 @@
           "name": "d4-reason-name-preserved",
           "pattern": "static const char\\* wc_preclass_reason_name\\(",
           "expectedCount": 1
+        },
+        {
+          "name": "d4-set-non-ip-defaults-removed",
+          "pattern": "static void wc_preclass_set_non_ip_defaults\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-set-non-ip-inline",
+          "pattern": "\\*family = \"non-ip\";\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-apply-unknown-hint-if-removed",
+          "pattern": "void wc_preclass_apply_unknown_hint_if_unknown_class\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-apply-allocated-hint-if-removed",
+          "pattern": "void wc_preclass_apply_allocated_hint_if_unknown_class\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-apply-unknown-hint-default-removed",
+          "pattern": "void wc_preclass_apply_unknown_hint_default_tuple\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "d4-unknown-hint-inline-classify",
+          "pattern": "if \\(wc_preclass_token_equals\\(\\*cls, wc_preclass_class_unknown_literal\\(\\)\\)\\) \\{\\r?\\n\\t\\t\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-allocated-hint-inline-classify",
+          "pattern": "if \\(wc_preclass_token_equals\\(\\*cls, wc_preclass_class_unknown_literal\\(\\)\\)\\)\\r?\\n\\t\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "d4-set-allocated-hint-preserved",
+          "pattern": "static void wc_preclass_set_allocated_hint\\(",
+          "expectedCount": 1
         }
       ],
       "operations": [
@@ -365,6 +405,48 @@
           "replacement": "enum {",
           "idempotentContains": [
             "enum {"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_set_non_ip_defaults\\(family, cls, rir, reason, confidence\\);",
+          "replacement": "*family = \"non-ip\";\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_reason_non_ip_input_literal();\n\t*confidence = wc_preclass_confidence_low_literal();",
+          "idempotentContains": [
+            "*family = \"non-ip\";\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_reason_non_ip_input_literal();\n\t*confidence = wc_preclass_confidence_low_literal();"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_non_ip_defaults\\(const char\\*\\* family, const char\\*\\* cls, const char\\*\\* rir, const char\\*\\* reason, const char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*family = \"non-ip\";\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\*reason = wc_preclass_reason_non_ip_input_literal\\(\\);\\r?\\n\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_classify_ip\\(const char\\* normalized,",
+          "replacement": "void wc_preclass_classify_ip(const char* normalized,",
+          "idempotentContains": [
+            "void wc_preclass_classify_ip(const char* normalized,"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_unknown_hint_if_unknown_class\\(\\*cls, cls, rir, reason, confidence, wc_preclass_reason_no_rir_hint_literal\\(\\)\\);",
+          "replacement": "if (wc_preclass_token_equals(*cls, wc_preclass_class_unknown_literal())) {\n\t\t\t*cls = wc_preclass_class_unknown_literal();\n\t\t\t*rir = wc_preclass_rir_unknown_literal();\n\t\t\t*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t\t*confidence = wc_preclass_confidence_low_literal();\n\t\t}",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(*cls, wc_preclass_class_unknown_literal())) {\n\t\t\t*cls = wc_preclass_class_unknown_literal();\n\t\t\t*rir = wc_preclass_rir_unknown_literal();\n\t\t\t*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t\t*confidence = wc_preclass_confidence_low_literal();\n\t\t}"
+          ]
+        },
+        {
+          "pattern": "wc_preclass_apply_allocated_hint_if_unknown_class\\(normalized, \\*cls, cls, rir, reason, confidence\\);",
+          "replacement": "if (wc_preclass_token_equals(*cls, wc_preclass_class_unknown_literal()))\n\t\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);",
+          "idempotentContains": [
+            "if (wc_preclass_token_equals(*cls, wc_preclass_class_unknown_literal()))\n\t\t\twc_preclass_set_allocated_hint(normalized, cls, rir, reason, confidence);"
+          ]
+        },
+        {
+          "pattern": "void wc_preclass_apply_unknown_hint_default_tuple\\(const char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\\r?\\n\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_apply_unknown_hint_if_unknown_class\\(const char\\* current_class,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence,\\r?\\n\\t\\tconst char\\* reason_value\\)\\r?\\n\\{\\r?\\n\\tif \\(wc_preclass_token_equals\\(current_class, wc_preclass_class_unknown_literal\\(\\)\\)\\) \\{\\r?\\n\\t\\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\\r?\\n\\t\\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\\r?\\n\\t\\t\\*reason = reason_value;\\r?\\n\\t\\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\\r?\\n\\t\\}\\r?\\n\\}\\r?\\n\\r?\\nvoid wc_preclass_apply_allocated_hint_if_unknown_class\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\* current_class,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\)\\r?\\n\\{\\r?\\n\\tif \\(wc_preclass_token_equals\\(current_class, wc_preclass_class_unknown_literal\\(\\)\\)\\)\\r?\\n\\t\\twc_preclass_set_allocated_hint\\(normalized, cls, rir, reason, confidence\\);\\r?\\n\\}\\r?\\n\\r?\\nstatic void wc_preclass_set_allocated_hint\\(const char\\* normalized,",
+          "replacement": "static void wc_preclass_set_allocated_hint(const char* normalized,",
+          "idempotentContains": [
+            "static void wc_preclass_set_allocated_hint(const char* normalized,"
+          ]
+        },
+        {
+          "pattern": "static void wc_preclass_set_allocated_hint\\(const char\\* normalized,\\r?\\n\\t\\tconst char\\*\\* cls,\\r?\\n\\t\\tconst char\\*\\* rir,\\r?\\n\\t\\tconst char\\*\\* reason,\\r?\\n\\t\\tconst char\\*\\* confidence\\);\\r?\\n\\r?\\nstatic const char\\* wc_preclass_v6_global_unicast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_global_unicast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_global_unicast_reason_literal(void)"
           ]
         }
       ]
