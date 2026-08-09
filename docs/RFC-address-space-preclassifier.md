@@ -3551,26 +3551,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 > 回填状态：2026-08-09 已完成回填，A 阶段一次通过（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在第 38 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
-3. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-4. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-5. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
-6. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-7. [ ] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
-8. [ ] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
+1. [x] 串行约束：仅在第 38 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`（直跑入口可用 `-Reset` / `-ResetStateOnly`）。
+3. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+4. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+5. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=5`。
+6. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+7. [x] 保持人工提交口径：`AUTO_COMMIT=0`、`AUTO_PUSH=0`。
+8. [x] 保持 A 失败阻断 B：`A_FAILURE_BLOCKS_B=true`。
 
 **开发四轮（D1~D4，超高密度）**：
-1. [ ] D1：Remove the observation-layer pure-forward wrappers by routing `wc_preclass_observation_codes` directly through `wc_preclass_confidence_token_level` and the non-ip fallback, routing `wc_preclass_observe_confidence_code` directly through `wc_preclass_confidence_token_level`, then deleting the `observe_confidence_rank`/`observe_reason_code`/`confidence_rank_from_level` wrapper definitions.
-2. [ ] D2：Inline `wc_preclass_reason_has_observe_prefix` into its single call site inside `wc_preclass_observe_reason_key` and inline `wc_preclass_confidence_token_matches` into the three call sites inside `wc_preclass_confidence_token_level`, then delete both helper definitions.
-3. [ ] D3：Inline `wc_preclass_is_unknown_class_value` into its two call sites through `wc_preclass_token_equals` and inline `wc_preclass_rir_hint_present` into its two call sites through `wc_preclass_has_text_value`, then delete both predicate definitions.
-4. [ ] D4：Inline the family literal helpers `wc_preclass_family_v4_literal`/`wc_preclass_family_v6_literal`/`wc_preclass_family_non_ip_literal` into their five call sites (`lookup_row_and_assign_v4/v6`, `classify_ip` v4/v6 branches, `set_non_ip_defaults`), then delete the three helper definitions.
+1. [x] D1：Remove the observation-layer pure-forward wrappers by routing `wc_preclass_observation_codes` directly through `wc_preclass_confidence_token_level` and the non-ip fallback, routing `wc_preclass_observe_confidence_code` directly through `wc_preclass_confidence_token_level`, then deleting the `observe_confidence_rank`/`observe_reason_code`/`confidence_rank_from_level` wrapper definitions.
+2. [x] D2：Inline `wc_preclass_reason_has_observe_prefix` into its single call site inside `wc_preclass_observe_reason_key` and inline `wc_preclass_confidence_token_matches` into the three call sites inside `wc_preclass_confidence_token_level`, then delete both helper definitions.
+3. [x] D3：Inline `wc_preclass_is_unknown_class_value` into its two call sites through `wc_preclass_token_equals` and inline `wc_preclass_rir_hint_present` into its two call sites through `wc_preclass_has_text_value`, then delete both predicate definitions.
+4. [x] D4：Inline the family literal helpers `wc_preclass_family_v4_literal`/`wc_preclass_family_v6_literal`/`wc_preclass_family_non_ip_literal` into their five call sites (`lookup_row_and_assign_v4/v6`, `classify_ip` v4/v6 branches, `set_non_ip_defaults`), then delete the three helper definitions.
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **执行回填（Checklist A，本期）**：
 - [x] `A_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260808-064045`；8/8 轮通过（`final_status.json`：`Result=pass`、`ExitCode=0`、`FailedRoundTags=[]`）。
@@ -3591,26 +3591,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 > 回填状态：2026-08-09 已完成回填，B 阶段一次通过（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
-1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
-2. [ ] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
-3. [ ] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
-4. [ ] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
-5. [ ] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
-6. [ ] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
-7. [ ] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
-8. [ ] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
+1. [x] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
+2. [x] D1 reset 要求固定：运行范围包含 D1 时显式携带 `-ResetCodeStepState`。
+3. [x] Reset 策略固定：B 使用 `-CodeStepResetPolicy state-only`。
+4. [x] 提速模式固定：`-DevVerifyStride 2 -VerifyExecutionProfile d6-only -EnableGuardedFastMode $true -EnableGateOnlySourceDrivenSkip $true`。
+5. [x] 质量闸固定：`-TaskDesignQualityPolicy enforce -UnknownNoOpBudget 1 -UnknownNoOpConsecutiveLimit 2 -DisableUnknownNoOpBudgetGate:$false`。
+6. [x] 开发轮密度固定：`dRoundChangeDensity=very-high`，每个 D 轮 `minOperationsPerDRound=4`。
+7. [x] 轮次范围固定：`-StartRound 1 -EndRound 8`（D1~D4 + V1~V4）。
+8. [x] 保持 B 阶段 `A_SUCCESS_SNAPSHOT_*` 锚点可追溯。
 
 **开发四轮（D1~D4，超高密度跟进）**：
-1. [ ] D1：Inline the v4 special-case predicates `wc_preclass_v4_is_limited_broadcast`/`wc_preclass_v4_is_future_use`/`wc_preclass_v4_is_this_network` into their classify_ip call sites and delete the three adjacent definitions.
-2. [ ] D2：Inline the v4 special-case predicates `wc_preclass_v4_is_private_10_8`/`wc_preclass_v4_is_private_192_168`/`wc_preclass_v4_is_multicast_224_239` into their classify_ip call sites and delete the three adjacent definitions.
-3. [ ] D3：Inline the v4 special-case predicates `wc_preclass_v4_is_loopback`/`wc_preclass_v4_is_link_local_169_254`/`wc_preclass_v4_is_private_172_16_31` into their classify_ip call sites and delete their definitions.
-4. [ ] D4：Inline the v6 special-case predicates `wc_preclass_v6_is_unique_local_fc00_7`/`wc_preclass_v6_is_documentation_2001_db8_32`/`wc_preclass_v6_is_link_local`/`wc_preclass_v6_is_multicast`/`wc_preclass_v6_is_global_unicast_2000_3` into their classify_ip call sites and delete their adjacent definitions.
+1. [x] D1：Inline the v4 special-case predicates `wc_preclass_v4_is_limited_broadcast`/`wc_preclass_v4_is_future_use`/`wc_preclass_v4_is_this_network` into their classify_ip call sites and delete the three adjacent definitions.
+2. [x] D2：Inline the v4 special-case predicates `wc_preclass_v4_is_private_10_8`/`wc_preclass_v4_is_private_192_168`/`wc_preclass_v4_is_multicast_224_239` into their classify_ip call sites and delete the three adjacent definitions.
+3. [x] D3：Inline the v4 special-case predicates `wc_preclass_v4_is_loopback`/`wc_preclass_v4_is_link_local_169_254`/`wc_preclass_v4_is_private_172_16_31` into their classify_ip call sites and delete their definitions.
+4. [x] D4：Inline the v6 special-case predicates `wc_preclass_v6_is_unique_local_fc00_7`/`wc_preclass_v6_is_documentation_2001_db8_32`/`wc_preclass_v6_is_link_local`/`wc_preclass_v6_is_multicast`/`wc_preclass_v6_is_global_unicast_2000_3` into their classify_ip call sites and delete their adjacent definitions.
 
 **复检四轮（V1~V4）**：
-1. [ ] V1 基线复检：`EXECUTE + RoundPass=True`。
-2. [ ] V2 噪声窗口复检：`RoundPass=True`。
-3. [ ] V3 混合样本复检：`EXECUTE + RoundPass=True`。
-4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
+1. [x] V1 基线复检：`EXECUTE + RoundPass=True`。
+2. [x] V2 噪声窗口复检：`RoundPass=True`。
+3. [x] V3 混合样本复检：`EXECUTE + RoundPass=True`。
+4. [x] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **执行回填（Checklist B，本期）**：
 - [x] `B_FINAL_STATUS=PASS`（exit=0）；B run=`out/artifacts/dev_verify_multiround/20260809-004856`；8/8 轮通过（`final_status.json`：`Result=pass`、`ExitCode=0`、`FailedRoundTags=[]`）。
