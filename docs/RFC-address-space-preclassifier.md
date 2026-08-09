@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-09：串行第 39/40 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-02-16 ~ 2027-03-01`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260808-064045，B run=out/artifacts/dev_verify_multiround/20260809-004856）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260809-090641`，279s）（详见 23.98~24.00）。
 - 2026-08-08：新增串行第 39/40 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-02-16 ~ 2027-03-01`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270216_20270222.json`、`testdata/autopilot_code_step_tasks_20270223_20270301.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270216-20270301.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见 23.98~24.00）。
 - 2026-08-08：串行第 37/38 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-02-01 ~ 2027-02-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260807-135744，B run=out/artifacts/dev_verify_multiround/20260807-193345）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260808-053433`，240s）（详见 23.95~23.97）。
 - 2026-08-07：新增串行第 37/38 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-02-01 ~ 2027-02-15`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270201_20270207.json`、`testdata/autopilot_code_step_tasks_20270208_20270215.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270201-20270215.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、专项安全回归与有效源码编译验证均通过（详见 23.95~23.97）。
@@ -3543,11 +3544,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 **本期额外验证（2026-08-08，收尾）**：
 - [x] Strict 远程编译冒烟同步 + 黄金校验（`lto-auto`，默认）：`out/artifacts/20260808-053433`，`无告警 + lto 无告警 + Local hash verify=PASS + Golden PASS + referral check=PASS`，`duration=240s`。
 
-#### 23.98 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-16 ~ 2027-02-22，串行第 39 份，Checklist A，草案）
+#### 23.98 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-16 ~ 2027-02-22，串行第 39 份，Checklist A，已完成回填）
 
 > 注：本清单在第 38 份 B 的 very-high 基础上继续推进 `preclass.c` 的 observation/confidence 层小包装移除：观察层纯转发、置信度 token 匹配、unknown-class/rir-hint 谓词与 family 字面量内联。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270216_20270222.json`。
-> 回填状态：2026-08-08 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+> 回填状态：2026-08-09 已完成回填，A 阶段一次通过（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在第 38 份已收口且会话稳定后启动，A 期间禁止并发跑 B。
@@ -3572,7 +3573,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **执行回填（Checklist A，本期）**：
-- （待运行后回填：A 阶段终态、运行目录、事故与自愈记录。）
+- [x] `A_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260808-064045`；8/8 轮通过（`final_status.json`：`Result=pass`、`ExitCode=0`、`FailedRoundTags=[]`）。
+- [x] 全程 0 起事故、无自愈、无重启，一次通过。
+- [x] 事件票：`a-pass-conclusion-b-started`（`T20260808-123527167-873fef34`）经唯一原子收尾闭环（handled 2026-08-08 12:37:16）。
 
 **编制期验收（已完成，2026-08-08）**：
 - [x] `-SyntaxOnly` 装载检查：PASS。
@@ -3581,11 +3584,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - [x] 专项安全回归 `task_definition_safety_regression.ps1`：全 case PASS。
 - [x] 有效源码 clang `-fsyntax-only -Wall -Wextra`：编译通过（仅既有 `strncasecmp` 隐式声明告警，与基线一致）。
 
-#### 23.99 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-23 ~ 2027-03-01，串行第 40 份，Checklist B，草案）
+#### 23.99 下次开工清单（无人值守超高密度档：开发四轮 + 复检四轮，提速模式，2027-02-23 ~ 2027-03-01，串行第 40 份，Checklist B，已完成回填）
 
 > 注：Checklist B 仅在 Checklist A（串行第 39 份）`result=pass` 且 A 成功快照固化后启动；保持 `state-only` 承接策略，重点将 `classify_ip` 中所有单用的 v4/v6 特判字节谓词内联并按源码邻接顺序删除定义。
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270223_20270301.json`。
-> 回填状态：2026-08-08 已编制任务定义并通过编制期静态验收，尚未运行（草案）。
+> 回填状态：2026-08-09 已完成回填，B 阶段一次通过（详见执行回填）。
 
 **八轮通用约束（开跑前确认）**：
 1. [ ] 串行约束：仅在 Checklist A `result=pass` 且快照完整后启动，禁止并发。
@@ -3610,7 +3613,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 4. [ ] V4 收口复检：`rounds_total=8`、`rounds_pass=8`、`result=pass`。
 
 **执行回填（Checklist B，本期）**：
-- （待运行后回填：B 阶段终态、运行目录、事故与自愈记录。）
+- [x] `B_FINAL_STATUS=PASS`（exit=0）；B run=`out/artifacts/dev_verify_multiround/20260809-004856`；8/8 轮通过（`final_status.json`：`Result=pass`、`ExitCode=0`、`FailedRoundTags=[]`）。
+- [x] B 阶段用时 `0d 19:56:32`（start=2026-08-08 12:34:45，end=2026-08-09 08:31:16）。
+- [x] `SESSION_FINAL_STATUS=PASS`；A/B 合计用时 `1d 01:51:02`（session start=2026-08-08 06:40:15）。
+- [x] 全程 0 起事故、无自愈、无重启，一次通过。
+- [x] 事件票：`chat-session-final-status`（`chat-final-20260809-083116`）经唯一原子收尾闭环（handled 2026-08-09 08:33:16）。
+- [x] 最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`，默认）：`out/artifacts/20260809-090641`，`无告警 + lto 无告警 + Local hash verify=PASS + Golden PASS + referral check=PASS`，`duration=279s`。
 
 **编制期验收（已完成，2026-08-08）**：
 - [x] `-SyntaxOnly` 装载检查：PASS。
@@ -3628,6 +3636,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 当前窗口：`WINDOW=2027-02-16 ~ 2027-03-01`
 - 当前策略基线：`RUN_MODE=foreground-visible`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`、`AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc`。
 - 预检基线：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`（A 阶段 launch-ready PASS；B 阶段按设计等待 A PASS snapshot 后由 stage window 启动）。
-- 当前终态：（未运行，A/B/SESSION 均为 NOT_RUN）。
+- 当前终态：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260808-064045`，B run=`out/artifacts/dev_verify_multiround/20260809-004856`；最终 Strict 冒烟 + 黄金 `out/artifacts/20260809-090641`，279s）。
 - 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
 
