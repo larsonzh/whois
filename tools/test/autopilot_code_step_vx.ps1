@@ -430,9 +430,11 @@ function Invoke-VxReset {
     $taskHash = (Get-FileHash -LiteralPath $TaskPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ([string]$baseline.schema -ne 'CODE_STEP_VX_BASELINE_V1' -or
         [string]$baseline.target_set_sha256 -ne $Registry.TargetSetSha256 -or
-        [IO.Path]::GetFullPath([string]$baseline.task_definition_path) -ne [IO.Path]::GetFullPath($TaskPath) -or
-        [string]$baseline.task_definition_sha256 -ne $taskHash) {
+        [IO.Path]::GetFullPath([string]$baseline.task_definition_path) -ne [IO.Path]::GetFullPath($TaskPath)) {
         throw 'reset baseline manifest target set mismatch'
+    }
+    if ([string]$baseline.task_definition_sha256 -ne $taskHash) {
+        Write-Output "[CODE-STEP] reset_task_definition_sha_drift=true baseline_sha256=$($baseline.task_definition_sha256) current_sha256=$taskHash target_set_sha256=$($Registry.TargetSetSha256)"
     }
     $entries = @()
     foreach ($target in @($Registry.Targets | Sort-Object File)) {

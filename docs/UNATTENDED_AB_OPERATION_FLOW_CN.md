@@ -669,25 +669,27 @@ Vx 单文件任务是 Vx 注册表只有一个目标的正常形态。仍应为 
 允许采用此方式时，必须同时满足：
 
 1. 首个编译诊断证明问题是目标源码的头文件、类型或函数声明契约缺口，而不是本机缺少编译器/SDK、PATH 错误或损坏的测试基础设施；后者仍按 noncode 处理。
-2. 条件分支使用项目真实支持的平台宏，例如 `_WIN32` / `__MINGW32__`，并保留其他平台的原实现；禁止定义 `TASK_STATIC_CHECK`、`LOCAL_CLANG_ONLY` 等 checker-only 宏，禁止用空 prototype、关闭告警或无条件替换掩盖真实编译错误。
+2. 条件分支必须按差异的真实来源选择宏。编译器/SDK 头文件契约使用编译器宏区分：MSVC 和 clang-cl 定义 `_MSC_VER`，可使用 `<BaseTsd.h>` / `SSIZE_T`；Ubuntu VM 上的 MinGW win32/win64 即使定义 `_WIN32`，也不提供 MSVC SDK 的 `<BaseTsd.h>`，应保留 `<sys/types.h>` / `ssize_t`。仅当差异确实来自 Windows 目标平台或 CRT API（例如 `Sleep`、`_stricmp`）时才使用 `_WIN32` / `__MINGW32__`。禁止定义 `TASK_STATIC_CHECK`、`LOCAL_CLANG_ONLY` 等 checker-only 宏，禁止用空 prototype、关闭告警或无条件替换掩盖真实编译错误。
 3. 被修改的 source/header 都必须进入 Vx `targetFiles[]` 完整闭包，每个 operation 和 assertion 显式绑定对应 target。若 source 的有效编译依赖同轮修改后的 header，checker 必须针对完整 effective target map 验证，不能把内存 source 与磁盘旧 header 混合编译。
 4. `idempotentContains` 和 `postApplyAssertions` 精确证明平台 include、类型映射、函数映射或替代调用各出现一次，并证明旧的无条件形态已移除；所有后续 D 轮仍须独立可编译。
 5. 最终同时通过本地完整 task-static syntax gate 与真实远程/目标工具链构建。条件编译只解决契约差异，不降低真实编译、黄金、Step47 或业务验证要求。
 
-A/43 的实际任务定义 `testdata/autopilot_code_step_tasks_20270316_20270322.json` 在 D1 使用了这一模式。以下示例保留了实际 operation 的完整 include 锚点：
+A/43 的实际任务定义 `testdata/autopilot_code_step_tasks_20270316_20270322.json` 在 D1 使用了这一模式。远程 MinGW 构建证明 `_WIN32 || __MINGW32__` 不能作为 `<BaseTsd.h>` 的可用性条件；修复后的 operation 使用 `_MSC_VER` 表示 MSVC 兼容编译器及其 SDK 头文件契约：
 
 ```json
 {
   "target": "wc_net_header",
-  "pattern": "#include <stdint\\.h>\n#include <stddef\\.h>\n#include <sys/types\\.h> // for ssize_t on some platforms",
-  "replacement": "#include <stdint.h>\n#include <stddef.h>\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <BaseTsd.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types.h>\n#endif",
+  "pattern": "#if defined\\(_WIN32\\) \\|\\| defined\\(__MINGW32__\\)\n#include <BaseTsd\\.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types\\.h>\n#endif",
+  "replacement": "#if defined(_MSC_VER)\n#include <BaseTsd.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types.h>\n#endif",
   "idempotentContains": [
-    "typedef SSIZE_T ssize_t;"
+    "#if defined(_MSC_VER)\n#include <BaseTsd.h>"
   ]
 }
 ```
 
-同轮另一个 `client_flow` operation 将无条件的 `<strings.h>` 改为 POSIX 分支，并在 Windows 分支中映射真实 CRT API：
+这意味着本地 MSVC 兼容模式的 clang/clang-cl 在定义 `_MSC_VER` 时进入该分支，而 Ubuntu VM 上的 MinGW win32/win64 进入 `else` 分支并使用 `<sys/types.h>`。不能仅凭产物是 Windows PE 就推断 MSVC SDK 头文件可用。
+
+同轮另一个 `client_flow` operation 处理的是目标平台 CRT API，而不是 MSVC SDK 头文件，因此仍可将无条件的 `<strings.h>` 改为 POSIX 分支，并在 Windows 目标分支中映射真实 CRT API：
 
 ```c
 #if !defined(_WIN32) && !defined(__MINGW32__)
@@ -698,7 +700,7 @@ A/43 的实际任务定义 `testdata/autopilot_code_step_tasks_20270316_20270322
 #endif
 ```
 
-`nanosleep` / `Sleep` 之类的平台实现差异也应采用同样的条件分支，并为替代调用配置自有 marker 和精确断言。这里的关键不是“迎合本地 clang”，而是让同一份生成源码在每个受支持环境中都有完整、可验证的声明与实现契约。
+`nanosleep` / `Sleep` 之类的目标平台实现差异也应使用 `_WIN32` / `__MINGW32__` 条件分支，并为替代调用配置自有 marker 和精确断言。这里的关键不是统一使用某一个“Windows 宏”或“迎合本地 clang”，而是先判断差异属于编译器/SDK、目标平台还是 CRT，再选择对应宏，让同一份生成源码在每个受支持环境中都有完整、可验证的声明与实现契约。
 
 ##### postApplyAssertions 编写
 

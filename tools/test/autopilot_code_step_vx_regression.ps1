@@ -128,6 +128,21 @@ try {
     Assert-Case (-not (Test-Path -LiteralPath $success.Created)) 'reset did not delete baseline-absent create target'
     Write-Output '[VX-CODE-STEP-REGRESSION] case=reset-byte-exact-delete-create status=pass'
 
+    $definitionDrift = New-VxCase 'reset-task-definition-sha-drift'
+    New-Artifact $definitionDrift
+    $result = Invoke-CodeStep $definitionDrift
+    Assert-Case ($result.ExitCode -eq 0) "definition-drift setup failed output=$($result.Joined)"
+    $definition = Get-Content -LiteralPath $definitionDrift.Task -Raw -Encoding utf8 | ConvertFrom-Json
+    $definition.rounds.D2.description = 'fixture after authorized promotion'
+    Write-JsonNoBom $definitionDrift.Task $definition
+    $result = Invoke-CodeStep $definitionDrift @('-Reset')
+    Assert-Case ($result.ExitCode -eq 0) "definition-drift reset failed output=$($result.Joined)"
+    Assert-Case ($result.Joined -match 'reset_task_definition_sha_drift=true') 'definition-drift reset did not report task-definition SHA drift'
+    Assert-Case (Test-BytesEqual ([IO.File]::ReadAllBytes($definitionDrift.SourceA)) $definitionDrift.InitialA) 'definition-drift reset source_a bytes differ from baseline'
+    Assert-Case (Test-BytesEqual ([IO.File]::ReadAllBytes($definitionDrift.SourceB)) $definitionDrift.InitialB) 'definition-drift reset source_b bytes differ from baseline'
+    Assert-Case (-not (Test-Path -LiteralPath $definitionDrift.Created)) 'definition-drift reset did not delete baseline-absent create target'
+    Write-Output '[VX-CODE-STEP-REGRESSION] case=reset-task-definition-sha-drift status=pass'
+
     $stateOnly = New-VxCase 'reset-state-only'
     New-Artifact $stateOnly
     $result = Invoke-CodeStep $stateOnly
