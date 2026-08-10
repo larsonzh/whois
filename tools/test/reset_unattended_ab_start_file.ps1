@@ -328,8 +328,10 @@ function Assert-BSnapshotBaseline {
         throw "Stage B reset requires an existing A snapshot directory: $snapshotDir"
     }
     $aTaskDefinitionPath = Resolve-RepoPath -Path $ATaskDefinition -MustExist $true
-    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
-    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath
+    $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
+    $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
     if (-not $snapshotIntegrity.Pass) {
         throw ("Stage B template baseline reset blocked by A snapshot integrity errors: {0}" -f ($snapshotIntegrity.Errors -join ','))
     }

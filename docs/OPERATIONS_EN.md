@@ -1487,13 +1487,18 @@ Notes:
 
 - For the two code-change wrappers (`start_autopilot_8round_code_change.ps1` and `start_dev_verify_8round_multiround.ps1`), filling task content is a required pre-run step.
 - Recommended flow:
-  - Copy `testdata/autopilot_code_step_tasks_template.json` to a run-specific file (for example `testdata/autopilot_code_step_tasks_local.json`).
+  - Copy `testdata/autopilot_code_step_tasks_vx_template.json` for every new task (for example to `testdata/autopilot_code_step_tasks_local.json`); use a one-target Vx definition for a single-file task. `testdata/autopilot_code_step_tasks_template.json` remains only for existing V1 compatibility and is not the default for new tasks.
   - Fill real D1~D4 task content (at least D1~D3) and remove all `TODO_*` placeholders.
+  - Vx requires a frozen complete `targetFiles` registry and explicit `target` values on operations and assertions. A missing file is allowed only with `lifecycle=create` and exactly one introducing `create-file` operation.
+  - Vx task-static emits a `TASK_STATIC_VALIDATED_ARTIFACT_VX1` manifest/payload set. Code-step only consumes that bound artifact and commits with a journal, per-file atomic replacement, group rollback, and post-write hashes. `rollback-incomplete` hard-blocks later rounds and reset.
+  - Vx never falls back to V1. Schema, target-set, payload, baseline, or repair-receipt mismatches fail closed under their structured noncode/task-definition category.
+  - A Vx runtime brief additionally binds the target set, failing target, validated artifact, commit journal, and rollback state. Repair command names and parameter shapes remain the same as V1; the failing target is resolved from the round-global `OperationIndex`. A `create-file` fault may only be repaired in the candidate operation, never by directly creating or overwriting a business file. `rollback_status=incomplete` blocks restart and recovery.
   - Pass that file explicitly via `-TaskDefinitionFile` when running the wrapper entry script.
   - If the run range includes D1 (`-StartRound <= 1`), explicit code-step reset is required:
     - Wrapper entries: pass `-ResetCodeStepState` explicitly.
     - Direct core entry (`-Mode code-change`) when `-CodeStepCommand` calls `autopilot_code_step_rounds.ps1`: include `-Reset` or `-ResetStateOnly` in the command.
 - Even for reruns, verify the task file still matches the current round goal before execution.
+- The `vx-draft` protocol identifier retains its draft name, but Vx is now the default mode for new task definitions. Before each real A/B definition's first run, complete SyntaxOnly, Vx regressions, full A definition checking, B prerequisite-chain checking, full compilation, golden/Step47, and launch-ready validation. A local `-RoundTag/-OperationIndex` check is not final acceptance.
 
 ### D1 Monitoring Tolerance Window (fixed run policy)
 
@@ -1611,7 +1616,7 @@ Safety guard:
 - Q: What is `D6`?
   - A: D6 means the Double-Round Consistency gate. It verifies key gates across two consecutive rounds (strict/hash/golden/referral/preflight/table-guard/P0/P1).
 - Q: Do I need to define a "worklist" before running?
-  - A: Yes for code-change wrappers. Fill a task definition file first (recommended from `testdata/autopilot_code_step_tasks_template.json`) and pass it with `-TaskDefinitionFile`.
+  - A: Yes for code-change wrappers. For a new task, start from `testdata/autopilot_code_step_tasks_vx_template.json`; use one-target Vx even for one changed file, then pass it with `-TaskDefinitionFile`. Existing V1 files remain compatible.
   - Gate-only flow does not run code-change steps, so no task definition file is needed there.
 - Q: What if my required task content differs from built-in D1~D4?
   - A: Replace the step source:

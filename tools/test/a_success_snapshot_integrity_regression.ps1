@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 
 if ([string]::IsNullOrWhiteSpace($OutDirRoot)) {
-    $OutDirRoot = Join-Path $env:TEMP 'whois-a-success-snapshot-integrity'
+    $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $OutDirRoot = Join-Path $repositoryRoot 'tmp\a-success-snapshot-integrity'
 }
 $caseRoot = Join-Path $OutDirRoot ([guid]::NewGuid().ToString('N'))
 $snapshotDir = Join-Path $caseRoot 'a_success_snapshot'
@@ -81,6 +82,76 @@ try {
     Write-Utf8NoBom -Path $targetDestination -Text "int fixture(void) { return 3; }`n"
     $destinationMismatch = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedPaths -DestinationRoot $destinationDir
     Assert-IntegrityResult -Name 'post-restore-hash-mismatch-blocked' -Result $destinationMismatch -ExpectedPass $false -ExpectedError 'destination-hash-mismatch'
+
+    $vxSnapshotDir = Join-Path $caseRoot 'vx_snapshot'
+    $vxSourceDir = Join-Path $vxSnapshotDir 'source'
+    $vxDestinationDir = Join-Path $caseRoot 'vx_destination'
+    $vxExistingRelative = $caseRoot.Substring((Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path.Length).TrimStart('\').Replace('\', '/') + '/vx-existing.txt'
+    $vxMissingRelative = $caseRoot.Substring((Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path.Length).TrimStart('\').Replace('\', '/') + '/vx-missing.txt'
+    $vxExistingSource = Join-Path $caseRoot 'vx-existing.txt'
+    $vxExistingSnapshot = Join-Path $vxSourceDir $vxExistingRelative.Replace('/', '\')
+    $vxExistingDestination = Join-Path $vxDestinationDir $vxExistingRelative.Replace('/', '\')
+    $vxMissingSnapshot = Join-Path $vxSourceDir $vxMissingRelative.Replace('/', '\')
+    $vxMissingDestination = Join-Path $vxDestinationDir $vxMissingRelative.Replace('/', '\')
+    $vxTaskDefinition = Join-Path $caseRoot 'vx-task.json'
+    Write-Utf8NoBom -Path $vxExistingSource -Text "VX_EXISTING`n"
+    Write-Utf8NoBom -Path $vxExistingSnapshot -Text "VX_EXISTING`n"
+    Write-Utf8NoBom -Path $vxExistingDestination -Text "VX_EXISTING`n"
+    Write-Utf8NoBom -Path (Join-Path $vxSnapshotDir 'source_files.txt') -Text "$vxExistingRelative`n$vxMissingRelative`n"
+    Write-Utf8NoBom -Path $vxTaskDefinition -Text ([ordered]@{
+        schemaVersion = 'vx-draft'
+        targetFiles = @(
+            [ordered]@{ id = 'vx_existing'; file = $vxExistingRelative; kind = 'text'; lifecycle = 'existing' },
+            [ordered]@{ id = 'vx_missing'; file = $vxMissingRelative; kind = 'text'; lifecycle = 'create' }
+        )
+        defaultTarget = 'vx_existing'
+        rounds = [ordered]@{
+            D1 = [ordered]@{
+                type = 'regex-patch'
+                operations = @([ordered]@{
+                    type = 'create-file'; target = 'vx_missing'; content = "VX_MISSING`n"
+                    contentSha256 = '75af71835e6d1a9f2ca0cf8cd71846224264be731ea803275c3e2c2ef2fbeed6'
+                    existingPolicy = 'skip'; idempotentContains = @('VX_MISSING')
+                })
+                postApplyAssertions = @([ordered]@{ name = 'missing'; target = 'vx_missing'; pattern = 'VX_MISSING'; expectedCount = 1 })
+            }
+            D2 = [ordered]@{ type = 'noop'; description = 'fixture' }
+            D3 = [ordered]@{ type = 'noop'; description = 'fixture' }
+            D4 = [ordered]@{ type = 'noop'; description = 'fixture' }
+        }
+    } | ConvertTo-Json -Depth 12)
+
+    $vxRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $vxTaskDefinition
+    $vxAllowedPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $vxTaskDefinition)
+    $null = Write-ASuccessSnapshotManifest -SnapshotDir $vxSnapshotDir -TaskDefinitionFile $vxTaskDefinition
+    $vxManifest = Get-Content -LiteralPath (Join-Path $vxSnapshotDir 'source_manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $vxMissingEntry = @($vxManifest.files | Where-Object { $_.id -eq 'vx_missing' })[0]
+    if ([string]$vxManifest.target_set_sha256 -ne [string]$vxRegistry.TargetSetSha256 -or
+        [bool]$vxMissingEntry.exists -or $null -ne $vxMissingEntry.length -or $null -ne $vxMissingEntry.sha256 -or
+        (Test-Path -LiteralPath $vxMissingSnapshot)) {
+        throw 'Vx snapshot target-set or exists=false binding mismatch'
+    }
+    $vxValid = Test-ASuccessSnapshotIntegrity -SnapshotDir $vxSnapshotDir -AllowedPaths $vxAllowedPaths `
+        -DestinationRoot $vxDestinationDir -ExpectedTargetSetSha256 $vxRegistry.TargetSetSha256
+    Assert-IntegrityResult -Name 'vx-missing-target-no-placeholder' -Result $vxValid -ExpectedPass $true
+
+    Write-Utf8NoBom -Path $vxMissingDestination -Text "stale destination`n"
+    $vxAbsentRestore = Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $vxSnapshotDir -DestinationRoot $vxDestinationDir `
+        -AllowedPaths $vxAllowedPaths -ExpectedTargetSetSha256 $vxRegistry.TargetSetSha256
+    if ([int]$vxAbsentRestore.RemovedCount -ne 1 -or (Test-Path -LiteralPath $vxMissingDestination)) {
+        throw 'Vx snapshot exists=false restore did not remove stale destination'
+    }
+    Write-Output '[A-SNAPSHOT-INTEGRITY-REGRESSION] case=vx-missing-target-restore-removes-stale-destination status=pass'
+
+    Write-Utf8NoBom -Path $vxMissingSnapshot -Text "unexpected placeholder`n"
+    $vxPlaceholder = Test-ASuccessSnapshotIntegrity -SnapshotDir $vxSnapshotDir -AllowedPaths $vxAllowedPaths `
+        -ExpectedTargetSetSha256 $vxRegistry.TargetSetSha256
+    Assert-IntegrityResult -Name 'vx-missing-target-placeholder-blocked' -Result $vxPlaceholder -ExpectedPass $false -ExpectedError 'snapshot-file-unexpected'
+    Remove-Item -LiteralPath $vxMissingSnapshot -Force
+
+    $vxHashMismatch = Test-ASuccessSnapshotIntegrity -SnapshotDir $vxSnapshotDir -AllowedPaths $vxAllowedPaths `
+        -ExpectedTargetSetSha256 ('0' * 64)
+    Assert-IntegrityResult -Name 'vx-target-set-hash-mismatch-blocked' -Result $vxHashMismatch -ExpectedPass $false -ExpectedError 'manifest-target-set-hash-mismatch'
 
     Write-Output '[A-SNAPSHOT-INTEGRITY-REGRESSION] result=pass'
 }

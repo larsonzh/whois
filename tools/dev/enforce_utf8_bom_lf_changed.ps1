@@ -5,6 +5,7 @@
     [int]$MaxReport = 120,
     [string[]]$Extensions = @('.ps1', '.json', '.md'),
     [string[]]$ExcludePaths = @(),
+    [string[]]$NoBomPaths = @('.github/context-mode-schema.json'),
     [switch]$IncludeUntracked,
     [string[]]$TargetPaths = @(),
     [switch]$FailIfLocked
@@ -129,6 +130,22 @@ function Test-ExcludedPath {
     return $false
 }
 
+function Test-NoBomPath {
+    param(
+        [string]$RelativePath,
+        [string[]]$Paths
+    )
+
+    foreach ($path in @($Paths)) {
+        if (-not [string]::IsNullOrWhiteSpace($path) -and
+            $RelativePath.Equals($path.Replace('\', '/').Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Get-GitOutputText {
     param(
         [string]$Root,
@@ -209,7 +226,10 @@ function Get-ChangedCandidateFileList {
 }
 
 function Get-EncodingStatus {
-    param([string]$FilePath)
+    param(
+        [string]$FilePath,
+        [bool]$ExpectedBom = $true
+    )
 
     $bytes = [System.IO.File]::ReadAllBytes($FilePath)
     $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)
@@ -234,12 +254,15 @@ function Get-EncodingStatus {
         HasCr       = $hasCr
         HasLf       = $hasLf
         Eol         = $eol
-        IsCompliant = ($hasBom -and -not $hasCr)
+        IsCompliant = ($hasBom -eq $ExpectedBom -and -not $hasCr)
     }
 }
 
-function Convert-ToUtf8BomLf {
-    param([string]$FilePath)
+function Convert-ToExpectedUtf8Lf {
+    param(
+        [string]$FilePath,
+        [bool]$ExpectedBom = $true
+    )
 
     $text = [System.IO.File]::ReadAllText($FilePath)
     $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"
@@ -247,8 +270,8 @@ function Convert-ToUtf8BomLf {
         $text += "`n"
     }
 
-    $utf8Bom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($FilePath, $text, $utf8Bom)
+    $utf8 = New-Object System.Text.UTF8Encoding $ExpectedBom
+    [System.IO.File]::WriteAllText($FilePath, $text, $utf8)
 }
 
 if ($Policy -eq 'off') {
@@ -314,7 +337,8 @@ try {
 
         $scanned++
         $eligible++
-        $status = Get-EncodingStatus -FilePath $full
+        $expectedBom = -not (Test-NoBomPath -RelativePath $rel -Paths $NoBomPaths)
+        $status = Get-EncodingStatus -FilePath $full -ExpectedBom $expectedBom
         if ($status.IsCompliant) {
             continue
         }
@@ -322,14 +346,14 @@ try {
         $nonCompliant++
         [void]$nonCompliantFiles.Add($rel)
         if ($reported -lt $MaxReport) {
-            Write-Output ("[ENCODING-POLICY-CHANGED] noncompliant path={0} bom={1} eol={2}" -f $rel, $status.HasBom, $status.Eol)
+            Write-Output ("[ENCODING-POLICY-CHANGED] noncompliant path={0} bom={1} expected_bom={2} eol={3}" -f $rel, $status.HasBom, $expectedBom, $status.Eol)
             $reported++
         }
 
         if ($Mode -eq 'fix') {
         try {
-            Convert-ToUtf8BomLf -FilePath $full
-            $after = Get-EncodingStatus -FilePath $full
+                Convert-ToExpectedUtf8Lf -FilePath $full -ExpectedBom $expectedBom
+                $after = Get-EncodingStatus -FilePath $full -ExpectedBom $expectedBom
             if ($after.IsCompliant) {
                 $fixed++
                 if ($reported -lt $MaxReport) {

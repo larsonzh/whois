@@ -22,6 +22,9 @@ end_of_line = lf
 charset = utf-8-bom
 end_of_line = lf
 
+[.github/context-mode-schema.json]
+charset = utf-8
+
 [*.md]
 charset = utf-8-bom
 end_of_line = lf

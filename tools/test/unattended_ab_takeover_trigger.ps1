@@ -15,6 +15,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
+. (Join-Path $PSScriptRoot 'task_definition_target_registry.ps1')
 $script:UnhandledExitTag = 'UNATTENDED-AB-TAKEOVER-TRIGGER'
 
 trap {
@@ -2118,6 +2119,49 @@ function New-TakeoverBrief {
             $repairTaskDefinition = Convert-ToSingleLineText -Text ([string]$Settings[$repairTaskDefinitionKey])
         }
     }
+    $taskDefinitionSchemaVersion = '1'
+    $targetSetSha256 = ''
+    $failureTargetId = ''
+    $failureTargetPath = ''
+    $failureTargetKind = ''
+    $failureTargetLifecycle = ''
+    $failureTargetBaselineExists = ''
+    $vxFactError = ''
+    if (-not [string]::IsNullOrWhiteSpace($repairTaskDefinition)) {
+        try {
+            $repairTaskDefinitionPath = if ([System.IO.Path]::IsPathRooted($repairTaskDefinition)) { $repairTaskDefinition } else { Join-Path $repoRoot $repairTaskDefinition }
+            $repairTaskDefinitionObject = Get-Content -LiteralPath $repairTaskDefinitionPath -Raw -Encoding utf8 | ConvertFrom-Json
+            $taskDefinitionSchemaVersion = if ($repairTaskDefinitionObject.PSObject.Properties.Name -contains 'schemaVersion') { ([string]$repairTaskDefinitionObject.schemaVersion).Trim().ToLowerInvariant() } else { '1' }
+            $repairTargetRegistry = Resolve-TaskDefinitionTargetRegistry -TaskDefinition $repairTaskDefinitionObject -TaskDefinitionPath $repairTaskDefinitionPath -RepositoryRoot $repoRoot
+            $taskDefinitionSchemaVersion = [string]$repairTargetRegistry.SchemaVersion
+            if ($taskDefinitionSchemaVersion -eq 'vx-draft') {
+                $targetSetSha256 = [string]$repairTargetRegistry.TargetSetSha256
+                if ($repairOperationIndex -gt 0 -and $repairRound -match '^D[1-4]$') {
+                    $roundProperty = $repairTaskDefinitionObject.rounds.PSObject.Properties[$repairRound]
+                    if ($null -eq $roundProperty) {
+                        throw "vx-draft repair round not found: $repairRound"
+                    }
+                    $roundOperations = if ($roundProperty.Value.PSObject.Properties.Name -contains 'operations') { @($roundProperty.Value.operations) } else { @() }
+                    if ($repairOperationIndex -gt $roundOperations.Count) {
+                        throw "vx-draft failure operation is outside round: round=$repairRound operation=$repairOperationIndex count=$($roundOperations.Count)"
+                    }
+                    $failureOperation = $roundOperations[$repairOperationIndex - 1]
+                    $failureTargetId = if ($failureOperation.PSObject.Properties.Name -contains 'target') { ([string]$failureOperation.target).Trim() } else { [string]$repairTargetRegistry.DefaultTargetId }
+                    $failureTarget = @($repairTargetRegistry.Targets | Where-Object { [string]$_.Id -eq $failureTargetId }) | Select-Object -First 1
+                    if ($null -eq $failureTarget) {
+                        throw "vx-draft failure operation target is not registered: $failureTargetId"
+                    }
+                    $failureTargetPath = [string]$failureTarget.File
+                    $failureTargetKind = [string]$failureTarget.Kind
+                    $failureTargetLifecycle = [string]$failureTarget.Lifecycle
+                    $failureTargetBaselineExists = [string][bool](Test-Path -LiteralPath $failureTarget.FullPath -PathType Leaf)
+                }
+            }
+        }
+        catch {
+            $vxFactError = Convert-ToSingleLineText -Text $_.Exception.Message
+        }
+    }
     $repairChainMode = ($taskStaticCrossRoundRepairEnabled -and $ticketFailurePhase -eq 'task-static')
     $repairValidateThroughRound = if ($repairChainMode) { 'D4' } else { $repairRound }
     $taskDefinitionCheckOrder = if ($repairChainMode) { 'keep one candidate; after every edit rerun one checker from the failing round with -ChainRounds; never check a later round from the original fault-round source alone; the chain must stop at the first unresolved round; edit only that round; repeat until D4 passes; then run one full Validate and one Promote' } else { 'run SyntaxOnly; check the failed op when locatable; check, Validate, and Promote only the current failing D round' }
@@ -2149,6 +2193,40 @@ function New-TakeoverBrief {
     }
     elseif ($routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix')) {
         $repairCommandStatus = 'blocked-missing-stage-round-or-task-definition'
+    }
+    if ($taskDefinitionSchemaVersion -eq 'vx-draft' -and
+        $routeGuardExpected -in @('incident-auto-resume-code-fix', 'incident-manual-code-fix') -and
+        (-not [string]::IsNullOrWhiteSpace($vxFactError) -or
+            [string]::IsNullOrWhiteSpace($targetSetSha256) -or
+            ($ticketFailurePhase -eq 'task-static' -and [string]::IsNullOrWhiteSpace($failureTargetId)))) {
+        $repairCommandStatus = 'blocked-vx-machine-facts-incomplete'
+        $repairPrepareCommand = ''
+        $repairInspectCommand = ''
+        $repairCheckerCommand = ''
+        $repairValidateCommand = ''
+        $repairPromoteCommand = ''
+    }
+    $vxBriefLines = @()
+    if ($taskDefinitionSchemaVersion -eq 'vx-draft') {
+        $vxBriefLines = @(
+            ('task_definition_schema_version={0}' -f $taskDefinitionSchemaVersion),
+            ('target_set_sha256={0}' -f $targetSetSha256),
+            ('failure_target_id={0}' -f $failureTargetId),
+            ('failure_target_path={0}' -f $failureTargetPath),
+            ('failure_target_kind={0}' -f $failureTargetKind),
+            ('failure_target_lifecycle={0}' -f $failureTargetLifecycle),
+            ('failure_target_baseline_exists={0}' -f $failureTargetBaselineExists),
+            ('vx_machine_fact_error={0}' -f $vxFactError),
+            ('validated_artifact_manifest={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'validated_artifact_manifest'))),
+            ('commit_transaction_id={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'commit_transaction_id'))),
+            ('commit_journal={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'commit_journal'))),
+            ('rollback_status={0}' -f $(
+                $rollbackStatus = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'rollback_status')
+                if ([string]::IsNullOrWhiteSpace($rollbackStatus)) { 'not-required' } else { $rollbackStatus }
+            )),
+            ('affected_targets_artifact={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'affected_targets_artifact'))),
+            ('affected_targets_sha256={0}' -f (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $Ticket -Name 'affected_targets_sha256')))
+        )
     }
     $atomicCloseoutExecutionPolicy = if ($eventNameNormalized -eq 'running-status-report') { 'not-applicable-readonly-status-ticket' } else { 'exactly-once-per-event-ticket-after-handling-no-retry' }
 
@@ -2193,6 +2271,7 @@ function New-TakeoverBrief {
         ('task_definition_checker_command={0}' -f $repairCheckerCommand),
         ('task_definition_validate_command={0}' -f $repairValidateCommand),
         ('task_definition_promote_command={0}' -f $repairPromoteCommand),
+        $vxBriefLines,
         ('script_fault_action_policy={0}' -f $scriptFaultActionPolicy),
         ('status_ticket_action_policy={0}' -f $statusTicketActionPolicy),
         ('status_fault_phase_normal_standard={0}' -f 'route_guard_expected!=status-health-check-only => force-normal-full-receipt'),

@@ -1,0 +1,133 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "next-phase-multifile-template",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_header",
+      "file": "include/wc/preclass.h",
+      "kind": "c-header",
+      "lifecycle": "create"
+    },
+    {
+      "id": "query_exec",
+      "file": "src/core/whois_query_exec.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce the header, then update source and caller targets in dependency order.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "TODO_D1_HEADER_ROUND_MARKER"
+        ],
+        "preclass_source": [
+          "TODO_D1_SOURCE_ROUND_MARKER"
+        ],
+        "query_exec": [
+          "TODO_D1_CALLER_ROUND_MARKER"
+        ]
+      },
+      "operations": [
+        {
+          "type": "create-file",
+          "target": "preclass_header",
+          "content": "TODO_D1_HEADER_UTF8_NO_BOM_CONTENT",
+          "contentSha256": "TODO_D1_HEADER_UTF8_NO_BOM_SHA256",
+          "existingPolicy": "skip",
+          "idempotentContains": [
+            "TODO_D1_HEADER_OP_MARKER"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "TODO_D1_SOURCE_PATTERN",
+          "replacement": "TODO_D1_SOURCE_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D1_SOURCE_OP_MARKER"
+          ]
+        },
+        {
+          "target": "query_exec",
+          "pattern": "TODO_D1_CALLER_PATTERN",
+          "replacement": "TODO_D1_CALLER_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D1_CALLER_OP_MARKER"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D1_HEADER_CONTRACT",
+          "target": "preclass_header",
+          "pattern": "TODO_D1_HEADER_ASSERTION",
+          "expectedCount": 1
+        },
+        {
+          "name": "TODO_D1_SOURCE_CONTRACT",
+          "target": "preclass_source",
+          "pattern": "TODO_D1_SOURCE_ASSERTION",
+          "expectedCount": 1
+        },
+        {
+          "name": "TODO_D1_CALLER_CONTRACT",
+          "target": "query_exec",
+          "pattern": "TODO_D1_CALLER_ASSERTION",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Continue with explicit stable target ids.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "TODO_D2_SOURCE_ROUND_MARKER"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "TODO_D2_SOURCE_PATTERN",
+          "replacement": "TODO_D2_SOURCE_REPLACEMENT",
+          "idempotentContains": [
+            "TODO_D2_SOURCE_OP_MARKER"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "TODO_D2_SOURCE_CONTRACT",
+          "target": "preclass_source",
+          "pattern": "TODO_D2_SOURCE_ASSERTION",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "noop",
+      "description": "Replace with a regex-patch round when D3 has a designed source change."
+    },
+    "D4": {
+      "type": "noop",
+      "description": "Replace with a regex-patch round when D4 has a designed source change."
+    }
+  }
+}

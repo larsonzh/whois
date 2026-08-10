@@ -12,6 +12,7 @@
 - docs/RFC-address-space-preclassifier.md
 
 模式补充：
+- 新建 A/B 任务定义默认从 `testdata/autopilot_code_step_tasks_vx_template.json` 编制，即使只修改一个文件也使用单目标 Vx，并删除模板中未使用的示例 target/op/marker/assertion。既有 `schemaVersion=1` 定义保持 V1 读取、重跑和候选修复，不批量迁移，也不得在 start-file 已生成或运行期切换 schema。提示词中的 Vx 规则只在 brief 明确报告 `task_definition_schema_version=vx-draft` 时启用；V1 工单不应被要求提供 Vx 字段。
 - 所有 `running-status-report` 均为只读状态汇报票：只读取运行状态并回传 `handled_at`，禁止自愈修复、故障处理、主进程/guard 重启、`business_resume`、文件修改、环境稳定化或任何恢复动作。异常只汇报并等待独立事故票。
 - `manual-wait-paused`、`budget-exhausted-stop`、`known-infra-transient-stop` 只允许报告、对应决策和唯一原子收尾，按 `route_guard_command -> atomic_closeout_command` 执行；不得修改文件或环境，不得执行 `business_resume`、`continue_watch_command` 或 guard/stage 重启。相同指纹重试预算耗尽时必须投送结构化 `manual-wait-paused`，至少包含 `hard_block=true`、`hard_block_reason`、`failure_fingerprint`、`retry_count`、`retry_limit`、`auto_restart_allowed=false` 与 `task_definition`，不得静默退出。实际修复等待独立的已授权事故票或用户明确授权；budget 通告不取消此前事故票已授予的待办修复权限。
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=low-disturb`，仅压缩汇报文本：正常时回复“运行正常”与 `handled_at`，异常时回复异常摘要与 `handled_at`；不得切换到修复口径。
@@ -19,6 +20,7 @@
 - 若 start-file 使用 `AI_CHAT_POLICY_WORK_MODE=event-only`，则不应期待 guard 继续产生定时状态票；AI 仍只被动接收事件驱动票。
 - 脚本故障必须先读取 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED`。字段缺失、非法或为 `false` 时进入 `incident-script-diagnose-only`：只读排查并在聊天中输出根因、证据、影响、最小修复建议、验证命令、风险与回滚方案；禁止改文件、创建脚本、控制或重启进程、resume、改变环境。仅显式为 `true` 时才允许脚本自愈。
 - 在代码修复、非代码恢复、事件评审或其他非脚本工单中发现新的 guard/trigger/dispatch/poll 脚本故障时，必须停止原流程并按 `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED` 重新路由；不得在原工单车道内直接修脚本。
+- `schemaVersion=vx-draft` 的 code-fix 工单必须以 brief 中的 `target_set_sha256`、`failure_target_id/path/kind/lifecycle` 和轮内全局 operation index 为准。该 index 按跨文件 operations 数组排序，Inspect 必须模拟所有前置 op。正式任务定义的 schema、`targetFiles`、`defaultTarget` 与冻结 target registry 均只读，只能修改 candidate 中允许范围内的 operation/assertion，且只能引用已注册 target；`create-file` 故障不得直接创建或覆盖业务文件。declaration/definition/caller 应拆为多个单目标 op 并逐 target 断言。Validate/Promote/recovery 的 manifest 与 receipt 必须绑定同一 `target_set_sha256`；Vx 事实缺失、registry 漂移、receipt 不一致时 fail-close，不得从日志或路径猜测。code-step 创建、提交、journal、rollback 故障仍走 noncode；`rollback_status=incomplete` 时禁止 edit/promote/restart/resume。
 - 如需新建 start-file，`tools/test/create_unattended_ab_start_file.ps1` 默认生成 `normal`；可显式用 `-Mode normal|anti-missent|low-disturb|event-only|all-modes` 生成对应模式文件。
 
 使用指引（先选模板，再替换 `<START_FILE>` 后整段复制发送）：

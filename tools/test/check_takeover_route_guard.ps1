@@ -146,6 +146,15 @@ if ($brief.Contains('failure_phase')) {
 $failureEvidence = (Convert-ToSingleLineText -Text ([string]$brief.failure_evidence)).ToLowerInvariant()
 $preferredStage = (Convert-ToSingleLineText -Text ([string]$brief.preferred_stage)).ToUpperInvariant()
 $briefRecommendedAction = Convert-ToSingleLineText -Text ([string]$brief.recommended_action)
+$taskDefinitionSchemaVersion = if ($brief.Contains('task_definition_schema_version')) { (Convert-ToSingleLineText -Text ([string]$brief.task_definition_schema_version)).ToLowerInvariant() } else { '1' }
+$targetSetSha256 = if ($brief.Contains('target_set_sha256')) { (Convert-ToSingleLineText -Text ([string]$brief.target_set_sha256)).ToLowerInvariant() } else { '' }
+$failureTargetId = if ($brief.Contains('failure_target_id')) { Convert-ToSingleLineText -Text ([string]$brief.failure_target_id) } else { '' }
+$failureTargetPath = if ($brief.Contains('failure_target_path')) { Convert-ToSingleLineText -Text ([string]$brief.failure_target_path) } else { '' }
+$failureTargetKind = if ($brief.Contains('failure_target_kind')) { Convert-ToSingleLineText -Text ([string]$brief.failure_target_kind) } else { '' }
+$failureTargetLifecycle = if ($brief.Contains('failure_target_lifecycle')) { Convert-ToSingleLineText -Text ([string]$brief.failure_target_lifecycle) } else { '' }
+$failureOperationIndex = if ($brief.Contains('task_definition_failure_operation')) { Convert-ToSingleLineText -Text ([string]$brief.task_definition_failure_operation) } else { '' }
+$taskDefinitionRepairCommandStatus = if ($brief.Contains('task_definition_repair_command_status')) { (Convert-ToSingleLineText -Text ([string]$brief.task_definition_repair_command_status)).ToLowerInvariant() } else { '' }
+$rollbackStatus = if ($brief.Contains('rollback_status')) { (Convert-ToSingleLineText -Text ([string]$brief.rollback_status)).ToLowerInvariant() } else { 'not-required' }
 
 $policyWorkMode = ''
 $isLowDisturbMode = $false
@@ -360,6 +369,20 @@ elseif ($failureKind -in @('script-failure', 'script-edit-failure', 'main-proces
 }
 $scriptDiagnoseOnly = ($isIncidentLike -and $incidentLane -eq 'script-fix' -and -not $scriptSelfHealEnabled)
 $canAutoResume = ($canAutoResume -and -not $scriptDiagnoseOnly)
+$vxMachineFactsIncomplete = (
+    $taskDefinitionSchemaVersion -eq 'vx-draft' -and
+    $incidentLane -eq 'code-fix' -and
+    ($targetSetSha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]::IsNullOrWhiteSpace($failureTargetId) -or
+        [string]::IsNullOrWhiteSpace($failureTargetPath) -or
+        [string]::IsNullOrWhiteSpace($failureTargetKind) -or
+        [string]::IsNullOrWhiteSpace($failureTargetLifecycle) -or
+        $failureOperationIndex -notmatch '^[1-9][0-9]*$' -or
+        $taskDefinitionRepairCommandStatus -notin @('ready', 'ready-without-focused-operation'))
+)
+$vxRollbackHardBlock = ($taskDefinitionSchemaVersion -eq 'vx-draft' -and $rollbackStatus -eq 'incomplete')
+$vxRecoveryHardBlock = ($vxMachineFactsIncomplete -or $vxRollbackHardBlock)
+$canAutoResume = ($canAutoResume -and -not $vxRecoveryHardBlock)
 
 # Skip tickets created before the session's initial launch (pre-start events)
 $isPreStart = $false
@@ -444,6 +467,22 @@ elseif ($isNoticeEvent) {
             break
         }
     }
+}
+elseif ($isIncidentLike -and $vxRecoveryHardBlock) {
+    $classification = ('incident-manual-{0}' -f $incidentLane)
+    $recommendedAction = 'report-vx-machine-fact-or-rollback-blocker'
+    $mustTriggerBusinessResume = $false
+    $mustAvoidStageRestart = $true
+    $allowedActions = @('read-only-evidence', 'root-cause-report', 'handled_at')
+    $blockedActions = @('code-fix-workflow', 'task_definition_edit', 'source_edit', 'business_resume', 'stage_restart', 'business_command', 'continue_watch_command', 'recovery_transaction_command')
+    $reason = if ($vxRollbackHardBlock) { 'Vx rollback_status=incomplete hard-blocks restart and recovery.' } else { 'Vx code-fix machine facts are incomplete or inconsistent; fail closed without guessing target identity.' }
+    [void]$decisionFactors.Add('schema=vx-draft')
+    [void]$decisionFactors.Add(('target_set_sha256={0}' -f $targetSetSha256))
+    [void]$decisionFactors.Add(('failure_target_id={0}' -f $failureTargetId))
+    [void]$decisionFactors.Add(('operation_index={0}' -f $failureOperationIndex))
+    [void]$decisionFactors.Add(('repair_command_status={0}' -f $taskDefinitionRepairCommandStatus))
+    [void]$decisionFactors.Add(('rollback_status={0}' -f $rollbackStatus))
+    $decisionConfidence = 0.99
 }
 elseif ($scriptDiagnoseOnly) {
     $classification = 'incident-script-diagnose-only'

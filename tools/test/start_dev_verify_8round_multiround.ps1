@@ -69,6 +69,8 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 }
 
 . (Join-Path $PSScriptRoot 'unattended_exit_result.ps1')
+. (Join-Path $PSScriptRoot 'task_definition_target_registry.ps1')
+. (Join-Path $PSScriptRoot 'task_definition_target_set_delta.ps1')
 $script:UnhandledExitTag = 'START-DEV-VERIFY-8ROUND-MULTIROUND'
 
 function Convert-ToStrictBool {
@@ -726,12 +728,19 @@ function Invoke-CodeStepRound {
         [string]$OutDir,
         [AllowEmptyString()][string]$TaskDefinitionFile = "",
         [AllowEmptyString()][string]$ValidatedEffectiveSourceFile = "",
-        [AllowEmptyString()][string]$ValidatedManifestFile = ""
+        [AllowEmptyString()][string]$ValidatedManifestFile = "",
+        [AllowEmptyString()][string]$ValidatedArtifactDirectory = ""
     )
 
     $null = $ScriptPath
 
-    if (-not [string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -and
+    if (-not [string]::IsNullOrWhiteSpace($ValidatedArtifactDirectory)) {
+        $invokeResult = Invoke-StreamingCapture -Action {
+            & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile `
+                -ValidatedArtifactDirectory $ValidatedArtifactDirectory
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -and
         -not [string]::IsNullOrWhiteSpace($ValidatedManifestFile)) {
         $invokeResult = Invoke-StreamingCapture -Action {
             & $ScriptPath -TaskDefinitionFile $TaskDefinitionFile `
@@ -958,32 +967,15 @@ function Convert-ToRoundTaskMap {
     return $map
 }
 
-function Resolve-TaskTargetRelativePath {
+function Resolve-TaskTargetRegistry {
     param(
         [object]$TaskDefinition,
+        [string]$TaskDefinitionPath,
         [string]$RepoRoot
     )
 
-    if (-not $TaskDefinition -or -not ($TaskDefinition.PSObject.Properties.Name -contains "targetFile")) {
-        return ""
-    }
-
-    $rawTarget = [string]$TaskDefinition.targetFile
-    if ([string]::IsNullOrWhiteSpace($rawTarget)) {
-        return ""
-    }
-
-    if ([System.IO.Path]::IsPathRooted($rawTarget)) {
-        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot)
-        $targetFull = [System.IO.Path]::GetFullPath($rawTarget)
-        if (-not $targetFull.StartsWith($repoFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-            return ""
-        }
-        $relative = $targetFull.Substring($repoFull.Length).TrimStart([char]'\\', [char]'/')
-        return ConvertTo-RelativePath -Path $relative
-    }
-
-    return ConvertTo-RelativePath -Path $rawTarget
+    if (-not $TaskDefinition) { return $null }
+    return Resolve-TaskDefinitionTargetRegistry -TaskDefinition $TaskDefinition -TaskDefinitionPath $TaskDefinitionPath -RepositoryRoot $RepoRoot
 }
 
 function Test-TaskDefinitionDesignQuality {
@@ -1062,15 +1054,15 @@ function Get-RoundNoOpClassification {
         [string]$CodeStepAction,
         [string[]]$BeforeSourceDiffNames,
         [string[]]$AfterCodeStepSourceDiffNames,
-        [string]$TargetSourceRelativePath,
+        [string[]]$TargetSourceRelativePaths,
         [object]$RoundTask
     )
 
     $null = $RoundTag
 
     $class = "unknown-unexplained"
-    $targetInBefore = Test-PathListHasItem -Paths $BeforeSourceDiffNames -TargetPath $TargetSourceRelativePath
-    $targetInAfterCodeStep = Test-PathListHasItem -Paths $AfterCodeStepSourceDiffNames -TargetPath $TargetSourceRelativePath
+    $targetInBefore = (@($TargetSourceRelativePaths | Where-Object { Test-PathListHasItem -Paths $BeforeSourceDiffNames -TargetPath $_ }).Count -gt 0)
+    $targetInAfterCodeStep = (@($TargetSourceRelativePaths | Where-Object { Test-PathListHasItem -Paths $AfterCodeStepSourceDiffNames -TargetPath $_ }).Count -gt 0)
     $targetSeen = ($targetInBefore -or $targetInAfterCodeStep)
 
     if (($CodeStepAction -eq "already-applied" -or $CodeStepAction -eq "applied") -and $targetSeen) {
@@ -1101,7 +1093,7 @@ function Get-RoundNoOpClassification {
         $class = "unknown-unexplained"
     }
 
-    $evidence = "action=$CodeStepAction; target_seen=$targetSeen; target_in_before=$targetInBefore; target_in_after_code_step=$targetInAfterCodeStep"
+    $evidence = "action=$CodeStepAction; targets=$(@($TargetSourceRelativePaths).Count); target_seen=$targetSeen; target_in_before=$targetInBefore; target_in_after_code_step=$targetInAfterCodeStep"
     if ($policyMismatch) {
         $evidence = "$evidence; policy_mismatch=true"
     }
@@ -1353,6 +1345,7 @@ function Invoke-RoundTaskStaticGate {
         Scope = ''
         EffectiveSourceFile = ''
         ManifestFile = ''
+        ArtifactDirectory = ''
         Lines = @()
     }
 
@@ -1367,16 +1360,28 @@ function Invoke-RoundTaskStaticGate {
     $result.Applied = $true
     $scopeText = if ($OperationIndex -gt 0) { "{0}:op{1}" -f $RoundTag, $OperationIndex } else { $RoundTag }
     $result.Scope = $scopeText
+    $taskDefinitionObject = Get-Content -LiteralPath $TaskDefinitionFile -Raw -Encoding utf8 | ConvertFrom-Json
+    $taskSchema = if ($taskDefinitionObject.PSObject.Properties.Name -contains 'schemaVersion') { ([string]$taskDefinitionObject.schemaVersion).Trim().ToLowerInvariant() } else { '1' }
+    $gateTargetRegistry = Resolve-TaskDefinitionTargetRegistry -TaskDefinition $taskDefinitionObject -TaskDefinitionPath $TaskDefinitionFile -RepositoryRoot $RepoRoot
     $effectiveSourceFile = Join-Path $SessionOutDir ("{0}_validated_effective.c" -f $RoundTag)
     $manifestFile = Join-Path $SessionOutDir ("{0}_validated_effective.json" -f $RoundTag)
+    $artifactDirectory = Join-Path $SessionOutDir ("{0}_validated_artifact" -f $RoundTag)
 
     $staticCheckArgs = @{
         TaskDefinitionFile = $TaskDefinitionFile
         RepoRoot = $RepoRoot
         Policy = $Policy
         RoundTag = $RoundTag
-        BaselineTargetFile = $TargetFile
-        OutputEffectiveTargetFile = $effectiveSourceFile
+    }
+    if ($taskSchema -eq 'vx-draft') {
+        if (Test-Path -LiteralPath $artifactDirectory) {
+            Remove-Item -LiteralPath $artifactDirectory -Recurse -Force
+        }
+        $staticCheckArgs.OutputValidatedArtifactDirectory = $artifactDirectory
+    }
+    else {
+        $staticCheckArgs.BaselineTargetFile = $TargetFile
+        $staticCheckArgs.OutputEffectiveTargetFile = $effectiveSourceFile
     }
     if ($OperationIndex -gt 0) {
         $staticCheckArgs.OperationIndex = $OperationIndex
@@ -1411,12 +1416,21 @@ function Invoke-RoundTaskStaticGate {
     @($lines) | Out-File -FilePath $logFile -Encoding utf8
 
     if (-not $result.Pass) {
-        Write-Information ('[DEV-VERIFY-MULTI] task_static_repair_ticket=deferred_until_main_exit stage={0} round={1} scope={2} evidence={3}' -f $Stage, $RoundTag, $scopeText, $logFile) -InformationAction Continue
+        $targetIds = [string]::Join(',', @($gateTargetRegistry.Targets | Sort-Object File | ForEach-Object { [string]$_.Id }))
+        Write-Information ('[DEV-VERIFY-MULTI] task_static_repair_ticket=deferred_until_main_exit stage={0} round={1} scope={2} schema={3} target_set_sha256={4} target_ids={5} evidence={6}' -f $Stage, $RoundTag, $scopeText, $gateTargetRegistry.SchemaVersion, $gateTargetRegistry.TargetSetSha256, $targetIds, $logFile) -InformationAction Continue
     }
-    elseif (-not (Test-Path -LiteralPath $effectiveSourceFile -PathType Leaf)) {
+    elseif ($taskSchema -eq 'vx-draft' -and -not (Test-Path -LiteralPath (Join-Path $artifactDirectory 'manifest.json') -PathType Leaf)) {
+        $result.Pass = $false
+        $result.ExitCode = 2
+        $result.Reason = 'validated-artifact-directory-missing'
+    }
+    elseif ($taskSchema -ne 'vx-draft' -and -not (Test-Path -LiteralPath $effectiveSourceFile -PathType Leaf)) {
         $result.Pass = $false
         $result.ExitCode = 2
         $result.Reason = 'validated-effective-source-missing'
+    }
+    elseif ($taskSchema -eq 'vx-draft') {
+        $result.ArtifactDirectory = $artifactDirectory
     }
     else {
         $manifest = [ordered]@{
@@ -1664,18 +1678,24 @@ function Invoke-RoundRuntimeGate {
 $taskDefinitionObject = $null
 $roundTaskMap = @{}
 $taskTargetRelativePath = ""
+$taskTargetRelativePaths = @()
+$taskTargetRegistry = $null
 
 if (-not [string]::IsNullOrWhiteSpace($resolvedTaskDefinitionFile)) {
     try {
         $taskDefinitionObject = (Get-Content -LiteralPath $resolvedTaskDefinitionFile -Raw) | ConvertFrom-Json
         $roundTaskMap = Convert-ToRoundTaskMap -TaskDefinition $taskDefinitionObject
-        $taskTargetRelativePath = Resolve-TaskTargetRelativePath -TaskDefinition $taskDefinitionObject -RepoRoot $repoRoot
+        $taskTargetRegistry = Resolve-TaskTargetRegistry -TaskDefinition $taskDefinitionObject -TaskDefinitionPath $resolvedTaskDefinitionFile -RepoRoot $repoRoot
+        $taskTargetRelativePaths = @($taskTargetRegistry.Targets | ForEach-Object { [string]$_.File })
+        $taskTargetRelativePath = if ($null -ne $taskTargetRegistry.PrimaryTarget) { [string]$taskTargetRegistry.PrimaryTarget.File } else { '' }
     }
     catch {
         Write-Warning "[TASK-DESIGN] unable to parse task definition for quality checks: $resolvedTaskDefinitionFile"
         $taskDefinitionObject = $null
         $roundTaskMap = @{}
         $taskTargetRelativePath = ""
+        $taskTargetRelativePaths = @()
+        $taskTargetRegistry = $null
     }
 }
 
@@ -1827,6 +1847,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     $validatedEffectiveSourceFile = ''
     $validatedManifestFile = ''
+    $validatedArtifactDirectory = ''
 
     $roundGate = Invoke-RoundRuntimeGate `
         -RoundTag $roundTag `
@@ -1918,13 +1939,16 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         elseif ($roundTaskStaticGateApplied) {
             $validatedEffectiveSourceFile = [string]$roundTaskStaticGate.EffectiveSourceFile
             $validatedManifestFile = [string]$roundTaskStaticGate.ManifestFile
-            $passLine = "[DEV-VERIFY-MULTI] task_static_runtime_gate_result=PASS stage=$Stage round=$roundTag manifest=$validatedManifestFile"
+            $validatedArtifactDirectory = [string]$roundTaskStaticGate.ArtifactDirectory
+            $validatedArtifactLogPath = if (-not [string]::IsNullOrWhiteSpace($validatedArtifactDirectory)) { Join-Path $validatedArtifactDirectory 'manifest.json' } else { $validatedManifestFile }
+            $passLine = "[DEV-VERIFY-MULTI] task_static_runtime_gate_result=PASS stage=$Stage round=$roundTag manifest=$validatedArtifactLogPath"
             Write-Output $passLine
             $lines += $passLine
         }
     }
 
     $beforeSnapshot = Get-GitSnapshot -RepoPath $repoRoot
+    $beforeTargetSetSnapshot = if ($null -ne $taskTargetRegistry) { Get-TaskTargetSetSnapshot -Registry $taskTargetRegistry } else { $null }
     Write-GitSnapshot -Snapshot $beforeSnapshot -Tag ("{0}_before" -f $roundTag)
 
     $afterCodeStepSnapshot = $beforeSnapshot
@@ -1988,7 +2012,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     if (-not $skipRound -and $phase -eq "DEV") {
         Write-Output ("[DEV-VERIFY-MULTI] code_step_start={0}" -f $roundTag)
-        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir -TaskDefinitionFile $resolvedTaskDefinitionFile -ValidatedEffectiveSourceFile $validatedEffectiveSourceFile -ValidatedManifestFile $validatedManifestFile
+        $codeStep = Invoke-CodeStepRound -RoundTag $roundTag -ScriptPath $codeStepScriptPath -OutDir $sessionOutDir -TaskDefinitionFile $resolvedTaskDefinitionFile -ValidatedEffectiveSourceFile $validatedEffectiveSourceFile -ValidatedManifestFile $validatedManifestFile -ValidatedArtifactDirectory $validatedArtifactDirectory
         $codeStepExit = $codeStep.ExitCode
         $codeStepAction = if ([string]::IsNullOrWhiteSpace($codeStep.Action)) { "unknown" } else { $codeStep.Action }
         $codeStepFaultCode = [string]$codeStep.FaultCode
@@ -2035,13 +2059,24 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         }
 
         $afterCodeStepSnapshot = Get-GitSnapshot -RepoPath $repoRoot
+        $afterTargetSetSnapshot = if ($null -ne $taskTargetRegistry) { Get-TaskTargetSetSnapshot -Registry $taskTargetRegistry } else { $null }
         Write-GitSnapshot -Snapshot $afterCodeStepSnapshot -Tag ("{0}_after_code_step" -f $roundTag)
 
-        $sourceDeltaAfterCodeStep = if ($beforeSnapshot.SourcePatchHash -eq $afterCodeStepSnapshot.SourcePatchHash) {
-            "unchanged"
+        $targetSetDelta = if ($null -ne $beforeTargetSetSnapshot -and $null -ne $afterTargetSetSnapshot) {
+            Compare-TaskTargetSetSnapshot -Before $beforeTargetSetSnapshot -After $afterTargetSetSnapshot
         }
         else {
-            "changed"
+            $null
+        }
+        $sourceDeltaAfterCodeStep = if ($null -ne $targetSetDelta) {
+            if ($targetSetDelta.Changed) { 'changed' } else { 'unchanged' }
+        }
+        elseif ($beforeSnapshot.SourcePatchHash -eq $afterCodeStepSnapshot.SourcePatchHash) { 'unchanged' }
+        else { 'changed' }
+        if ($null -ne $targetSetDelta) {
+            $targetSetDeltaLine = "[DEV-VERIFY-MULTI] target_set_delta=$sourceDeltaAfterCodeStep targets=$($targetSetDelta.TargetCount) changed_targets=$([string]::Join(',', @($targetSetDelta.ChangedTargets)))"
+            Write-Output $targetSetDeltaLine
+            $lines += $targetSetDeltaLine
         }
 
         if (-not $codeStep.Pass) {
@@ -2050,8 +2085,8 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         elseif (-not $DisableSourceDrivenSkip -and $phaseRound -le 3 -and $sourceDeltaAfterCodeStep -eq "unchanged") {
             $stateOnlyD1PreexistingSourceDelta = $false
             if ($CodeStepResetPolicy -eq "state-only" -and $phaseRound -eq 1) {
-                if (-not [string]::IsNullOrWhiteSpace($taskTargetRelativePath)) {
-                    $stateOnlyD1PreexistingSourceDelta = Test-PathListHasItem -Paths @($beforeSnapshot.SourceDiffNames) -TargetPath $taskTargetRelativePath
+                if ($taskTargetRelativePaths.Count -gt 0) {
+                    $stateOnlyD1PreexistingSourceDelta = (@($taskTargetRelativePaths | Where-Object { Test-PathListHasItem -Paths @($beforeSnapshot.SourceDiffNames) -TargetPath $_ }).Count -gt 0)
                 }
                 else {
                     $stateOnlyD1PreexistingSourceDelta = (@($beforeSnapshot.SourceDiffNames).Count -gt 0)
@@ -2082,7 +2117,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
                     -CodeStepAction $codeStepAction `
                     -BeforeSourceDiffNames @($beforeSnapshot.SourceDiffNames) `
                     -AfterCodeStepSourceDiffNames @($afterCodeStepSnapshot.SourceDiffNames) `
-                    -TargetSourceRelativePath $taskTargetRelativePath `
+                    -TargetSourceRelativePaths $taskTargetRelativePaths `
                     -RoundTask $roundTask
 
                 $noOpClass = $noOp.Class

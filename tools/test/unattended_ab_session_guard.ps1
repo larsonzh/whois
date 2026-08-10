@@ -1917,7 +1917,10 @@ function Save-IncidentPackage {
 }
 
 function Save-ASuccessSnapshot {
-    param([string]$RunDir)
+    param(
+        [string]$RunDir,
+        [AllowEmptyString()][string]$TaskDefinitionFile = ''
+    )
 
     $snapshotDir = Join-Path $RunDir 'a_success_snapshot'
     $sourceDir = Join-Path $snapshotDir 'source'
@@ -1955,8 +1958,20 @@ function Save-ASuccessSnapshot {
         $result.SourceState = if ($statusFiltered.Count -eq 0) { 'CLEAN' } else { ($statusFiltered -join ' | ') }
         $result.SourceState | Out-File -FilePath (Join-Path $snapshotDir 'source_state.txt') -Encoding utf8
 
-        $diffNamesRaw = @(& $invokeGitCapture @('diff', '--name-only', '--', 'src', 'include'))
-        $diffNames = @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+        $snapshotRegistry = if ([string]::IsNullOrWhiteSpace($TaskDefinitionFile)) {
+            $null
+        }
+        else {
+            Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $TaskDefinitionFile -RepositoryRoot $script:RepoRoot
+        }
+        $isVxSnapshot = $null -ne $snapshotRegistry -and $snapshotRegistry.SchemaVersion -eq 'vx-draft'
+        $diffNames = if ($isVxSnapshot) {
+            @($snapshotRegistry.Targets | ForEach-Object { [string]$_.File } | Sort-Object -Unique)
+        }
+        else {
+            $diffNamesRaw = @(& $invokeGitCapture @('diff', '--name-only', '--', 'src', 'include'))
+            @($diffNamesRaw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -notmatch $gitWarningPattern })
+        }
         $diffNames | Out-File -FilePath (Join-Path $snapshotDir 'source_files.txt') -Encoding utf8
 
         foreach ($relPath in $diffNames) {
@@ -1968,8 +1983,10 @@ function Save-ASuccessSnapshot {
             Copy-Item -LiteralPath $srcPath -Destination $dstPath -Force
         }
 
-        $null = Write-ASuccessSnapshotManifest -SnapshotDir $snapshotDir
-        $integrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir
+        $null = Write-ASuccessSnapshotManifest -SnapshotDir $snapshotDir -TaskDefinitionFile $TaskDefinitionFile
+        $allowedPaths = if ($null -eq $snapshotRegistry) { @() } else { @($snapshotRegistry.Targets | ForEach-Object { [string]$_.File }) }
+        $expectedTargetSetSha256 = if ($isVxSnapshot) { [string]$snapshotRegistry.TargetSetSha256 } else { '' }
+        $integrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
         if (-not $integrity.Pass) {
             throw "A success snapshot integrity check failed: $($integrity.Errors -join ',')"
         }
@@ -5914,7 +5931,9 @@ try {
             if ($aStatus -eq 'PASS' -and [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $runDirAnchor -ne 'unknown' -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
                 $resolvedSnapshotRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
                 if (-not [string]::IsNullOrWhiteSpace($resolvedSnapshotRunDir) -and (Test-Path -LiteralPath $resolvedSnapshotRunDir)) {
-                    $snapshotResult = Save-ASuccessSnapshot -RunDir $resolvedSnapshotRunDir
+                    $aTaskDefinitionRaw = if ($settings.Contains('A_TASK_DEFINITION')) { [string]$settings.A_TASK_DEFINITION } else { '' }
+                    $aTaskDefinitionPath = Resolve-RepoPathAllowMissing -Path $aTaskDefinitionRaw
+                    $snapshotResult = Save-ASuccessSnapshot -RunDir $resolvedSnapshotRunDir -TaskDefinitionFile $aTaskDefinitionPath
                     if (-not [string]::IsNullOrWhiteSpace($snapshotResult.SnapshotDir)) {
                         $aSuccessSnapshotDir = $snapshotResult.SnapshotDir
                         $snapshotFinalRel = Convert-ToRepoRelativePath -Path (Join-Path $resolvedSnapshotRunDir 'final_status.json')

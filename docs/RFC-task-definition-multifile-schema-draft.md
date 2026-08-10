@@ -2,7 +2,13 @@
 
 > 说明：本文中的 Vx 为暂定方案代号，用于避免与既有历史 V2 命名混淆。
 >
-> 状态：设计草案，尚未授权现有无人值守入口执行多文件任务。落地时应为任务定义、task-static 绑定产物和事务收据分别分配稳定版本号，不能只靠脚本文件名区分协议。
+> 状态：实验实现已落地。`schemaVersion=vx-draft` 已接入共享目标解析、task-static 多文件产物、code-step 可恢复提交、wrapper 目标集合判定和 repair transaction；V1 保持兼容。真实无人值守 A/B 启用前仍须使用具体 TODO-free 任务定义完成第 20.2 节的 launch-ready、完整编译、黄金与 Step47 验收。
+
+当前实验协议标识：
+
+- task-static manifest：`TASK_STATIC_VALIDATED_ARTIFACT_VX1`
+- code-step journal/receipt/state：`CODE_STEP_VX_COMMIT_JOURNAL_V1`、`CODE_STEP_VX_COMMIT_RECEIPT_V1`、`CODE_STEP_VX_STATE_V1`
+- repair preview：`TASK_DEFINITION_OPERATION_PREVIEW_VX1`
 
 ## 1. 目标
 
@@ -18,9 +24,9 @@
 - 不允许一个 operation 跨两个文件做一次正则匹配；每个 operation 只作用于一个目标。
 - 不改变 D1-D4 与 V1-V4 的既有含义，也不放宽现有代码自愈编辑边界。
 
-## 2. 当前限制概述
+## 2. V1 基线限制概述
 
-当前实现本质上是“单目标文件”模型：
+以下是实施前的 V1 单目标基线；V1 adapter 继续保持这些字段与产物，Vx 分支不复用其单文件投影：
 
 - 根字段只有一个 `targetFile`。
 - task-static checker 只维护一个 `workingText`，并只输出一个有效源码文件。
@@ -290,8 +296,8 @@ Vx 每个 operation 的目标解析顺序如下：
 
 ### 7.4 模板与文档（低）
 
-- 文件：`testdata/autopilot_code_step_tasks_template.json`
-- 保留 V1 模板，另增 Vx 示例模板；正式定义仍需 TODO-free。
+- 文件：`testdata/autopilot_code_step_tasks_vx_template.json`（新任务默认）与 `testdata/autopilot_code_step_tasks_template.json`（既有 V1 兼容）
+- Vx 模板已经落地；新正式定义从 Vx 模板编制且仍需 TODO-free，历史 V1 定义不要求批量迁移。
 
 - 文档更新：
   - `docs/OPERATIONS_CN.md`
@@ -349,13 +355,14 @@ Phase 3：
 
 - 保持 `autopilot_code_step_rounds.ps1`、`start_dev_verify_8round_multiround.ps1` 和 stage window 命令入口不变。
 - 增加小型共享模块承载 schema/target resolver 与多文件事务，不在各入口内复制解析逻辑。
-- 保留 `testdata/autopilot_code_step_tasks_template.json` 作为 V1 模板，可新增一个 Vx 模板。
+- 保留 `testdata/autopilot_code_step_tasks_template.json` 作为 V1 兼容模板，并以已落地的 `testdata/autopilot_code_step_tasks_vx_template.json` 作为新任务默认模板。
 - 不默认新增 VS Code task；先通过现有入口的显式 Vx fixture/dry-run 验证。
 
 ### 11.2 入口分流建议
 
-- V1 入口维持默认，继续服务既有任务定义（`schemaVersion=1`）。
-- 同一入口读取 `schemaVersion=vx-draft` 时进入 Vx 分支，仅用于多文件任务。
+- 新建任务定义默认使用 Vx 模板和 `schemaVersion=vx-draft`；单目标任务使用仅含一个注册目标的 Vx 形态。
+- V1 adapter 继续服务既有任务定义（`schemaVersion=1`），但 V1 模板不再作为新任务默认入口。
+- 同一入口读取 `schemaVersion=vx-draft` 时进入 Vx 分支，既支持单文件任务，也支持多文件任务。
 - Vx 分支不完整或失败时禁止静默回退 V1。
 
 ### 11.3 回退策略
@@ -387,7 +394,7 @@ Phase 3：
 
 1. 先跑 Vx dry-run（单轮 + 多轮）。
 2. 再跑完整无人值守 golden 流程。
-3. 验证通过后，将 Vx 模板纳入后续 A/B 清单；V1 继续保留。
+3. 验证通过后，后续新 A/B 清单默认使用 Vx 模板；V1 仅作为既有定义兼容与后续独立会话的显式回退格式保留。
 
 ## 13. 成本口径（双轨方案下）
 
@@ -456,6 +463,7 @@ target id -> normalized path -> lifecycle -> baseline exists/bytes/hash -> worki
 - prerequisite 创建的文件在后置定义中视为存在；若两个定义都对同一路径执行 `create-file`，后一个只能以 `already-exists` 幂等通过，且内容绑定必须一致。
 - 不再要求 prerequisite 与当前任务只有一个完全相同的 target。
 - manifest 记录前置定义路径、定义 SHA-256、应用顺序和目标集合摘要。
+- Vx artifact 只发布当前定义冻结 registry 中的目标；若 prerequisite 改变了当前 registry 未覆盖的路径，checker 必须 fail-close，要求当前 registry 覆盖本次提交闭包，禁止生成不可完整提交的 artifact。
 - A+B 链式验收最终对目标并集执行 replay、适用 syntax gate 与完整编译。
 
 ## 16. Vx 绑定产物与 code-step 提交协议
@@ -706,6 +714,8 @@ start-file 生成前尚无事故票，可直接用 `apply_patch` 编制新正式
 - 实现多文件映射、assertion、replay、ChainRounds、prerequisite union 和 Vx artifact。
 - 暂不允许真实业务 code-step 消费。
 
+当前落地状态：共享 resolver 与 prerequisite union 已接入 checker。prerequisite 按命令行顺序执行全部 D 轮，当前定义继续服从 focused/ChainRounds；相同规范路径共享槽，baseline 绑定叠加前的最初磁盘状态，effective 绑定完整叠加结果。artifact 仅包含当前 registry，并对未覆盖的 prerequisite 变更提交闭包 fail-close。交集、并集、create→regex、重复 create 内容一致/不一致及 prerequisite 首错均已有专项回归。
+
 退出条件：A+B effective payload 可重复生成且 hash 稳定，安全回归全通过。
 
 ### Phase 2：隔离 code-step
@@ -717,6 +727,8 @@ start-file 生成前尚无事故票，可直接用 `apply_patch` 编制新正式
 ### Phase 3：wrapper 与自愈事务
 
 - 接入 no-op、snapshot/B restore、preview、Validate/Promote、ticket 与 recovery receipt。
+
+当前落地状态：A snapshot/B restore 切片已改用共享 resolver。V1 manifest 行为保持不变；Vx manifest 冻结完整 target set、绑定 `target_set_sha256`，并以 `exists=false` 表示缺失目标而不创建占位。B restore 对 `exists=false` 恢复为路径不存在，stage window、reset 与 restore 前后完整性门禁均核对同一 target set hash。Phase 3 的 preview、Validate/Promote、ticket、recovery receipt 和完整 no-op 接入仍按后续切片实施，本阶段尚未整体退出。
 
 退出条件：跨文件首错能生成正确 preview，并完成同票据自愈闭环。
 

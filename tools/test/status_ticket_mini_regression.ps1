@@ -186,6 +186,7 @@ $recoveryTransactionText = Get-Content -LiteralPath $recoveryTransactionPath -Ra
 $taskDefinitionRepairTransactionText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1') -Raw -Encoding utf8
 $ticketClosureText = Get-Content -LiteralPath $ticketClosurePath -Raw -Encoding utf8
 $taskStaticCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1') -Raw -Encoding utf8
+$takeoverRouteGuardText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_takeover_route_guard.ps1') -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
@@ -317,6 +318,39 @@ if ($ContractGateOnly.IsPresent) {
     )
     $operatorContractReason = if ($operatorContractPass) { 'operator-task-repair-contract-present' } else { 'missing-operator-task-repair-contract' }
     [void]$results.Add((Get-CaseResult -Name 'operator-task-repair-contract' -Pass $operatorContractPass -Reason $operatorContractReason))
+
+    $vxBriefPromptPass = (
+        $takeoverTriggerText.Contains(". (Join-Path `$PSScriptRoot 'task_definition_target_registry.ps1')") -and
+        $takeoverTriggerText.Contains("if (`$taskDefinitionSchemaVersion -eq 'vx-draft')") -and
+        $takeoverTriggerText.Contains("('task_definition_schema_version={0}' -f `$taskDefinitionSchemaVersion)") -and
+        $takeoverTriggerText.Contains("('target_set_sha256={0}' -f `$targetSetSha256)") -and
+        $takeoverTriggerText.Contains("('failure_target_id={0}' -f `$failureTargetId)") -and
+        $takeoverTriggerText.Contains("('failure_target_path={0}' -f `$failureTargetPath)") -and
+        $takeoverTriggerText.Contains("('failure_target_kind={0}' -f `$failureTargetKind)") -and
+        $takeoverTriggerText.Contains("('failure_target_lifecycle={0}' -f `$failureTargetLifecycle)") -and
+        $takeoverTriggerText.Contains("('failure_target_baseline_exists={0}' -f `$failureTargetBaselineExists)") -and
+        $takeoverTriggerText.Contains("`$repairCommandStatus = 'blocked-vx-machine-facts-incomplete'") -and
+        $takeoverTriggerText.Contains("if ([string]::IsNullOrWhiteSpace(`$rollbackStatus)) { 'not-required' }") -and
+        $dispatchText.Contains("if (`$briefTaskDefinitionSchemaVersion -eq 'vx-draft')") -and
+        $dispatchText.Contains('[Vx multi-target contract]') -and
+        $dispatchText.Contains('[Vx 多目标契约]') -and
+        $dispatchText.Contains('Operation indexes are global across files within the round') -and
+        $dispatchText.Contains('Inspect must simulate every preceding operation in order') -and
+        $dispatchText.Contains('Keep the official schemaVersion, targetFiles, defaultTarget, and frozen target registry read-only') -and
+        $dispatchText.Contains('A create-file fault never authorizes directly creating or overwriting a business file') -and
+        $dispatchText.Contains('Validate, Promote, and recovery manifests/receipts must bind the same target_set_sha256') -and
+        $dispatchText.Contains('rollback_status=incomplete is a hard block on edit/promote/restart/resume') -and
+        $dispatchText.Contains('operation index 是跨文件全局顺序') -and
+        $dispatchText.Contains('schemaVersion、targetFiles、defaultTarget 与冻结 target registry 均只读') -and
+        $dispatchText.Contains('create-file 故障绝不授权直接创建或覆盖业务文件') -and
+        $dispatchText.Contains('manifest/receipt 必须绑定同一 target_set_sha256') -and
+        $takeoverRouteGuardText.Contains('$vxMachineFactsIncomplete') -and
+        $takeoverRouteGuardText.Contains('$vxRollbackHardBlock') -and
+        $takeoverRouteGuardText.Contains("`$recommendedAction = 'report-vx-machine-fact-or-rollback-blocker'") -and
+        $takeoverRouteGuardText.Contains("'Vx rollback_status=incomplete hard-blocks restart and recovery.'")
+    )
+    $vxBriefPromptReason = if ($vxBriefPromptPass) { 'vx-brief-machine-facts-and-conditional-prompts-present' } else { 'missing-vx-brief-or-prompt-contract' }
+    [void]$results.Add((Get-CaseResult -Name 'vx-brief-prompt-contract' -Pass $vxBriefPromptPass -Reason $vxBriefPromptReason))
 
     $takeoverContractOrderIndex = $takeoverTriggerText.IndexOf("`$nextCommandNames.Add('contract_gate_command')")
     $takeoverLaunchReadyOrderIndex = $takeoverTriggerText.IndexOf("`$nextCommandNames.Add('pre_restart_launch_ready_command')")
@@ -832,9 +866,13 @@ $snapshotIntegrityChainPass = (
     $snapshotIntegrityText.Contains('destination-hash-mismatch:') -and
     $sessionGuardText.Contains('Write-ASuccessSnapshotManifest -SnapshotDir $snapshotDir') -and
     $sessionGuardText.Contains('Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir') -and
-    $stageWindowText.Contains('Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath') -and
+    $stageWindowText.Contains('Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath') -and
+    $stageWindowText.Contains('-ExpectedTargetSetSha256 $expectedTargetSetSha256') -and
     $stageWindowText.Contains('b_start_gate blocked: A snapshot integrity failed') -and
     $fastModeBText.Contains('A snapshot restore blocked by integrity check') -and
+    $fastModeBText.Contains('Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $snapshotDir') -and
+    $fastModeBText.Contains('$absentSnapshotPaths.ContainsKey($relativePathKey)') -and
+    $snapshotIntegrityText.Contains('Remove-Item -LiteralPath $destinationPath -Force -ErrorAction Stop') -and
     $fastModeBText.Contains('A snapshot post-encoding verification failed')
 )
 $snapshotIntegrityChainReason = if ($snapshotIntegrityChainPass) { 'a-snapshot-integrity-active-chain-present' } else { 'a-snapshot-integrity-active-chain-regressed' }

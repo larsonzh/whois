@@ -5,7 +5,9 @@
     [string]$TargetFile = "",
     [string]$TaskDefinitionFile = "",
     [string]$ValidatedEffectiveSourceFile = "",
-    [string]$ValidatedManifestFile = ""
+    [string]$ValidatedManifestFile = "",
+    [string]$ValidatedArtifactDirectory = "",
+    [string]$VxFaultInjectionAfterTargetId = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +54,35 @@ else {
 
 if (-not $taskDefinition.rounds) {
     throw "[CODE-STEP] task definition missing rounds in $TaskDefinitionFile"
+}
+
+if ([string]::IsNullOrWhiteSpace($StateDir)) {
+    $StateDir = Join-Path $repoRoot "out\artifacts\autopilot_dev_recheck_8round\_code_step_state"
+}
+
+if ($schemaMode -eq 'vx-draft') {
+    if (-not [string]::IsNullOrWhiteSpace($TargetFile) -or
+        -not [string]::IsNullOrWhiteSpace($ValidatedEffectiveSourceFile) -or
+        -not [string]::IsNullOrWhiteSpace($ValidatedManifestFile)) {
+        throw '[CODE-STEP] vx-draft rejects V1 TargetFile, ValidatedEffectiveSourceFile, and ValidatedManifestFile parameters'
+    }
+
+    $vxScript = Join-Path $PSScriptRoot 'autopilot_code_step_vx.ps1'
+    $vxArguments = @{
+        TaskDefinitionFile = $TaskDefinitionFile
+        StateDir = $StateDir
+        ValidatedArtifactDirectory = $ValidatedArtifactDirectory
+        FaultInjectionAfterTargetId = $VxFaultInjectionAfterTargetId
+    }
+    if ($Reset.IsPresent) { $vxArguments.Reset = $true }
+    if ($ResetStateOnly.IsPresent) { $vxArguments.ResetStateOnly = $true }
+    & $vxScript @vxArguments
+    exit $LASTEXITCODE
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ValidatedArtifactDirectory) -or
+    -not [string]::IsNullOrWhiteSpace($VxFaultInjectionAfterTargetId)) {
+    throw '[CODE-STEP] schemaVersion=1 rejects Vx artifact and fault-injection parameters'
 }
 
 function Resolve-VxDefaultTargetFile {

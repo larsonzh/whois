@@ -1678,13 +1678,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/one_click_rele
 
 - 对 `start_autopilot_8round_code_change.ps1` 与 `start_dev_verify_8round_multiround.ps1` 这两个 code-change 入口，执行前必须先确认本轮任务内容。
 - 推荐流程：
-  - 从 `testdata/autopilot_code_step_tasks_template.json` 复制一份任务文件（例如 `testdata/autopilot_code_step_tasks_local.json`）。
+  - 新任务统一从 `testdata/autopilot_code_step_tasks_vx_template.json` 复制（例如 `testdata/autopilot_code_step_tasks_local.json`）；单文件任务使用单目标 Vx。`testdata/autopilot_code_step_tasks_template.json` 仅用于既有 V1 定义兼容，不作为新任务默认入口。
   - 填写 D1~D4 的实际任务内容（至少 D1~D3），不要保留 `TODO_*` 占位符。
+  - Vx 必须冻结完整 `targetFiles` 注册表；operation/assertion 显式填写 `target`。缺失文件只有声明 `lifecycle=create` 且由唯一 `create-file` operation 引入时才允许。
+  - Vx task-static 生成 `TASK_STATIC_VALIDATED_ARTIFACT_VX1` manifest/payload；code-step 只消费绑定产物，并通过 journal、逐文件原子替换、整组回滚与写后哈希提交。`rollback-incomplete` 会硬阻断后续轮次和 reset。
+  - Vx 运行中不降级到 V1。出现 schema、target set、payload、baseline 或 repair receipt 不一致时，按 noncode/task-definition 对应分类 fail-close。
+  - Vx 运行期 brief 额外绑定 target set、失败 target、validated artifact、commit journal 与 rollback 状态；repair 外部命令和参数形态与 V1 相同，失败 target 由轮内全局 `OperationIndex` 经共享 resolver 得出。`create-file` 只允许通过 candidate operation 修复，禁止直接创建/覆盖业务文件；`rollback_status=incomplete` 禁止重启或恢复。
   - 执行入口脚本时显式传入 `-TaskDefinitionFile` 指向该文件。
   - 若轮次覆盖 D1（`-StartRound <= 1`），必须显式 reset code-step 状态：
     - wrapper 入口：显式传 `-ResetCodeStepState`。
     - 直接 core 入口（`-Mode code-change`）且 `-CodeStepCommand` 调用 `autopilot_code_step_rounds.ps1`：命令中必须包含 `-Reset` 或 `-ResetStateOnly`。
 - 若只是复跑同一任务，也需要在执行前核对任务文件内容与本轮目标一致。
+- `vx-draft` 协议标识仍保留 draft 命名，但已是新任务定义默认模式。每份真实 A/B 定义在首次运行前仍必须完成 SyntaxOnly、Vx 专项回归、A 全定义检查、B prerequisite 链式检查、完整编译、黄金/Step47 与 launch-ready，不得只凭局部 `-RoundTag/-OperationIndex` 放行。
 
 ### D1 监控容忍窗口（固定运行策略）
 
@@ -1800,7 +1805,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - Q: `D6` 指什么？
   - A: D6 = 双轮一致性门禁（Double-Round Consistency）。核心是连续两轮校验关键闸项（strict/hash/golden/referral/preflight/table-guard/P0/P1）是否一致通过。
 - Q: 运行前是否必须先定义“工作清单”？
-  - A: 对 code-change 入口是必须步骤。请先填写任务定义文件（建议基于 `testdata/autopilot_code_step_tasks_template.json`），再通过 `-TaskDefinitionFile` 传入。
+  - A: 对 code-change 入口是必须步骤。新任务请基于 `testdata/autopilot_code_step_tasks_vx_template.json` 填写；即使仅修改一个文件也使用单目标 Vx，再通过 `-TaskDefinitionFile` 传入。既有 V1 文件继续兼容。
   - gate-only 路径不执行代码改动步骤，不需要任务定义文件。
 - Q: 若任务内容与内置 D1~D4 不一致怎么办？
   - A: 需要替换步骤来源：

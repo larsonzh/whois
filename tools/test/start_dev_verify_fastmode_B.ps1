@@ -148,10 +148,18 @@ function Restore-AStageSnapshotSource {
 
     $aTaskDefinitionRaw = if ($StartSettings.Contains('A_TASK_DEFINITION')) { [string]$StartSettings.A_TASK_DEFINITION } else { '' }
     $aTaskDefinitionPath = Resolve-RepoScopedPath -RepoRoot $RepoRoot -Path $aTaskDefinitionRaw
-    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
-    $preRestoreIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath -RepositoryRoot $RepoRoot
+    $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
+    $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+    $preRestoreIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
     if (-not $preRestoreIntegrity.Pass) {
         throw "A snapshot restore blocked by integrity check: $($preRestoreIntegrity.Errors -join ',')"
+    }
+
+    $absentRestore = Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $snapshotDir -DestinationRoot $RepoRoot -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
+    $absentSnapshotPaths = @{}
+    foreach ($absentPath in @($absentRestore.AbsentPaths)) {
+        $absentSnapshotPaths[([string]$absentPath).ToLowerInvariant()] = $true
     }
 
     try {
@@ -209,11 +217,6 @@ function Restore-AStageSnapshotSource {
                 }
                 continue
             }
-            if (-not (Test-Path -LiteralPath $snapshotFilePath)) {
-                $missingCount++
-                continue
-            }
-
             try {
                 $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $relativePath))
             }
@@ -229,6 +232,16 @@ function Restore-AStageSnapshotSource {
                 if ($unsafeDetails.Count -lt 3) {
                     [void]$unsafeDetails.Add(("destination-path-escaped:{0}" -f (Convert-ToSingleLineText -Text $relativePath)))
                 }
+                continue
+            }
+
+            $relativePathKey = $relativePath.Replace('\', '/').ToLowerInvariant()
+            if ($absentSnapshotPaths.ContainsKey($relativePathKey)) {
+                continue
+            }
+
+            if (-not (Test-Path -LiteralPath $snapshotFilePath -PathType Leaf)) {
+                $missingCount++
                 continue
             }
 
@@ -512,8 +525,10 @@ try {
 
         $aTaskDefinitionRaw = if ($snapshotRestoreDecision.StartSettings.Contains('A_TASK_DEFINITION')) { [string]$snapshotRestoreDecision.StartSettings.A_TASK_DEFINITION } else { '' }
         $aTaskDefinitionPath = Resolve-RepoScopedPath -RepoRoot $repoRoot -Path $aTaskDefinitionRaw
-        $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
-        $postEncodingIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir ([string]$snapshotRestoreResult.SnapshotDir) -AllowedPaths $allowedSnapshotPaths -DestinationRoot $repoRoot
+        $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath -RepositoryRoot $repoRoot
+        $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
+        $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+        $postEncodingIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir ([string]$snapshotRestoreResult.SnapshotDir) -AllowedPaths $allowedSnapshotPaths -DestinationRoot $repoRoot -ExpectedTargetSetSha256 $expectedTargetSetSha256
         if (-not $postEncodingIntegrity.Pass) {
             throw "A snapshot post-encoding verification failed: $($postEncodingIntegrity.Errors -join ',')"
         }

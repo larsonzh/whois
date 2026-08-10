@@ -11,16 +11,18 @@
 - 说明用户 <-> 无人值守脚本 <-> AI 三者在运行过程中的地位、作用和优先级。
 - 明确故障处理、自愈修复、工单执行的默认动作，避免 AI 在无人值守期间反复停下来向用户要确认。
 
-下次开工清单固定写在以下两份 RFC 中：
-- docs/RFC-whois-client-split.md
-- docs/RFC-address-space-preclassifier.md
+下次开工清单固定写入“本任务权威文档集合”，不得在流程层写死具体文件：
+- 至少选择一份直接拥有本次需求、行为契约或设计决策的主归属 RFC/设计文档。
+- 仅当任务跨架构、跨模块或同时改变另一份文档拥有的契约时，增加对应协同文档。
+- 当前 Address-Space 前置分类器（IPv4/IPv6）任务通常选择 `docs/RFC-address-space-preclassifier.md`，并在涉及客户端拆分架构或整体进度时同时选择 `docs/RFC-whois-client-split.md`；其他功能/优化任务按其实际归属选择，不强制写入这两份文档。
+- 阶段 3 一旦确定文档集合，须在清单中冻结；阶段 15 回填同一集合，不得只留在聊天记录或临时文档中。
 
 ## 2. 核心原则
 
 ### 2.1 只走既有入口，不新增私有启动脚本
 
 正确做法：
-- 使用现有任务定义模板：testdata/autopilot_code_step_tasks_template.json
+- 新任务默认使用跨文件任务定义模板：testdata/autopilot_code_step_tasks_vx_template.json；历史 V1 定义继续兼容但不作为新任务默认入口
 - 使用现有启动模板与生成器：docs/UNATTENDED_AB_START_TEMPLATE_CN.md、tools/test/create_unattended_ab_start_file.ps1
 - 操作员/AI 只使用窗口包装器入口：tools/test/open_unattended_ab_stage_window.ps1
 
@@ -56,7 +58,7 @@
 
 以下三类产物在“准备完成”后，都必须先交由用户确认：
 - 任务定义文件
-- 两份 RFC 中的下次开工清单
+- 本任务权威文档集合中的下次开工清单
 - 任务启动文件
 
 确认前允许做的事：
@@ -144,6 +146,7 @@ AI：
 - 运行期不得手工创建新的 `chat_heartbeat*.jsonl`、`handled_tickets/*.md` 等临时回执产物；应仅使用现有脚本输出的 ledger/heartbeat。
 - 运行期不得在未获用户明确同意时创建非 `tmp/` 新脚本，也不得偏题提出 PR、服务化改造或其他超出当前票据闭环的实施方案。
 - 任务定义 JSON 的语义修改必须使用 VS Code `apply_patch` 编辑工具。禁止通过终端内联 Python、PowerShell 多层命令、here-string、重定向、通用字符串替换或格式化器修改任务定义；格式化器只允许做不改变 JSON 值、数组顺序和 operation 结构的机械格式化。start-file 生成前的初始编制直接编辑新建正式文件，并按 4.2/4.3 完成 `SyntaxOnly`、完整全轮/链式静态验收和适用测试；运行期自愈只编辑候选事务中的 `candidate.json`，并按“SyntaxOnly -> 故障目标 op 快检（可定位时）-> 当前故障 D 轮递进严格检查 -> Promote”验证。
+- Vx 运行期 code-fix brief 在既有命令上增加 schema、target set、失败 target 与 artifact/journal/rollback 机器事实，不增加 `-TargetId` 参数；target 由正式任务定义、故障轮和轮内全局 operation index 经共享 resolver 得出并互验。operation index 跨文件全局排序，Inspect 顺序模拟所有前置 op；正式任务定义和冻结 target registry 均只读，代理只能编辑 candidate，不能引用未注册 target。`create-file` 故障不授权直接创建或覆盖业务文件，跨文件 declaration/definition/caller 必须拆成多个单目标 op 并逐 target 断言。Vx 必需事实缺失或不一致时 fail-close。code-step 创建、提交、journal、rollback 故障仍属于 noncode，`rollback_status=incomplete` 硬阻断重启和恢复。
 - 无人值守运行期间禁止执行检出、提交与推送操作（如 `git checkout` / `git commit` / `git push`）；仅在用户明确同轮授权后，才可进入版本控制提交发布步骤。
 
 ### 2.7 自愈修复与故障处理原则
@@ -383,7 +386,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 ### 3.2 关键文件与脚本
 
 任务定义：
-- testdata/autopilot_code_step_tasks_template.json
+- testdata/autopilot_code_step_tasks_vx_template.json（新任务默认）
+- testdata/autopilot_code_step_tasks_template.json（既有 V1 兼容）
 - testdata/autopilot_code_step_tasks_*.json
 
 启动模板与启动文件：
@@ -543,6 +547,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 
 目标：在生成 start-file 前，先把“做什么、按什么顺序改、如何证明改动正确”写成可完整验收的正式任务定义。
 
+默认策略为 **Vx-first**：今后新建 A/B 任务定义统一从 `testdata/autopilot_code_step_tasks_vx_template.json` 编制，即使当前计划只修改一个文件，也使用只含一个 `targetFiles[]` 条目的 Vx 定义。这样单目标任务与多目标任务共用同一套 target id、目标绑定断言、artifact、repair preview 和恢复证据，不再因后续增加 header/caller 而临时切换 schema。`testdata/autopilot_code_step_tasks_template.json` 仅保留用于读取、重跑和兼容修复既有 `schemaVersion=1` 定义；不得为了统一外观批量迁移历史 V1 文件，也不得在已启动会话中把 V1 改成 Vx。
+
+| 场景 | 使用方式 |
+|---|---|
+| 新建 A/B 任务定义 | 使用 Vx 模板；单文件任务保留一个 target，多文件任务声明完整目标闭包 |
+| 既有 V1 定义原样重跑 | 保持 V1，不因默认策略改写 schema |
+| 既有 V1 会话运行期修复 | 保持 V1，在候选事务内修复允许的 round/op |
+| 基于历史 V1 需求重新规划一个新会话 | 新建 Vx 正式文件，重新完成全部初始验收和 start-file 绑定；不在原文件原地迁移 |
+
 本阶段属于**初始任务编制**，尚未进入 A/B 运行期，也没有事故票或故障 op 边界。因此：
 
 - 可以创建并编辑新的正式 `testdata/autopilot_code_step_tasks_*.json`；代理必须使用 VS Code `apply_patch` 修改 JSON 语义。
@@ -554,13 +567,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 最简示例：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command '$dst = "testdata/autopilot_code_step_tasks_local.json"; Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " encoding=utf8-bom eol=lf")'
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$dst = "testdata/autopilot_code_step_tasks_local.json"; Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_vx_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " schema=vx-draft encoding=utf8-bom eol=lf")'
 ```
 
 按窗口生成示例：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_20261107"; $dst = ("testdata/autopilot_code_step_tasks_{0}.json" -f $window); Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " encoding=utf8-bom eol=lf")'
+powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_20261107"; $dst = ("testdata/autopilot_code_step_tasks_{0}.json" -f $window); Copy-Item -LiteralPath "testdata/autopilot_code_step_tasks_vx_template.json" -Destination $dst -Force; $text = [System.IO.File]::ReadAllText($dst); $text = ($text -replace "`r`n", "`n") -replace "`r", "`n"; [System.IO.File]::WriteAllText($dst, $text, (New-Object System.Text.UTF8Encoding $true)); Write-Output ("[TASK-TEMPLATE] created=" + $dst + " schema=vx-draft encoding=utf8-bom eol=lf")'
 ```
 
 完成后必须做的事：
@@ -586,15 +599,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 
 ##### 顶层字段
 
-从 `testdata/autopilot_code_step_tasks_template.json` 复制后，按以下规则填写：
+从 `testdata/autopilot_code_step_tasks_vx_template.json` 复制后，按以下规则填写：
 
-- `schemaVersion`：保留模板当前版本，不自行发明新版本值。
+- `schemaVersion`：新任务固定保留 `vx-draft`，不自行发明新版本值；只有既有 V1 文件继续保留 `1`。
 - `name`：使用可区分阶段、窗口或清单的稳定名称，不写 `TODO`、`test` 等无法追溯的临时名称。
-- `targetFile`：填写仓库相对路径。单文件 schema 下所有 D 轮只能修改该目标文件；不要在 replacement 中顺带修改其他文件。
+- `targetFiles`：在初始编制时列出本阶段可能修改的完整文件闭包。每项使用稳定且唯一的 `id`、仓库相对 `file`、`kind=c-source|c-header|text` 和 `lifecycle=existing|create`；单文件任务也必须保留一项。
+- Vx 模板中的 `preclass_source/preclass_header/query_exec` 是结构示例，不是固定注册表。编制时应替换为本任务目标并删除所有未使用条目、operation、marker 和 assertion；禁止为“以后可能用到”保留无实际计划的 target，尤其是未使用的 `lifecycle=create` 目标。
+- `defaultTarget`：指向主要目标 id。`targetFile` 作为兼容投影时必须与该条目的 `file` 一致，不得把它当成第二套目标来源。
+- `lifecycle=create`：只用于计划内新文件，且必须由恰好一个 `create-file` operation 首次引入；父目录必须已存在。不得因磁盘文件缺失而临时把 `existing` 改成 `create`。
 - `qualityPolicy.operationSafetyPolicy`：新任务固定为 `enforce`，不得为绕过检查改成 `warn` 或 `off`。
 - `qualityPolicy.notes`：说明本任务的安全边界或特殊 no-op 约束，不用于替代轮次验收条件。
 - `executionHints`：只描述执行密度和策略，不定义业务语义。`minOperationsPerDRound` 应服从真实改动量，禁止为了达到数字而拆分原子改动或增加无调用 helper。
 - `rounds`：仅使用 `D1`、`D2`、`D3`、`D4`。`V1`~`V4` 是验证阶段，不是 JSON 轮次键。
+
+Vx 单文件任务是 Vx 注册表只有一个目标的正常形态。仍应为 operation、round marker 和 assertion 显式填写 target，避免以后扩展目标集合时产生隐式归属。
 
 ##### D1-D4 轮次拆分
 
@@ -619,7 +637,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 
 ##### 单个 operation 的编写
 
-每个 `operations[]` 至少包含 `pattern`、`replacement`、`idempotentContains`，并同时满足以下条件：
+每个 regex `operations[]` 至少包含 `target`、`pattern`、`replacement`、`idempotentContains`，并同时满足以下条件；`target` 必须引用 `targetFiles[].id`，operation 顺序是跨文件全局顺序：
 
 1. `pattern` 在该 op 的有效输入文本中恰好命中一次。锚点应包含足够的函数名、邻接语句或结构上下文，避免只匹配常见字面量。
 2. `replacement` 必须是完整、可落地的最终文本。JSON 中使用正常转义，不得把应当成为换行或 tab 的内容写成二次转义字面量。
@@ -633,6 +651,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 
 ```json
 {
+  "target": "preclass_source",
   "pattern": "old_call\\(value, \"OLD_TOKEN\"\\);",
   "replacement": "old_call(value, wc_example_token_literal());",
   "idempotentContains": [
@@ -645,9 +664,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 
 ##### postApplyAssertions 编写
 
-每个 regex-patch 轮次都必须填写 `postApplyAssertions`，用生成后的整轮文本证明结构和语义结果。每项包含：
+每个 regex-patch 轮次都必须填写 `postApplyAssertions`，用生成后的整轮目标映射证明结构和语义结果。每项包含：
 
 - `name`：稳定、可读的英文契约名，诊断时可直接定位意图。
+- `target`：显式引用断言所检查的 `targetFiles[].id`；不得依赖 defaultTarget 猜测。
 - `pattern`：对整轮首次应用后的文本执行的正则。
 - `expectedCount`：非负精确计数，不使用“至少一次”一类模糊条件。
 
@@ -665,16 +685,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 "postApplyAssertions": [
   {
     "name": "example-helper-definition",
+    "target": "preclass_source",
     "pattern": "static const char\\* wc_example_token_literal\\(void\\)\\r?\\n\\{",
     "expectedCount": 1
   },
   {
     "name": "example-helper-call",
+    "target": "preclass_source",
     "pattern": "old_call\\(value, wc_example_token_literal\\(\\)\\);",
     "expectedCount": 1
   },
   {
     "name": "legacy-token-call-removed",
+    "target": "preclass_source",
     "pattern": "old_call\\(value, \"OLD_TOKEN\"\\);",
     "expectedCount": 0
   }
@@ -698,6 +721,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/<TASK_DEFINITION>.json -Policy enforce -SyntaxOnly
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_safety_regression.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_vx_checker_regression.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_code_step_vx_regression.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction_vx_regression.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/<TASK_DEFINITION>.json -Policy enforce -FailOnWarnings
 ```
 
@@ -730,7 +756,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - `-RepoRoot <path>`：可选，仓库根目录（默认自动解析到当前仓库）。
 - `-Policy off|warn|enforce`：可选，默认 `enforce`；`off` 直接跳过。
 - `-FailOnWarnings`：可选，开启后 warning 也会按失败返回（建议无人值守门禁开启）。
-- `-SyntaxOnly`：可选，只检查文件、JSON、`targetFile` 和非空 `rounds`；不读取目标源码或执行 operation。用于建档后的第一步检查，也是 launcher 唯一执行的任务定义检查模式。
+- `-SyntaxOnly`：可选，只检查文件、JSON、非空 `rounds` 及 schema 基础结构；V1 校验 `targetFile`，Vx 校验 `targetFiles/defaultTarget`、target 引用、路径、kind 和 lifecycle。它不读取目标源码或执行 operation，用于建档后的第一步检查，也是 launcher 唯一执行的任务定义检查模式。
 - `-RoundTag D1..D4|V1..V4`：可选，只检查指定轮次。V1-V4 没有 JSON 开发轮定义，checker 只报告跳过，不能用作任务定义验收证据。
 - `-OperationIndex <n>`：可选，只检查指定轮次中的第 n 个 operation；必须与 `-RoundTag` 一起使用。
 - `-BaselineTargetFile <path>`、`-OutputEffectiveTargetFile <path>`：运行时独立 checker/runner 用于绑定当前轮源码基线并输出有效源码；初始人工编制通常不应指定。
@@ -757,7 +783,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20261108_20261115.json -PrerequisiteTaskDefinitionFiles testdata/autopilot_code_step_tasks_20261031_20261107.json -Policy enforce -FailOnWarnings
 ```
 
-前置任务定义必须与当前定义指向同一目标源码；任一前置定义未通过完整安全检查时，checker 会阻断且不再检查当前定义，避免基于无效中间文本产生级联误报。该参数用于初始设计期的 A -> B 链式模拟，不写入源码，也不替代运行期 A PASS snapshot；运行期 B 仍以 snapshot 对齐后的当前源码为权威基线。
+Vx 前置任务定义与当前定义可以使用相交或并集 target set；checker 按命令行顺序在同一规范路径文本映射中叠加，交集目标继承前置结果，并集目标进入提交闭包。前置定义创建的目标可供后续定义执行 regex，但重复 create 必须内容一致；任何未被当前 artifact 覆盖的前置变更都会 fail-close。V1 兼容路径仍要求单一目标一致。任一前置定义未通过完整安全检查时，checker 会阻断且不再检查当前定义。该参数只用于初始设计期的 A -> B 链式模拟，不写入源码，也不替代运行期 A PASS snapshot；运行期 B 仍以 snapshot 对齐后的当前目标集合为权威基线。
 
 #### 4.3.1 初始编制未通过时如何修改
 
@@ -790,29 +816,47 @@ start-file 尚未生成时没有“故障 op 之前只读”或“只能前向�
 - 运行期按事故票和 2.10.6 修改事务 `candidate.json`，不得直接编辑正式任务定义
 - 不要以 launcher 的 `-SyntaxOnly` PASS 代替完整体检，也不要跳过体检直接生成 start-file 或启动
 
-### 4.4 阶段 3：在 RFC 中起草“下次开工清单”
+### 4.4 阶段 3：在权威 RFC/设计文档中起草“下次开工清单”
 
-两份主 RFC：
-- docs/RFC-whois-client-split.md
-- docs/RFC-address-space-preclassifier.md
+统一模板：
+- [UNATTENDED_AB_NEXT_START_CHECKLIST_TEMPLATE_CN.md](UNATTENDED_AB_NEXT_START_CHECKLIST_TEMPLATE_CN.md)
+
+本任务权威文档集合：
+- 必填：至少一份主归属 RFC/设计文档，直接拥有本次需求、行为契约或核心设计。
+- 可选：任务确实影响其契约的架构、跨模块或配套 RFC/设计文档。
+- 当前 Address-Space 前置分类器场景示例：主归属文档为 `docs/RFC-address-space-preclassifier.md`；若任务同时涉及客户端拆分架构或整体进度，再加入 `docs/RFC-whois-client-split.md`。
+- 其他功能/优化场景：选择对应领域的权威 RFC/设计文档，不得因为历史 Address-Space 流程而强制回填上述示例文档。
 
 说明：
-- 下次开工清单固定落在以上两份 RFC 中，不写到其他临时文档或聊天记录里。
-- Checklist A / Checklist B 都应在这两份 RFC 中能找到明确落点，便于后续启动、复盘和回填共用同一条证据链。
+- 必须先确定本任务权威文档集合，再从统一模板复制 Checklist A / Checklist B 骨架到集合内每份文档的明确落点，并按本次窗口实例化；不得继续自由拼装字段不同的清单。
+- 模板文件只定义结构，不是第三个权威清单落点，也不保存某次运行的实际状态或证据。
+- 下次开工清单固定落在本任务权威文档集合中，不写到临时文档或聊天记录里；也不得无依据扩散到与任务无关的 RFC。
+- Checklist A / Checklist B 都应在集合内每份文档中有明确落点，便于后续启动、复盘和回填共用同一条证据链。
+- 集合内各文档的窗口、串行序号、任务定义、schema、target set、启动文件、状态和证据路径必须一致；领域设计说明可分别补充。
+- 权威文档集合在起草时冻结。后续若任务范围变化确需增删文档，必须先说明原因、同步更新所有落点并重新交用户确认，不能在任务结束时临时选择回填目标。
+- 新任务按 Vx-first 填写 schema 与完整 target registry；既有 V1 兼容任务填写 `targetFile`，不得因套用模板切换 schema。
+- 起草阶段不得预填实际 PASS、运行目录、事故结论或完成时间；这些内容只能在运行后写入模板预留的“执行回填”。
+- 生成 start-file 前必须清零全部 `<...>` 占位符；无适用内容时显式填写 `N/A`。
 
 此阶段的目标不是启动，而是把以下内容固定下来：
 - A/B 对应窗口
 - A/B 任务定义文件名
+- schema、Vx target registry 与 target set SHA-256（摘要尚未生成时先写 `pending-validation`，生成 start-file 前必须回填）
 - 当前运行模式
 - 串行约束
 - 推荐执行命令
 - 预期验证范围
+- 编制期验收证据
+- active start-file 路径与权威文档集合中每份文档的回填锚点
 - 任务结束后的回填位置
 
-建议写法：
-- Checklist A：只描述 A 本轮的目标、命令和验收
-- Checklist B：只描述 B 本轮的目标、命令和验收
-- 明确“B 仅在 A PASS 后启动”
+固定起草顺序：
+1. 先按需求归属确定至少一份主归属文档及必要协同文档，再复制模板中的“可复制模板”到集合内每份文档，并填写共享身份与串行约束。
+2. 分别完成 Checklist A 与 Checklist B 的目标、边界、目标注册表、命令和预期验证；不得混写 A/B 责任。
+3. 回填阶段 4.3 已取得的编制期验收证据；计划值与实际证据分栏记录。
+4. 明确“B 仅在 A 最终 PASS、A 成功快照完整性通过且 B 启动门禁通过后启动”；否则 B 保持 `blocked-by-a`。
+5. 逐项核对权威文档集合内各落点的共享字段一致，并保留独立的运行后回填区域。
+6. 确认无占位符、无预填运行结论后，才进入阶段 4 生成 start-file。
 
 ### 4.5 阶段 4：从模板生成启动文件
 
@@ -841,7 +885,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/create_unattended
 
 生成并检查完成后，必须先把以下三类产物交用户确认：
 - 任务定义文件
-- 两份 RFC 中的下次开工清单
+- 本任务权威文档集合中的下次开工清单
 - 启动文件
 
 在用户明确确认前，停在“准备完成，待启动授权”状态，不要开跑。
@@ -1288,6 +1332,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/update_chat_sessi
 	- `incident-auto-resume-script-fix` / `incident-manual-script-fix`：只修 guard/trigger/dispatch/poll 等无人值守脚本链路，不碰业务源码。
 		- PowerShell 5.1 兼容强约束：禁止在脚本修复中引入内联 `$(if(...){...} else {...})` 子表达式（尤其是 `-f` 参数或字符串插值场景）；统一采用“先计算变量，再格式化/传参”。
   - `incident-auto-resume-code-fix` / `incident-manual-code-fix`：对当前阶段正式任务定义执行 2.10.6 候选事务，只用 VS Code `apply_patch` 修改事务 `candidate.json` 中允许轮次的定义内容，不直接编辑正式任务定义或产出物源码；例如当前是 B D4，就在 B 任务定义事务候选的 D4 中按边界修改或追加补丁，验证后再 Promote。
+    - **[Vx 机器事实门禁]**：执行 Prepare 前核对 brief 中的 `task_definition_schema_version`、`target_set_sha256`、失败 target 的 id/path/kind/lifecycle、全局 operation index，以及 artifact/journal/rollback 字段。缺失、不一致或 `rollback_status=incomplete` 时只报告阻断，不猜 target、不编辑 candidate、不重启。
+    - **[Vx registry 冻结]**：运行期不得新增、删除、重命名 target，不得修改 target 的 `file/kind/lifecycle`、`defaultTarget` 或 schema；可编辑 operation 只能引用已注册 target。若修复必须涉及未注册文件，当前会话 fail-close，回到停机后的重新规划与完整初始验收流程。
+    - **[Vx operation 边界]**：operation index 是轮内跨文件全局索引，Inspect 会顺序模拟所有前置 op。declaration、definition、caller 分属不同文件时必须拆成多个单目标 op，并为每个 target 添加精确 assertion；`create-file` 故障不得通过直接创建或覆盖业务文件处理。
     - 规则：先按跨轮次边界确定可改范围，再按故障阶段确定 op 边界。D1 故障可改 D1-D4；D2 故障仅可改 D2-D4；D3 故障仅可改 D3-D4；D4 故障仅可改 D4。V1-V4 不对应 JSON 轮次：仅可在 D4 `operations` 末尾连续追加一个或多个 op，不得改 D1-D3 或修改/删除 D4 既有内容。
     - **[D1-D4 task-static 阶段失败]（task-definition-mismatch）**：源码尚未被当前轮次修改；当前故障 op 之前的 op 只读，仅可从故障 op 位置起修改、删除、插入或追加 op。
     - **[D1-D4 code-step 阶段已通过，但编译/验证阶段失败]**：源码已被该轮次修改；该轮既有 op 全部只读，只能在该轮 `operations` 数组末尾连续追加一个或多个新 op。
@@ -1327,11 +1374,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 固定顺序：
 - 先汇报本轮任务最终结果、关键产物路径、异常与修复情况。
 - 给用户留出检查、复盘与评估窗口。
-- 只有在用户明确同意“回填 RFC / 回填文档”后，才回填以下两份 RFC。
+- 只有在用户明确同意“回填 RFC / 回填文档”后，才回填阶段 3 已冻结的本任务权威文档集合。
 
 必须回填：
-- docs/RFC-whois-client-split.md
-- docs/RFC-address-space-preclassifier.md
+- 阶段 3 清单中登记的主归属文档。
+- 阶段 3 清单中登记的全部协同文档（如有）。
+- 不得把 Address-Space 示例文档当作所有功能的固定目标，也不得在结束时跳过已登记文档或临时改投无关文档。
 
 建议回填内容：
 - A_FINAL_STATUS / B_FINAL_STATUS / SESSION_FINAL_STATUS
@@ -1566,7 +1614,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/switch_unattended
 - 会话结束后上下文丢失
 
 纠偏：
-- 任务结束后先汇报结果并等待用户授权，再回填两份 RFC
+- 任务结束后先汇报结果并等待用户授权，再回填阶段 3 已冻结的权威文档集合
 
 ### 6.6 错误：准备完成就自动启动
 
@@ -1647,7 +1695,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 ## 8. 10 行极简执行版（准备完成后）
 
 1. 确认 A/B 任务定义文件都已 TODO-free，并已通过 `tools/test/check_task_definition_static.ps1`。
-2. 确认两份 RFC 中的下次开工清单都已写好，并已交用户确认。
+2. 确认本任务权威文档集合中各落点的下次开工清单都已写好，并已交用户确认。
 3. 直接运行 `tools/test/check_unattended_ab_launch_ready.ps1`；脚本会顺序完成 start-file 校验、A/B 静态体检、字段同步与 `PRECHECK_*` 回填。
 4. 若统一检查脚本未 PASS，先看终端最后一行 `AB_LAUNCH_READY_RESULT=FAIL`；停在准备态，只向用户报告失败项与失败原因，不启动任何 A/B 主脚本或监控链脚本。
 5. 若统一检查脚本 PASS，再向用户提一次启动 A 的授权；用户未明确下令前，仍然不得启动。
@@ -1655,7 +1703,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 7. A 阶段重启仍用 `-Stage A -StartMonitors`；B 阶段重启仍用 `-Stage B -StartMonitors`；不要再引入第二套人工操作入口。
 8. 自愈修复只改本阶段任务定义，不直改源码；体检通过后再重启本阶段。
 9. 事件驱动票与状态票属于预授权既定工作，AI 直接执行，不逐项询问用户；对强制收据票立即写 `handled_at`。
-10. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；任务结束后先汇报结果并等待用户授权，再回填两份 RFC 和 start-file 最终状态。
+10. VS Code 集成终端仅用于调试，不用于承载标准无人值守长跑；任务结束后先汇报结果并等待用户授权，再回填已冻结的权威文档集合和 start-file 最终状态。
 
 ## 9. 建议结论
 

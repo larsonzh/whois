@@ -474,8 +474,10 @@ function Assert-BStartEligibility {
 
     $aTaskDefinitionRaw = if ($updatedSettings.Contains('A_TASK_DEFINITION')) { [string]$updatedSettings.A_TASK_DEFINITION } else { '' }
     $aTaskDefinitionPath = Resolve-RepoPathAllowMissing -Path $aTaskDefinitionRaw -RepoRoot $RepoRoot
-    $allowedSnapshotPaths = @(Get-ASnapshotTaskTargetPaths -TaskDefinitionFile $aTaskDefinitionPath)
-    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths
+    $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath -RepositoryRoot $RepoRoot
+    $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
+    $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+    $snapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
     if (-not $snapshotIntegrity.Pass) {
         throw ("[{0}] b_start_gate blocked: A snapshot integrity failed errors={1}" -f $ScriptTag, ($snapshotIntegrity.Errors -join ','))
     }
