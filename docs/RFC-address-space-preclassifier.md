@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-10：完成 Address-Space 前置分类器阶段路线审查与新鲜定向复检：P0 最小矩阵 `pass=12 fail=0`、P1 分组阈值门禁 `pass=232 fail=0 group_gate_fail=0`、Step47 preflight `pass=5 fail=0`。审查确认 P0/P1/P2 工程化基线及 Step 4.7 受控能力已具备，但 Phase B 默认首跳迁移与 Phase C reserved 早收敛尚未完成默认放量；串行第 41/42 份完成后停止新编单文件 V1 清理任务，历史 V1 保留用于兼容与追溯，后续功能开发统一转为 Vx 多文件切片（详见 24.04）。
 - 2026-08-10：串行第 41/42 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-02 ~ 2027-03-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260809-114503，B run=out/artifacts/dev_verify_multiround/20260809-201456）；全程 0 起事故、无自愈、无重启，一次通过；A 阶段于 2026-08-09 20:15:07 完成（0d 08:30:42），B 阶段于 2026-08-10 02:52:12 完成（0d 06:37:48），会话结束 2026-08-10 02:52:12；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260810-053425`，212s）（详见 24.01~24.03）。
 - 2026-08-09：新增串行第 41/42 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-03-02 ~ 2027-03-15`），并同步起草配套任务定义（`testdata/autopilot_code_step_tasks_20270302_20270308.json`、`testdata/autopilot_code_step_tasks_20270309_20270315.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270302-20270315.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式有效源码编译验证均通过（详见 24.01~24.03）。
 - 2026-08-09：串行第 39/40 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-02-16 ~ 2027-03-01`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260808-064045，B run=out/artifacts/dev_verify_multiround/20260809-004856）；全程 0 起事故、无自愈、无重启，一次通过；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260809-090641`，279s）（详见 23.98~24.00）。
@@ -3741,4 +3742,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - 命令：`tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' ... -O lto-auto -G 1 ...`（Strict Version，`WHOIS_STRICT_VERSION=1`）。
   - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 212s。
   - 产物目录：`out/artifacts/20260810-053425/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/143.128.0.0/*.log`）。
+
+#### 24.04 单文件 V1 路线收口与 Vx 多文件阶段路线审查（2026-08-10）
+
+**审查范围与状态边界**：
+
+1. P0/P1/P2 与 Step 4.7 不作为下一阶段重新实现的起点：P0 观测字段、P1 受控动作、候选 tier/CSV 治理、P2 准发布门禁与全局回退均已有实现和历史证据，本次复检继续通过。
+2. 当前具备的是“能力实现 + 默认关闭 + 门禁可复跑”的工程化基线，不等同于 Phase B/Phase C 已完成生产默认迁移。
+3. `preclass_action_enable`、`step47_trial_enable` 与 `step47_early_unknown_enable` 当前默认仍为关闭；显式 `-h` 继续旁路分类动作，低置信或未知分类继续走既有回退路径。
+4. Phase B 仍表示“未显式 `-h` 时默认采用分类器优先首跳”；Phase C 仍表示“高置信 reserved/special 默认早收敛 unknown”。二者均须取得独立放量证据后才能标记完成。
+
+**新鲜定向复检结果**：
+
+- P0 最小矩阵：`tools/test/preclass_min_matrix.ps1`
+  - 结果：`pass=12 fail=0 result=pass`。
+  - 产物：`out/artifacts/preclass_matrix/20260810-100516`。
+- P1 分组阈值门禁：`tools/test/preclass_p1_gate_matrix.ps1 -GroupPassThresholdFile testdata/preclass_p1_group_thresholds_default.txt`
+  - 结果：`cases=29 modes=8 pass=232 fail=0 group_gate_fail=0 result=pass`。
+  - 所有 seed 与 external 分组均为 `pass_pct=100`，满足 `required_pct=100`。
+  - 产物：`out/artifacts/preclass_p1_matrix/20260810-100819`。
+- Step47 preclass preflight：`tools/test/step47_preclass_preflight_check.ps1`
+  - 结果：`pass=5 fail=0 result=pass`。
+  - 产物：`out/artifacts/step47_preclass_preflight/20260810-101253`。
+- 本次审查与复检未修改业务源码；测试后工作树保持干净。
+
+**单文件 V1 路线收口结论**：
+
+1. 串行第 41/42 份已完成 `preclass.c` 包装移除、helper 内联与重复层清理，A/B 各 8/8 轮一次通过，并有最终 Strict + Golden 证据；继续新编同类单文件 V1 清理任务的边际收益已不足以支撑新的排期。
+2. 自本记录起，不再为 Address-Space 前置分类器新增 `schemaVersion=1` 单文件任务定义。
+3. 已存在的 V1 任务定义保持原状，继续用于兼容读取、历史追溯和必要重跑；不批量迁移、不删除，也不把“停止新增 V1”解释为 Phase B/Phase C 已完成。
+4. 所有新任务定义统一采用 `schemaVersion=vx-draft`，即使某个阶段暂时只有单目标，也必须使用 `targetFiles[]`、稳定 target id、`defaultTarget` 与显式 target-bound operation/assertion。
+
+**下一步 Vx 多文件工作路线**：
+
+1. **Vx-1：状态与决策策略统一**。统一 Step47 early-unknown 与 P1 controlled action 的候选判定、动作优先级、fallback reason 和观测字段，避免两套并列短路分支在默认迁移前继续分叉。目标闭包至少覆盖配置/选项声明、`opts.c`、`client_flow.c`、`whois_query_exec.c`、相关头文件、矩阵脚本与本 RFC。
+2. **Vx-2：Step 4.7 受控放量切片**。从 R0 单点候选开始，固定显式 `-h` 旁路、allocated/control 禁入、`--disable-address-preclass` 一键回退和 stdout/stderr 契约；以连续门禁、A/B 差异和 rollback 证据决定是否扩大到 R1，不直接翻转默认值。
+3. **Vx-3：Phase B 默认首跳迁移**。在 Step 4.7 策略统一与小流量证据充分后，设计未显式 `-h` 的分类器优先首跳；unknown/low-confidence 保留旧策略回退，并同步 IPv4/IPv6 规则 RFC、双语使用文档、发布说明和黄金/重定向矩阵。
+4. **Vx-4：Phase C reserved 早收敛**。仅在 Phase B 稳定且 R0/R1 候选治理、连续发布周期、回退演练均满足准入条件后推进；默认行为变更必须单独评审、单独记录，不与一般重构任务混合。
+
+**下一阶段完成判定原则**：
+
+- “实现存在”“受控开关可用”“门禁通过”“小流量放量完成”“默认迁移完成”是五个独立状态，不得互相替代。
+- 每个 Vx 切片均按真实依赖顺序绑定完整目标闭包，并完成 TODO-free、`-SyntaxOnly`、Vx 专项安全回归、完整任务定义静态检查、有效源码编译及对应业务门禁后，才允许生成 start-file。
+- 任何 Phase B/C 默认语义变更仍以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为最高规则契约，并同步 `docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`RELEASE_NOTES.md` 与相关黄金脚本说明。
 
