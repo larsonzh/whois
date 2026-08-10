@@ -220,7 +220,13 @@ function Invoke-VxTaskStaticCheckLegacy {
 
             if ($errors.Count -eq $before -and $RequestedOperationIndex -eq 0) {
                 $roundJson = $roundTask | ConvertTo-Json -Depth 64 -Compress
-                foreach ($id in $roundTouched) { $slot = $slots[$id]; if ($slot.Target.Kind -eq 'c-source') { Test-EffectiveCSourceSyntax ([string]$slot.WorkingText) $slot.Target.FullPath $roundJson $round } }
+                $effectiveHeaders = @{}
+                foreach ($candidateSlot in $slots.Values) {
+                    if ($candidateSlot.WorkingExists -and $candidateSlot.Target.Kind -eq 'c-header') {
+                        $effectiveHeaders[$candidateSlot.Target.File] = [string]$candidateSlot.WorkingText
+                    }
+                }
+                foreach ($id in $roundTouched) { $slot = $slots[$id]; if ($slot.Target.Kind -eq 'c-source') { Test-EffectiveCSourceSyntax ([string]$slot.WorkingText) $slot.Target.FullPath $roundJson $round $effectiveHeaders } }
             }
             if ($errors.Count -gt $before) { if ($ChainRounds.IsPresent) { Add-InfoIssue "round=$round chain_stop=true reason=round-failed" }; break }
         }

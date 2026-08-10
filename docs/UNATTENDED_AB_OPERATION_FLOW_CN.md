@@ -662,6 +662,44 @@ Vx 单文件任务是 Vx 注册表只有一个目标的正常形态。仍应为 
 
 上例只展示字段关系。实际 pattern 必须根据目标源码增加足够上下文，并验证 replacement 前唯一命中、replacement 后零命中。
 
+##### 本地与真实编译环境差异的条件编译处理
+
+本地 mandatory syntax gate 与真实远程构建可能使用不同的操作系统、SDK、C 运行库或编译器。若本地检查暴露出源码自身的跨平台契约缺口，例如头文件只在 POSIX 环境存在、类型只由某一平台头文件声明，或 `strncasecmp`、`nanosleep` 等函数在另一平台没有对应声明，可以在任务定义中为相关 `c-source` / `c-header` target 增加 operation，由 replacement 写入真实的预处理指令（`#if` / `#else` / `#include` / `#define` / `typedef`）解决。该修改属于任务设计的一部分，必须由 code-step 重放到源码；不得为了让当前 checker 通过而直接预改磁盘源码，因为 A 的 `restore-source` 或 B 的 snapshot 恢复会使这类旁路改动丢失。
+
+允许采用此方式时，必须同时满足：
+
+1. 首个编译诊断证明问题是目标源码的头文件、类型或函数声明契约缺口，而不是本机缺少编译器/SDK、PATH 错误或损坏的测试基础设施；后者仍按 noncode 处理。
+2. 条件分支使用项目真实支持的平台宏，例如 `_WIN32` / `__MINGW32__`，并保留其他平台的原实现；禁止定义 `TASK_STATIC_CHECK`、`LOCAL_CLANG_ONLY` 等 checker-only 宏，禁止用空 prototype、关闭告警或无条件替换掩盖真实编译错误。
+3. 被修改的 source/header 都必须进入 Vx `targetFiles[]` 完整闭包，每个 operation 和 assertion 显式绑定对应 target。若 source 的有效编译依赖同轮修改后的 header，checker 必须针对完整 effective target map 验证，不能把内存 source 与磁盘旧 header 混合编译。
+4. `idempotentContains` 和 `postApplyAssertions` 精确证明平台 include、类型映射、函数映射或替代调用各出现一次，并证明旧的无条件形态已移除；所有后续 D 轮仍须独立可编译。
+5. 最终同时通过本地完整 task-static syntax gate 与真实远程/目标工具链构建。条件编译只解决契约差异，不降低真实编译、黄金、Step47 或业务验证要求。
+
+A/43 的实际任务定义 `testdata/autopilot_code_step_tasks_20270316_20270322.json` 在 D1 使用了这一模式。以下示例保留了实际 operation 的完整 include 锚点：
+
+```json
+{
+  "target": "wc_net_header",
+  "pattern": "#include <stdint\\.h>\n#include <stddef\\.h>\n#include <sys/types\\.h> // for ssize_t on some platforms",
+  "replacement": "#include <stdint.h>\n#include <stddef.h>\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <BaseTsd.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types.h>\n#endif",
+  "idempotentContains": [
+    "typedef SSIZE_T ssize_t;"
+  ]
+}
+```
+
+同轮另一个 `client_flow` operation 将无条件的 `<strings.h>` 改为 POSIX 分支，并在 Windows 分支中映射真实 CRT API：
+
+```c
+#if !defined(_WIN32) && !defined(__MINGW32__)
+#include <strings.h>
+#else
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+```
+
+`nanosleep` / `Sleep` 之类的平台实现差异也应采用同样的条件分支，并为替代调用配置自有 marker 和精确断言。这里的关键不是“迎合本地 clang”，而是让同一份生成源码在每个受支持环境中都有完整、可验证的声明与实现契约。
+
 ##### postApplyAssertions 编写
 
 每个 regex-patch 轮次都必须填写 `postApplyAssertions`，用生成后的整轮目标映射证明结构和语义结果。每项包含：
@@ -736,6 +774,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 禁止新增没有真实调用点的 helper，或留下 caller 后 prototype、重复 prototype。
 - 禁止为了满足 `minOperationsPerDRound`、高密度描述或清单字数而引入无语义价值的转换。
 - 禁止通过降低 `operationSafetyPolicy`、跳过 `postApplyAssertions` 或忽略 checker 失败来推进启动。
+- 禁止为本地 syntax gate 定义 checker-only 宏、伪造函数声明、关闭隐式函数声明告警，或只修改 checker 命令而不修复源码的真实跨平台契约。
 - 禁止把静态检查通过等同于业务语义正确；仍须执行对应编译、黄金样例、Step47 或模块自测。
 
 ### 4.3 阶段 2：静态体检任务定义文件

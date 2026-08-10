@@ -9168,3 +9168,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - 命令：`tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' ... -O lto-auto -G 1 ...`（Strict Version，`WHOIS_STRICT_VERSION=1`）。
   - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 212s。
   - 产物目录：`out/artifacts/20260810-053425/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/143.128.0.0/*.log`）。
+
+
+**下次开工清单（Vx 多文件：统一 client-flow preclass decision，2027-03-16 ~ 2027-03-22，串行第 43 份，Checklist A，待执行）**：
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270316_20270322.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`client_flow`（`src/core/client_flow.c`）与 `wc_net_header`（`include/wc/wc_net.h`）。
+
+1. [ ] D1：以任务定义 operations 承载本地 clang portability 适配，并声明统一 preclass decision result 与 resolver；不得预先直接修改业务源码。
+2. [ ] D2：实现统一 resolver，固定 Step47 early-unknown、P1 controlled action 与 Step47 eligible 的优先级。
+3. [ ] D3：batch 路径调用统一 resolver，保持输出与短路行为。
+4. [ ] D4：single-query 路径调用统一 resolver，保留 guessed-RIR hint 路由语义。
+5. [ ] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
+6. [ ] A 使用 `restore-source` 串行启动，禁止自动提交与推送。
+
+**编制期验收（已完成，尚未运行 A）**：TODO-free、`-SyntaxOnly`、Vx 专项安全回归通过；A 全定义静态检查 `errors=0 warnings=0 infos=13`，mandatory local clang syntax gate 通过；checker 以完整 effective-header overlay 编译内存 target map，未直接改动业务源码。
+
+
+**下次开工清单（Vx 多文件：提取公共 route-decision 策略，2027-03-23 ~ 2027-03-31，串行第 44 份，Checklist B，待执行）**：
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270323_20270331.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`preclass_header`、`preclass_source`、`client_flow`、`wc_net_header`；必须以第 43 份任务定义作为 prerequisite。
+
+1. [ ] D1：在公共 preclass header 声明 route-decision value 与纯优先级 resolver。
+2. [ ] D2：在 `preclass.c` 实现 Config-independent 策略，保持 explicit-host precedence。
+3. [ ] D3：将 A/43 client result 转为公共类型别名，由 Config-bound adapter 委托公共策略。
+4. [ ] D4：batch 与 single-query call sites 使用公共类型，同时保留 client adapter 边界。
+5. [ ] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
+6. [ ] B 仅在 A PASS snapshot 完整后以 `state-only` 启动；A 失败必须阻断 B。
+
+**编制期验收（已完成，尚未运行 B）**：TODO-free、`-SyntaxOnly`、Vx 专项安全回归通过；A→B 链式全定义静态检查 `errors=0 warnings=0 infos=24`，完整 target set 编译通过；prerequisite closure 与 D3 direct include 已补齐，磁盘业务源码保持基线。
+
+
+**对应任务启动文件（2026-08-10，已生成、未启动）**：
+
+- 路径：`testdata/unattended_start/active/unattended_ab_start_20270316-20270331.md`。
+- 绑定 A/43 与 B/44；`WINDOW=2027-03-16 ~ 2027-03-31`、A `restore-source`、B `state-only`。
+- 当前状态：`PRECHECK_STATUS=NOT_RUN`、A/B/SESSION 均为 `NOT_RUN`。
+- launch-ready `-DryRun` PASS，覆盖字段同步、changed-file 编码、A `-SyntaxOnly` 与 precheck dry-run；未写状态、未启动 A/B。

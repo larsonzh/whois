@@ -170,9 +170,15 @@ function Invoke-VxUnionDefinition {
 
         if ($errors.Count -eq $before -and $ScopeOperationIndex -eq 0) {
             $roundJson = $roundTask | ConvertTo-Json -Depth 64 -Compress
+            $effectiveHeaders = @{}
+            foreach ($candidateSlot in $Slots.Values) {
+                if ($candidateSlot.WorkingExists -and ([string]$candidateSlot.RelativePath).EndsWith('.h', [StringComparison]::OrdinalIgnoreCase)) {
+                    $effectiveHeaders[$candidateSlot.RelativePath] = [string]$candidateSlot.WorkingText
+                }
+            }
             foreach ($targetId in $roundTouched) {
                 $target = $targetsById[$targetId]
-                if ($target.Kind -eq 'c-source') { Test-EffectiveCSourceSyntax ([string]$Slots[(Get-VxUnionPathKey $target)].WorkingText) $target.FullPath $roundJson $round }
+                if ($target.Kind -eq 'c-source') { Test-EffectiveCSourceSyntax ([string]$Slots[(Get-VxUnionPathKey $target)].WorkingText) $target.FullPath $roundJson $round $effectiveHeaders }
             }
         }
         if ($errors.Count -gt $before) { if ($ScopeChainRounds.IsPresent) { Add-InfoIssue "definition=$Label round=$round chain_stop=true reason=round-failed" }; break }

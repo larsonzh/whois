@@ -1,0 +1,242 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx1-preclass-decision-unify-d1-d4-20270316-20270322",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "wc_net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-1 slice A: unify Step47 early-unknown and P1 controlled-action short-circuit decisions inside client_flow.c. Explicit -h stays bypassed; default route/auth semantics must not change; stdout/stderr contract unchanged.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 2
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Make the touched client path portable for the mandatory local syntax gate, then introduce the unified preclass decision result type and resolver declaration.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "#include <winsock2.h>",
+          "#define strncasecmp _strnicmp",
+          "Sleep((DWORD)delay_ms);",
+          "typedef struct wc_client_preclass_decision_s {",
+          "wc_client_preclass_decision_t* out);"
+        ],
+        "wc_net_header": [
+          "typedef SSIZE_T ssize_t;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "wc_net_header",
+          "pattern": "#include <stdint\\.h>\n#include <stddef\\.h>\n#include <sys/types\\.h> // for ssize_t on some platforms",
+          "replacement": "#include <stdint.h>\n#include <stddef.h>\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <BaseTsd.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types.h>\n#endif",
+          "idempotentContains": [
+            "typedef SSIZE_T ssize_t;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "#endif\n\n#include <ctype\\.h>",
+          "replacement": "#endif\n\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <winsock2.h>\n#include <windows.h>\n#endif\n#include <ctype.h>",
+          "idempotentContains": [
+            "#include <winsock2.h>"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "#include <string\\.h>\n#include <strings\\.h>\n#include <time\\.h>",
+          "replacement": "#include <string.h>\n#if !defined(_WIN32) && !defined(__MINGW32__)\n#include <strings.h>\n#else\n#define strcasecmp _stricmp\n#define strncasecmp _strnicmp\n#endif\n#include <time.h>",
+          "idempotentContains": [
+            "#define strncasecmp _strnicmp"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "            struct timespec ts;\n            ts\\.tv_sec = \\(time_t\\)\\(delay_ms / 1000\\);\n            ts\\.tv_nsec = \\(long\\)\\(\\(delay_ms % 1000\\) \\* 1000000L\\);\n            nanosleep\\(&ts, NULL\\);",
+          "replacement": "#if defined(_WIN32) || defined(__MINGW32__)\n            Sleep((DWORD)delay_ms);\n#else\n            struct timespec ts = {0};\n            ts.tv_sec = (time_t)(delay_ms / 1000);\n            ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);\n            nanosleep(&ts, NULL);\n#endif",
+          "idempotentContains": [
+            "Sleep((DWORD)delay_ms);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_init_unknown_result\\(struct wc_result\\* res,\n    const char\\* via_host\\);\n\nstatic int wc_client_csv_contains_query\\(const char\\* csv,",
+          "replacement": "static int wc_client_init_unknown_result(struct wc_result* res,\n    const char* via_host);\n\ntypedef struct wc_client_preclass_decision_s {\n    const char* action;\n    int route_change;\n    int short_circuit;\n    const char* start_host;\n} wc_client_preclass_decision_t;\n\nstatic void wc_client_resolve_preclass_decision(const Config* config,\n    const char* query,\n    const char* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t* out);\n\nstatic int wc_client_csv_contains_query(const char* csv,",
+          "idempotentContains": [
+            "typedef struct wc_client_preclass_decision_s {",
+            "wc_client_preclass_decision_t* out);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "windows-ssize-type",
+          "target": "wc_net_header",
+          "pattern": "typedef SSIZE_T ssize_t;",
+          "expectedCount": 1
+        },
+        {
+          "name": "windows-client-includes",
+          "target": "client_flow",
+          "pattern": "#include <winsock2\\.h>\n#include <windows\\.h>",
+          "expectedCount": 1
+        },
+        {
+          "name": "windows-case-compare-mapping",
+          "target": "client_flow",
+          "pattern": "#define strcasecmp _stricmp\n#define strncasecmp _strnicmp",
+          "expectedCount": 1
+        },
+        {
+          "name": "windows-batch-delay",
+          "target": "client_flow",
+          "pattern": "Sleep\\(\\(DWORD\\)delay_ms\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "decision-type-definition",
+          "target": "client_flow",
+          "pattern": "typedef struct wc_client_preclass_decision_s \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "decision-resolver-forward-declaration",
+          "target": "client_flow",
+          "pattern": "static void wc_client_resolve_preclass_decision\\(const Config\\* config,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement the unified resolver after wc_client_is_p1_tier_candidate, merging the Step47 early-unknown, P1 controlled-action and Step47 eligible branches under a single priority order, keeping the existing candidate helpers as internal inputs.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "out->action = \"hint-bypassed\";",
+          "out->route_change = 0;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    return strcmp\\(query, \"255\\.0\\.0\\.0\"\\) == 0;\n}\n\nstatic int wc_client_init_unknown_result\\(struct wc_result\\* res,\n    const char\\* via_host\\)\n{",
+          "replacement": "    return strcmp(query, \"255.0.0.0\") == 0;\n}\n\nstatic void wc_client_resolve_preclass_decision(const Config* config,\n    const char* query,\n    const char* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t* out)\n{\n    out->action = \"hint-bypassed\";\n    out->route_change = 0;\n    out->short_circuit = 0;\n    out->start_host = start_host;\n\n    if (!config || !query || !*query)\n        return;\n    if (has_explicit_host)\n        return;\n\n    if (start_host && *start_host &&\n        strcasecmp(start_host, wc_server_default_batch_host()) != 0) {\n        out->action = \"hint-applied\";\n        out->route_change = 1;\n        return;\n    }\n    if (!config->disable_address_preclass &&\n        wc_client_is_step47_early_unknown_candidate(config, query)) {\n        out->action = \"step47-short-circuit-unknown\";\n        out->route_change = 1;\n        out->short_circuit = 1;\n        out->start_host = \"unknown\";\n        return;\n    }\n    if (!config->disable_address_preclass &&\n        wc_client_is_p1_controlled_unknown_candidate(config, query)) {\n        out->action = \"preclass-short-circuit-unknown\";\n        out->route_change = 1;\n        out->short_circuit = 1;\n        out->start_host = \"unknown\";\n        return;\n    }\n    if (!config->disable_address_preclass && config->step47_trial_enable &&\n        wc_client_is_step47_trial_candidate(config, query)) {\n        out->action = \"step47-eligible\";\n        out->route_change = 0;\n    }\n}\n\nstatic int wc_client_init_unknown_result(struct wc_result* res,\n    const char* via_host)\n{",
+          "idempotentContains": [
+            "out->action = \"hint-bypassed\";",
+            "out->route_change = 0;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "resolver-definition-once",
+          "target": "client_flow",
+          "pattern": "static void wc_client_resolve_preclass_decision\\(const Config\\* config,\n    const char\\* query,\n    const char\\* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t\\* out\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "resolver-body-seed",
+          "target": "client_flow",
+          "pattern": "out->action = \"hint-bypassed\";",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Replace the batch-path else-if chain in wc_client_handle_batch_query with a call to the unified resolver, preserving emit and short-circuit behavior.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_client_resolve_preclass_decision(cfg, query, start_host,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    const char\\* preclass_action = \"hint-bypassed\";\n    int preclass_route_change = 0;\n    int step47_short_circuit = 0;\n    if \\(\\(!server_host \\|\\| !\\*server_host\\) && start_host &&\n        strcasecmp\\(start_host, wc_server_default_batch_host\\(\\)\\) != 0\\) \\{\n        preclass_action = \"hint-applied\";\n        preclass_route_change = 1;\n    \\} else if \\(\\(!server_host \\|\\| !\\*server_host\\) && cfg &&\n        !cfg->disable_address_preclass &&\n        wc_client_is_step47_early_unknown_candidate\\(cfg, query\\)\\) \\{\n        start_host = \"unknown\";\n        preclass_action = \"step47-short-circuit-unknown\";\n        preclass_route_change = 1;\n        step47_short_circuit = 1;\n    \\} else if \\(\\(!server_host \\|\\| !\\*server_host\\) && cfg &&\n        !cfg->disable_address_preclass &&\n        wc_client_is_p1_controlled_unknown_candidate\\(cfg, query\\)\\) \\{\n        start_host = \"unknown\";\n        preclass_action = \"preclass-short-circuit-unknown\";\n        preclass_route_change = 1;\n        step47_short_circuit = 1;\n    \\} else if \\(\\(!server_host \\|\\| !\\*server_host\\) && cfg &&\n        !cfg->disable_address_preclass && cfg->step47_trial_enable &&\n        wc_client_is_step47_trial_candidate\\(cfg, query\\)\\) \\{\n        preclass_action = \"step47-eligible\";\n        preclass_route_change = 0;\n    \\}\n    wc_preclass_emit_observation\\(cfg, query, start_host,",
+          "replacement": "    wc_client_preclass_decision_t preclass_decision;\n    wc_client_resolve_preclass_decision(cfg, query, start_host,\n        (server_host && *server_host) ? 1 : 0,\n        &preclass_decision);\n    start_host = preclass_decision.start_host;\n    const char* preclass_action = preclass_decision.action;\n    int preclass_route_change = preclass_decision.route_change;\n    int step47_short_circuit = preclass_decision.short_circuit;\n    wc_preclass_emit_observation(cfg, query, start_host,",
+          "idempotentContains": [
+            "wc_client_resolve_preclass_decision(cfg, query, start_host,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "batch-resolver-call-once",
+          "target": "client_flow",
+          "pattern": "wc_client_resolve_preclass_decision\\(cfg, query, start_host,",
+          "expectedCount": 1
+        },
+        {
+          "name": "batch-legacy-chain-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_is_step47_early_unknown_candidate\\(cfg, query\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Replace the single-path else-if chain in wc_client_dispatch_queries with the unified resolver, feeding the guessed RIR hint as start_host so hint-applied routing is preserved.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_client_resolve_preclass_decision(config, single_query,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "        const char\\* start_host = server_host;\n        const char\\* action = \"hint-bypassed\";\n        int route_change = 0;\n        int step47_short_circuit = 0;\n        if \\(\\(!server_host \\|\\| !\\*server_host\\) && config &&\n            !config->disable_address_preclass\\) \\{\n            const char\\* hinted = wc_client_guess_query_rir_host\\(single_query\\);\n            if \\(hinted && \\*hinted\\) \\{\n                start_host = hinted;\n                action = \"hint-applied\";\n                route_change = 1;\n            \\} else if \\(wc_client_is_step47_early_unknown_candidate\\(config,\n                single_query\\)\\) \\{\n                start_host = \"unknown\";\n                action = \"step47-short-circuit-unknown\";\n                route_change = 1;\n                step47_short_circuit = 1;\n            \\} else if \\(wc_client_is_p1_controlled_unknown_candidate\\(config,\n                single_query\\)\\) \\{\n                start_host = \"unknown\";\n                action = \"preclass-short-circuit-unknown\";\n                route_change = 1;\n                step47_short_circuit = 1;\n            \\} else if \\(config->step47_trial_enable &&\n                wc_client_is_step47_trial_candidate\\(config, single_query\\)\\) \\{\n                action = \"step47-eligible\";\n                route_change = 0;\n            \\}\n        \\}\n        wc_preclass_emit_observation\\(config, single_query,",
+          "replacement": "        const char* hinted = NULL;\n        if ((!server_host || !*server_host) && config &&\n            !config->disable_address_preclass)\n            hinted = wc_client_guess_query_rir_host(single_query);\n        wc_client_preclass_decision_t preclass_decision;\n        wc_client_resolve_preclass_decision(config, single_query,\n            hinted ? hinted : server_host,\n            (server_host && *server_host) ? 1 : 0,\n            &preclass_decision);\n        const char* start_host = preclass_decision.start_host;\n        const char* action = preclass_decision.action;\n        int route_change = preclass_decision.route_change;\n        int step47_short_circuit = preclass_decision.short_circuit;\n        wc_preclass_emit_observation(config, single_query,",
+          "idempotentContains": [
+            "wc_client_resolve_preclass_decision(config, single_query,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "single-resolver-call-once",
+          "target": "client_flow",
+          "pattern": "wc_client_resolve_preclass_decision\\(config, single_query,",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-legacy-chain-removed",
+          "target": "client_flow",
+          "pattern": "                action = \"step47-short-circuit-unknown\";",
+          "expectedCount": 0
+        },
+        {
+          "name": "resolver-definition-preserved",
+          "target": "client_flow",
+          "pattern": "static void wc_client_resolve_preclass_decision\\(const Config\\* config,\n    const char\\* query,\n    const char\\* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t\\* out\\)\n\\{",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}

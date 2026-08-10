@@ -331,7 +331,8 @@ function Test-EffectiveCSourceSyntax {
         [string]$SourceText,
         [string]$TargetPath,
         [AllowEmptyString()][string]$RoundTaskDefinitionText = '',
-        [AllowEmptyString()][string]$FailureRound = ''
+        [AllowEmptyString()][string]$FailureRound = '',
+        [hashtable]$EffectiveHeaders = @{}
     )
 
     $roundPrefix = if ([string]::IsNullOrWhiteSpace($FailureRound)) { '' } else { "round=$FailureRound " }
@@ -351,15 +352,37 @@ function Test-EffectiveCSourceSyntax {
 
     $targetDirectory = Split-Path -Parent $TargetPath
     $temporarySource = Join-Path $targetDirectory ('.task-static-{0}.c' -f ([guid]::NewGuid().ToString('N')))
+    $overlayRoot = ''
     try {
         [System.IO.File]::WriteAllText($temporarySource, $SourceText, [System.Text.UTF8Encoding]::new($false))
         $includeDirectory = Join-Path $RepoRoot 'include'
         $sourceDirectory = Join-Path $RepoRoot 'src'
+        $includeArguments = @()
+        if ($EffectiveHeaders.Count -gt 0) {
+            $overlayRoot = Join-Path $RepoRoot (Join-Path 'tmp' ('task-static-overlay-{0}' -f ([guid]::NewGuid().ToString('N'))))
+            foreach ($headerFile in Get-ChildItem -LiteralPath $includeDirectory -Recurse -File) {
+                $relativeHeaderPath = $headerFile.FullName.Substring($RepoRoot.Length).TrimStart('\', '/')
+                $overlayHeaderPath = Join-Path $overlayRoot $relativeHeaderPath
+                $overlayHeaderParent = Split-Path -Parent $overlayHeaderPath
+                [IO.Directory]::CreateDirectory($overlayHeaderParent) | Out-Null
+                [IO.File]::WriteAllBytes($overlayHeaderPath, [IO.File]::ReadAllBytes($headerFile.FullName))
+            }
+            foreach ($relativePath in $EffectiveHeaders.Keys) {
+                $normalizedPath = ([string]$relativePath).Replace('/', [IO.Path]::DirectorySeparatorChar)
+                $overlayPath = Join-Path $overlayRoot $normalizedPath
+                $overlayParent = Split-Path -Parent $overlayPath
+                [IO.Directory]::CreateDirectory($overlayParent) | Out-Null
+                [IO.File]::WriteAllText($overlayPath, [string]$EffectiveHeaders[$relativePath], [Text.UTF8Encoding]::new($false))
+            }
+            $includeArguments += ('-I{0}' -f (Join-Path $overlayRoot 'include'))
+        }
+        $includeArguments += ('-I{0}' -f $includeDirectory)
+        $includeArguments += ('-I{0}' -f $sourceDirectory)
         $previousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
             $compilerOutput = @(
-                & $compiler.Source '-fsyntax-only' '-std=c11' '-Werror=implicit-function-declaration' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                & $compiler.Source '-fsyntax-only' '-std=c11' '-Werror=implicit-function-declaration' @includeArguments $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
         }
@@ -382,7 +405,7 @@ function Test-EffectiveCSourceSyntax {
         try {
             $ErrorActionPreference = 'Continue'
             $null = @(
-                & $compiler.Source '-fsyntax-only' '-std=c11' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                & $compiler.Source '-fsyntax-only' '-std=c11' @includeArguments $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
         }
@@ -424,7 +447,7 @@ function Test-EffectiveCSourceSyntax {
         try {
             $ErrorActionPreference = 'Continue'
             $noWarnOutput = @(
-                & $compiler.Source '-fsyntax-only' '-std=c11' '-Wno-implicit-function-declaration' ("-I{0}" -f $includeDirectory) ("-I{0}" -f $sourceDirectory) $temporarySource 2>&1 |
+                & $compiler.Source '-fsyntax-only' '-std=c11' '-Wno-implicit-function-declaration' @includeArguments $temporarySource 2>&1 |
                     ForEach-Object { [string]$_ }
             )
         }
@@ -469,6 +492,9 @@ function Test-EffectiveCSourceSyntax {
     finally {
         if (Test-Path -LiteralPath $temporarySource) {
             Remove-Item -LiteralPath $temporarySource -Force -ErrorAction SilentlyContinue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($overlayRoot) -and (Test-Path -LiteralPath $overlayRoot)) {
+            Remove-Item -LiteralPath $overlayRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }

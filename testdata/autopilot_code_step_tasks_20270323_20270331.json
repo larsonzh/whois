@@ -1,0 +1,231 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx1-preclass-route-policy-multifile-d1-d4-20270323-20270331",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "wc_net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-1 slice B follows A/43: move route-decision priority into the preclass module while client_flow retains Config-bound candidate calculation. Explicit -h, disable-address-preclass, stdout/stderr and default routing semantics remain unchanged.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the reusable preclass route-decision value and pure priority resolver in the public preclass header.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "typedef struct wc_preclass_route_decision {",
+          "void wc_preclass_resolve_route_decision(const char* start_host,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "typedef struct wc_preclass_decision_fields \\{\n    const char\\* action;\n    const char\\* action_source;\n    const char\\* match_layer;\n    const char\\* fallback_reason;\n    const char\\* input_label;\n    int route_change;\n\\} wc_preclass_decision_fields_t;\n\n// Resolves trial/action decision fields into a stable, log-ready view\\.",
+          "replacement": "typedef struct wc_preclass_decision_fields {\n    const char* action;\n    const char* action_source;\n    const char* match_layer;\n    const char* fallback_reason;\n    const char* input_label;\n    int route_change;\n} wc_preclass_decision_fields_t;\n\ntypedef struct wc_preclass_route_decision {\n    const char* action;\n    int route_change;\n    int short_circuit;\n    const char* start_host;\n} wc_preclass_route_decision_t;\n\nvoid wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t* out_decision);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "idempotentContains": [
+            "typedef struct wc_preclass_route_decision {",
+            "void wc_preclass_resolve_route_decision(const char* start_host,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "route-decision-public-type",
+          "target": "preclass_header",
+          "pattern": "typedef struct wc_preclass_route_decision \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "route-decision-public-api",
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement Config-independent route-decision priority in preclass.c with explicit-host precedence.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "out_decision->action = \"hint-bypassed\";",
+          "if (step47_early_unknown) {"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "\n\nvoid wc_preclass_resolve_decision_fields\\(const char\\* query,\n\\t\\tconst char\\* decision_action,\n\\t\\tint route_change,\n\\t\\tint preclass_disabled,\n\\t\\twc_preclass_decision_fields_t\\* out_fields\\)\n\\{",
+          "replacement": "\n\nvoid wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t* out_decision)\n{\n    if (!out_decision)\n        return;\n\n    out_decision->action = \"hint-bypassed\";\n    out_decision->route_change = 0;\n    out_decision->short_circuit = 0;\n    out_decision->start_host = start_host;\n\n    if (has_explicit_host)\n        return;\n    if (hint_applied) {\n        out_decision->action = \"hint-applied\";\n        out_decision->route_change = 1;\n        return;\n    }\n    if (step47_early_unknown) {\n        out_decision->action = \"step47-short-circuit-unknown\";\n        out_decision->route_change = 1;\n        out_decision->short_circuit = 1;\n        out_decision->start_host = \"unknown\";\n        return;\n    }\n    if (p1_controlled_unknown) {\n        out_decision->action = \"preclass-short-circuit-unknown\";\n        out_decision->route_change = 1;\n        out_decision->short_circuit = 1;\n        out_decision->start_host = \"unknown\";\n        return;\n    }\n    if (step47_trial_candidate)\n        out_decision->action = \"step47-eligible\";\n}\n\n/* Decision-field normalization remains a separate output concern. */\nvoid wc_preclass_resolve_decision_fields(const char* query,\n\t\tconst char* decision_action,\n\t\tint route_change,\n\t\tint preclass_disabled,\n\t\twc_preclass_decision_fields_t* out_fields)\n{",
+          "idempotentContains": [
+            "out_decision->action = \"hint-bypassed\";",
+            "if (step47_early_unknown) {"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "route-decision-definition",
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,",
+          "expectedCount": 1
+        },
+        {
+          "name": "explicit-host-precedes-actions",
+          "target": "preclass_source",
+          "pattern": "if \\(has_explicit_host\\)\n        return;\n    if \\(hint_applied\\)",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Convert the A/43 client result type to a public-type alias and delegate action priority from the Config-bound adapter.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "#include \"wc/wc_preclass.h\"",
+          "typedef wc_preclass_route_decision_t wc_client_preclass_decision_t;",
+          "wc_preclass_resolve_route_decision(start_host, has_explicit_host,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "#include \"wc/wc_pipeline\\.h\"\n#include \"wc/wc_query_exec\\.h\"",
+          "replacement": "#include \"wc/wc_pipeline.h\"\n#include \"wc/wc_preclass.h\"\n#include \"wc/wc_query_exec.h\"",
+          "idempotentContains": [
+            "#include \"wc/wc_preclass.h\""
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "typedef struct wc_client_preclass_decision_s \\{\n    const char\\* action;\n    int route_change;\n    int short_circuit;\n    const char\\* start_host;\n\\} wc_client_preclass_decision_t;",
+          "replacement": "typedef wc_preclass_route_decision_t wc_client_preclass_decision_t;",
+          "idempotentContains": [
+            "typedef wc_preclass_route_decision_t wc_client_preclass_decision_t;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static void wc_client_resolve_preclass_decision\\(const Config\\* config,\n    const char\\* query,\n    const char\\* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t\\* out\\)\n\\{\n    out->action = \"hint-bypassed\";\n    out->route_change = 0;\n    out->short_circuit = 0;\n    out->start_host = start_host;\n\n    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return;\n    if \\(has_explicit_host\\)\n        return;\n\n    if \\(start_host && \\*start_host &&\n        strcasecmp\\(start_host, wc_server_default_batch_host\\(\\)\\) != 0\\) \\{\n        out->action = \"hint-applied\";\n        out->route_change = 1;\n        return;\n    \\}\n    if \\(!config->disable_address_preclass &&\n        wc_client_is_step47_early_unknown_candidate\\(config, query\\)\\) \\{\n        out->action = \"step47-short-circuit-unknown\";\n        out->route_change = 1;\n        out->short_circuit = 1;\n        out->start_host = \"unknown\";\n        return;\n    \\}\n    if \\(!config->disable_address_preclass &&\n        wc_client_is_p1_controlled_unknown_candidate\\(config, query\\)\\) \\{\n        out->action = \"preclass-short-circuit-unknown\";\n        out->route_change = 1;\n        out->short_circuit = 1;\n        out->start_host = \"unknown\";\n        return;\n    \\}\n    if \\(!config->disable_address_preclass && config->step47_trial_enable &&\n        wc_client_is_step47_trial_candidate\\(config, query\\)\\) \\{\n        out->action = \"step47-eligible\";\n        out->route_change = 0;\n    \\}\n\\}",
+          "replacement": "static void wc_client_resolve_preclass_decision(const Config* config,\n    const char* query,\n    const char* start_host,\n    int has_explicit_host,\n    wc_client_preclass_decision_t* out)\n{\n    const int preclass_enabled = config && query && *query &&\n        !config->disable_address_preclass;\n    const int hint_applied = start_host && *start_host &&\n        strcasecmp(start_host, wc_server_default_batch_host()) != 0;\n\n    wc_preclass_resolve_route_decision(start_host, has_explicit_host,\n        hint_applied,\n        preclass_enabled &&\n            wc_client_is_step47_early_unknown_candidate(config, query),\n        preclass_enabled &&\n            wc_client_is_p1_controlled_unknown_candidate(config, query),\n        preclass_enabled && config->step47_trial_enable &&\n            wc_client_is_step47_trial_candidate(config, query),\n        out);\n}",
+          "idempotentContains": [
+            "wc_preclass_resolve_route_decision(start_host, has_explicit_host,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "client-public-preclass-include",
+          "target": "client_flow",
+          "pattern": "#include \"wc/wc_preclass\\.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-public-type-alias",
+          "target": "client_flow",
+          "pattern": "typedef wc_preclass_route_decision_t wc_client_preclass_decision_t;",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-policy-delegation",
+          "target": "client_flow",
+          "pattern": "wc_preclass_resolve_route_decision\\(start_host, has_explicit_host,",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-inline-priority-removed",
+          "target": "client_flow",
+          "pattern": "out->action = \"step47-short-circuit-unknown\";",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Use the public route-decision type directly at the batch and single-query call sites while retaining the client adapter boundary.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_preclass_route_decision_t batch_route_decision;",
+          "wc_preclass_route_decision_t single_route_decision;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    wc_client_preclass_decision_t preclass_decision;\n    wc_client_resolve_preclass_decision\\(cfg, query, start_host,\n        \\(server_host && \\*server_host\\) \\? 1 : 0,\n        &preclass_decision\\);\n    start_host = preclass_decision.start_host;\n    const char\\* preclass_action = preclass_decision.action;\n    int preclass_route_change = preclass_decision.route_change;\n    int step47_short_circuit = preclass_decision.short_circuit;",
+          "replacement": "    wc_preclass_route_decision_t batch_route_decision;\n    wc_client_resolve_preclass_decision(cfg, query, start_host,\n        (server_host && *server_host) ? 1 : 0,\n        &batch_route_decision);\n    start_host = batch_route_decision.start_host;\n    const char* preclass_action = batch_route_decision.action;\n    int preclass_route_change = batch_route_decision.route_change;\n    int step47_short_circuit = batch_route_decision.short_circuit;",
+          "idempotentContains": [
+            "wc_preclass_route_decision_t batch_route_decision;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "        wc_client_preclass_decision_t preclass_decision;\n        wc_client_resolve_preclass_decision\\(config, single_query,\n            hinted \\? hinted : server_host,\n            \\(server_host && \\*server_host\\) \\? 1 : 0,\n            &preclass_decision\\);\n        const char\\* start_host = preclass_decision.start_host;\n        const char\\* action = preclass_decision.action;\n        int route_change = preclass_decision.route_change;\n        int step47_short_circuit = preclass_decision.short_circuit;",
+          "replacement": "        wc_preclass_route_decision_t single_route_decision;\n        wc_client_resolve_preclass_decision(config, single_query,\n            hinted ? hinted : server_host,\n            (server_host && *server_host) ? 1 : 0,\n            &single_route_decision);\n        const char* start_host = single_route_decision.start_host;\n        const char* action = single_route_decision.action;\n        int route_change = single_route_decision.route_change;\n        int step47_short_circuit = single_route_decision.short_circuit;",
+          "idempotentContains": [
+            "wc_preclass_route_decision_t single_route_decision;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "batch-public-decision-type",
+          "target": "client_flow",
+          "pattern": "wc_preclass_route_decision_t batch_route_decision;",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-public-decision-type",
+          "target": "client_flow",
+          "pattern": "wc_preclass_route_decision_t single_route_decision;",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-callsite-decision-variable-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_decision_t preclass_decision;",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}
