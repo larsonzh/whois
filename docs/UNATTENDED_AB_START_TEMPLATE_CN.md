@@ -354,12 +354,13 @@ AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90
 AI_CHAT_AUTO_RECOVER_EVENT=chat-session-heartbeat-timeout
 AI_CHAT_FINAL_TRIGGER_VERIFY_MS=1200
 AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS=2
+AI_CHAT_FINAL_RECEIPT_RETRY_SECONDS=90
 AI_CHAT_POLICY_VERSION=1
 AI_CHAT_POLICY_WORK_MODE=event-only
 AI_CHAT_POLICY_DELIVERY_PRIMARY=ipc
 AI_CHAT_POLICY_DELIVERY_FALLBACK=on
-AI_CHAT_POLICY_FINAL_STOP_GATE=trigger-started
-AI_CHAT_TRIGGER_FINAL_STOP_GATE=trigger-started
+AI_CHAT_POLICY_FINAL_STOP_GATE=ticket-handled
+AI_CHAT_TRIGGER_FINAL_STOP_GATE=ticket-handled
 AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false
 AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE=true
 AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START=true
@@ -651,8 +652,8 @@ SESSION_FINAL_NOTES=<previous-notes>; guard_blocked reason=<stage-stall> evidenc
 - 当 `AI_SESSION_BLOCKING_WATCH_REQUIRED=true` 时，`unattended_ab_session_guard.ps1` 会按 `AI_SESSION_BLOCKING_WATCH_REPORT_INTERVAL_MIN` 输出结构化 `watch_heartbeat`，并将当前 watch 策略写入 `AI_SESSION_BLOCKING_WATCH_NOTES`，用于接管与复盘。
 - `poll_agent_tickets.ps1` 默认只读取会话心跳文件（`AI_CHAT_HEARTBEAT_*`）并回显心跳摘要（文本标签为 `chat_heartbeat`，JSON 键为 `chat_session_heartbeat`）；仅当 `AI_CHAT_HEARTBEAT_WRITE_ON_POLL=true` 时才代写心跳。运行期心跳与票据投送由既有 guard/trigger/dispatch 链负责，AI 不得为了等待工单自行定时执行 heartbeat/poll。默认心跳路径现为 `out/artifacts/ab_agent_queue/chat_session_heartbeat_<start-file-stable-token>.json`，该 stable token 基于 start-file 完整路径生成；若升级过渡期默认新命名文件不存在而旧命名文件仍存在，脚本会自动回读并沿用旧命名文件，避免长会话中途断点。
 - `unattended_ab_takeover_trigger.ps1` 可在 `AI_CHAT_AUTO_RECOVER_ENABLED=true` 且心跳超时时自动触发接管投送；模板默认开启，建议保留并结合 `AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES`。为缩短“会话回合意外结束”恢复时延，启用自动恢复后建议同时启用短间隔补发：`AI_CHAT_AUTO_RECOVER_FAST_RETRY_ENABLED=true`、`AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS=90`。trigger/dispatch/status-report/poll 的默认状态文件同样按 start-file 完整路径 stable token 隔离，并在默认新路径缺失且旧路径存在时自动 fallback 到 legacy 命名。
-- `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障：trigger 在拉起 `dispatch_takeover_to_chat.ps1` 后会等待并校验分发进程存活；若校验失败按尝试次数快速重试，未确认成功前会延迟 auto-stop（日志 `auto_stop_deferred`）并继续驻留。
-- 统一策略源键（建议只改这 5 个）：`AI_CHAT_POLICY_WORK_MODE`（`normal`/`anti-missent`/`low-disturb`/`event-only`）、`AI_CHAT_POLICY_DELIVERY_PRIMARY`（`ipc`/`pywinauto`/`ahk`）、`AI_CHAT_POLICY_DELIVERY_FALLBACK`（`on`/`off`）、`AI_CHAT_POLICY_FINAL_STOP_GATE`（`trigger-started`/`sender-sent`）、`AI_CHAT_POLICY_VERSION`（当前 `1`）。
+- `AI_CHAT_FINAL_TRIGGER_VERIFY_MS`（默认 `1200`）与 `AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS`（默认 `2`）用于终态总结票（`chat-session-final-status`）分发存活保障；`AI_CHAT_FINAL_RECEIPT_RETRY_SECONDS`（默认 `90`）控制未收到同票 handled 回执时的重投冷却。重投复用原 ticket/brief，不创建重复 final ticket。
+- 统一策略源键（建议只改这 5 个）：`AI_CHAT_POLICY_WORK_MODE`（`normal`/`anti-missent`/`low-disturb`/`event-only`）、`AI_CHAT_POLICY_DELIVERY_PRIMARY`（`ipc`/`pywinauto`/`ahk`）、`AI_CHAT_POLICY_DELIVERY_FALLBACK`（`on`/`off`）、`AI_CHAT_POLICY_FINAL_STOP_GATE`（默认 `ticket-handled`；兼容 `trigger-started`/`sender-sent`）、`AI_CHAT_POLICY_VERSION`（当前 `1`）。
 - `AI_CHAT_POLICY_WORK_MODE=normal`：保持交互分发（含 `running-status-report`）；`anti-missent`：保持交互分发并启用严格前台窗口约束（`AI_CHAT_DISPATCH_ACTIVE_WINDOW_ONLY=true`）；`low-disturb`：仅将状态票压缩为低扰短报文，仍只允许只读状态检查与汇报，异常不得切换修复流程；`event-only`：仅保留事件驱动票据，关闭 guard 定时状态票生成（`LOCAL_GUARD_STATUS_TICKET_ENABLED=false`）并同步关闭状态票外部分发（`AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false`、`AI_CHAT_DISPATCH_STATUS_REPORT_INTERACTIVE=false`）。
 
 模式速查：
@@ -664,7 +665,7 @@ SESSION_FINAL_NOTES=<previous-notes>; guard_blocked reason=<stage-stall> evidenc
 | `low-disturb` | 开 | 交互发送，但仅低扰短报文 | 想保留状态票与工单流，但把“正常运行”回报压缩到最小 | [low-disturb smoke 样例](../testdata/unattended_start/smoke/unattended_ab_start_status_ticket_low_disturb_smoke.md) |
 | `event-only`（默认） | 关 | 关 | 常规无人值守主流程，仅在真实事件发生时投送 | [event-only smoke 样例](../testdata/unattended_start/smoke/unattended_ab_start_event_only_smoke.md) |
 - `AI_CHAT_POLICY_DELIVERY_PRIMARY` + `AI_CHAT_POLICY_DELIVERY_FALLBACK` 组合决定主/收底链路：`ipc+on/off`=IPC 投送（默认 `AI_CHAT_DISPATCH_IPC_MODE=visible`，当前不跨 sender 收底）；`pywinauto+on`=Pywinauto 主投送+AHK 收底，`ahk+on`=AHK 主投送+Pywinauto 收底，`off` 表示仅主链路发送。
-- `AI_CHAT_POLICY_FINAL_STOP_GATE=sender-sent` 时，trigger 在 `chat-session-final-status` 场景会等待 dispatch `latest_relay_*.json` 出现 `sender_sent=true` 后才允许 auto-stop；`trigger-started` 保持旧行为（仅确认触发已拉起）。
+- `AI_CHAT_POLICY_FINAL_STOP_GATE=ticket-handled` 时，trigger 仅在同一 final ticket 的 ledger 记录满足 `status=done` 且 `handled_at` 有效后 auto-stop；未回执则驻留，并按冷却重投原 ticket。`sender-sent` 与 `trigger-started` 仅保留兼容，前者不能证明目标会话已处理，后者仅证明触发进程已拉起。
 - 默认 `event-only` 下 `AI_CHAT_TRIGGER_DISPATCH_STATUS_REPORTS=false`，trigger 仅派发事件票；显式切换为 `normal`、`anti-missent` 或 `low-disturb` 时，模式归一化脚本会恢复状态票生成、派发与交互字段。
 - `AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE` 默认建议 `true`：启用事件驱动队列读取，减少轮询路径对分发时序的扰动。
 - `AI_CHAT_TRIGGER_SKIP_EXISTING_QUEUE_ON_START` 默认建议 `true`：trigger 首次启动时跳过队列中的历史存量票，仅消费启动后新增票；若需要重放历史票可显式改为 `false`。

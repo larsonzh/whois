@@ -29,6 +29,21 @@ typedef struct wc_preclass_decision_fields {
     int route_change;
 } wc_preclass_decision_fields_t;
 
+typedef struct wc_preclass_route_decision {
+    const char* action;
+    int route_change;
+    int short_circuit;
+    const char* start_host;
+} wc_preclass_route_decision_t;
+
+void wc_preclass_resolve_route_decision(const char* start_host,
+        int has_explicit_host,
+        int hint_applied,
+        int step47_early_unknown,
+        int p1_controlled_unknown,
+        int step47_trial_candidate,
+        wc_preclass_route_decision_t* out_decision);
+
 // Resolves trial/action decision fields into a stable, log-ready view.
 void wc_preclass_resolve_decision_fields(const char* query,
         const char* decision_action,

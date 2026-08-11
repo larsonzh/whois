@@ -37,7 +37,7 @@
 | `AI_CHAT_POLICY_WORK_MODE` | `normal` / `anti-missent` / `low-disturb` | `normal` | 工作模式 |
 | `AI_CHAT_POLICY_DELIVERY_PRIMARY` | `ipc` / `pywinauto` / `ahk` | `pywinauto`（legacy 默认；模板默认 `ipc`） | 主发送链路 |
 | `AI_CHAT_POLICY_DELIVERY_FALLBACK` | `on` / `off` | `on` | 是否启用跨 sender 收底 |
-| `AI_CHAT_POLICY_FINAL_STOP_GATE` | `trigger-started` / `sender-sent` | `trigger-started` | final auto-stop 守门方式 |
+| `AI_CHAT_POLICY_FINAL_STOP_GATE` | `ticket-handled` / `sender-sent` / `trigger-started` | `ticket-handled` | final auto-stop 守门方式 |
 
 补充可选键（直接写在 start-file，默认开启）：
 - `AI_CHAT_DISPATCH_CLEAR_INPUT_ON_FAILURE=true|false`
@@ -49,7 +49,7 @@
 - `work_mode`：接受 `anti_missent`、`anti-mis-send`、`low_disturb`、`lowdisturb` 等别名。
 - `delivery_primary`：接受 `ipc`、`python`、`py`、`autohotkey` 等别名，统一归一为 `ipc` / `pywinauto` / `ahk`。
 - `delivery_fallback`：接受 `true/false`、`enabled/disabled`。
-- `final_stop_gate`：接受下划线别名（`sender_sent`、`trigger_started`）。
+- `final_stop_gate`：接受下划线别名（`ticket_handled`、`sender_sent`、`trigger_started`）。
 - 不合法值回退到默认值或 legacy 推导值。
 
 ## 5. 编译器契约
@@ -181,7 +181,7 @@ dispatch 会在 relay state 中写入 sender 结果：
 - 仅要求 final 分发 trigger 已成功拉起。
 - 不校验 sender 是否真正发送。
 
-### 9.2 `sender-sent`（严格守门）
+### 9.2 `sender-sent`（兼容 sender 守门）
 
 trigger 在 `chat-session-final-status` 场景下额外校验：
 - `latest_relay_<start-token>.json` 存在。
@@ -192,6 +192,16 @@ trigger 在 `chat-session-final-status` 场景下额外校验：
 若未确认：
 - 记录 `auto_stop_deferred reason=final-dispatch-sender-not-confirmed`。
 - 继续等待下一轮，不立即 auto-stop。
+
+`sender_sent=true` 仅表示 sender 完成提交动作。`sent_via_clipboard_fallback` 等结果没有目标会话处理回执，不能作为默认终止依据。
+
+### 9.3 `ticket-handled`（默认严格守门）
+
+trigger 仅在同一 final ticket 的 `ai_ticket_ledger_<start-token>.json` 记录同时满足以下条件时 auto-stop：
+- `status=done`。
+- `handled_at` 是有效时间。
+
+未确认时记录 `auto_stop_deferred reason=final-ticket-not-handled` 并继续驻留。等待达到 `AI_CHAT_FINAL_RECEIPT_RETRY_SECONDS`（默认 90 秒）后，trigger 复用 relay state 绑定的 ticket id 与 brief 重投；不得创建新的 final ticket。接收侧继续按 ticket id 幂等处理。
 
 ## 10. 兼容性与迁移
 

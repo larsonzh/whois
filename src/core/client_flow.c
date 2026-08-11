@@ -2,12 +2,21 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <windows.h>
+#endif
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32) && !defined(__MINGW32__)
 #include <strings.h>
+#else
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
 #include <time.h>
 
 #include "wc/wc_client_flow.h"
@@ -32,6 +41,7 @@
 #include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_pipeline.h"
+#include "wc/wc_preclass.h"
 #include "wc/wc_query_exec.h"
 #include "wc/wc_runtime.h"
 #include "wc/wc_selftest.h"
@@ -67,6 +77,14 @@ static int wc_client_is_p1_tier_candidate(const Config* config,
     const char* query);
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host);
+
+typedef wc_preclass_route_decision_t wc_client_preclass_decision_t;
+
+static void wc_client_resolve_preclass_decision(const Config* config,
+    const char* query,
+    const char* start_host,
+    int has_explicit_host,
+    wc_client_preclass_decision_t* out);
 
 static int wc_client_csv_contains_query(const char* csv,
     const char* query)
@@ -364,6 +382,28 @@ static int wc_client_is_p1_tier_candidate(const Config* config,
     return strcmp(query, "255.0.0.0") == 0;
 }
 
+static void wc_client_resolve_preclass_decision(const Config* config,
+    const char* query,
+    const char* start_host,
+    int has_explicit_host,
+    wc_client_preclass_decision_t* out)
+{
+    const int preclass_enabled = config && query && *query &&
+        !config->disable_address_preclass;
+    const int hint_applied = start_host && *start_host &&
+        strcasecmp(start_host, wc_server_default_batch_host()) != 0;
+
+    wc_preclass_resolve_route_decision(start_host, has_explicit_host,
+        hint_applied,
+        preclass_enabled &&
+            wc_client_is_step47_early_unknown_candidate(config, query),
+        preclass_enabled &&
+            wc_client_is_p1_controlled_unknown_candidate(config, query),
+        preclass_enabled && config->step47_trial_enable &&
+            wc_client_is_step47_trial_candidate(config, query),
+        out);
+}
+
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host)
 {
@@ -528,33 +568,14 @@ static int wc_client_handle_batch_query(const Config* cfg,
         return 0;
     }
 
-    const char* preclass_action = "hint-bypassed";
-    int preclass_route_change = 0;
-    int step47_short_circuit = 0;
-    if ((!server_host || !*server_host) && start_host &&
-        strcasecmp(start_host, wc_server_default_batch_host()) != 0) {
-        preclass_action = "hint-applied";
-        preclass_route_change = 1;
-    } else if ((!server_host || !*server_host) && cfg &&
-        !cfg->disable_address_preclass &&
-        wc_client_is_step47_early_unknown_candidate(cfg, query)) {
-        start_host = "unknown";
-        preclass_action = "step47-short-circuit-unknown";
-        preclass_route_change = 1;
-        step47_short_circuit = 1;
-    } else if ((!server_host || !*server_host) && cfg &&
-        !cfg->disable_address_preclass &&
-        wc_client_is_p1_controlled_unknown_candidate(cfg, query)) {
-        start_host = "unknown";
-        preclass_action = "preclass-short-circuit-unknown";
-        preclass_route_change = 1;
-        step47_short_circuit = 1;
-    } else if ((!server_host || !*server_host) && cfg &&
-        !cfg->disable_address_preclass && cfg->step47_trial_enable &&
-        wc_client_is_step47_trial_candidate(cfg, query)) {
-        preclass_action = "step47-eligible";
-        preclass_route_change = 0;
-    }
+    wc_preclass_route_decision_t batch_route_decision;
+    wc_client_resolve_preclass_decision(cfg, query, start_host,
+        (server_host && *server_host) ? 1 : 0,
+        &batch_route_decision);
+    start_host = batch_route_decision.start_host;
+    const char* preclass_action = batch_route_decision.action;
+    int preclass_route_change = batch_route_decision.route_change;
+    int step47_short_circuit = batch_route_decision.short_circuit;
     wc_preclass_emit_observation(cfg, query, start_host,
         preclass_action,
         preclass_route_change,
@@ -645,35 +666,19 @@ static int wc_client_dispatch_queries(const Config* config,
     if (wc_client_should_abort_due_to_signal())
         return WC_EXIT_SIGINT;
     if (!batch_mode) {
-        const char* start_host = server_host;
-        const char* action = "hint-bypassed";
-        int route_change = 0;
-        int step47_short_circuit = 0;
+        const char* hinted = NULL;
         if ((!server_host || !*server_host) && config &&
-            !config->disable_address_preclass) {
-            const char* hinted = wc_client_guess_query_rir_host(single_query);
-            if (hinted && *hinted) {
-                start_host = hinted;
-                action = "hint-applied";
-                route_change = 1;
-            } else if (wc_client_is_step47_early_unknown_candidate(config,
-                single_query)) {
-                start_host = "unknown";
-                action = "step47-short-circuit-unknown";
-                route_change = 1;
-                step47_short_circuit = 1;
-            } else if (wc_client_is_p1_controlled_unknown_candidate(config,
-                single_query)) {
-                start_host = "unknown";
-                action = "preclass-short-circuit-unknown";
-                route_change = 1;
-                step47_short_circuit = 1;
-            } else if (config->step47_trial_enable &&
-                wc_client_is_step47_trial_candidate(config, single_query)) {
-                action = "step47-eligible";
-                route_change = 0;
-            }
-        }
+            !config->disable_address_preclass)
+            hinted = wc_client_guess_query_rir_host(single_query);
+        wc_preclass_route_decision_t single_route_decision;
+        wc_client_resolve_preclass_decision(config, single_query,
+            hinted ? hinted : server_host,
+            (server_host && *server_host) ? 1 : 0,
+            &single_route_decision);
+        const char* start_host = single_route_decision.start_host;
+        const char* action = single_route_decision.action;
+        int route_change = single_route_decision.route_change;
+        int step47_short_circuit = single_route_decision.short_circuit;
         wc_preclass_emit_observation(config, single_query,
             start_host ? start_host : wc_server_default_batch_host(),
             action,
@@ -768,10 +773,14 @@ int wc_client_run_batch_stdin(const Config* config,
                 int jitter = rand() % (cfg->batch_jitter_ms + 1);
                 delay_ms += jitter;
             }
-            struct timespec ts;
+#if defined(_WIN32) || defined(__MINGW32__)
+            Sleep((DWORD)delay_ms);
+#else
+            struct timespec ts = {0};
             ts.tv_sec = (time_t)(delay_ms / 1000);
             ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
             nanosleep(&ts, NULL);
+#endif
         }
     }
     if (wc_client_should_abort_due_to_signal())

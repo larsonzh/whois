@@ -189,6 +189,8 @@ $taskStaticCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools
 $takeoverRouteGuardText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_takeover_route_guard.ps1') -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
+$recheckText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_dev_recheck_8round.ps1') -Raw -Encoding utf8
+$chatPolicyCompilerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/chat_dispatch_policy_compiler.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
 $fastModeAText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_fastmode_A.ps1') -Raw -Encoding utf8
 $codeStepText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_code_step_rounds.ps1') -Raw -Encoding utf8
@@ -693,6 +695,34 @@ $dispatchHardRuleIndex = $dispatchText.IndexOf('$noAskConfirmationHardRule =')
 $finalSummaryVisible = ($finalSummaryAppendIndex -ge 0 -and $dispatchHardRuleIndex -gt $finalSummaryAppendIndex)
 $finalSummaryVisibleReason = if ($finalSummaryVisible) { 'final-summary-requirements-appended-after-message-selection' } else { 'final-summary-requirements-still-nested-in-unreachable-message-branch' }
 [void]$results.Add((Get-CaseResult -Name 'final-summary-requirements-visible' -Pass $finalSummaryVisible -Reason $finalSummaryVisibleReason))
+$verifyRoundWordingTemplate = '本票故障发生轮次：${roundTag}。'
+$verifyRoundWordingPass = $dispatchText.Contains($verifyRoundWordingTemplate) -and $dispatchText.Contains('This ticket failed in round ${roundTag}.')
+foreach ($verifyRound in @('V1', 'V2', 'V3', 'V4')) {
+    $verifyRoundWordingPass = $verifyRoundWordingPass -and $verifyRoundWordingTemplate.Replace('${roundTag}', $verifyRound).Contains("本票故障发生轮次：$verifyRound")
+}
+$verifyRoundWordingReason = if ($verifyRoundWordingPass) { 'verify-ticket-projects-exact-v1-v4-round' } else { 'verify-ticket-exact-round-wording-missing' }
+[void]$results.Add((Get-CaseResult -Name 'verify-ticket-exact-round-wording' -Pass $verifyRoundWordingPass -Reason $verifyRoundWordingReason))
+$v2SkipPolicyPass = (
+    $multiRoundText.Contains('$dNoOpCountBeforeRound -gt 0 -and $dNoOpCountBeforeRound -lt 3 -and $dUnknownNoOpCountBeforeRound -eq 0') -and
+    $multiRoundText.Contains('$skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"') -and
+    $multiRoundText.Contains('fast_skip_blocked=V2 reason=unknown-d-nop-present') -and
+    $recheckText.Contains('$dNoOpCountBeforeRound -gt 0 -and $dNoOpCountBeforeRound -lt 3') -and
+    $recheckText.Contains('$skipReason = "fast-skip-v2-d-nop-count-$dNoOpCountBeforeRound-of-3"')
+)
+$v2SkipPolicyReason = if ($v2SkipPolicyPass) { 'v2-fast-skip-allows-one-or-two-safe-runtime-d-nop-and-blocks-unknown' } else { 'v2-fast-skip-runtime-d-nop-mapping-regressed' }
+[void]$results.Add((Get-CaseResult -Name 'v2-fast-skip-safe-runtime-noop' -Pass $v2SkipPolicyPass -Reason $v2SkipPolicyReason))
+$finalDeliveryConfirmationPass = (
+    $chatPolicyCompilerText.Contains("[string]`$DefaultValue = 'ticket-handled'") -and
+    $takeoverTriggerText.Contains("[string]`$Default = 'ticket-handled'") -and
+    $takeoverTriggerText.Contains("`$senderReason -eq 'sent_via_clipboard_fallback'") -and
+    $takeoverTriggerText.Contains("reason = 'sender-delivery-unconfirmed'") -and
+    $takeoverTriggerText.Contains('function Test-FinalTicketHandled') -and
+    $takeoverTriggerText.Contains("`$status -ne 'done'") -and
+    $takeoverTriggerText.Contains('auto_stop_deferred reason=final-ticket-not-handled') -and
+    $takeoverTriggerText.Contains('final_status_trigger_retry id=')
+)
+$finalDeliveryConfirmationReason = if ($finalDeliveryConfirmationPass) { 'final-stop-requires-ticket-handled-receipt-and-retries-same-ticket' } else { 'final-stop-can-accept-unconfirmed-delivery' }
+[void]$results.Add((Get-CaseResult -Name 'final-delivery-confirmation-gate' -Pass $finalDeliveryConfirmationPass -Reason $finalDeliveryConfirmationReason))
 $triggerUsesDefinedStartFileUpdater = $takeoverTriggerText.Contains(". (Join-Path `$PSScriptRoot 'unattended_startfile_identity.ps1')") -and $takeoverTriggerText.Contains('$closeApplied = Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $closeUpdates') -and -not $takeoverTriggerText.Contains('function Invoke-KeyValueFileValueUpdate {')
 $triggerUsesDefinedStartFileUpdaterReason = if ($triggerUsesDefinedStartFileUpdater) { 'terminal-close-uses-defined-start-file-updater' } else { 'terminal-close-references-undefined-start-file-updater' }
 [void]$results.Add((Get-CaseResult -Name 'terminal-close-helper-defined' -Pass $triggerUsesDefinedStartFileUpdater -Reason $triggerUsesDefinedStartFileUpdaterReason))

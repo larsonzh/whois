@@ -963,7 +963,7 @@ function Get-PendingRecoveryTicketState {
 function Get-FinalStopGateMode {
     param(
         [System.Collections.IDictionary]$Settings,
-        [string]$Default = 'trigger-started'
+        [string]$Default = 'ticket-handled'
     )
 
     if ($null -eq $Settings) {
@@ -981,6 +981,10 @@ function Get-FinalStopGateMode {
     $token = (Convert-ToSingleLineText -Text $raw).ToLowerInvariant()
     if ($token -in @('sender-sent', 'sender_sent')) {
         return 'sender-sent'
+    }
+
+    if ($token -in @('ticket-handled', 'ticket_handled')) {
+        return 'ticket-handled'
     }
 
     if ($token -in @('trigger-started', 'trigger_started')) {
@@ -1008,6 +1012,7 @@ function Get-LatestDispatchRelayState {
             sender_sent = $false
             sender_mode = ''
             sender_reason = ''
+            brief_path = ''
             updated_at = ''
             updated_at_utc = $null
         }
@@ -1021,6 +1026,7 @@ function Get-LatestDispatchRelayState {
     }
     $senderMode = if ($state.PSObject.Properties['sender_mode']) { Convert-ToSingleLineText -Text ([string]$state.sender_mode) } else { '' }
     $senderReason = if ($state.PSObject.Properties['sender_reason']) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
+    $briefPath = if ($state.PSObject.Properties['brief_path']) { Convert-ToSingleLineText -Text ([string]$state.brief_path) } else { '' }
     $updatedAt = if ($state.PSObject.Properties['updated_at']) { Convert-ToSingleLineText -Text ([string]$state.updated_at) } else { '' }
     $updatedAtUtc = Get-DateTimeOrNull -Text $updatedAt
 
@@ -1032,6 +1038,7 @@ function Get-LatestDispatchRelayState {
         sender_sent = $senderSent
         sender_mode = $senderMode
         sender_reason = $senderReason
+        brief_path = $briefPath
         updated_at = $updatedAt
         updated_at_utc = $updatedAtUtc
     }
@@ -1099,11 +1106,53 @@ function Test-FinalDispatchSenderSent {
         }
     }
 
+    $senderReason = (Convert-ToSingleLineText -Text ([string]$state.sender_reason)).ToLowerInvariant()
+    if ($senderReason -eq 'sent_via_clipboard_fallback') {
+        return [pscustomobject]@{
+            confirmed = $false
+            reason = 'sender-delivery-unconfirmed'
+            state = $state
+        }
+    }
+
     return [pscustomobject]@{
         confirmed = $true
         reason = 'ok'
         state = $state
     }
+}
+
+function Test-FinalTicketHandled {
+    param(
+        [string]$QueueRoot,
+        [string]$StartFileToken,
+        [string]$LegacyStartFileToken,
+        [string]$ExpectedTicketId
+    )
+
+    $ticketId = Convert-ToSingleLineText -Text $ExpectedTicketId
+    if ([string]::IsNullOrWhiteSpace($ticketId)) {
+        return [pscustomobject]@{ confirmed = $false; reason = 'ticket-id-missing'; handled_at = ''; ledger_path = '' }
+    }
+
+    $ledgerPath = Resolve-PreferredDefaultPath -PreferredPath (Join-Path $QueueRoot ("ai_ticket_ledger_{0}.json" -f $StartFileToken)) -LegacyPath (Join-Path $QueueRoot ("ai_ticket_ledger_{0}.json" -f $LegacyStartFileToken))
+    $ledger = Read-JsonFileSafely -Path $ledgerPath
+    if ($null -eq $ledger -or $ledger.PSObject.Properties.Name -notcontains 'records') {
+        return [pscustomobject]@{ confirmed = $false; reason = 'ledger-missing'; handled_at = ''; ledger_path = $ledgerPath }
+    }
+
+    $record = @($ledger.records | Where-Object { (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $_ -Name 'ticket_id')) -eq $ticketId } | Select-Object -Last 1)
+    if ($record.Count -ne 1) {
+        return [pscustomobject]@{ confirmed = $false; reason = 'ticket-record-missing'; handled_at = ''; ledger_path = $ledgerPath }
+    }
+
+    $status = (Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $record[0] -Name 'status')).ToLowerInvariant()
+    $handledAt = Convert-ToSingleLineText -Text (Get-ObjectPropertyString -InputObject $record[0] -Name 'handled_at')
+    if ($status -ne 'done' -or $null -eq (Get-DateTimeOrNull -Text $handledAt)) {
+        return [pscustomobject]@{ confirmed = $false; reason = 'ticket-not-handled'; handled_at = $handledAt; ledger_path = $ledgerPath }
+    }
+
+    return [pscustomobject]@{ confirmed = $true; reason = 'ok'; handled_at = $handledAt; ledger_path = $ledgerPath }
 }
 
 function Test-IsRetryableStateWriteError {
@@ -2713,7 +2762,7 @@ while ($true) {
         if ($settings.Contains('AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE')) {
             $eventDrivenQueue = Convert-ToBooleanSetting -Value ([string]$settings.AI_CHAT_TRIGGER_EVENT_DRIVEN_QUEUE) -Default $true
         }
-        $finalStopGateMode = Get-FinalStopGateMode -Settings $settings -Default 'trigger-started'
+        $finalStopGateMode = Get-FinalStopGateMode -Settings $settings -Default 'ticket-handled'
         $chatHeartbeatTtlMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_TTL_MINUTES' -Default 12 -Min 2 -Max 180
         $chatHeartbeatMissingGraceMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_HEARTBEAT_MISSING_GRACE_MINUTES' -Default 20 -Min 1 -Max 180
         $chatRecoveryCooldownMinutes = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_COOLDOWN_MINUTES' -Default 10 -Min 1 -Max 240
@@ -2724,6 +2773,7 @@ while ($true) {
         $chatRecoveryFastRetrySeconds = Get-IntSetting -Settings $settings -Key 'AI_CHAT_AUTO_RECOVER_FAST_RETRY_SECONDS' -Default 90 -Min 30 -Max 900
         $finalTriggerVerifyMs = Get-IntSetting -Settings $settings -Key 'AI_CHAT_FINAL_TRIGGER_VERIFY_MS' -Default 1200 -Min 0 -Max 15000
         $finalTriggerMaxAttempts = Get-IntSetting -Settings $settings -Key 'AI_CHAT_FINAL_TRIGGER_MAX_ATTEMPTS' -Default 2 -Min 1 -Max 5
+        $finalReceiptRetrySeconds = Get-IntSetting -Settings $settings -Key 'AI_CHAT_FINAL_RECEIPT_RETRY_SECONDS' -Default 90 -Min 30 -Max 1800
         $chatRecoveryEventRaw = ''
         if ($settings.Contains('AI_CHAT_AUTO_RECOVER_EVENT')) {
             $chatRecoveryEventRaw = [string]$settings.AI_CHAT_AUTO_RECOVER_EVENT
@@ -2851,6 +2901,10 @@ while ($true) {
             }
             else {
                 Write-TriggerLog ('final_status_skip reason=already-dispatched signature={0}' -f $finalSignature)
+                $existingFinalState = Get-LatestDispatchRelayState -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken
+                if ([bool]$existingFinalState.loaded -and (Convert-ToSingleLineText -Text ([string]$existingFinalState.event)).ToLowerInvariant() -eq 'chat-session-final-status') {
+                    $finalTicketId = Convert-ToSingleLineText -Text ([string]$existingFinalState.ticket_id)
+                }
             }
 
             if (-not $finalDispatchConfirmed) {
@@ -2890,6 +2944,28 @@ while ($true) {
                 $stateSenderMode = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_mode) } else { '' }
                 $stateSenderReason = if ($null -ne $state) { Convert-ToSingleLineText -Text ([string]$state.sender_reason) } else { '' }
                 Write-TriggerLog ('final_dispatch_sender_confirmed gate={0} expected_ticket={1} state_ticket={2} sender_mode={3} sender_reason={4}' -f $finalStopGateMode, $finalTicketId, $stateTicketId, $stateSenderMode, $stateSenderReason)
+            }
+            elseif ([string]::Equals($finalStopGateMode, 'ticket-handled', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $handledAck = Test-FinalTicketHandled -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken -ExpectedTicketId $finalTicketId
+                if (-not [bool]$handledAck.confirmed) {
+                    $state = Get-LatestDispatchRelayState -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken
+                    $stateAgeSeconds = if ($null -ne $state.updated_at_utc) { [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $state.updated_at_utc).TotalSeconds)) } else { -1 }
+                    Write-TriggerLog ('auto_stop_deferred reason=final-ticket-not-handled gate={0} signature={1} ticket={2} check_reason={3} state_age_seconds={4}' -f $finalStopGateMode, $finalSignature, $finalTicketId, [string]$handledAck.reason, $stateAgeSeconds)
+                    if ($stateAgeSeconds -ge $finalReceiptRetrySeconds -and -not [string]::IsNullOrWhiteSpace([string]$state.brief_path) -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                        $retryBriefPath = Resolve-RepoPathAllowMissing -Path ([string]$state.brief_path)
+                        if (Test-Path -LiteralPath $retryBriefPath) {
+                            $retryPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $retryBriefPath
+                            $retryResult = Invoke-ExternalTriggerCommandWithLivenessGuard -Plan $retryPlan -MaxAttempts $finalTriggerMaxAttempts -LivenessWaitMs $finalTriggerVerifyMs
+                            Write-TriggerLog ('final_status_trigger_retry id={0} started={1} pid={2} attempts={3} receipt_wait_seconds={4}' -f $finalTicketId, [bool]$retryResult.Started, [int]$retryResult.ProcessId, [int]$retryResult.Attempts, $stateAgeSeconds)
+                        }
+                    }
+                    if ($Once.IsPresent) { break }
+                    $wakeReason = Wait-QueueSignalOrTimeout -QueueFilePath $queueFilePath -TimeoutSec $PollSec -EnableEventDriven $eventDrivenQueue
+                    if ($wakeReason -ne 'timer') { Write-TriggerLog ("wake reason={0} queue={1}" -f $wakeReason, (Convert-ToRepoRelativePath -Path $queueFilePath)) }
+                    continue
+                }
+
+                Write-TriggerLog ('final_ticket_handled_confirmed gate={0} ticket={1} handled_at={2} ledger={3}' -f $finalStopGateMode, $finalTicketId, [string]$handledAck.handled_at, (Convert-ToRepoRelativePath -Path ([string]$handledAck.ledger_path)))
             }
 
             Write-TriggerLog ('auto_stop reason=session-final session={0} a={1} b={2}' -f [string]$watchExpectation.session_status, [string]$watchExpectation.a_status, [string]$watchExpectation.b_status)

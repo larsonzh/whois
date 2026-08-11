@@ -111,7 +111,7 @@ function Resolve-ChatPolicyDeliveryFallback {
 function Resolve-ChatPolicyFinalStopGate {
     param(
         [AllowEmptyString()][string]$RawValue,
-        [string]$DefaultValue = 'trigger-started'
+        [string]$DefaultValue = 'ticket-handled'
     )
 
     $token = Convert-ToPolicyToken -Value $RawValue
@@ -124,6 +124,8 @@ function Resolve-ChatPolicyFinalStopGate {
         'trigger_started' { return 'trigger-started' }
         'sender-sent' { return 'sender-sent' }
         'sender_sent' { return 'sender-sent' }
+        'ticket-handled' { return 'ticket-handled' }
+        'ticket_handled' { return 'ticket-handled' }
         default { return $DefaultValue }
     }
 }
@@ -207,7 +209,7 @@ function Get-ChatDispatchPolicyPlan {
         $fallbackDefault = if (Convert-ToPolicyBooleanSetting -Value (& $getValue 'AI_CHAT_DISPATCH_SENDER_FALLBACK_ENABLED') -Default $true) { 'on' } else { 'off' }
     }
 
-    $finalStopDefault = Resolve-ChatPolicyFinalStopGate -RawValue (& $getValue 'AI_CHAT_TRIGGER_FINAL_STOP_GATE') -DefaultValue 'trigger-started'
+    $finalStopDefault = Resolve-ChatPolicyFinalStopGate -RawValue (& $getValue 'AI_CHAT_TRIGGER_FINAL_STOP_GATE') -DefaultValue 'ticket-handled'
 
     $workMode = Resolve-ChatPolicyWorkMode -RawValue (& $getValue 'AI_CHAT_POLICY_WORK_MODE') -DefaultValue $workModeDefault
     $deliveryPrimary = Resolve-ChatPolicyDeliveryPrimary -RawValue (& $getValue 'AI_CHAT_POLICY_DELIVERY_PRIMARY') -DefaultValue $primaryDefault

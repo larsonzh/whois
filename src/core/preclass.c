@@ -304,6 +304,48 @@ static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclas
 		}
 }
 
+void wc_preclass_resolve_route_decision(const char* start_host,
+        int has_explicit_host,
+        int hint_applied,
+        int step47_early_unknown,
+        int p1_controlled_unknown,
+        int step47_trial_candidate,
+        wc_preclass_route_decision_t* out_decision)
+{
+    if (!out_decision)
+        return;
+
+    out_decision->action = "hint-bypassed";
+    out_decision->route_change = 0;
+    out_decision->short_circuit = 0;
+    out_decision->start_host = start_host;
+
+    if (has_explicit_host)
+        return;
+    if (hint_applied) {
+        out_decision->action = "hint-applied";
+        out_decision->route_change = 1;
+        return;
+    }
+    if (step47_early_unknown) {
+        out_decision->action = "step47-short-circuit-unknown";
+        out_decision->route_change = 1;
+        out_decision->short_circuit = 1;
+        out_decision->start_host = "unknown";
+        return;
+    }
+    if (p1_controlled_unknown) {
+        out_decision->action = "preclass-short-circuit-unknown";
+        out_decision->route_change = 1;
+        out_decision->short_circuit = 1;
+        out_decision->start_host = "unknown";
+        return;
+    }
+    if (step47_trial_candidate)
+        out_decision->action = "step47-eligible";
+}
+
+/* Decision-field normalization remains a separate output concern. */
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,
 		int route_change,

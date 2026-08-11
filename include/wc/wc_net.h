@@ -4,7 +4,12 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <sys/types.h> // for ssize_t on some platforms
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#else
+#include <sys/types.h>
+#endif
 #include "wc/wc_types.h"
 
 #ifdef __cplusplus

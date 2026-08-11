@@ -90,6 +90,14 @@
             "typedef struct wc_client_preclass_decision_s {",
             "wc_client_preclass_decision_t* out);"
           ]
+        },
+        {
+          "target": "wc_net_header",
+          "pattern": "#if defined\\(_WIN32\\) \\|\\| defined\\(__MINGW32__\\)\n#include <BaseTsd\\.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types\\.h>\n#endif",
+          "replacement": "#if defined(_MSC_VER)\n#include <BaseTsd.h>\ntypedef SSIZE_T ssize_t;\n#else\n#include <sys/types.h>\n#endif",
+          "idempotentContains": [
+            "#if defined(_MSC_VER)\n#include <BaseTsd.h>"
+          ]
         }
       ],
       "postApplyAssertions": [
@@ -127,6 +135,12 @@
           "name": "decision-resolver-forward-declaration",
           "target": "client_flow",
           "pattern": "static void wc_client_resolve_preclass_decision\\(const Config\\* config,",
+          "expectedCount": 1
+        },
+        {
+          "name": "mingw-ssize-via-sys-types",
+          "target": "wc_net_header",
+          "pattern": "#if defined\\(_MSC_VER\\)\n#include <BaseTsd\\.h>",
           "expectedCount": 1
         }
       ]
