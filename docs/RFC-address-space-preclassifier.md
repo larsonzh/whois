@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-13：新增串行第 45/46 份“无人值守超高密度 A/B 下次开工清单（草案）”（Vx-2 Step 4.7 受控放量切片，窗口 `2027-04-01 ~ 2027-04-14`），并同步起草配套 Vx 多文件任务定义（`testdata/autopilot_code_step_tasks_20270401_20270407.json`、`testdata/autopilot_code_step_tasks_20270408_20270414.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270401-20270414.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、`-ChainRounds` 链式检查与 Vx 专项安全回归均通过（详见 24.08~24.10）。
 - 2026-08-11：串行第 43/44 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-16 ~ 2027-03-31`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260810-141835，B run=out/artifacts/dev_verify_multiround/20260811-020525）；A-D1、B-V1 各 1 起失败经 guard incident 重启后收敛，未触发代码/脚本自愈；B 承接 A snapshot，V2 按原设计（D1-D3 出现 1 个安全运行时 D-NOP）快跳；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260811-112808`，193s）（详见 24.05~24.07）。
 - 2026-08-10：完成 Address-Space 前置分类器阶段路线审查与新鲜定向复检：P0 最小矩阵 `pass=12 fail=0`、P1 分组阈值门禁 `pass=232 fail=0 group_gate_fail=0`、Step47 preflight `pass=5 fail=0`。审查确认 P0/P1/P2 工程化基线及 Step 4.7 受控能力已具备，但 Phase B 默认首跳迁移与 Phase C reserved 早收敛尚未完成默认放量；串行第 41/42 份完成后停止新编单文件 V1 清理任务，历史 V1 保留用于兼容与追溯，后续功能开发统一转为 Vx 多文件切片（详见 24.04）。
 - 2026-08-10：串行第 41/42 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-02 ~ 2027-03-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260809-114503，B run=out/artifacts/dev_verify_multiround/20260809-201456）；全程 0 起事故、无自愈、无重启，一次通过；A 阶段于 2026-08-09 20:15:07 完成（0d 08:30:42），B 阶段于 2026-08-10 02:52:12 完成（0d 06:37:48），会话结束 2026-08-10 02:52:12；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260810-053425`，212s）（详见 24.01~24.03）。
@@ -3858,4 +3859,54 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - 命令：`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0`（Strict Version）。
   - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 193s。
   - 产物目录：`out/artifacts/20260811-112808/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/143.128.0.0/*.log`）。
+
+#### 24.08 下次开工清单（Vx 多文件：Step 4.7 受控放量切片 A——R0 候选治理，2027-04-01 ~ 2027-04-07，串行第 45 份，Checklist A，草案）
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270401_20270407.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`client_flow`（`src/core/client_flow.c`）。
+> 设计说明：本切片为 Vx-2（Step 4.7 受控放量）的 A 半段，仅在 `client_flow.c` 内做 config-bound 的 R2 治理：基于 `wc_preclass_classify_ip` 分类结果排除 allocated/control 候选（`8.8.8.8` 之类禁止进入 early-unknown/P1 短路），R0 默认单点候选 `255.0.0.0`、显式 `-h` 旁路、`--disable-address-preclass` 一键回退与 stdout/stderr 契约均保持不变；B/46 负责把该治理提取为公共 Config-independent API。
+
+**八轮约束与开发目标**：
+
+1. [ ] A 使用 `restore-source`，仅在第 44 份完成后串行启动；范围固定为 D1~D4 + V1~V4，禁止自动提交与推送。
+2. [ ] D1：在 `client_flow.c` 声明分类式 allocated/control 排除谓词 `wc_client_preclass_classification_allocated_control`。
+3. [ ] D2：实现该谓词（`allocated|legacy` 且 `rir` 非 `none|unknown` 即排除），置于 `wc_client_is_step47_trial_candidate` 之前。
+4. [ ] D3：Step47 early-unknown 候选路径接入分类治理：命中候选名单后先分类，allocated/control 一律返回 0（R2 禁入）；R0 默认列表与 CSV 语义不变。
+5. [ ] D4：P1 controlled-unknown 候选路径改为同一分类治理，替换原 guess-based 排除（`wc_client_guess_query_rir_host`），保持行为等价并统一入口。
+6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+
+**编制期验收（已完成，2026-08-13）**：
+
+- [x] TODO-free、`-SyntaxOnly` 装载检查：PASS（`targets=1`，`target_set_sha256=440bb2ed...`）。
+- [x] A 全定义静态检查：`errors=0 warnings=0 infos=9`；D1~D4 operations 唯一命中、marker 自有、replacement 收敛、replay 与断言通过；各轮 mandatory local clang `-fsyntax-only` 门禁通过。
+- [x] `-RoundTag D1 -ChainRounds` 链式轮次检查：`errors=0 warnings=0`。
+
+#### 24.09 下次开工清单（Vx 多文件：Step 4.7 受控放量切片 B——公共候选治理 API，2027-04-08 ~ 2027-04-14，串行第 46 份，Checklist B，草案）
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270408_20270414.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`preclass_header`（`include/wc/wc_preclass.h`）、`preclass_source`（`src/core/preclass.c`）、`client_flow`；静态检查必须以第 45 份任务定义作为 prerequisite。
+
+**八轮约束与开发目标**：
+
+1. [ ] B 仅在 A `result=pass` 且 A success snapshot 完整后启动，使用 `state-only` 承接；A 失败必须阻断 B。
+2. [ ] D1：在公共 `wc_preclass.h` 声明 Config-independent 治理 API `wc_preclass_classification_is_allocated_control`。
+3. [ ] D2：在 `preclass.c` 实现该 API（字符串字面量判定，不依赖 Config），置于 route-decision 实现之后。
+4. [ ] D3：`client_flow.c` 的静态谓词改为薄适配器，委托公共 API。
+5. [ ] D4：两个候选调用点（early-unknown 与 P1）直接调用公共 API，并删除不再使用的 client 适配器定义与前向声明。
+6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+
+**编制期验收（已完成，2026-08-13）**：
+
+- [x] TODO-free、`-SyntaxOnly` 装载检查：PASS（`targets=3`，`target_set_sha256=386945ee...`）。
+- [x] 以 A/45 为 prerequisite 的 A→B 链式全定义静态检查：`errors=0 warnings=0 infos=20`；D1~D4 全部 op 唯一命中、marker 自有、replacement 收敛、replay 与断言通过；完整 target set 各轮编译门禁通过。
+- [x] `-RoundTag D1 -ChainRounds`（A 前置）链式轮次检查：`errors=0 warnings=0`。
+- [x] Vx 专项安全回归（`tools/test/task_definition_safety_regression.ps1`）：`result=pass`。
+
+#### 24.10 对应任务启动文件（2026-08-13，草案）
+
+- 启动文件：`testdata/unattended_start/active/unattended_ab_start_20270401-20270414.md`。
+- 绑定 A/45 与 B/46，`WINDOW=2027-04-01 ~ 2027-04-14`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
+- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`（启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填）。
+- 当前终态：**未运行（草案）**，待用户确认后启动。
+- 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
 

@@ -1,0 +1,170 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx2-preclass-r0-candidate-governance-d1-d4-20270401-20270407",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-2 slice A (serial 45): add classification-based allocated/control exclusion (R2 guard) to the Step47 early-unknown and P1 controlled-unknown candidate paths inside client_flow.c. R0 default list stays 255.0.0.0; explicit -h stays bypassed via the route-decision layer; --disable-address-preclass stays the full rollback; stdout/stderr contract unchanged.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the classification-based allocated/control exclusion predicate in client_flow.c.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "static int wc_client_preclass_classification_allocated_control(\n    const char* cls,\n    const char* rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_tier_candidate\\(const Config\\* config,\n    const char\\* query\\);\nstatic int wc_client_init_unknown_result\\(struct wc_result\\* res,\n    const char\\* via_host\\);",
+          "replacement": "static int wc_client_is_p1_tier_candidate(const Config* config,\n    const char* query);\nstatic int wc_client_preclass_classification_allocated_control(\n    const char* cls,\n    const char* rir);\nstatic int wc_client_init_unknown_result(struct wc_result* res,\n    const char* via_host);",
+          "idempotentContains": [
+            "static int wc_client_preclass_classification_allocated_control(\n    const char* cls,\n    const char* rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "governance-predicate-declared",
+          "target": "client_flow",
+          "pattern": "static int wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement the classification-based allocated/control exclusion predicate before the Step47 trial candidate helper.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    return wc_dns_canonical_host_for_rir\\(rir\\);\n}\n\nstatic int wc_client_is_step47_trial_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{",
+          "replacement": "    return wc_dns_canonical_host_for_rir(rir);\n}\n\nstatic int wc_client_preclass_classification_allocated_control(\n    const char* cls,\n    const char* rir)\n{\n    if (!cls || !*cls || !rir || !*rir)\n        return 0;\n    if (strcmp(cls, \"allocated\") != 0 && strcmp(cls, \"legacy\") != 0)\n        return 0;\n    return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;\n}\n\nstatic int wc_client_is_step47_trial_candidate(const Config* config,\n    const char* query)\n{",
+          "idempotentContains": [
+            "return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "governance-predicate-defined",
+          "target": "client_flow",
+          "pattern": "static int wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "allocated-control-exclusion-body",
+          "target": "client_flow",
+          "pattern": "return strcmp\\(rir, \"none\"\\) != 0 && strcmp\\(rir, \"unknown\"\\) != 0;",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Route the Step47 early-unknown candidate path through the classifier and exclude allocated/control queries (R2 guard), keeping the R0 default list and CSV semantics.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_preclass_classify_ip(query, &family, &cls, &rir,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    const char\\* csv;\n\n    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return 0;\n    if \\(!config->step47_trial_enable \\|\\| !config->step47_early_unknown_enable\\)\n        return 0;\n    if \\(config->step47_trial_scope != 1\\)\n        return 0;\n\n    csv = config->step47_early_unknown_list;\n    if \\(!csv \\|\\| !\\*csv \\|\\| wc_client_csv_is_default_marker\\(csv\\)\\)\n        return strcmp\\(query, \"255\\.0\\.0\\.0\"\\) == 0;\n\n    return wc_client_csv_contains_query\\(csv, query\\);\n\\}",
+          "replacement": "static int wc_client_is_step47_early_unknown_candidate(const Config* config,\n    const char* query)\n{\n    const char* csv;\n    int listed;\n\n    if (!config || !query || !*query)\n        return 0;\n    if (!config->step47_trial_enable || !config->step47_early_unknown_enable)\n        return 0;\n    if (config->step47_trial_scope != 1)\n        return 0;\n\n    csv = config->step47_early_unknown_list;\n    if (!csv || !*csv || wc_client_csv_is_default_marker(csv))\n        listed = (strcmp(query, \"255.0.0.0\") == 0);\n    else\n        listed = wc_client_csv_contains_query(csv, query);\n    if (!listed)\n        return 0;\n\n    {\n        const char* family = NULL;\n        const char* cls = NULL;\n        const char* rir = NULL;\n        const char* reason = NULL;\n        const char* confidence = NULL;\n        wc_preclass_classify_ip(query, &family, &cls, &rir,\n            &reason, &confidence);\n        if (wc_client_preclass_classification_allocated_control(cls, rir))\n            return 0;\n    }\n    return 1;\n}",
+          "idempotentContains": [
+            "wc_preclass_classify_ip(query, &family, &cls, &rir,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "early-unknown-classification-call",
+          "target": "client_flow",
+          "pattern": "wc_preclass_classify_ip\\(query, &family, &cls, &rir,",
+          "expectedCount": 1
+        },
+        {
+          "name": "early-unknown-exclusion-guard",
+          "target": "client_flow",
+          "pattern": "if \\(wc_client_preclass_classification_allocated_control\\(cls, rir\\)\\)\n            return 0;",
+          "expectedCount": 1
+        },
+        {
+          "name": "early-unknown-legacy-return-removed",
+          "target": "client_flow",
+          "pattern": "return strcmp\\(query, \"255\\.0\\.0\\.0\"\\) == 0;\n\n    return wc_client_csv_contains_query\\(csv, query\\);",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Route the P1 controlled-unknown candidate path through the classifier and replace the guess-based exclusion with the shared classification-based allocated/control governance.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    if \\(!config \\|\\| !config->preclass_action_enable\\)\n        return 0;\n    if \\(!config->step47_trial_enable\\)\n        return 0;\n    if \\(!query \\|\\| !\\*query\\)\n        return 0;\n    if \\(!wc_client_is_p1_tier_candidate\\(config, query\\)\\)\n        return 0;\n    if \\(!wc_client_is_step47_trial_candidate\\(config, query\\)\\)\n        return 0;\n    return \\(wc_client_guess_query_rir_host\\(query\\) == NULL\\) \\? 1 : 0;\n\\}",
+          "replacement": "static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,\n    const char* query)\n{\n    const char* pfamily = NULL;\n    const char* pcls = NULL;\n    const char* prir = NULL;\n    const char* preason = NULL;\n    const char* pconfidence = NULL;\n\n    if (!config || !config->preclass_action_enable)\n        return 0;\n    if (!config->step47_trial_enable)\n        return 0;\n    if (!query || !*query)\n        return 0;\n    if (!wc_client_is_p1_tier_candidate(config, query))\n        return 0;\n    if (!wc_client_is_step47_trial_candidate(config, query))\n        return 0;\n\n    wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,\n        &preason, &pconfidence);\n    if (wc_client_preclass_classification_allocated_control(pcls, prir))\n        return 0;\n    return 1;\n}",
+          "idempotentContains": [
+            "wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "p1-classification-call",
+          "target": "client_flow",
+          "pattern": "wc_preclass_classify_ip\\(query, &pfamily, &pcls, &prir,",
+          "expectedCount": 1
+        },
+        {
+          "name": "p1-exclusion-guard",
+          "target": "client_flow",
+          "pattern": "if \\(wc_client_preclass_classification_allocated_control\\(pcls, prir\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "p1-guess-exclusion-removed",
+          "target": "client_flow",
+          "pattern": "return \\(wc_client_guess_query_rir_host\\(query\\) == NULL\\) \\? 1 : 0;",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}

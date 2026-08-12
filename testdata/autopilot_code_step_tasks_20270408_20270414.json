@@ -1,0 +1,208 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx2-preclass-r0-governance-public-api-d1-d4-20270408-20270414",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-2 slice B (serial 46) follows A/45: extract the classification-based allocated/control exclusion (R2 guard) into a public, Config-independent preclass API while client_flow retains the candidate calculation. Explicit -h, --disable-address-preclass, R0 default list and stdout/stderr contract remain unchanged.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the public classification-based allocated/control governance API in the preclass header.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "int wc_preclass_classification_is_allocated_control(const char* cls,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t\\* out_decision\\);\n\n// Resolves trial/action decision fields into a stable, log-ready view.\nvoid wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t* out_decision);\n\n// Returns 1 when the classified query is allocated/control (allocated or\n// legacy with a real RIR hint); such queries must never be admitted into\n// the reserved/special early-unknown short-circuit candidate set.\nint wc_preclass_classification_is_allocated_control(const char* cls,\n        const char* rir);\n\n// Resolves trial/action decision fields into a stable, log-ready view.\nvoid wc_preclass_resolve_decision_fields(const char* query,",
+          "idempotentContains": [
+            "int wc_preclass_classification_is_allocated_control(const char* cls,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "public-api-declared",
+          "target": "preclass_header",
+          "pattern": "int wc_preclass_classification_is_allocated_control\\(const char\\* cls,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement the Config-independent classification-based allocated/control governance in preclass.c.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "    if \\(step47_trial_candidate\\)\n        out_decision->action = \"step47-eligible\";\n}\n\n/\\* Decision-field normalization remains a separate output concern. \\*/\\nvoid wc_preclass_resolve_decision_fields\\(const char\\* query,",
+          "replacement": "    if (step47_trial_candidate)\n        out_decision->action = \"step47-eligible\";\n}\n\nint wc_preclass_classification_is_allocated_control(const char* cls,\n        const char* rir)\n{\n    if (!cls || !*cls || !rir || !*rir)\n        return 0;\n    if (strcmp(cls, \"allocated\") != 0 && strcmp(cls, \"legacy\") != 0)\n        return 0;\n    return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;\n}\n\n/* Decision-field normalization remains a separate output concern. */\nvoid wc_preclass_resolve_decision_fields(const char* query,",
+          "idempotentContains": [
+            "return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "public-api-implemented",
+          "target": "preclass_source",
+          "pattern": "int wc_preclass_classification_is_allocated_control\\(const char\\* cls,\n        const char\\* rir\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "public-impl-exclusion-body",
+          "target": "preclass_source",
+          "pattern": "strcmp\\(cls, \"allocated\"\\) != 0 && strcmp\\(cls, \"legacy\"\\) != 0",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Convert the client_flow exclusion predicate into a thin adapter that delegates to the public API.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "return wc_preclass_classification_is_allocated_control(cls, rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\)\n\\{\n    if \\(!cls \\|\\| !\\*cls \\|\\| !rir \\|\\| !\\*rir\\)\n        return 0;\n    if \\(strcmp\\(cls, \"allocated\"\\) != 0 && strcmp\\(cls, \"legacy\"\\) != 0\\)\n        return 0;\n    return strcmp\\(rir, \"none\"\\) != 0 && strcmp\\(rir, \"unknown\"\\) != 0;\n\\}",
+          "replacement": "static int wc_client_preclass_classification_allocated_control(\n    const char* cls,\n    const char* rir)\n{\n    return wc_preclass_classification_is_allocated_control(cls, rir);\n}",
+          "idempotentContains": [
+            "return wc_preclass_classification_is_allocated_control(cls, rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "client-adapter-delegates",
+          "target": "client_flow",
+          "pattern": "return wc_preclass_classification_is_allocated_control\\(cls, rir\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-inline-exclusion-body-removed",
+          "target": "client_flow",
+          "pattern": "return strcmp\\(rir, \"none\"\\) != 0 && strcmp\\(rir, \"unknown\"\\) != 0;",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Use the public governance API directly at both candidate call sites, then remove the now-unused client_flow adapter definition and its forward declaration.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "if (wc_preclass_classification_is_allocated_control(cls, rir))",
+          "if (wc_preclass_classification_is_allocated_control(pcls, prir))",
+          "static int wc_client_init_unknown_result(struct wc_result* res,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "        wc_preclass_classify_ip\\(query, &family, &cls, &rir,\n            &reason, &confidence\\);\n        if \\(wc_client_preclass_classification_allocated_control\\(cls, rir\\)\\)\n            return 0;",
+          "replacement": "        wc_preclass_classify_ip(query, &family, &cls, &rir,\n            &reason, &confidence);\n        if (wc_preclass_classification_is_allocated_control(cls, rir))\n            return 0;",
+          "idempotentContains": [
+            "if (wc_preclass_classification_is_allocated_control(cls, rir))"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    wc_preclass_classify_ip\\(query, &pfamily, &pcls, &prir,\n        &preason, &pconfidence\\);\n    if \\(wc_client_preclass_classification_allocated_control\\(pcls, prir\\)\\)\n        return 0;",
+          "replacement": "    wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,\n        &preason, &pconfidence);\n    if (wc_preclass_classification_is_allocated_control(pcls, prir))\n        return 0;",
+          "idempotentContains": [
+            "if (wc_preclass_classification_is_allocated_control(pcls, prir))"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\)\n\\{\n    return wc_preclass_classification_is_allocated_control\\(cls, rir\\);\n\\}\n\nstatic int wc_client_is_step47_trial_candidate\\(const Config\\* config,",
+          "replacement": "static int wc_client_is_step47_trial_candidate(const Config* config,",
+          "idempotentContains": [
+            "static int wc_client_is_step47_trial_candidate(const Config* config,"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_tier_candidate\\(const Config\\* config,\n    const char\\* query\\);\nstatic int wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\);\nstatic int wc_client_init_unknown_result\\(struct wc_result\\* res,\n    const char\\* via_host\\);",
+          "replacement": "static int wc_client_is_p1_tier_candidate(const Config* config,\n    const char* query);\nstatic int wc_client_init_unknown_result(struct wc_result* res,\n    const char* via_host);",
+          "idempotentContains": [
+            "static int wc_client_init_unknown_result(struct wc_result* res,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "early-unknown-public-call",
+          "target": "client_flow",
+          "pattern": "if \\(wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n            return 0;",
+          "expectedCount": 1
+        },
+        {
+          "name": "p1-public-call",
+          "target": "client_flow",
+          "pattern": "if \\(wc_preclass_classification_is_allocated_control\\(pcls, prir\\)\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-adapter-definition-removed",
+          "target": "client_flow",
+          "pattern": "static int wc_client_preclass_classification_allocated_control\\(",
+          "expectedCount": 0
+        },
+        {
+          "name": "client-adapter-declaration-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_classification_allocated_control\\(\n    const char\\* cls,\n    const char\\* rir\\);",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}
