@@ -330,6 +330,7 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     const char* query)
 {
     const char* csv;
+    int listed;
 
     if (!config || !query || !*query)
         return 0;
@@ -340,14 +341,35 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
 
     csv = config->step47_early_unknown_list;
     if (!csv || !*csv || wc_client_csv_is_default_marker(csv))
-        return strcmp(query, "255.0.0.0") == 0;
+        listed = (strcmp(query, "255.0.0.0") == 0);
+    else
+        listed = wc_client_csv_contains_query(csv, query);
+    if (!listed)
+        return 0;
 
-    return wc_client_csv_contains_query(csv, query);
+    {
+        const char* family = NULL;
+        const char* cls = NULL;
+        const char* rir = NULL;
+        const char* reason = NULL;
+        const char* confidence = NULL;
+        wc_preclass_classify_ip(query, &family, &cls, &rir,
+            &reason, &confidence);
+        if (wc_preclass_classification_is_allocated_control(cls, rir))
+            return 0;
+    }
+    return 1;
 }
 
 static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
     const char* query)
 {
+    const char* pfamily = NULL;
+    const char* pcls = NULL;
+    const char* prir = NULL;
+    const char* preason = NULL;
+    const char* pconfidence = NULL;
+
     if (!config || !config->preclass_action_enable)
         return 0;
     if (!config->step47_trial_enable)
@@ -358,7 +380,12 @@ static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
         return 0;
     if (!wc_client_is_step47_trial_candidate(config, query))
         return 0;
-    return (wc_client_guess_query_rir_host(query) == NULL) ? 1 : 0;
+
+    wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,
+        &preason, &pconfidence);
+    if (wc_preclass_classification_is_allocated_control(pcls, prir))
+        return 0;
+    return 1;
 }
 
 static int wc_client_is_p1_tier_candidate(const Config* config,

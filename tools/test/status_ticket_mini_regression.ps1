@@ -719,9 +719,13 @@ $finalDeliveryConfirmationPass = (
     $takeoverTriggerText.Contains('function Test-FinalTicketHandled') -and
     $takeoverTriggerText.Contains("`$status -ne 'done'") -and
     $takeoverTriggerText.Contains('auto_stop_deferred reason=final-ticket-not-handled') -and
+    $takeoverTriggerText.Contains('$stateMatchesFinalTicket = (') -and
+    $takeoverTriggerText.Contains('[string]::Equals((Convert-ToSingleLineText -Text ([string]$state.ticket_id)), $finalTicketId, [System.StringComparison]::Ordinal)') -and
+    $takeoverTriggerText.Contains('[string]::Equals((Convert-ToSingleLineText -Text ([string]$state.event)), $finalEventName, [System.StringComparison]::OrdinalIgnoreCase)') -and
+    $takeoverTriggerText.Contains('if ($stateMatchesFinalTicket -and $stateAgeSeconds -ge $finalReceiptRetrySeconds') -and
     $takeoverTriggerText.Contains('final_status_trigger_retry id=')
 )
-$finalDeliveryConfirmationReason = if ($finalDeliveryConfirmationPass) { 'final-stop-requires-ticket-handled-receipt-and-retries-same-ticket' } else { 'final-stop-can-accept-unconfirmed-delivery' }
+$finalDeliveryConfirmationReason = if ($finalDeliveryConfirmationPass) { 'final-stop-requires-ticket-handled-receipt-and-retries-matching-final-relay' } else { 'final-stop-can-accept-unconfirmed-delivery-or-retry-stale-relay' }
 [void]$results.Add((Get-CaseResult -Name 'final-delivery-confirmation-gate' -Pass $finalDeliveryConfirmationPass -Reason $finalDeliveryConfirmationReason))
 $triggerUsesDefinedStartFileUpdater = $takeoverTriggerText.Contains(". (Join-Path `$PSScriptRoot 'unattended_startfile_identity.ps1')") -and $takeoverTriggerText.Contains('$closeApplied = Invoke-KeyValueFileValueUpdateCore -Path $startFilePath -Values $closeUpdates') -and -not $takeoverTriggerText.Contains('function Invoke-KeyValueFileValueUpdate {')
 $triggerUsesDefinedStartFileUpdaterReason = if ($triggerUsesDefinedStartFileUpdater) { 'terminal-close-uses-defined-start-file-updater' } else { 'terminal-close-references-undefined-start-file-updater' }

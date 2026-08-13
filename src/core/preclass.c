@@ -345,6 +345,16 @@ void wc_preclass_resolve_route_decision(const char* start_host,
         out_decision->action = "step47-eligible";
 }
 
+int wc_preclass_classification_is_allocated_control(const char* cls,
+        const char* rir)
+{
+    if (!cls || !*cls || !rir || !*rir)
+        return 0;
+    if (strcmp(cls, "allocated") != 0 && strcmp(cls, "legacy") != 0)
+        return 0;
+    return strcmp(rir, "none") != 0 && strcmp(rir, "unknown") != 0;
+}
+
 /* Decision-field normalization remains a separate output concern. */
 void wc_preclass_resolve_decision_fields(const char* query,
 		const char* decision_action,

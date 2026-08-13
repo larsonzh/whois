@@ -44,6 +44,12 @@ void wc_preclass_resolve_route_decision(const char* start_host,
         int step47_trial_candidate,
         wc_preclass_route_decision_t* out_decision);
 
+// Returns 1 when the classified query is allocated/control (allocated or
+// legacy with a real RIR hint); such queries must never be admitted into
+// the reserved/special early-unknown short-circuit candidate set.
+int wc_preclass_classification_is_allocated_control(const char* cls,
+        const char* rir);
+
 // Resolves trial/action decision fields into a stable, log-ready view.
 void wc_preclass_resolve_decision_fields(const char* query,
         const char* decision_action,

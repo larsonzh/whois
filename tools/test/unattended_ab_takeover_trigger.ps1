@@ -2949,9 +2949,14 @@ while ($true) {
                 $handledAck = Test-FinalTicketHandled -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken -ExpectedTicketId $finalTicketId
                 if (-not [bool]$handledAck.confirmed) {
                     $state = Get-LatestDispatchRelayState -QueueRoot $queueRoot -StartFileToken $startFileToken -LegacyStartFileToken $startFileLegacyToken
-                    $stateAgeSeconds = if ($null -ne $state.updated_at_utc) { [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $state.updated_at_utc).TotalSeconds)) } else { -1 }
+                    $stateMatchesFinalTicket = (
+                        [bool]$state.loaded -and
+                        [string]::Equals((Convert-ToSingleLineText -Text ([string]$state.ticket_id)), $finalTicketId, [System.StringComparison]::Ordinal) -and
+                        [string]::Equals((Convert-ToSingleLineText -Text ([string]$state.event)), $finalEventName, [System.StringComparison]::OrdinalIgnoreCase)
+                    )
+                    $stateAgeSeconds = if ($stateMatchesFinalTicket -and $null -ne $state.updated_at_utc) { [int][Math]::Max(0, [Math]::Round(((Get-Date).ToUniversalTime() - $state.updated_at_utc).TotalSeconds)) } else { -1 }
                     Write-TriggerLog ('auto_stop_deferred reason=final-ticket-not-handled gate={0} signature={1} ticket={2} check_reason={3} state_age_seconds={4}' -f $finalStopGateMode, $finalSignature, $finalTicketId, [string]$handledAck.reason, $stateAgeSeconds)
-                    if ($stateAgeSeconds -ge $finalReceiptRetrySeconds -and -not [string]::IsNullOrWhiteSpace([string]$state.brief_path) -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
+                    if ($stateMatchesFinalTicket -and $stateAgeSeconds -ge $finalReceiptRetrySeconds -and -not [string]::IsNullOrWhiteSpace([string]$state.brief_path) -and -not [string]::IsNullOrWhiteSpace($triggerCommandValue) -and $executeCommand) {
                         $retryBriefPath = Resolve-RepoPathAllowMissing -Path ([string]$state.brief_path)
                         if (Test-Path -LiteralPath $retryBriefPath) {
                             $retryPlan = Resolve-ExternalTriggerExecutionPlan -Template $triggerCommandValue -TicketId $finalTicketId -EventName $finalEventName -StartFilePath $startFilePath -QueueFilePath $queueFilePath -BriefPath $retryBriefPath
