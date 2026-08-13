@@ -1,0 +1,191 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx3-prep-first-hop-slice-a-d1-d4-20270415-20270421",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-3 preparatory capability slice A (serial 47): introduce the Phase B classifier-preferred first hop inside client_flow.c. The controlled switch temporarily reuses the existing --enable-preclass-actions flag (preclass_action_enable, default off) as a transitional gate for this slice only; a dedicated --enable-preclass-first-hop option is planned for the follow-up slice (49/50) that completes cross-platform option parsing, after which this gate switches to the dedicated flag. --disable-address-preclass remains the full rollback. allocated/legacy classifications with a real RIR hint get the canonical RIR host as first hop for implicit (no -h) batch and single queries; unknown/low-confidence, reserved/special and non-IP queries keep the legacy startup strategy. Explicit -h stays bypassed, stdout/stderr contract unchanged; P0/P1/Step47 matrix contracts unaffected because the flag is off in those suites.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Forward-declare the Config-bound classifier-preferred first-hop helper in client_flow.c.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "static const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_guess_query_rir_host\\(const char\\* query\\);\nstatic int wc_client_is_step47_trial_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "replacement": "static const char* wc_client_guess_query_rir_host(const char* query);\nstatic const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query);\nstatic int wc_client_is_step47_trial_candidate(const Config* config,\n    const char* query);",
+          "idempotentContains": [
+            "static const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "first-hop-helper-declared",
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Define the classifier-preferred first-hop helper: when preclass actions are enabled and preclass is not disabled, classify the query and return the canonical RIR host for allocated/legacy classifications with a real RIR hint; otherwise return NULL so callers keep the legacy startup strategy.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "if (wc_preclass_classification_is_allocated_control(cls, rir))\n        return wc_dns_canonical_host_for_rir(rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    return wc_dns_canonical_host_for_rir\\(rir\\);\n}\n\nstatic int wc_client_is_step47_trial_candidate\\(const Config\\* config,",
+          "replacement": "    return wc_dns_canonical_host_for_rir(rir);\n}\n\nstatic const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query)\n{\n    const char* family = NULL;\n    const char* cls = NULL;\n    const char* rir = NULL;\n    const char* reason = NULL;\n    const char* confidence = NULL;\n\n    if (!config || !query || !*query)\n        return NULL;\n    if (!config->preclass_action_enable)\n        return NULL;\n    if (config->disable_address_preclass)\n        return NULL;\n    wc_preclass_classify_ip(query, &family, &cls, &rir,\n        &reason, &confidence);\n    if (wc_preclass_classification_is_allocated_control(cls, rir))\n        return wc_dns_canonical_host_for_rir(rir);\n    return NULL;\n}\n\nstatic int wc_client_is_step47_trial_candidate(const Config* config,",
+          "idempotentContains": [
+            "if (wc_preclass_classification_is_allocated_control(cls, rir))\n        return wc_dns_canonical_host_for_rir(rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "first-hop-helper-defined",
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "first-hop-action-flag-gate",
+          "target": "client_flow",
+          "pattern": "if \\(!config->preclass_action_enable\\)\n        return NULL;",
+          "expectedCount": 1
+        },
+        {
+          "name": "first-hop-classifier-canonical-call",
+          "target": "client_flow",
+          "pattern": "if \\(wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n        return wc_dns_canonical_host_for_rir\\(rir\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Wire the classifier-preferred first hop into the batch start-host candidate collection: try the classifier hint first and keep the legacy guess as fallback.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "const char* guessed = wc_client_preclass_first_hop_hint(config, query);",
+          "wc_client_collect_batch_start_candidates(\n        config, server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static size_t wc_client_collect_batch_start_candidates\\(const char\\* server_host,\n        const char\\* query,\n        const char\\* out\\[\\],\n        size_t capacity\\)\n\\{\n    if \\(!out \\|\\| capacity == 0\\)\n        return 0;\n    size_t count = 0;\n    const char\\* normalized_server = server_host \\?\n        wc_dns_normalize_batch_host\\(server_host\\) : NULL;\n    if \\(normalized_server && \\*normalized_server && count < capacity\\)\n        out\\[count\\+\\+\\] = normalized_server;\n    const char\\* guessed = wc_client_guess_query_rir_host\\(query\\);",
+          "replacement": "static size_t wc_client_collect_batch_start_candidates(const Config* config,\n        const char* server_host,\n        const char* query,\n        const char* out[],\n        size_t capacity)\n{\n    if (!out || capacity == 0)\n        return 0;\n    size_t count = 0;\n    const char* normalized_server = server_host ?\n        wc_dns_normalize_batch_host(server_host) : NULL;\n    if (normalized_server && *normalized_server && count < capacity)\n        out[count++] = normalized_server;\n    const char* guessed = wc_client_preclass_first_hop_hint(config, query);\n    if (!guessed)\n        guessed = wc_client_guess_query_rir_host(query);",
+          "idempotentContains": [
+            "const char* guessed = wc_client_preclass_first_hop_hint(config, query);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    size_t candidate_count = wc_client_collect_batch_start_candidates\\(\n        server_host, query, candidates, WC_BATCH_MAX_CANDIDATES\\);",
+          "replacement": "    size_t candidate_count = wc_client_collect_batch_start_candidates(\n        config, server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);",
+          "idempotentContains": [
+            "wc_client_collect_batch_start_candidates(\n        config, server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "batch-classifier-candidate-slot",
+          "target": "client_flow",
+          "pattern": "const char\\* guessed = wc_client_preclass_first_hop_hint\\(config, query\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "batch-guess-fallback-kept",
+          "target": "client_flow",
+          "pattern": "guessed = wc_client_guess_query_rir_host\\(query\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "batch-collector-config-arg",
+          "target": "client_flow",
+          "pattern": "wc_client_collect_batch_start_candidates\\(\n        config, server_host, query, candidates, WC_BATCH_MAX_CANDIDATES\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-collector-signature-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_collect_batch_start_candidates\\(const char\\* server_host,",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Wire the classifier-preferred first hop into the implicit single-query path, keeping the legacy guess as fallback.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "hinted = wc_client_preclass_first_hop_hint(config, single_query);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "        const char\\* hinted = NULL;\n        if \\(\\(!server_host \\|\\| !\\*server_host\\) && config &&\n            !config->disable_address_preclass\\)\n            hinted = wc_client_guess_query_rir_host\\(single_query\\);",
+          "replacement": "        const char* hinted = NULL;\n        if ((!server_host || !*server_host) && config &&\n            !config->disable_address_preclass) {\n            hinted = wc_client_preclass_first_hop_hint(config, single_query);\n            if (!hinted)\n                hinted = wc_client_guess_query_rir_host(single_query);\n        }",
+          "idempotentContains": [
+            "hinted = wc_client_preclass_first_hop_hint(config, single_query);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "single-path-classifier-hint",
+          "target": "client_flow",
+          "pattern": "hinted = wc_client_preclass_first_hop_hint\\(config, single_query\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-path-guess-fallback-kept",
+          "target": "client_flow",
+          "pattern": "hinted = wc_client_guess_query_rir_host\\(single_query\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-direct-guess-removed",
+          "target": "client_flow",
+          "pattern": "!config->disable_address_preclass\\)\n            hinted = wc_client_guess_query_rir_host\\(single_query\\);",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}

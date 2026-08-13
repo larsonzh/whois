@@ -1,0 +1,255 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx3-prep-first-hop-slice-b-d1-d4-20270422-20270428",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-3 preparatory capability slice B (serial 48) follows A/47: extract the classifier-preferred first-hop host resolution into a public Config-independent preclass API and expose classifier-rir-hint as a distinct PRECLASS-DECISION route action. Flag gating stays Config-bound in client_flow and temporarily uses preclass_action_enable (via --enable-preclass-actions) until the dedicated --enable-preclass-first-hop option lands in the follow-up slice (49/50); explicit -h, --disable-address-preclass and stdout/stderr contract unchanged.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the public Config-independent classifier-preferred first-hop host API in the preclass header.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "const char* wc_preclass_classification_first_hop_host(const char* cls,\n        const char* rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "int wc_preclass_classification_is_allocated_control\\(const char\\* cls,\n        const char\\* rir\\);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "replacement": "int wc_preclass_classification_is_allocated_control(const char* cls,\n        const char* rir);\n\n// Returns the canonical WHOIS host for the classification when the Phase B\n// classifier-preferred first hop applies (allocated/legacy with a real RIR\n// hint); otherwise returns NULL and callers keep the legacy startup strategy.\nconst char* wc_preclass_classification_first_hop_host(const char* cls,\n        const char* rir);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "idempotentContains": [
+            "const char* wc_preclass_classification_first_hop_host(const char* cls,\n        const char* rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "public-first-hop-api-declared",
+          "target": "preclass_header",
+          "pattern": "const char\\* wc_preclass_classification_first_hop_host\\(const char\\* cls,\n        const char\\* rir\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Include the DNS header and implement the Config-independent classifier-preferred first-hop host resolver in preclass.c.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "#include \"wc/wc_dns.h\"",
+          "if (!wc_preclass_classification_is_allocated_control(cls, rir))\n        return NULL;\n    return wc_dns_canonical_host_for_rir(rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "#include \"wc/wc_client_util.h\"\n#include \"wc/wc_server.h\"",
+          "replacement": "#include \"wc/wc_client_util.h\"\n#include \"wc/wc_dns.h\"\n#include \"wc/wc_server.h\"",
+          "idempotentContains": [
+            "#include \"wc/wc_dns.h\""
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "    return strcmp\\(rir, \"none\"\\) != 0 && strcmp\\(rir, \"unknown\"\\) != 0;\n}\n\n/\\* Decision-field normalization remains a separate output concern. \\*/",
+          "replacement": "    return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;\n}\n\nconst char* wc_preclass_classification_first_hop_host(const char* cls,\n        const char* rir)\n{\n    if (!wc_preclass_classification_is_allocated_control(cls, rir))\n        return NULL;\n    return wc_dns_canonical_host_for_rir(rir);\n}\n\n/* Decision-field normalization remains a separate output concern. */",
+          "idempotentContains": [
+            "if (!wc_preclass_classification_is_allocated_control(cls, rir))\n        return NULL;\n    return wc_dns_canonical_host_for_rir(rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "dns-header-included",
+          "target": "preclass_source",
+          "pattern": "#include \"wc/wc_dns.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "public-first-hop-api-defined",
+          "target": "preclass_source",
+          "pattern": "const char\\* wc_preclass_classification_first_hop_host\\(const char\\* cls,\n        const char\\* rir\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "public-first-hop-delegates",
+          "target": "preclass_source",
+          "pattern": "if \\(!wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n        return NULL;\n    return wc_dns_canonical_host_for_rir\\(rir\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Delegate the client_flow classifier-preferred first-hop helper to the public preclass API, removing the inline canonical-host call.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "return wc_preclass_classification_first_hop_host(cls, rir);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    wc_preclass_classify_ip\\(query, &family, &cls, &rir,\n        &reason, &confidence\\);\n    if \\(wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n        return wc_dns_canonical_host_for_rir\\(rir\\);\n    return NULL;\n}",
+          "replacement": "    wc_preclass_classify_ip(query, &family, &cls, &rir,\n        &reason, &confidence);\n    return wc_preclass_classification_first_hop_host(cls, rir);\n}",
+          "idempotentContains": [
+            "return wc_preclass_classification_first_hop_host(cls, rir);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "client-helper-delegates-public-api",
+          "target": "client_flow",
+          "pattern": "return wc_preclass_classification_first_hop_host\\(cls, rir\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-inline-canonical-call-removed",
+          "target": "client_flow",
+          "pattern": "if \\(wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n        return wc_dns_canonical_host_for_rir\\(rir\\);",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Expose classifier-rir-hint as a distinct route decision action: extend the public resolver signature, emit the new action when the classifier hint actually supplied the start host, keep the route-change whitelist consistent, and compute the flag in the client decision resolver.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "int classifier_hint_applied,\n        int step47_early_unknown,"
+        ],
+        "preclass_source": [
+          "static const char* wc_preclass_action_classifier_rir_hint_literal(void)",
+          "out_decision->action = \"classifier-rir-hint\";",
+          "wc_preclass_action_classifier_rir_hint_literal()) &&"
+        ],
+        "client_flow": [
+          "classifier_hint_applied,\n        preclass_enabled &&"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,",
+          "replacement": "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int step47_early_unknown,",
+          "idempotentContains": [
+            "int classifier_hint_applied,\n        int step47_early_unknown,"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_hint_applied_literal\\(void\\)\n\\{\n\treturn \"hint-applied\";\n\\}\n\nstatic const char\\* wc_preclass_action_preclass_short_circuit_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_action_hint_applied_literal(void)\n{\n\treturn \"hint-applied\";\n}\n\nstatic const char* wc_preclass_action_classifier_rir_hint_literal(void)\n{\n\treturn \"classifier-rir-hint\";\n}\n\nstatic const char* wc_preclass_action_preclass_short_circuit_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_action_classifier_rir_hint_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t\\* out_decision\\)\n\\{\n    if \\(!out_decision\\)\n        return;\n\n    out_decision->action = \"hint-bypassed\";\n    out_decision->route_change = 0;\n    out_decision->short_circuit = 0;\n    out_decision->start_host = start_host;\n\n    if \\(has_explicit_host\\)\n        return;\n    if \\(hint_applied\\) \\{",
+          "replacement": "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t* out_decision)\n{\n    if (!out_decision)\n        return;\n\n    out_decision->action = \"hint-bypassed\";\n    out_decision->route_change = 0;\n    out_decision->short_circuit = 0;\n    out_decision->start_host = start_host;\n\n    if (has_explicit_host)\n        return;\n    if (classifier_hint_applied) {\n        out_decision->action = \"classifier-rir-hint\";\n        out_decision->route_change = 1;\n        return;\n    }\n    if (hint_applied) {",
+          "idempotentContains": [
+            "out_decision->action = \"classifier-rir-hint\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\t\t!wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_hint_applied_literal\\(\\)\\) &&\n\t\t!wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_preclass_short_circuit_literal\\(\\)\\) &&",
+          "replacement": "\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_hint_applied_literal()) &&\n\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_classifier_rir_hint_literal()) &&\n\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_preclass_short_circuit_literal()) &&",
+          "idempotentContains": [
+            "wc_preclass_action_classifier_rir_hint_literal()) &&"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    const int hint_applied = start_host && \\*start_host &&\n        strcasecmp\\(start_host, wc_server_default_batch_host\\(\\)\\) != 0;\n\n    wc_preclass_resolve_route_decision\\(start_host, has_explicit_host,\n        hint_applied,\n        preclass_enabled &&",
+          "replacement": "    const int hint_applied = start_host && *start_host &&\n        strcasecmp(start_host, wc_server_default_batch_host()) != 0;\n    const char* classifier_hint =\n        wc_client_preclass_first_hop_hint(config, query);\n    const int classifier_hint_applied =\n        (classifier_hint && start_host &&\n            strcasecmp(classifier_hint, start_host) == 0) ? 1 : 0;\n\n    wc_preclass_resolve_route_decision(start_host, has_explicit_host,\n        hint_applied,\n        classifier_hint_applied,\n        preclass_enabled &&",
+          "idempotentContains": [
+            "classifier_hint_applied,\n        preclass_enabled &&"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "route-decision-signature-extended",
+          "target": "preclass_header",
+          "pattern": "int classifier_hint_applied,\n        int step47_early_unknown,",
+          "expectedCount": 1
+        },
+        {
+          "name": "classifier-hint-literal-defined",
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_classifier_rir_hint_literal\\(void\\)\n\\{\n\treturn \"classifier-rir-hint\";\n\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "classifier-hint-branch-emitted",
+          "target": "preclass_source",
+          "pattern": "if \\(classifier_hint_applied\\) \\{\n        out_decision->action = \"classifier-rir-hint\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "route-change-whitelist-extended",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_action_classifier_rir_hint_literal\\(\\)\\) &&",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-classifier-hint-computed",
+          "target": "client_flow",
+          "pattern": "const int classifier_hint_applied =\n        \\(classifier_hint && start_host &&",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-pass-through-extended",
+          "target": "client_flow",
+          "pattern": "hint_applied,\n        classifier_hint_applied,\n        preclass_enabled &&",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-pass-through-removed",
+          "target": "client_flow",
+          "pattern": "wc_preclass_resolve_route_decision\\(start_host, has_explicit_host,\n        hint_applied,\n        preclass_enabled &&",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}
