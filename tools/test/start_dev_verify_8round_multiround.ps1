@@ -991,14 +991,14 @@ function Test-TaskDefinitionDesignQuality {
         }
     }
 
-    foreach ($tag in @("D1", "D2", "D3")) {
+    foreach ($tag in $required) {
         if (-not $RoundTaskMap.ContainsKey($tag)) {
             continue
         }
 
         $task = $RoundTaskMap[$tag]
         $typeText = Get-TaskTypeText -RoundTask $task
-        if ($typeText -eq "noop") {
+        if ($typeText -eq "noop" -and $tag -ne "D4") {
             $errors += "$tag type=noop is not allowed for development rounds"
         }
 
@@ -1019,26 +1019,25 @@ function Test-TaskDefinitionDesignQuality {
                 $errors += "$tag regex-patch missing operations"
             }
 
-            $markers = @()
+            $markerCount = 0
             if ($task.PSObject.Properties.Name -contains "idempotentContains") {
                 $rawMarkers = $task.idempotentContains
                 if ($rawMarkers -is [string]) {
-                    $markers = @($rawMarkers)
+                    $markerCount += @($rawMarkers | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
                 }
                 else {
-                    $markers = @($rawMarkers)
+                    $markerCount += @($rawMarkers | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
                 }
             }
-            if ($markers.Count -eq 0) {
-                $warnings += "$tag regex-patch missing idempotentContains"
+            if ($task.PSObject.Properties.Name -contains "idempotentContainsByTarget" -and
+                $null -ne $task.idempotentContainsByTarget) {
+                foreach ($targetProperty in @($task.idempotentContainsByTarget.PSObject.Properties)) {
+                    $markerCount += @($targetProperty.Value | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+                }
             }
-        }
-    }
-
-    if ($RoundTaskMap.ContainsKey("D4")) {
-        $d4Type = Get-TaskTypeText -RoundTask $RoundTaskMap["D4"]
-        if ($d4Type -ne "noop") {
-            $warnings += "D4 type is '$d4Type' (recommended noop for freeze round)"
+            if ($markerCount -eq 0) {
+                $warnings += "$tag regex-patch missing idempotentContains/idempotentContainsByTarget"
+            }
         }
     }
 
