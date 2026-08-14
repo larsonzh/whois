@@ -4,9 +4,10 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
-- 2026-08-13：串行第 45/46 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-01 ~ 2027-04-14`（Vx-2 Step 4.7 受控放量切片，A=R0 候选治理 / B=公共候选治理 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260813-044152，B run=out/artifacts/dev_verify_multiround/20260813-113036）；B 首跑 D1 编译/验证失败经 guard incident 重启后收敛（`incident_20260813-112537`），根因 8.8.8.8 baseline 实况查询 `BaseAuth=error` 网络瞬态，判定非代码缺陷、未修改任务定义/源码、未触发代码/脚本自愈；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260813-223230`，285s）（详见 24.08~24.10）。
+- 2026-08-15：新增串行第 49/50 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-04-29 ~ 2027-05-12`，A/49=Vx-3 收尾：专用首跳开关与跨平台补齐 / B/50=Vx-4：Phase C reserved/special 早收敛受控开关），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270429_20270505.json`、`testdata/autopilot_code_step_tasks_20270506_20270512.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270429-20270512.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与有效源码编译验证均通过；按用户指令，USAGE_CN/EN、规则 RFC、RELEASE_NOTES 的文档同步由后续直接编辑完成，不属于本 A/B 任务定义内容（详见 24.14~24.16）。
 - 2026-08-15：串行第 47/48 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-15 ~ 2027-04-28`（Vx-3 预备能力切片，A=分类器优先首跳接入 / B=公共分类器首跳 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260814-052520，B run=out/artifacts/dev_verify_multiround/20260814-122229）；A 启动期经一次计划性维护（TASK-DESIGN 旧式检查误报 → 修复 `start_dev_verify_8round_multiround.ps1` 兼容 V1/Vx marker 并取消 D4 noop 建议，提交 `d505e69e`，`-UseTemplateBaseline` 全新建档重启 A）后一次通过，无事故票、无自愈；A→B 交接与 chat-session-final-status 事件评审闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260815-032547`，179s）（详见 24.11~24.13）。
 - 2026-08-14：新增串行第 47/48 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-04-15 ~ 2027-04-28`，**Vx-3 预备能力切片**（Phase B 默认首跳迁移前置），A=分类器优先首跳接入 / B=公共分类器首跳 API），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270415_20270421.json`、`testdata/autopilot_code_step_tasks_20270422_20270428.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270415-20270428.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与有效源码编译验证均通过；受控开关**暂**复用 `--enable-preclass-actions`（临时过渡，专用 `--enable-preclass-first-hop` 由 49/50 补齐），默认首跳翻转与规则 RFC/使用文档/发布说明/矩阵同步在专用开关验证稳定后单独评审（详见 24.11~24.13 的覆盖边界与开关定调）。
+- 2026-08-13：串行第 45/46 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-01 ~ 2027-04-14`（Vx-2 Step 4.7 受控放量切片，A=R0 候选治理 / B=公共候选治理 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260813-044152，B run=out/artifacts/dev_verify_multiround/20260813-113036）；B 首跑 D1 编译/验证失败经 guard incident 重启后收敛（`incident_20260813-112537`），根因 8.8.8.8 baseline 实况查询 `BaseAuth=error` 网络瞬态，判定非代码缺陷、未修改任务定义/源码、未触发代码/脚本自愈；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260813-223230`，285s）（详见 24.08~24.10）。
 - 2026-08-11：串行第 43/44 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-16 ~ 2027-03-31`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260810-141835，B run=out/artifacts/dev_verify_multiround/20260811-020525）；A-D1、B-V1 各 1 起失败经 guard incident 重启后收敛，未触发代码/脚本自愈；B 承接 A snapshot，V2 按原设计（D1-D3 出现 1 个安全运行时 D-NOP）快跳；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260811-112808`，193s）（详见 24.05~24.07）。
 - 2026-08-10：完成 Address-Space 前置分类器阶段路线审查与新鲜定向复检：P0 最小矩阵 `pass=12 fail=0`、P1 分组阈值门禁 `pass=232 fail=0 group_gate_fail=0`、Step47 preflight `pass=5 fail=0`。审查确认 P0/P1/P2 工程化基线及 Step 4.7 受控能力已具备，但 Phase B 默认首跳迁移与 Phase C reserved 早收敛尚未完成默认放量；串行第 41/42 份完成后停止新编单文件 V1 清理任务，历史 V1 保留用于兼容与追溯，后续功能开发统一转为 Vx 多文件切片（详见 24.04）。
 - 2026-08-10：串行第 41/42 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-02 ~ 2027-03-15`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260809-114503，B run=out/artifacts/dev_verify_multiround/20260809-201456）；全程 0 起事故、无自愈、无重启，一次通过；A 阶段于 2026-08-09 20:15:07 完成（0d 08:30:42），B 阶段于 2026-08-10 02:52:12 完成（0d 06:37:48），会话结束 2026-08-10 02:52:12；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260810-053425`，212s）（详见 24.01~24.03）。
@@ -4070,5 +4071,88 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
   - 命令：`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0`（Strict Version）。
   - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 179s。
   - 产物目录：`out/artifacts/20260815-032547/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/`、`SHA256SUMS-static.txt`）。
+
+#### 24.14 下次开工清单（Vx 多文件：Vx-3 收尾——专用首跳开关与跨平台补齐，2027-04-29 ~ 2027-05-05，串行第 49 份，Checklist A，草案）
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270429_20270505.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`opts_source`（`src/core/opts.c`）、`client_meta`（`src/core/client_meta.c`）、`opts_header`（`include/wc/wc_opts.h`）、`config_header`（`include/wc/wc_config.h`）、`meta_source`（`src/core/meta.c`）、`client_runner`（`src/core/client_runner.c`）、`client_flow`（`src/core/client_flow.c`）。
+> 设计说明：本切片补齐 47/48 未实现的 Vx-3 收尾内容——把临时过渡开关 `--enable-preclass-actions` 替换为专用 `--enable-preclass-first-hop`。为把 `opts.c`/`client_meta.c` 纳入 Vx 目标闭包，先做真实跨平台条件编译补齐（POSIX getopt/unistd 保留给 Linux/macOS；`_WIN32/__MINGW32__` 使用兼容短/长选项的最小 getopt shim，导出 `optind/optarg`，并提供 `_isatty/_fileno` 与 `strcasecmp/_stricmp` 映射），再声明/映射/解析新开关并切换 `client_flow` 门禁；D4 将专用首跳开关默认启用，完成 Vx-3 默认首跳迁移。显式 `-h` 保持旁路，`--disable-address-preclass` 保持全量回退。按用户指令，USAGE_CN/EN、规则 RFC、RELEASE_NOTES 的文档同步由后续**直接编辑**完成，不属于本 A/B 任务定义内容。
+
+**八轮约束与开发目标**：
+
+1. [ ] A 使用 `restore-source`，仅在第 48 份完成后串行启动；范围固定为 D1~D4 + V1~V4，禁止自动提交与推送。
+2. [ ] D1：`opts.c` 与 `client_meta.c` 跨平台条件编译补齐（POSIX 分支保留 getopt/unistd；Windows/MinGW 分支提供最小 getopt shim 与 `_isatty/_fileno`、`strcasecmp/_stricmp` 映射）。
+3. [ ] D2：声明 `preclass_first_hop_enable` 字段（opts/Config）、解析 `--enable-preclass-first-hop`（id 1320）、写入 usage、映射到 Config、默认关。
+4. [ ] D3：`client_flow.c` 首跳门禁从 `preclass_action_enable` 切换到 `preclass_first_hop_enable`。
+5. [ ] D4：默认启用 `preclass_first_hop_enable` 并同步内置帮助为 default-on，完成 Vx-3 默认首跳迁移；显式 `-h` 与全量回退边界保持不变。
+6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+
+**目标注册表**：
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `opts_source` | `src/core/opts.c` | c-source | existing | D1、D2 |
+| `client_meta` | `src/core/client_meta.c` | c-source | existing | D1、D2 |
+| `opts_header` | `include/wc/wc_opts.h` | c-header | existing | D2 |
+| `config_header` | `include/wc/wc_config.h` | c-header | existing | D2 |
+| `meta_source` | `src/core/meta.c` | c-source | existing | D2、D4 |
+| `client_runner` | `src/core/client_runner.c` | c-source | existing | D2、D4 |
+| `client_flow` | `src/core/client_flow.c` | c-source | existing | D3 |
+
+- `defaultTarget`: `client_flow`
+- `target_set_sha256`: `202d1ce1ea1dddb1bd4f2ec9f903cbd1b4c0ae3e4378614462eacc06fcbb48e6`
+
+**编制期验收（已完成，2026-08-15）**：
+
+- [x] TODO-free、`-SyntaxOnly` 装载检查：PASS（`targets=7`，`target_set_sha256=202d1ce1...`）。
+- [x] A 全定义静态检查：`errors=0 warnings=0 infos=23`；各轮 mandatory local clang 语法门禁通过（含 getopt shim 编译与 Vx-3 默认迁移）。
+- [x] Vx 专项安全回归（`task_definition_safety_regression.ps1`）：`result=pass`。
+
+#### 24.15 下次开工清单（Vx 多文件：Vx-4 Phase C reserved/special 早收敛受控开关，2027-05-06 ~ 2027-05-12，串行第 50 份，Checklist B，草案）
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270506_20270512.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：A/49 全部 7 目标 + `preclass_header`（`include/wc/wc_preclass.h`）、`preclass_source`（`src/core/preclass.c`）、`selftest_source`（`src/core/selftest.c`）；静态检查必须以第 49 份任务定义作为 prerequisite。
+> 设计说明：本切片为 Vx-4（Phase C reserved/special 早收敛）受控开关切片——新增专用 `--enable-preclass-early-converge`（默认关）与分类器驱动早收敛候选：高置信 `reserved|special` 且 `rir=none` 的查询在未显式 `-h` 时短路收敛 unknown；unknown/low-confidence 与 allocated/legacy 保留旧策略；显式 `-h` 旁路；`--disable-address-preclass` 全量回退。路由决策新增 `early_converge` 候选位并输出 `preclass-early-converge-unknown` 动作。默认行为不变（默认关）；默认翻转留待独立评审（与 24.04 红线一致）。按用户指令，文档同步由后续直接编辑完成。
+
+**八轮约束与开发目标**：
+
+1. [ ] B 仅在 A `result=pass` 且 A success snapshot 完整后启动，使用 `state-only` 承接；A 失败必须阻断 B。
+2. [ ] D1：声明 `preclass_early_converge_enable` 字段（opts/Config）。
+3. [ ] D2：解析 `--enable-preclass-early-converge`（id 1321）、写入 usage、映射到 Config、默认关。
+4. [ ] D3：`preclass` 头/源新增公共早收敛纯策略、扩展 `wc_preclass_resolve_route_decision` 的 `early_converge` 位，新增稳定 action literal 并纳入 route-change 白名单；`client_flow.c` 委托公共策略并接入路由决策。
+5. [ ] D4：在 `selftest.c` 增加确定性 Phase C 策略/路由/显式主机旁路测试，并覆盖 A/49 的短选项与长选项解析兼容性。
+6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+
+**目标注册表**：
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `opts_header` | `include/wc/wc_opts.h` | c-header | existing | D1 |
+| `config_header` | `include/wc/wc_config.h` | c-header | existing | D1 |
+| `opts_source` | `src/core/opts.c` | c-source | existing | D2 |
+| `meta_source` | `src/core/meta.c` | c-source | existing | D2 |
+| `client_meta` | `src/core/client_meta.c` | c-source | existing | D2 |
+| `client_runner` | `src/core/client_runner.c` | c-source | existing | D2 |
+| `preclass_header` | `include/wc/wc_preclass.h` | c-header | existing | D3 |
+| `preclass_source` | `src/core/preclass.c` | c-source | existing | D3 |
+| `client_flow` | `src/core/client_flow.c` | c-source | existing | D3 |
+| `selftest_source` | `src/core/selftest.c` | c-source | existing | D4 |
+
+- `defaultTarget`: `client_flow`
+- `target_set_sha256`: `44dd321e762580abbee562b423e3cda7dc541ce77e794f5742bbfef41d9cdaae`
+- 与 A/49 的 target set 关系：并集（A/49 的 7 目标 ∪ preclass 头/源 ∪ selftest）。
+
+**编制期验收（已完成，2026-08-15）**：
+
+- [x] TODO-free、`-SyntaxOnly` 装载检查：PASS（`targets=10`，`target_set_sha256=44dd321e...`）。
+- [x] 以 A/49 为 prerequisite 的链式全定义静态检查：`errors=0 warnings=0 infos=51`；`-RoundTag D1 -ChainRounds` 链式检查 `errors=0 warnings=0`。
+- [x] Vx 专项安全回归：`result=pass`。
+
+#### 24.16 对应任务启动文件（2026-08-15，草案）
+
+- 启动文件：`testdata/unattended_start/active/unattended_ab_start_20270429-20270512.md`。
+- 绑定 A/49 与 B/50，`WINDOW=2027-04-29 ~ 2027-05-12`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
+- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`（启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填）。
+- 状态：准备完成，待用户确认与启动授权；未授权前不启动 A/B。
 
 

@@ -1,0 +1,462 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx4-phasec-early-converge-switch-d1-d4-20270506-20270512",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "client_runner",
+      "file": "src/core/client_runner.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_meta",
+      "file": "src/core/client_meta.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "opts_header",
+      "file": "include/wc/wc_opts.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "config_header",
+      "file": "include/wc/wc_config.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "opts_source",
+      "file": "src/core/opts.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "meta_source",
+      "file": "src/core/meta.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "selftest_source",
+      "file": "src/core/selftest.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-4 Phase C reserved/special early convergence (serial 50) follows A/49 (Vx-3). Add a dedicated, default-off --enable-preclass-early-converge switch and a classifier-driven early-converge candidate path: high-confidence reserved/special classifications with rir=none short-circuit to unknown for implicit (no -h) queries; unknown/low-confidence and allocated/legacy keep the legacy strategy; explicit -h stays bypassed; --disable-address-preclass remains the full rollback. The route decision gains an early_converge candidate slot emitted as a distinct PRECLASS-DECISION action. Default behavior stays unchanged (default off); the default-on migration is reserved for a separate review. Per user direction, project documentation edits are handled separately outside this A/B task definition.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the dedicated Phase C early-converge option field in the options header and the Config structure.",
+      "idempotentContainsByTarget": {
+        "opts_header": [
+          "int preclass_early_converge_enable; // --enable-preclass-early-converge (Phase C reserved/special early converge, trial off)"
+        ],
+        "config_header": [
+          "int preclass_early_converge_enable; // Enable Phase C reserved/special early converge (default off)"
+        ]
+      },
+      "operations": [
+        {
+          "target": "opts_header",
+          "pattern": "    int preclass_first_hop_enable; // --enable-preclass-first-hop \\(Phase B classifier-preferred first hop, trial off\\)\n    int show_selftest;           // --selftest",
+          "replacement": "    int preclass_first_hop_enable; // --enable-preclass-first-hop (Phase B classifier-preferred first hop, trial off)\n    int preclass_early_converge_enable; // --enable-preclass-early-converge (Phase C reserved/special early converge, trial off)\n    int show_selftest;           // --selftest",
+          "idempotentContains": [
+            "int preclass_early_converge_enable; // --enable-preclass-early-converge (Phase C reserved/special early converge, trial off)"
+          ]
+        },
+        {
+          "target": "config_header",
+          "pattern": "\tint preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop \\(default off\\)\n\tint fold_unique;               // Deduplicate folded output segments when enabled",
+          "replacement": "\tint preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop (default off)\n\tint preclass_early_converge_enable; // Enable Phase C reserved/special early converge (default off)\n\tint fold_unique;               // Deduplicate folded output segments when enabled",
+          "idempotentContains": [
+            "int preclass_early_converge_enable; // Enable Phase C reserved/special early converge (default off)"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "opts-field-declared",
+          "target": "opts_header",
+          "pattern": "int preclass_early_converge_enable; // --enable-preclass-early-converge \\(Phase C reserved/special early converge, trial off\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-field-declared",
+          "target": "config_header",
+          "pattern": "int preclass_early_converge_enable; // Enable Phase C reserved/special early converge \\(default off\\)",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Parse the new --enable-preclass-early-converge CLI option (id 1321), document it in usage, map it into the runtime Config and set its default to off.",
+      "idempotentContainsByTarget": {
+        "opts_source": [
+          "{\"enable-preclass-early-converge\", no_argument, 0, 1321},",
+          "case 1321: o->preclass_early_converge_enable = 1; break;"
+        ],
+        "meta_source": [
+          "\"      --enable-preclass-early-converge  Enable Phase C reserved/special early converge (default: off)\","
+        ],
+        "client_meta": [
+          "cfg->preclass_early_converge_enable = opts->preclass_early_converge_enable;"
+        ],
+        "client_runner": [
+          ".preclass_early_converge_enable = 0,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "opts_source",
+          "pattern": "    {\"enable-preclass-first-hop\", no_argument, 0, 1320},\n    {\"fold-unique\", no_argument, 0, 1012},",
+          "replacement": "    {\"enable-preclass-first-hop\", no_argument, 0, 1320},\n    {\"enable-preclass-early-converge\", no_argument, 0, 1321},\n    {\"fold-unique\", no_argument, 0, 1012},",
+          "idempotentContains": [
+            "{\"enable-preclass-early-converge\", no_argument, 0, 1321},"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "            case 1320: o->preclass_first_hop_enable = 1; break;\n            case 1012: o->fold_unique = 1; break;",
+          "replacement": "            case 1320: o->preclass_first_hop_enable = 1; break;\n            case 1321: o->preclass_early_converge_enable = 1; break;\n            case 1012: o->fold_unique = 1; break;",
+          "idempotentContains": [
+            "case 1321: o->preclass_early_converge_enable = 1; break;"
+          ]
+        },
+        {
+          "target": "meta_source",
+          "pattern": "    \"      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries \\(default: on\\)\",\n    \"      --debug-verbose       Extra verbose debug \\(cache/redirect instrumentation\\)\",",
+          "replacement": "    \"      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries (default: on)\",\n    \"      --enable-preclass-early-converge  Enable Phase C reserved/special early converge (default: off)\",\n    \"      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\",",
+          "idempotentContains": [
+            "\"      --enable-preclass-early-converge  Enable Phase C reserved/special early converge (default: off)\","
+          ]
+        },
+        {
+          "target": "client_meta",
+          "pattern": "\tcfg->step47_early_unknown_list = opts->step47_early_unknown_list;\n\tcfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;\n}",
+          "replacement": "\tcfg->step47_early_unknown_list = opts->step47_early_unknown_list;\n\tcfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;\n\tcfg->preclass_early_converge_enable = opts->preclass_early_converge_enable;\n}",
+          "idempotentContains": [
+            "cfg->preclass_early_converge_enable = opts->preclass_early_converge_enable;"
+          ]
+        },
+        {
+          "target": "client_runner",
+          "pattern": "    \\.preclass_first_hop_enable = 1,\n    \\.fold_unique = 0,",
+          "replacement": "    .preclass_first_hop_enable = 1,\n    .preclass_early_converge_enable = 0,\n    .fold_unique = 0,",
+          "idempotentContains": [
+            ".preclass_early_converge_enable = 0,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "long-option-entry",
+          "target": "opts_source",
+          "pattern": "\\{\"enable-preclass-early-converge\", no_argument, 0, 1321\\},",
+          "expectedCount": 1
+        },
+        {
+          "name": "switch-case",
+          "target": "opts_source",
+          "pattern": "case 1321: o->preclass_early_converge_enable = 1; break;",
+          "expectedCount": 1
+        },
+        {
+          "name": "usage-line",
+          "target": "meta_source",
+          "pattern": "enable-preclass-early-converge  Enable Phase C reserved/special early converge",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-mapping",
+          "target": "client_meta",
+          "pattern": "cfg->preclass_early_converge_enable = opts->preclass_early_converge_enable;",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-default",
+          "target": "client_runner",
+          "pattern": "\\.preclass_early_converge_enable = 0,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add the classifier-driven Phase C early-converge candidate helper in client_flow.c: when the dedicated switch is on and preclass is not disabled, classify the query and short-circuit high-confidence reserved/special with rir=none to unknown; wire it into the route decision via a new early_converge slot.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "int early_converge,\n        int step47_early_unknown,",
+          "int wc_preclass_classification_should_early_converge(const char* cls,"
+        ],
+        "preclass_source": [
+          "return \"preclass-early-converge-unknown\";",
+          "wc_preclass_action_early_converge_literal()) &&",
+          "out_decision->action = \"preclass-early-converge-unknown\";",
+          "return strcmp(confidence, \"high\") == 0;"
+        ],
+        "client_flow": [
+          "static int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query);",
+          "wc_client_is_phasec_early_converge_candidate(config, query),\n        preclass_enabled &&"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int step47_early_unknown,",
+          "replacement": "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int early_converge,\n        int step47_early_unknown,",
+          "idempotentContains": [
+            "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int early_converge,"
+          ]
+        },
+        {
+          "target": "preclass_header",
+          "pattern": "int wc_preclass_classification_is_allocated_control\\(const char\\* cls,\n        const char\\* rir\\);\n\n// Returns the canonical WHOIS host",
+          "replacement": "int wc_preclass_classification_is_allocated_control(const char* cls,\n        const char* rir);\n\n// Returns 1 only for high-confidence reserved/special classifications with\n// rir=none, which are eligible for Phase C early convergence.\nint wc_preclass_classification_should_early_converge(const char* cls,\n        const char* rir,\n        const char* confidence);\n\n// Returns the canonical WHOIS host",
+          "idempotentContains": [
+            "const char* confidence);\n\n// Returns the canonical WHOIS host"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_classifier_rir_hint_literal\\(void\\)\n\\{\n\treturn \"classifier-rir-hint\";\n\\}\n\nstatic const char\\* wc_preclass_action_preclass_short_circuit_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_action_classifier_rir_hint_literal(void)\n{\n\treturn \"classifier-rir-hint\";\n}\n\nstatic const char* wc_preclass_action_early_converge_literal(void)\n{\n\treturn \"preclass-early-converge-unknown\";\n}\n\nstatic const char* wc_preclass_action_preclass_short_circuit_literal(void)",
+          "idempotentContains": [
+            "return \"preclass-early-converge-unknown\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\t\t!wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_classifier_rir_hint_literal\\(\\)\\) &&\n\t\t!wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_preclass_short_circuit_literal\\(\\)\\) &&",
+          "replacement": "\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_classifier_rir_hint_literal()) &&\n\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_early_converge_literal()) &&\n\t\t!wc_preclass_token_equals(out_fields->action, wc_preclass_action_preclass_short_circuit_literal()) &&",
+          "idempotentContains": [
+            "wc_preclass_action_early_converge_literal()) &&"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_resolve_route_decision\\(const char\\* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t\\* out_decision\\)",
+          "replacement": "void wc_preclass_resolve_route_decision(const char* start_host,\n        int has_explicit_host,\n        int hint_applied,\n        int classifier_hint_applied,\n        int early_converge,\n        int step47_early_unknown,\n        int p1_controlled_unknown,\n        int step47_trial_candidate,\n        wc_preclass_route_decision_t* out_decision)",
+          "idempotentContains": [
+            "wc_preclass_route_decision_t* out_decision)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "    if \\(classifier_hint_applied\\) \\{\n        out_decision->action = \"classifier-rir-hint\";\n        out_decision->route_change = 1;\n        return;\n    \\}\n    if \\(hint_applied\\) \\{",
+          "replacement": "    if (classifier_hint_applied) {\n        out_decision->action = \"classifier-rir-hint\";\n        out_decision->route_change = 1;\n        return;\n    }\n    if (early_converge) {\n        out_decision->action = \"preclass-early-converge-unknown\";\n        out_decision->route_change = 1;\n        out_decision->short_circuit = 1;\n        out_decision->start_host = \"unknown\";\n        return;\n    }\n    if (hint_applied) {",
+          "idempotentContains": [
+            "out_decision->action = \"preclass-early-converge-unknown\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "    return strcmp\\(rir, \"none\"\\) != 0 && strcmp\\(rir, \"unknown\"\\) != 0;\n}\n\nconst char\\* wc_preclass_classification_first_hop_host",
+          "replacement": "    return strcmp(rir, \"none\") != 0 && strcmp(rir, \"unknown\") != 0;\n}\n\nint wc_preclass_classification_should_early_converge(const char* cls,\n        const char* rir,\n        const char* confidence)\n{\n    if (!cls || !rir || !confidence)\n        return 0;\n    if (strcmp(cls, \"reserved\") != 0 && strcmp(cls, \"special\") != 0)\n        return 0;\n    if (strcmp(rir, \"none\") != 0)\n        return 0;\n    return strcmp(confidence, \"high\") == 0;\n}\n\nconst char* wc_preclass_classification_first_hop_host",
+          "idempotentContains": [
+            "return strcmp(confidence, \"high\") == 0;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_tier_candidate\\(const Config\\* config,\n    const char\\* query\\);\nstatic int wc_client_init_unknown_result\\(struct wc_result\\* res,",
+          "replacement": "static int wc_client_is_p1_tier_candidate(const Config* config,\n    const char* query);\nstatic int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query);\nstatic int wc_client_init_unknown_result(struct wc_result* res,",
+          "idempotentContains": [
+            "static int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    return wc_preclass_classification_first_hop_host\\(cls, rir\\);\n}\n\nstatic int wc_client_is_step47_trial_candidate\\(const Config\\* config,",
+          "replacement": "    return wc_preclass_classification_first_hop_host(cls, rir);\n}\n\nstatic int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query)\n{\n    const char* family = NULL;\n    const char* cls = NULL;\n    const char* rir = NULL;\n    const char* reason = NULL;\n    const char* confidence = NULL;\n\n    if (!config || !query || !*query)\n        return 0;\n    if (!config->preclass_early_converge_enable)\n        return 0;\n    if (config->disable_address_preclass)\n        return 0;\n    wc_preclass_classify_ip(query, &family, &cls, &rir,\n        &reason, &confidence);\n    return wc_preclass_classification_should_early_converge(cls, rir, confidence);\n}\n\nstatic int wc_client_is_step47_trial_candidate(const Config* config,",
+          "idempotentContains": [
+            "if (!config->preclass_early_converge_enable)\n        return 0;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "        classifier_hint_applied,\n        preclass_enabled &&\n            wc_client_is_step47_early_unknown_candidate\\(config, query\\),",
+          "replacement": "        classifier_hint_applied,\n        preclass_enabled &&\n            wc_client_is_phasec_early_converge_candidate(config, query),\n        preclass_enabled &&\n            wc_client_is_step47_early_unknown_candidate(config, query),",
+          "idempotentContains": [
+            "wc_client_is_phasec_early_converge_candidate(config, query),\n        preclass_enabled &&"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "route-decision-signature-extended",
+          "target": "preclass_header",
+          "pattern": "int early_converge,\n        int step47_early_unknown,",
+          "expectedCount": 1
+        },
+        {
+          "name": "early-converge-branch-emitted",
+          "target": "preclass_source",
+          "pattern": "if \\(early_converge\\) \\{\n        out_decision->action = \"preclass-early-converge-unknown\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-candidate-declared",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-candidate-defined",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-public-policy-defined",
+          "target": "preclass_source",
+          "pattern": "int wc_preclass_classification_should_early_converge\\(const char\\* cls,",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-client-delegates-public-policy",
+          "target": "client_flow",
+          "pattern": "return wc_preclass_classification_should_early_converge\\(cls, rir, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-action-route-change-allowlisted",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_action_early_converge_literal\\(\\)\\) &&",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-pass-through-extended",
+          "target": "client_flow",
+          "pattern": "classifier_hint_applied,\n        preclass_enabled &&\n            wc_client_is_phasec_early_converge_candidate\\(config, query\\),",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Add deterministic selftests for the Phase C public policy and route-decision behavior: reserved/special high-confidence eligibility, low-confidence/allocated/rir rejection, early-converge unknown short-circuit, and explicit-host bypass.",
+      "idempotentContainsByTarget": {
+        "selftest_source": [
+          "#include \"wc/wc_preclass.h\"",
+          "static int selftest_preclass_phasec_policy(void)",
+          "int phasec = selftest_preclass_phasec_policy();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "#include \"wc/wc_selftest\\.h\"\n#include \"wc/wc_fold\\.h\"",
+          "replacement": "#include \"wc/wc_selftest.h\"\n#include \"wc/wc_preclass.h\"\n#include \"wc/wc_opts.h\"\n#include \"wc/wc_fold.h\"",
+          "idempotentContains": [
+            "#include \"wc/wc_preclass.h\""
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    wc_selftest_set_blackhole_arin\\(0\\);\n    return failed_local;\n}\n\nint wc_selftest_run\\(void\\) \\{",
+          "replacement": "    wc_selftest_set_blackhole_arin(0);\n    return failed_local;\n}\n\nstatic int selftest_preclass_phasec_policy(void)\n{\n    int failed = 0;\n    wc_preclass_route_decision_t decision;\n\n    if (!wc_preclass_classification_should_early_converge(\"reserved\", \"none\", \"high\") ||\n        !wc_preclass_classification_should_early_converge(\"special\", \"none\", \"high\") ||\n        wc_preclass_classification_should_early_converge(\"reserved\", \"none\", \"low\") ||\n        wc_preclass_classification_should_early_converge(\"allocated\", \"arin\", \"high\") ||\n        wc_preclass_classification_should_early_converge(\"reserved\", \"unknown\", \"high\")) {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-policy: FAIL\\n\");\n        failed = 1;\n    } else {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-policy: PASS\\n\");\n    }\n\n    memset(&decision, 0, sizeof(decision));\n    wc_preclass_resolve_route_decision(\"whois.iana.org\", 0, 0, 0, 1, 0, 0, 0, &decision);\n    if (!decision.short_circuit || !decision.route_change ||\n        !decision.start_host || strcmp(decision.start_host, \"unknown\") != 0 ||\n        !decision.action || strcmp(decision.action, \"preclass-early-converge-unknown\") != 0) {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-route: FAIL\\n\");\n        failed = 1;\n    } else {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-route: PASS\\n\");\n    }\n\n    memset(&decision, 0, sizeof(decision));\n    wc_preclass_resolve_route_decision(\"whois.arin.net\", 1, 1, 0, 1, 0, 0, 0, &decision);\n    if (decision.short_circuit || decision.route_change ||\n        !decision.action || strcmp(decision.action, \"hint-bypassed\") != 0) {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-explicit-host-bypass: FAIL\\n\");\n        failed = 1;\n    } else {\n        fprintf(stderr, \"[SELFTEST] preclass-phasec-explicit-host-bypass: PASS\\n\");\n    }\n\n    {\n        extern int optind;\n        wc_opts_t short_opts;\n        wc_opts_t long_opts;\n        char* short_argv[] = { \"whois\", \"-DP\", \"-h\", \"whois.arin.net\", \"8.8.8.8\", NULL };\n        char* long_argv[] = { \"whois\", \"--debug\", \"--host=whois.arin.net\", \"8.8.8.8\", NULL };\n        optind = 1;\n        if (wc_opts_parse(5, short_argv, &short_opts) != 0 || !short_opts.debug || !short_opts.plain_mode ||\n            !short_opts.host || strcmp(short_opts.host, \"whois.arin.net\") != 0 || optind != 4) {\n            fprintf(stderr, \"[SELFTEST] opts-short-parser: FAIL\\n\");\n            failed = 1;\n        } else {\n            fprintf(stderr, \"[SELFTEST] opts-short-parser: PASS\\n\");\n        }\n        wc_opts_free(&short_opts);\n        optind = 1;\n        if (wc_opts_parse(4, long_argv, &long_opts) != 0 || !long_opts.debug ||\n            !long_opts.host || strcmp(long_opts.host, \"whois.arin.net\") != 0 || optind != 3) {\n            fprintf(stderr, \"[SELFTEST] opts-long-parser: FAIL\\n\");\n            failed = 1;\n        } else {\n            fprintf(stderr, \"[SELFTEST] opts-long-parser: PASS\\n\");\n        }\n        wc_opts_free(&long_opts);\n    }\n    return failed;\n}\n\nint wc_selftest_run(void) {",
+          "idempotentContains": [
+            "static int selftest_preclass_phasec_policy(void)"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "int wc_selftest_run\\(void\\) \\{\n    int failed = 0;\n\n    int crlf = selftest_crlf_normalization\\(\\);",
+          "replacement": "int wc_selftest_run(void) {\n    int failed = 0;\n\n    int phasec = selftest_preclass_phasec_policy();\n    if (phasec != 0) failed = 1;\n\n    int crlf = selftest_crlf_normalization();",
+          "idempotentContains": [
+            "int phasec = selftest_preclass_phasec_policy();"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "phasec-selftest-include",
+          "target": "selftest_source",
+          "pattern": "#include \"wc/wc_preclass\\.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "opts-selftest-include",
+          "target": "selftest_source",
+          "pattern": "#include \"wc/wc_opts\\.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-selftest-definition",
+          "target": "selftest_source",
+          "pattern": "static int selftest_preclass_phasec_policy\\(void\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-selftest-call",
+          "target": "selftest_source",
+          "pattern": "int phasec = selftest_preclass_phasec_policy\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-route-selftest-call",
+          "target": "selftest_source",
+          "pattern": "wc_preclass_resolve_route_decision\\(\"whois\\.iana\\.org\", 0, 0, 0, 1, 0, 0, 0, &decision\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-explicit-host-selftest-call",
+          "target": "selftest_source",
+          "pattern": "wc_preclass_resolve_route_decision\\(\"whois\\.arin\\.net\", 1, 1, 0, 1, 0, 0, 0, &decision\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "short-option-parser-selftest",
+          "target": "selftest_source",
+          "pattern": "wc_opts_parse\\(5, short_argv, &short_opts\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "long-option-parser-selftest",
+          "target": "selftest_source",
+          "pattern": "wc_opts_parse\\(4, long_argv, &long_opts\\)",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}

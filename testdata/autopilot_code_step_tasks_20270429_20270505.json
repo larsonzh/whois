@@ -1,0 +1,374 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx3-dedicated-first-hop-switch-d1-d4-20270429-20270505",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "opts_source",
+      "file": "src/core/opts.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_meta",
+      "file": "src/core/client_meta.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "opts_header",
+      "file": "include/wc/wc_opts.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "config_header",
+      "file": "include/wc/wc_config.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "meta_source",
+      "file": "src/core/meta.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_runner",
+      "file": "src/core/client_runner.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Vx-3 closure slice A (serial 49): replace the transitional --enable-preclass-actions gate with a dedicated --enable-preclass-first-hop switch. This requires making opts.c and client_meta.c compilable under the local mandatory clang gate via real cross-platform conditional compilation (POSIX getopt/unistd kept for Linux/macOS; a minimal in-source getopt shim and _isatty/_fileno mapping for _WIN32/__MINGW32__, mirroring the existing strings.h->strcasecmp _stricmp pattern), then declaring/mapping/parsing the new switch with default off and its meta.c usage line, and finally switching the client_flow first-hop gate from preclass_action_enable to preclass_first_hop_enable. --disable-address-preclass remains the full rollback; stdout/stderr contract unchanged. Per user direction, project documentation edits (USAGE_CN/EN, rules RFC, RELEASE_NOTES) are handled separately outside this A/B task definition.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Make opts.c and client_meta.c compilable under the local mandatory clang gate via real cross-platform conditional compilation: keep POSIX getopt/unistd includes for Linux/macOS, and provide a minimal in-source getopt shim (getopt_long/optind/optarg) plus _isatty/_fileno mapping for _WIN32/__MINGW32__, mirroring the existing strings.h->strcasecmp _stricmp mapping pattern in client_flow.c.",
+      "idempotentContainsByTarget": {
+        "opts_source": [
+          "#include <io.h>\n#else\n#include <getopt.h>\n#include <unistd.h>",
+          "char* const argv[],\n    const char* shortopts,"
+        ],
+        "client_meta": [
+          "#define isatty _isatty",
+          "#define STDIN_FILENO _fileno(stdin)"
+        ]
+      },
+      "operations": [
+        {
+          "target": "opts_source",
+          "pattern": "#include <stdio\\.h>\n#include <stdlib\\.h>\n#include <string\\.h>\n#include <getopt\\.h>\n#include <unistd\\.h>\n#include <ctype\\.h>",
+          "replacement": "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <io.h>\n#else\n#include <getopt.h>\n#include <unistd.h>\n#endif\n#include <ctype.h>\n\n#if defined(_WIN32) || defined(__MINGW32__)\n#define strcasecmp _stricmp\n#define strncasecmp _strnicmp\n#endif\n\n#if defined(_WIN32) || defined(__MINGW32__)\n/* Minimal getopt shim for Windows/MinGW hosts (no system getopt.h). */\n#define no_argument 0\n#define required_argument 1\nstruct option {\n    const char* name;\n    int has_arg;\n    int* flag;\n    int val;\n};\nint optind = 1;\nchar* optarg = NULL;\nstatic int wc_opts_getopt_long_shim(int argc,\n    char* const argv[],\n    const char* shortopts,\n    const struct option* longopts,\n    int* idx);\n#define getopt_long(argc, argv, opts, longopts, idx) wc_opts_getopt_long_shim(argc, argv, opts, longopts, idx)\n#endif",
+          "idempotentContains": [
+            "#include <io.h>\n#else\n#include <getopt.h>\n#include <unistd.h>"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "static int wc_opts_getopt_long_shim\\(int argc,\n    char\\* const argv\\[\\],\n    const char\\* shortopts,\n    const struct option\\* longopts,\n    int\\* idx\\);\n#define getopt_long\\(argc, argv, opts, longopts, idx\\) wc_opts_getopt_long_shim\\(argc, argv, opts, longopts, idx\\)\n#endif\n\n#include \"wc/wc_defaults\\.h\"",
+          "replacement": "static int wc_opts_getopt_long_shim(int argc,\n    char* const argv[],\n    const char* shortopts,\n    const struct option* longopts,\n    int* idx)\n{\n    static const char* short_cursor = NULL;\n    const char* arg;\n    const struct option* opt;\n    const char* short_spec;\n    char short_name;\n\n    optarg = NULL;\n    if (short_cursor && *short_cursor) {\n        short_name = *short_cursor++;\n        short_spec = shortopts ? strchr(shortopts, short_name) : NULL;\n        if (!short_spec) {\n            short_cursor = NULL;\n            return '?';\n        }\n        if (short_spec[1] == ':') {\n            if (*short_cursor != '\\0')\n                optarg = (char*)short_cursor;\n            else if (optind < argc)\n                optarg = argv[optind++];\n            else {\n                short_cursor = NULL;\n                return '?';\n            }\n            short_cursor = NULL;\n        }\n        else if (*short_cursor == '\\0') {\n            short_cursor = NULL;\n        }\n        return (unsigned char)short_name;\n    }\n\n    if (optind >= argc)\n        return -1;\n    arg = argv[optind];\n    if (!arg || arg[0] != '-' || arg[1] == '\\0')\n        return -1;\n    if (strcmp(arg, \"--\") == 0) {\n        optind++;\n        return -1;\n    }\n\n    if (arg[1] != '-') {\n        short_cursor = arg + 1;\n        optind++;\n        return wc_opts_getopt_long_shim(argc, argv, shortopts, longopts, idx);\n    }\n\n    arg += 2;\n    for (opt = longopts; opt && opt->name; ++opt) {\n        size_t n = strlen(opt->name);\n        if (strncmp(arg, opt->name, n) != 0)\n            continue;\n        if (arg[n] != '\\0' && arg[n] != '=')\n            continue;\n        if (idx)\n            *idx = (int)(opt - longopts);\n        optind++;\n        if (opt->has_arg) {\n            if (arg[n] == '=')\n                optarg = (char*)(arg + n + 1);\n            else if (optind < argc)\n                optarg = argv[optind++];\n            else\n                return '?';\n        }\n        return opt->val;\n    }\n    optind++;\n    return '?';\n}\n#define getopt_long(argc, argv, opts, longopts, idx) wc_opts_getopt_long_shim(argc, argv, opts, longopts, idx)\n#endif\n\n#include \"wc/wc_defaults.h\"",
+          "idempotentContains": [
+            "char* const argv[],\n    const char* shortopts,\n    const struct option* longopts,"
+          ]
+        },
+        {
+          "target": "client_meta",
+          "pattern": "#include <stdlib\\.h>\n#include <string\\.h>\n#include <unistd\\.h>\n#include <stdio\\.h>",
+          "replacement": "#include <stdlib.h>\n#include <string.h>\n#if defined(_WIN32) || defined(__MINGW32__)\n#include <io.h>\n#include <stdio.h>\n#define isatty _isatty\n#define STDIN_FILENO _fileno(stdin)\n#else\n#include <unistd.h>\n#include <stdio.h>\n#endif",
+          "idempotentContains": [
+            "#define STDIN_FILENO _fileno(stdin)"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "opts-cross-platform-includes",
+          "target": "opts_source",
+          "pattern": "#if defined\\(_WIN32\\) \\|\\| defined\\(__MINGW32__\\)\n#include <io\\.h>\n#else\n#include <getopt\\.h>\n#include <unistd\\.h>\n#endif",
+          "expectedCount": 1
+        },
+        {
+          "name": "getopt-shim-defined",
+          "target": "opts_source",
+          "pattern": "static int wc_opts_getopt_long_shim\\(int argc,\n    char\\* const argv\\[\\],\n    const char\\* shortopts,\n    const struct option\\* longopts,\n    int\\* idx\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "getopt-shim-global-optind",
+          "target": "opts_source",
+          "pattern": "int optind = 1;",
+          "expectedCount": 1
+        },
+        {
+          "name": "getopt-shim-short-option-branch",
+          "target": "opts_source",
+          "pattern": "short_cursor = arg \\+ 1;",
+          "expectedCount": 1
+        },
+        {
+          "name": "getopt-shim-option-terminator",
+          "target": "opts_source",
+          "pattern": "if \\(strcmp\\(arg, \"--\"\\) == 0\\) \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "getopt-shim-macro",
+          "target": "opts_source",
+          "pattern": "#define getopt_long",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-meta-isatty-mapping",
+          "target": "client_meta",
+          "pattern": "#define isatty _isatty",
+          "expectedCount": 1
+        },
+        {
+          "name": "client-meta-stdin-fileno-mapping",
+          "target": "client_meta",
+          "pattern": "#define STDIN_FILENO _fileno\\(stdin\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-unconditional-getopt-include-removed",
+          "target": "opts_source",
+          "pattern": "#include <string\\.h>\n#include <getopt\\.h>\n#include <unistd\\.h>",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Introduce the dedicated Phase B first-hop switch: declare the option field in the options header and the Config structure, parse the new --enable-preclass-first-hop CLI option (id 1320), document it in usage, map it into the runtime Config and set its default to off.",
+      "idempotentContainsByTarget": {
+        "opts_header": [
+          "int preclass_first_hop_enable; // --enable-preclass-first-hop (Phase B classifier-preferred first hop, trial off)"
+        ],
+        "config_header": [
+          "int preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop (default off)"
+        ],
+        "opts_source": [
+          "{\"enable-preclass-first-hop\", no_argument, 0, 1320},",
+          "case 1320: o->preclass_first_hop_enable = 1; break;"
+        ],
+        "meta_source": [
+          "\"      --enable-preclass-first-hop  Enable Phase B classifier-preferred first hop (default: off)\","
+        ],
+        "client_meta": [
+          "cfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;"
+        ],
+        "client_runner": [
+          ".preclass_first_hop_enable = 0,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "opts_header",
+          "pattern": "    const char\\* step47_early_unknown_list; // --step47-early-unknown-list q1,q2,\\.\\.\\.\n    int show_selftest;           // --selftest",
+          "replacement": "    const char* step47_early_unknown_list; // --step47-early-unknown-list q1,q2,...\n    int preclass_first_hop_enable; // --enable-preclass-first-hop (Phase B classifier-preferred first hop, trial off)\n    int show_selftest;           // --selftest",
+          "idempotentContains": [
+            "int preclass_first_hop_enable; // --enable-preclass-first-hop (Phase B classifier-preferred first hop, trial off)"
+          ]
+        },
+        {
+          "target": "config_header",
+          "pattern": "\tconst char\\* step47_early_unknown_list; // Step 4\\.7 early-unknown candidate query list \\(CSV\\)\n\tint fold_unique;               // Deduplicate folded output segments when enabled",
+          "replacement": "\tconst char* step47_early_unknown_list; // Step 4.7 early-unknown candidate query list (CSV)\n\tint preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop (default off)\n\tint fold_unique;               // Deduplicate folded output segments when enabled",
+          "idempotentContains": [
+            "int preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop (default off)"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    {\"enable-step47-early-unknown\", no_argument, 0, 1315},\n    {\"step47-early-unknown-list\", required_argument, 0, 1316},\n    {\"fold-unique\", no_argument, 0, 1012},",
+          "replacement": "    {\"enable-step47-early-unknown\", no_argument, 0, 1315},\n    {\"step47-early-unknown-list\", required_argument, 0, 1316},\n    {\"enable-preclass-first-hop\", no_argument, 0, 1320},\n    {\"fold-unique\", no_argument, 0, 1012},",
+          "idempotentContains": [
+            "{\"enable-preclass-first-hop\", no_argument, 0, 1320},"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "                o->step47_early_unknown_list = optarg;\n                break;\n            case 1012: o->fold_unique = 1; break;",
+          "replacement": "                o->step47_early_unknown_list = optarg;\n                break;\n            case 1320: o->preclass_first_hop_enable = 1; break;\n            case 1012: o->fold_unique = 1; break;",
+          "idempotentContains": [
+            "case 1320: o->preclass_first_hop_enable = 1; break;"
+          ]
+        },
+        {
+          "target": "meta_source",
+          "pattern": "    \"      --step47-early-unknown-list CSV  Step 4\\.7 early-unknown candidate list, e\\.g\\. 255\\.0\\.0\\.0,10\\.0\\.0\\.1\",\n    \"      --debug-verbose       Extra verbose debug \\(cache/redirect instrumentation\\)\",",
+          "replacement": "    \"      --step47-early-unknown-list CSV  Step 4.7 early-unknown candidate list, e.g. 255.0.0.0,10.0.0.1\",\n    \"      --enable-preclass-first-hop  Enable Phase B classifier-preferred first hop (default: off)\",\n    \"      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)\",",
+          "idempotentContains": [
+            "\"      --enable-preclass-first-hop  Enable Phase B classifier-preferred first hop (default: off)\","
+          ]
+        },
+        {
+          "target": "client_meta",
+          "pattern": "\tcfg->step47_early_unknown_enable = opts->step47_early_unknown_enable;\n\tcfg->step47_early_unknown_list = opts->step47_early_unknown_list;\n}",
+          "replacement": "\tcfg->step47_early_unknown_enable = opts->step47_early_unknown_enable;\n\tcfg->step47_early_unknown_list = opts->step47_early_unknown_list;\n\tcfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;\n}",
+          "idempotentContains": [
+            "cfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;"
+          ]
+        },
+        {
+          "target": "client_runner",
+          "pattern": "    \\.step47_trial_enable = 0,\n    \\.step47_trial_scope = 0,\n    \\.step47_early_unknown_enable = 0,\n    \\.step47_early_unknown_list = NULL,\n    \\.fold_unique = 0,",
+          "replacement": "    .step47_trial_enable = 0,\n    .step47_trial_scope = 0,\n    .step47_early_unknown_enable = 0,\n    .step47_early_unknown_list = NULL,\n    .preclass_first_hop_enable = 0,\n    .fold_unique = 0,",
+          "idempotentContains": [
+            ".preclass_first_hop_enable = 0,"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "opts-field-declared",
+          "target": "opts_header",
+          "pattern": "int preclass_first_hop_enable; // --enable-preclass-first-hop \\(Phase B classifier-preferred first hop, trial off\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-field-declared",
+          "target": "config_header",
+          "pattern": "int preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop \\(default off\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "long-option-entry",
+          "target": "opts_source",
+          "pattern": "\\{\"enable-preclass-first-hop\", no_argument, 0, 1320\\},",
+          "expectedCount": 1
+        },
+        {
+          "name": "switch-case",
+          "target": "opts_source",
+          "pattern": "case 1320: o->preclass_first_hop_enable = 1; break;",
+          "expectedCount": 1
+        },
+        {
+          "name": "usage-line",
+          "target": "meta_source",
+          "pattern": "enable-preclass-first-hop  Enable Phase B classifier-preferred first hop",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-mapping",
+          "target": "client_meta",
+          "pattern": "cfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;",
+          "expectedCount": 1
+        },
+        {
+          "name": "config-default",
+          "target": "client_runner",
+          "pattern": "\\.preclass_first_hop_enable = 0,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Switch the client_flow classifier-preferred first-hop gate from the transitional preclass_action_enable flag to the dedicated preclass_first_hop_enable flag, keeping the helper semantics unchanged.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "if (!config->preclass_first_hop_enable)\n        return NULL;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return NULL;\n    if \\(!config->preclass_action_enable\\)\n        return NULL;\n    if \\(config->disable_address_preclass\\)\n        return NULL;",
+          "replacement": "    if (!config || !query || !*query)\n        return NULL;\n    if (!config->preclass_first_hop_enable)\n        return NULL;\n    if (config->disable_address_preclass)\n        return NULL;",
+          "idempotentContains": [
+            "if (!config->preclass_first_hop_enable)\n        return NULL;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "dedicated-gate-wired",
+          "target": "client_flow",
+          "pattern": "if \\(!config->preclass_first_hop_enable\\)\n        return NULL;",
+          "expectedCount": 1
+        },
+        {
+          "name": "transitional-gate-removed",
+          "target": "client_flow",
+          "pattern": "if \\(!config->preclass_action_enable\\)\n        return NULL;",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Complete the Vx-3 Phase B default migration: enable the dedicated classifier-preferred first-hop switch by default and update the built-in help line to state default-on behavior. Explicit -h and --disable-address-preclass remain the compatibility and rollback boundaries.",
+      "idempotentContainsByTarget": {
+        "client_runner": [
+          ".preclass_first_hop_enable = 1,"
+        ],
+        "meta_source": [
+          "\"      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries (default: on)\","
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_runner",
+          "pattern": "    \\.preclass_first_hop_enable = 0,\n    \\.fold_unique = 0,",
+          "replacement": "    .preclass_first_hop_enable = 1,\n    .fold_unique = 0,",
+          "idempotentContains": [
+            ".preclass_first_hop_enable = 1,"
+          ]
+        },
+        {
+          "target": "meta_source",
+          "pattern": "    \"      --enable-preclass-first-hop  Enable Phase B classifier-preferred first hop \\(default: off\\)\",",
+          "replacement": "    \"      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries (default: on)\",",
+          "idempotentContains": [
+            "\"      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries (default: on)\","
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "phaseb-default-on",
+          "target": "client_runner",
+          "pattern": "\\.preclass_first_hop_enable = 1,",
+          "expectedCount": 1
+        },
+        {
+          "name": "phaseb-default-off-removed",
+          "target": "client_runner",
+          "pattern": "\\.preclass_first_hop_enable = 0,",
+          "expectedCount": 0
+        },
+        {
+          "name": "phaseb-help-default-on",
+          "target": "meta_source",
+          "pattern": "enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries \\(default: on\\)",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}
