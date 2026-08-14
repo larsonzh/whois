@@ -67,6 +67,8 @@ static int wc_client_is_batch_strategy_enabled(void)
 }
 
 static const char* wc_client_guess_query_rir_host(const char* query);
+static const char* wc_client_preclass_first_hop_hint(const Config* config,
+    const char* query);
 static int wc_client_is_step47_trial_candidate(const Config* config,
     const char* query);
 static int wc_client_is_step47_early_unknown_candidate(const Config* config,
@@ -177,7 +179,8 @@ static int wc_client_batch_host_list_contains(const char* const* hosts,
     return 0;
 }
 
-static size_t wc_client_collect_batch_start_candidates(const char* server_host,
+static size_t wc_client_collect_batch_start_candidates(const Config* config,
+        const char* server_host,
         const char* query,
         const char* out[],
         size_t capacity)
@@ -189,7 +192,9 @@ static size_t wc_client_collect_batch_start_candidates(const char* server_host,
         wc_dns_normalize_batch_host(server_host) : NULL;
     if (normalized_server && *normalized_server && count < capacity)
         out[count++] = normalized_server;
-    const char* guessed = wc_client_guess_query_rir_host(query);
+    const char* guessed = wc_client_preclass_first_hop_hint(config, query);
+    if (!guessed)
+        guessed = wc_client_guess_query_rir_host(query);
     if (guessed && *guessed &&
         !wc_client_batch_host_list_contains(out, count, guessed) &&
         count < capacity) {
@@ -296,6 +301,26 @@ static const char* wc_client_guess_query_rir_host(const char* query)
     if (!rir || strcasecmp(rir, "unknown") == 0)
         return NULL;
     return wc_dns_canonical_host_for_rir(rir);
+}
+
+static const char* wc_client_preclass_first_hop_hint(const Config* config,
+    const char* query)
+{
+    const char* family = NULL;
+    const char* cls = NULL;
+    const char* rir = NULL;
+    const char* reason = NULL;
+    const char* confidence = NULL;
+
+    if (!config || !query || !*query)
+        return NULL;
+    if (!config->preclass_action_enable)
+        return NULL;
+    if (config->disable_address_preclass)
+        return NULL;
+    wc_preclass_classify_ip(query, &family, &cls, &rir,
+        &reason, &confidence);
+    return wc_preclass_classification_first_hop_host(cls, rir);
 }
 
 static int wc_client_is_step47_trial_candidate(const Config* config,
@@ -419,9 +444,15 @@ static void wc_client_resolve_preclass_decision(const Config* config,
         !config->disable_address_preclass;
     const int hint_applied = start_host && *start_host &&
         strcasecmp(start_host, wc_server_default_batch_host()) != 0;
+    const char* classifier_hint =
+        wc_client_preclass_first_hop_hint(config, query);
+    const int classifier_hint_applied =
+        (classifier_hint && start_host &&
+            strcasecmp(classifier_hint, start_host) == 0) ? 1 : 0;
 
     wc_preclass_resolve_route_decision(start_host, has_explicit_host,
         hint_applied,
+        classifier_hint_applied,
         preclass_enabled &&
             wc_client_is_step47_early_unknown_candidate(config, query),
         preclass_enabled &&
@@ -515,7 +546,7 @@ static const char* wc_client_select_batch_start_host(const Config* config,
     ctx->config = config;
 
     size_t candidate_count = wc_client_collect_batch_start_candidates(
-        server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
+        config, server_host, query, candidates, WC_BATCH_MAX_CANDIDATES);
     if (candidate_count == 0) {
         candidates[0] = wc_server_default_batch_host();
         candidate_count = 1;
@@ -695,8 +726,11 @@ static int wc_client_dispatch_queries(const Config* config,
     if (!batch_mode) {
         const char* hinted = NULL;
         if ((!server_host || !*server_host) && config &&
-            !config->disable_address_preclass)
-            hinted = wc_client_guess_query_rir_host(single_query);
+            !config->disable_address_preclass) {
+            hinted = wc_client_preclass_first_hop_hint(config, single_query);
+            if (!hinted)
+                hinted = wc_client_guess_query_rir_host(single_query);
+        }
         wc_preclass_route_decision_t single_route_decision;
         wc_client_resolve_preclass_decision(config, single_query,
             hinted ? hinted : server_host,

@@ -5,6 +5,7 @@
 ## 0. 运行摘要索引（轻整理，摘要版）
 
 - 2026-08-13：串行第 45/46 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-01 ~ 2027-04-14`（Vx-2 Step 4.7 受控放量切片，A=R0 候选治理 / B=公共候选治理 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260813-044152，B run=out/artifacts/dev_verify_multiround/20260813-113036）；B 首跑 D1 编译/验证失败经 guard incident 重启后收敛（`incident_20260813-112537`），根因 8.8.8.8 baseline 实况查询 `BaseAuth=error` 网络瞬态，判定非代码缺陷、未修改任务定义/源码、未触发代码/脚本自愈；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260813-223230`，285s）（详见 24.08~24.10）。
+- 2026-08-15：串行第 47/48 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-15 ~ 2027-04-28`（Vx-3 预备能力切片，A=分类器优先首跳接入 / B=公共分类器首跳 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260814-052520，B run=out/artifacts/dev_verify_multiround/20260814-122229）；A 启动期经一次计划性维护（TASK-DESIGN 旧式检查误报 → 修复 `start_dev_verify_8round_multiround.ps1` 兼容 V1/Vx marker 并取消 D4 noop 建议，提交 `d505e69e`，`-UseTemplateBaseline` 全新建档重启 A）后一次通过，无事故票、无自愈；A→B 交接与 chat-session-final-status 事件评审闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260815-032547`，179s）（详见 24.11~24.13）。
 - 2026-08-14：新增串行第 47/48 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-04-15 ~ 2027-04-28`，**Vx-3 预备能力切片**（Phase B 默认首跳迁移前置），A=分类器优先首跳接入 / B=公共分类器首跳 API），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270415_20270421.json`、`testdata/autopilot_code_step_tasks_20270422_20270428.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270415-20270428.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与有效源码编译验证均通过；受控开关**暂**复用 `--enable-preclass-actions`（临时过渡，专用 `--enable-preclass-first-hop` 由 49/50 补齐），默认首跳翻转与规则 RFC/使用文档/发布说明/矩阵同步在专用开关验证稳定后单独评审（详见 24.11~24.13 的覆盖边界与开关定调）。
 - 2026-08-11：串行第 43/44 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-03-16 ~ 2027-03-31`，A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260810-141835，B run=out/artifacts/dev_verify_multiround/20260811-020525）；A-D1、B-V1 各 1 起失败经 guard incident 重启后收敛，未触发代码/脚本自愈；B 承接 A snapshot，V2 按原设计（D1-D3 出现 1 个安全运行时 D-NOP）快跳；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260811-112808`，193s）（详见 24.05~24.07）。
 - 2026-08-10：完成 Address-Space 前置分类器阶段路线审查与新鲜定向复检：P0 最小矩阵 `pass=12 fail=0`、P1 分组阈值门禁 `pass=232 fail=0 group_gate_fail=0`、Step47 preflight `pass=5 fail=0`。审查确认 P0/P1/P2 工程化基线及 Step 4.7 受控能力已具备，但 Phase B 默认首跳迁移与 Phase C reserved 早收敛尚未完成默认放量；串行第 41/42 份完成后停止新编单文件 V1 清理任务，历史 V1 保留用于兼容与追溯，后续功能开发统一转为 Vx 多文件切片（详见 24.04）。
@@ -3932,7 +3933,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
   - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 285s。
   - 产物目录：`out/artifacts/20260813-223230/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/143.128.0.0/*.log`）。
 
-#### 24.11 下次开工清单（Vx 多文件：Vx-3 预备能力切片 A——分类器优先首跳接入（Phase B 默认首跳迁移前置），2027-04-15 ~ 2027-04-21，串行第 47 份，Checklist A，草案）
+#### 24.11 下次开工清单（Vx 多文件：Vx-3 预备能力切片 A——分类器优先首跳接入（Phase B 默认首跳迁移前置），2027-04-15 ~ 2027-04-21，串行第 47 份，Checklist A，已完成回填）
 
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270415_20270421.json`（`schemaVersion=vx-draft`）。
 > 目标闭包：`client_flow`（`src/core/client_flow.c`）。
@@ -3940,12 +3941,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 **八轮约束与开发目标**：
 
-1. [ ] A 使用 `restore-source`，仅在第 46 份完成后串行启动；范围固定为 D1~D4 + V1~V4，禁止自动提交与推送。
-2. [ ] D1：在 `client_flow.c` 前向声明 Config-bound 分类器优先首跳 helper `wc_client_preclass_first_hop_hint`。
-3. [ ] D2：实现 helper：`preclass_action_enable` 开、`disable_address_preclass` 关时分类；allocated/legacy + 明确 RIR 返回规范主机，否则 NULL。
-4. [ ] D3：batch 起始主机候选收集接入分类器优先首跳（分类器命中优先，旧 guess 兜底），收集函数增加 `Config*` 参数。
-5. [ ] D4：single-query 隐式路径接入同一 helper，保留旧 guess 兜底。
-6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+1. [x] A 使用 `restore-source`，仅在第 46 份完成后串行启动；范围固定为 D1~D4 + V1~V4，禁止自动提交与推送。
+2. [x] D1：在 `client_flow.c` 前向声明 Config-bound 分类器优先首跳 helper `wc_client_preclass_first_hop_hint`。
+3. [x] D2：实现 helper：`preclass_action_enable` 开、`disable_address_preclass` 关时分类；allocated/legacy + 明确 RIR 返回规范主机，否则 NULL。
+4. [x] D3：batch 起始主机候选收集接入分类器优先首跳（分类器命中优先，旧 guess 兜底），收集函数增加 `Config*` 参数。
+5. [x] D4：single-query 隐式路径接入同一 helper，保留旧 guess 兜底。
+6. [x] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
 
 **目标注册表**：
 
@@ -3975,9 +3976,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **预期验证范围**：
 
-- [ ] 默认关闭（不传开关）时 stdout/stderr 与黄金、P0/P1/Step47 矩阵契约完全不变。
-- [ ] 开启 `--enable-preclass-actions` 且未显式 `-h` 时，allocated/legacy 查询首跳为规范 RIR 主机；显式 `-h` 与 `--disable-address-preclass` 行为不变。
-- [ ] A PASS 后生成并验证覆盖完整 A target set 的成功快照。
+- [x] 默认关闭（不传开关）时 stdout/stderr 与黄金、P0/P1/Step47 矩阵契约完全不变（由 A/B V1-V4 全 PASS 与最终 Strict Golden PASS 确认）。
+- [x] 开启 `--enable-preclass-actions` 且未显式 `-h` 时，allocated/legacy 查询首跳为规范 RIR 主机；显式 `-h` 与 `--disable-address-preclass` 行为不变（本组经静态/checker 级验证：B/48 D4 断言 + 有效源码编译 + P1 矩阵不破；flag-on 运行时冒烟与默认翻转归 49/50）。
+- [x] A PASS 后生成并验证覆盖完整 A target set 的成功快照（`a_snapshot_final=out/artifacts/dev_verify_multiround/20260814-052520/final_status.json`）。
 
 **Vx-3 覆盖边界与开关定调（2026-08-14 修订，用户确认）**：
 
@@ -3985,7 +3986,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - **后续安排（49/50 及之后）**：(1) 49/50 增加专用 `--enable-preclass-first-hop` 选项，补齐 `opts.c` 跨平台选项解析（真实平台条件编译，按编译器/SDK 契约选择宏），并把 47/48 的门禁字段从 `preclass_action_enable` 切换为专用开关；(2) 专用开关验证稳定、取得开关开启场景的独立放量证据后，再单独评审默认首跳翻转；(3) 默认翻转评审通过后，同步 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、`docs/USAGE_CN.md`、`docs/USAGE_EN.md`、`RELEASE_NOTES.md` 与黄金/重定向矩阵基线。依据 24.04 完成判定原则：“默认迁移完成”是独立状态，默认行为变更必须单独评审、单独记录。
 - 开关语义定调（**临时过渡方案**）：本切片暂复用既有 `--enable-preclass-actions`（默认关）作为临时过渡门禁，仅用于 47/48 的受控验证，**不是最终设计**。理由：(1) Vx 本地 mandatory clang 语法门禁逐轮编译所有变更的 c-source 目标，`src/core/opts.c`（`<getopt.h>`）与 `src/core/client_meta.c`（`<unistd.h>`）本切片暂不能进入目标闭包，新增选项在本切片内不可行；(2) RFC 6.2/11/15 未命名 Phase B 专用正向开关，仅要求“未指定 `-h` 时生效、显式 `-h` 兼容、保留全量回退开关”，`--disable-address-preclass` 满足回退要求；(3) `preclass_p1_gate_matrix.ps1` 是唯一消费该开关的既有测试链，其对 8.8.8.8 的断言（`action != preclass-short-circuit-unknown`）在 `classifier-rir-hint` 下仍通过，冻结矩阵不破。专用开关落地后，P1 受控动作与 Phase B 首跳恢复为可独立启停的两个策略域。
 
-#### 24.12 下次开工清单（Vx 多文件：Vx-3 预备能力切片 B——公共分类器首跳 API（Phase B 默认首跳迁移前置），2027-04-22 ~ 2027-04-28，串行第 48 份，Checklist B，草案）
+**执行回填（Checklist A，本期，2026-08-15）**：
+
+- **A 阶段终态**：`A_FINAL_STATUS=PASS`，`Result=pass`、`ExitCode=0`、`CompletedRoundCount=8`（D1~D4 + V1~V4）、`FailedRoundTags=[]`（无失败轮次）。
+- **A 运行目录**：`out/artifacts/dev_verify_multiround/20260814-052520`（`final_status.json`、`summary.csv` 已生成，A success snapshot 就绪）。
+- **启动方式**：`open_unattended_ab_stage_window.ps1 -Stage A -StartMonitors`；launch-ready PASS、网络硬闸 PASS、`remote_lock=absent`、event-only 调度。
+- **计划性维护（材料动作，非事故票）**：A 首次启动（run=out/artifacts/dev_verify_multiround/20260814-045800）后出现 `[TASK-DESIGN]` 四行误导性 warning（D1-D3 "missing idempotentContains"、D4 "recommended noop for freeze round"），核查为 `start_dev_verify_8round_multiround.ps1` 旧式设计质量检查不识别 Vx `idempotentContainsByTarget`/op-level marker，且对 D4 无条件建议 noop；经用户授权计划性停机，修复该脚本（兼容 V1/Vx marker、D1-D4 统一检查真实 operations、取消 D4 noop 建议；AST/函数级 V1/Vx/缺-marker 回归与 `status_ticket_mini_regression` 通过，提交 `d505e69e`），`reset_unattended_ab_start_file.ps1 -Stage A -UseTemplateBaseline` 重建 start-file 后全新重启 A；此后 A 8/8 一次通过，无事故票、无自愈。
+- **A 阶段耗时**：`0d 06:57:52`（start=2026-08-14 05:24:46，a_stage_completed_at=2026-08-14 12:22:37，含 launcher/preflight）。
+
+#### 24.12 下次开工清单（Vx 多文件：Vx-3 预备能力切片 B——公共分类器首跳 API（Phase B 默认首跳迁移前置），2027-04-22 ~ 2027-04-28，串行第 48 份，Checklist B，已完成回填）
 
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270422_20270428.json`（`schemaVersion=vx-draft`）。
 > 目标闭包：`preclass_header`（`include/wc/wc_preclass.h`）、`preclass_source`（`src/core/preclass.c`）、`client_flow`；静态检查必须以第 47 份任务定义作为 prerequisite。
@@ -3993,12 +4002,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **八轮约束与开发目标**：
 
-1. [ ] B 仅在 A `result=pass` 且 A success snapshot 完整后启动，使用 `state-only` 承接；A 失败必须阻断 B。
-2. [ ] D1：在公共 `wc_preclass.h` 声明 `wc_preclass_classification_first_hop_host(cls, rir)`。
-3. [ ] D2：`preclass.c` 引入 `wc/wc_dns.h` 并实现该 API（委托 allocated-control 判定，返回规范 RIR 主机）。
-4. [ ] D3：`client_flow.c` 的 helper 改为薄委托，删除内联规范主机调用。
-5. [ ] D4：`wc_preclass_resolve_route_decision` 增加 `classifier_hint_applied` 参数并输出 `classifier-rir-hint` 动作，route-change 白名单同步；client 决策 resolver 计算并透传该标志。
-6. [ ] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
+1. [x] B 仅在 A `result=pass` 且 A success snapshot 完整后启动，使用 `state-only` 承接；A 失败必须阻断 B。
+2. [x] D1：在公共 `wc_preclass.h` 声明 `wc_preclass_classification_first_hop_host(cls, rir)`。
+3. [x] D2：`preclass.c` 引入 `wc/wc_dns.h` 并实现该 API（委托 allocated-control 判定，返回规范 RIR 主机）。
+4. [x] D3：`client_flow.c` 的 helper 改为薄委托，删除内联规范主机调用。
+5. [x] D4：`wc_preclass_resolve_route_decision` 增加 `classifier_hint_applied` 参数并输出 `classifier-rir-hint` 动作，route-change 白名单同步；client 决策 resolver 计算并透传该标志。
+6. [x] V1~V4：依次完成基线、噪声、混合样本与最终 8/8 收口复检。
 
 **目标注册表**：
 
@@ -4034,15 +4043,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **预期验证范围**：
 
-- [ ] `classifier-rir-hint` 仅在分类器首跳实际生效时出现且 `route_change=1`；旧 `hint-applied`/短路语义保留。
-- [ ] 默认关闭与显式 `-h` 场景 stdout/stderr 契约不变。
-- [ ] B 启动前重新核对 A snapshot、target set 交集与 B baseline。
+- [x] `classifier-rir-hint` 仅在分类器首跳实际生效时出现且 `route_change=1`；旧 `hint-applied`/短路语义保留（静态/checker 级验证：B/48 D4 断言 + 有效源码编译；flag-on 运行时归 49/50）。
+- [x] 默认关闭与显式 `-h` 场景 stdout/stderr 契约不变（由 A/B V1-V4 全 PASS 与最终 Strict Golden PASS 确认）。
+- [x] B 启动前重新核对 A snapshot、target set 交集与 B baseline（B 以 A snapshot `state-only` 承接，launch-ready PASS）。
 
-#### 24.13 对应任务启动文件（2026-08-14，草案）
+**执行回填（Checklist B，本期，2026-08-15）**：
+
+- **B 阶段终态**：`B_FINAL_STATUS=PASS`，`Result=pass`、`ExitCode=0`、`CompletedRoundCount=8`（D1~D4 + V1~V4）、`FailedRoundTags=[]`（无失败轮次）；B 从 A snapshot 承接（`state-only`）。
+- **B 运行目录**：`out/artifacts/dev_verify_multiround/20260814-122229`（`final_status.json`、`summary.csv` 已生成）。
+- **启动方式**：以 A 成功快照为基线，`open_unattended_ab_stage_window.ps1 -Stage B -StartMonitors`；A→B 交接正常（`a-pass-conclusion-b-started` 事件评审闭环，handled_at=2026-08-14 12:24:42）。
+- **事故与自愈**：无（`incident_dir` 为空），未触发代码/脚本自愈、未发生阶段重启。
+- **B 阶段耗时**：`0d 07:08:57`（B_TASK_FIRST_START_AT=2026-08-14 12:21:54，B end=2026-08-14 19:30:50）。
+
+#### 24.13 对应任务启动文件（2026-08-15，已完成回填）
 
 - 启动文件：`testdata/unattended_start/active/unattended_ab_start_20270415-20270428.md`。
 - 绑定 A/47 与 B/48，`WINDOW=2027-04-15 ~ 2027-04-28`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
-- 预检基线：`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`（启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填）。
-- 状态：准备完成，待用户确认与启动授权；未授权前不启动 A/B。
+- 预检基线：`PRECHECK_STATUS=PASS`、`PRECHECK_START_GATE=READY`（A 阶段 launch-ready PASS；B 阶段按设计等待 A PASS snapshot 后由 stage window 启动）。
+- 当前终态：**SESSION=PASS、A=PASS、B=PASS**（A/B 各 8/8 轮通过；A 经一次计划性维护后一次通过）。
+  - A 运行目录：`out/artifacts/dev_verify_multiround/20260814-052520`（A elapsed=0d 06:57:52，start=2026-08-14 05:24:46，end=2026-08-14 12:22:37）。
+  - B 运行目录：`out/artifacts/dev_verify_multiround/20260814-122229`（B elapsed=0d 07:08:57，start=2026-08-14 12:21:54，end=2026-08-14 19:30:50；A/B 合计 0d 14:06:05）。
+  - 会话结束：2026-08-14 19:30:50（`chat-session-final-status` 事件评审闭环，handled_at=2026-08-14 20:29:22）。
+- 事故与自愈：无事故票；A 启动期一次计划性维护（TASK-DESIGN 误报 → 脚本修复 `d505e69e` → `-UseTemplateBaseline` 全新建档重启）。
+- 任务定义静态体检（编制期）：A 全定义 / B 以 A 为前置链式 `errors=0 warnings=0`；启动前由 launcher 执行 `-SyntaxOnly` 装载门禁，D 轮完整检查由运行期独立 checker 执行。
+- **Strict 远程冒烟同步 + 黄金校验（2026-08-15）**：
+  - 命令：`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0`（Strict Version）。
+  - 结果：无告警 + lto 无告警 + `Local hash verify: PASS` + `[golden] PASS` + referral check: PASS；用时 179s。
+  - 产物目录：`out/artifacts/20260815-032547/build_out`（多架构二进制 aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64、`golden_report.txt`、`referral_checks/`、`SHA256SUMS-static.txt`）。
 
 

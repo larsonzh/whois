@@ -39,6 +39,7 @@ typedef struct wc_preclass_route_decision {
 void wc_preclass_resolve_route_decision(const char* start_host,
         int has_explicit_host,
         int hint_applied,
+        int classifier_hint_applied,
         int step47_early_unknown,
         int p1_controlled_unknown,
         int step47_trial_candidate,
@@ -48,6 +49,12 @@ void wc_preclass_resolve_route_decision(const char* start_host,
 // legacy with a real RIR hint); such queries must never be admitted into
 // the reserved/special early-unknown short-circuit candidate set.
 int wc_preclass_classification_is_allocated_control(const char* cls,
+        const char* rir);
+
+// Returns the canonical WHOIS host for the classification when the Phase B
+// classifier-preferred first hop applies (allocated/legacy with a real RIR
+// hint); otherwise returns NULL and callers keep the legacy startup strategy.
+const char* wc_preclass_classification_first_hop_host(const char* cls,
         const char* rir);
 
 // Resolves trial/action decision fields into a stable, log-ready view.

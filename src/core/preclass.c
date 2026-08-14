@@ -15,6 +15,7 @@
 #include "wc/wc_preclass.h"
 #include "wc/wc_preclass_table.h"
 #include "wc/wc_client_util.h"
+#include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 
 int wc_preclass_csv_is_default_marker(const char* csv)
@@ -222,6 +223,11 @@ static const char* wc_preclass_action_hint_applied_literal(void)
 	return "hint-applied";
 }
 
+static const char* wc_preclass_action_classifier_rir_hint_literal(void)
+{
+	return "classifier-rir-hint";
+}
+
 static const char* wc_preclass_action_preclass_short_circuit_literal(void)
 {
 	return "preclass-short-circuit-unknown";
@@ -297,6 +303,7 @@ static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclas
 	out_fields->route_change = route_change != 0 ? 1 : 0;
 	if (out_fields && out_fields->route_change == 1 &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_hint_applied_literal()) &&
+		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_classifier_rir_hint_literal()) &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_preclass_short_circuit_literal()) &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_step47_short_circuit_literal())) {
 			out_fields->route_change = 0;
@@ -307,6 +314,7 @@ static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclas
 void wc_preclass_resolve_route_decision(const char* start_host,
         int has_explicit_host,
         int hint_applied,
+        int classifier_hint_applied,
         int step47_early_unknown,
         int p1_controlled_unknown,
         int step47_trial_candidate,
@@ -322,6 +330,11 @@ void wc_preclass_resolve_route_decision(const char* start_host,
 
     if (has_explicit_host)
         return;
+    if (classifier_hint_applied) {
+        out_decision->action = "classifier-rir-hint";
+        out_decision->route_change = 1;
+        return;
+    }
     if (hint_applied) {
         out_decision->action = "hint-applied";
         out_decision->route_change = 1;
@@ -353,6 +366,14 @@ int wc_preclass_classification_is_allocated_control(const char* cls,
     if (strcmp(cls, "allocated") != 0 && strcmp(cls, "legacy") != 0)
         return 0;
     return strcmp(rir, "none") != 0 && strcmp(rir, "unknown") != 0;
+}
+
+const char* wc_preclass_classification_first_hop_host(const char* cls,
+        const char* rir)
+{
+    if (!wc_preclass_classification_is_allocated_control(cls, rir))
+        return NULL;
+    return wc_dns_canonical_host_for_rir(rir);
 }
 
 /* Decision-field normalization remains a separate output concern. */
