@@ -93,7 +93,11 @@ for spec in "${EXPECTS[@]}"; do
   if grep -E "$pattern" "$LOG" >/dev/null; then
     log_match_success "found action=$action${query:+ query=$query}"
   else
-    log_match_error "missing [SELFTEST] action '$action'${query:+ for query '$query'}"
+    query_suffix=""
+    if [[ -n "$query" ]]; then
+      query_suffix=" for query '$query'"
+    fi
+    log_match_error "missing [SELFTEST] action '$action'$query_suffix"
   fi
 done
 
