@@ -76,8 +76,55 @@ static int wc_opts_getopt_long_shim(int argc,
     if (optind >= argc)
         return -1;
     arg = argv[optind];
-    if (!arg || arg[0] != '-' || arg[1] == '\0')
-        return -1;
+    if (!arg || arg[0] != '-' || arg[1] == '\0') {
+        int next_option = optind + 1;
+        int option_span = 1;
+        char** mutable_argv = (char**)argv;
+        char* option_arg;
+        char* option_value = NULL;
+
+        while (next_option < argc) {
+            const char* candidate = argv[next_option];
+            if (candidate && strcmp(candidate, "--") == 0)
+                return -1;
+            if (candidate && candidate[0] == '-' && candidate[1] != '\0')
+                break;
+            next_option++;
+        }
+        if (next_option >= argc)
+            return -1;
+
+        option_arg = argv[next_option];
+        if (option_arg[1] == '-' && !strchr(option_arg + 2, '=')) {
+            const struct option* candidate_opt;
+            for (candidate_opt = longopts;
+                    candidate_opt && candidate_opt->name; ++candidate_opt) {
+                if (strcmp(option_arg + 2, candidate_opt->name) == 0) {
+                    if (candidate_opt->has_arg == required_argument)
+                        option_span = 2;
+                    break;
+                }
+            }
+        } else if (option_arg[1] != '-' && option_arg[2] == '\0') {
+            const char* candidate_spec = shortopts
+                ? strchr(shortopts, option_arg[1]) : NULL;
+            if (candidate_spec && candidate_spec[1] == ':')
+                option_span = 2;
+        }
+        if (option_span == 2) {
+            if (next_option + 1 >= argc)
+                option_span = 1;
+            else
+                option_value = argv[next_option + 1];
+        }
+
+        memmove(&mutable_argv[optind + option_span], &mutable_argv[optind],
+            (size_t)(next_option - optind) * sizeof(argv[0]));
+        mutable_argv[optind] = option_arg;
+        if (option_span == 2)
+            mutable_argv[optind + 1] = option_value;
+        return wc_opts_getopt_long_shim(argc, argv, shortopts, longopts, idx);
+    }
     if (strcmp(arg, "--") == 0) {
         optind++;
         return -1;

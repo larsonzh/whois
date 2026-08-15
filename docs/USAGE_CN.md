@@ -72,7 +72,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 
 49/50 缺口验证回填（2026-08-16）：
 - CIDR 正文契约：`pass=4 fail=0`，报告 `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`。
-- CIDR draft TSV：`pass=8 fail=1`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-023439.txt`；唯一失败为 `203.0.113.0/24 @ arin`，当前 IANA 实际返回 `whois.iana.org` 权威对象，而 TSV 仍期望 `whois.arin.net`，单例复核结果一致，属于测试期望与当前实际响应不一致，未改写测试数据。
+- CIDR draft TSV 首轮为 `pass=8 fail=1`；跨平台对照确认并非测试期望过时，而是 Windows `getopt_long` shim 遇到查询位置参数后提前停止，未解析后置 `-h arin`。补齐 GNU 风格稳定参数排列并新增 `opts-permuted-parser` 回归后，win32/win64 均以 ARIN 为显式起始和最终权威；复跑 body `pass=4 fail=0`、draft TSV `pass=9 fail=0`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 - Redirect Matrix IPv4：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025454`。
 - Redirect Matrix 参数化（`RirIpPref=NONE`、`PreferIpv4=false`）：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025728`。
 - Redirect Matrix 10x6 稳态（`InterCaseSleepMs=500`、`RateLimitRetries=2`、`RateLimitRetrySleepMs=2500`）：`authMismatchFiles=0`、`errorFiles=0`，目录 `out/artifacts/redirect_matrix_10x6/20260816-025940`。

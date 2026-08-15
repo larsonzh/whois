@@ -6,7 +6,7 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
-- 49/50 缺口验证回填（2026-08-16）：CIDR 正文契约 `pass=4 fail=0`；CIDR draft TSV `pass=8 fail=1`（唯一失败为 `203.0.113.0/24 @ arin` 的旧期望 `whois.arin.net` 与当前 IANA 实际权威响应不一致，单例复核一致，未修改测试数据）；Redirect IPv4 与参数化矩阵均 `66/66 PASS`；Redirect 10x6 稳态 `authMismatchFiles=0`、`errorFiles=0`；Batch Strategy Golden 的 raw/health-first/plan-a/plan-b 全 PASS（总计 `1775.592s`）。
+- 49/50 缺口验证回填（2026-08-16）：修复 Windows `getopt_long` shim 未排列位置参数、导致查询后的 `-h arin` 未解析的跨平台缺陷；新增 `opts-permuted-parser` 回归。win32/win64 对 `203.0.113.0/24 -h arin` 均恢复 ARIN 起始/权威；CIDR 正文契约 `4/4 PASS`、draft TSV `9/9 PASS`（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`）。Redirect IPv4 首轮 `66/66 PASS`，修复后复跑出现 1 条 LACNIC rate-limit 环境瞬态（单例立即恢复 `unknown`）；Redirect 10x6 稳态 `authMismatchFiles=0`、`errorFiles=0`；Batch Strategy Golden 的 raw/health-first/plan-a/plan-b 全 PASS（总计 `1775.592s`）。
 - Phase C selftest 实跑（2026-08-16）：`whois-win64.exe --selftest` 中新增的 `preclass-phasec-policy`、`preclass-phasec-route`、显式主机旁路及短/长选项 parser 断言全部 PASS；完整 standalone selftest 的既有 `injection-view-fallback` 仍 FAIL，并有网络相关 WARN/SKIP，已确认不是 49/50 引入，Phase C 默认仍关闭。
 - 黄金脚本静态修复（2026-08-16）：`tools/test/golden_check_selftest.sh` 修复 ShellCheck `SC2016`，通过 Bash 语法、帮助入口和错误分支回归；提交 `c756e2cf` 已推送至 `origin/master`。
 - 43/44 Vx A/B 无人值守复核修复（2026-08-11）：V1-V4 代码故障票现在显式写出实际故障轮次；V2 保持既有运行时裁剪语义，D1-D3 中出现 1 或 2 个安全 `D-NOP` 时允许快跳，`unknown-unexplained` 仍阻断快跳；终态总结默认门禁由 trigger/sender 动作升级为同票 ledger `status=done + handled_at` 回执，未确认时 trigger 保持驻留并按 90 秒冷却重投原 ticket/brief，不创建重复 final ticket。`status_ticket_mini_regression.ps1` 新增对应回归。

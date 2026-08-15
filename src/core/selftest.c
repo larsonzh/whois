@@ -453,8 +453,10 @@ static int selftest_preclass_phasec_policy(void)
         extern int optind;
         wc_opts_t short_opts;
         wc_opts_t long_opts;
+        wc_opts_t permuted_opts;
         char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
         char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
+        char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
         optind = 1;
         if (wc_opts_parse(5, short_argv, &short_opts) != 0 || !short_opts.debug || !short_opts.plain_mode ||
             !short_opts.host || strcmp(short_opts.host, "whois.arin.net") != 0 || optind != 4) {
@@ -473,6 +475,16 @@ static int selftest_preclass_phasec_policy(void)
             fprintf(stderr, "[SELFTEST] opts-long-parser: PASS\n");
         }
         wc_opts_free(&long_opts);
+        optind = 1;
+        if (wc_opts_parse(4, permuted_argv, &permuted_opts) != 0 ||
+            !permuted_opts.host || strcmp(permuted_opts.host, "arin") != 0 ||
+            optind != 3 || strcmp(permuted_argv[optind], "203.0.113.0/24") != 0) {
+            fprintf(stderr, "[SELFTEST] opts-permuted-parser: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] opts-permuted-parser: PASS\n");
+        }
+        wc_opts_free(&permuted_opts);
     }
     return failed;
 }

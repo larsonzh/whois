@@ -56,7 +56,7 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 49/50 gap-validation backfill (2026-08-16):
 - CIDR body contract: `pass=4 fail=0`, report `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`.
-- CIDR draft TSV: `pass=8 fail=1`, summary `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-023439.txt`; the only failure is `203.0.113.0/24 @ arin`: current IANA returns an authoritative `whois.iana.org` object while the TSV still expects `whois.arin.net`. A focused rerun reproduced the same result, so this is an expectation/current-response mismatch and the test data was not rewritten.
+- The first CIDR draft TSV run was `pass=8 fail=1`. Cross-platform comparison proved that the expectation was correct: the Windows `getopt_long` shim stopped at the positional query and never parsed the trailing `-h arin`. After adding stable GNU-style argument permutation plus an `opts-permuted-parser` regression, win32/win64 use ARIN as both explicit start and final authority. The rerun passes body `4/4` and draft TSV `9/9`; summary `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`.
 - Redirect Matrix IPv4: `pass=66 fail=0`, report directory `out/artifacts/redirect_matrix/20260816-025454`.
 - Parameterized Redirect Matrix (`RirIpPref=NONE`, `PreferIpv4=false`): `pass=66 fail=0`, report directory `out/artifacts/redirect_matrix/20260816-025728`.
 - Redirect Matrix 10x6 with stable throttling (`InterCaseSleepMs=500`, `RateLimitRetries=2`, `RateLimitRetrySleepMs=2500`): `authMismatchFiles=0`, `errorFiles=0`, directory `out/artifacts/redirect_matrix_10x6/20260816-025940`.

@@ -9406,4 +9406,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 运行期无 material incident、无代码/脚本自愈、无阶段重启；A→B 事件票 ACK=`2026-08-15 16:04:34`，最终状态票 ACK=`2026-08-15 23:18:24`；最终 heartbeat=`guard=23:11:28, session=RUNNING, a=PASS, b=RUNNING`，随后正常收口为 PASS/stopped。
 - 最终 Strict Version：`lto-auto` 默认参数，9 个架构构建完成，无告警、lto 无告警，`Local hash verify: PASS`、`[golden] PASS`、`referral check: PASS`；用时 `305s`，产物目录 `out/artifacts/20260816-014807`。
 - 过程记录：首次命令因命令行末尾误加续行符被手工 `^C` 中断，未形成有效失败结论；修正命令后自然完成并通过。为消除 MinGW `STDIN_FILENO redefined` 告警，`src/core/client_meta.c` 增加条件定义，复验确认无告警。
+- Windows 参数排列补充修复：49/50 后续 CIDR draft TSV 暴露 win32/win64 对 `query -h arin` 误走隐式 IANA 起始。根因是最小 `getopt_long` shim 遇位置参数即停止，未实现 GNU 参数排列；`src/core/opts.c` 已补齐稳定排列，`selftest.c` 新增 `opts-permuted-parser`。win32/win64 对照恢复 ARIN 权威，CIDR Bundle 复跑 body `4/4`、matrix `9/9`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 
