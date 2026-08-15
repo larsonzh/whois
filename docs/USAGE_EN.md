@@ -54,6 +54,15 @@ Need one-click Release updating (optionally skip tagging) or a quick remote Make
 
 (If anchors don’t jump in your viewer, open `OPERATIONS_EN.md` and scroll to the headings.)
 
+49/50 gap-validation backfill (2026-08-16):
+- CIDR body contract: `pass=4 fail=0`, report `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`.
+- CIDR draft TSV: `pass=8 fail=1`, summary `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-023439.txt`; the only failure is `203.0.113.0/24 @ arin`: current IANA returns an authoritative `whois.iana.org` object while the TSV still expects `whois.arin.net`. A focused rerun reproduced the same result, so this is an expectation/current-response mismatch and the test data was not rewritten.
+- Redirect Matrix IPv4: `pass=66 fail=0`, report directory `out/artifacts/redirect_matrix/20260816-025454`.
+- Parameterized Redirect Matrix (`RirIpPref=NONE`, `PreferIpv4=false`): `pass=66 fail=0`, report directory `out/artifacts/redirect_matrix/20260816-025728`.
+- Redirect Matrix 10x6 with stable throttling (`InterCaseSleepMs=500`, `RateLimitRetries=2`, `RateLimitRetrySleepMs=2500`): `authMismatchFiles=0`, `errorFiles=0`, directory `out/artifacts/redirect_matrix_10x6/20260816-025940`.
+- Batch Strategy Golden: raw/health-first/plan-a/plan-b all `[golden] PASS`, total elapsed `1775.592s`; directories `out/artifacts/batch_raw/20260816-030943`, `batch_health/20260816-031539`, `batch_plan/20260816-032618`, and `batch_planb/20260816-033430`.
+- Phase C new selftests: direct `release/lzispro/whois/whois-win64.exe --selftest` execution passed `preclass-phasec-policy`, `preclass-phasec-route`, `preclass-phasec-explicit-host-bypass`, `opts-short-parser`, and `opts-long-parser`; evidence `out/artifacts/phasec_selftest_20260816/stderr.txt`. The complete standalone selftest also reports the pre-existing `injection-view-fallback: FAIL` plus network-related WARN/SKIP results; this was present before 49/50 and is not attributed to the Phase C additions.
+
 Latest validated matrix (2026-02-20, LTO):
 - Remote build/smoke/sync + Golden (Strict Version, 2026-02-23, current round): `lto-auto`; both default and `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` rounds pass (`no warnings + no LTO warnings + Local hash verify PASS + Golden PASS + referral check PASS`), logs `out/artifacts/20260223-062933` (187s) and `out/artifacts/20260223-063512` (267s).
 - Batch strategy goldens (2026-02-23, current round): raw/health-first/plan-a/plan-b all PASS, logs `out/artifacts/batch_raw/20260223-064057`, `batch_health/20260223-064601`, `batch_plan/20260223-065003`, `batch_planb/20260223-065408` (total 1039.830s).
@@ -314,6 +323,8 @@ Batch accelerator diagnostics:
 - `--step47-trial-scope minimal|reserved|all`: control Step 4.7 trial coverage (default `minimal`).
 - `--enable-step47-early-unknown`: enable controlled early-unknown path (off by default; effective only in `reserved` scope).
 - `--step47-early-unknown-list <csv>`: configure early-unknown candidate list (exact CSV matching, case-insensitive; unset or `default` keeps the default single candidate).
+- `--enable-preclass-first-hop`: enable the dedicated Phase B classifier-preferred first-hop switch; after 49/50 D4 it defaults on for implicit queries. Explicit `-h` remains bypassed, and `--disable-address-preclass` is the full rollback.
+- `--enable-preclass-early-converge`: enable the Phase C reserved/special early-convergence capability, off by default. Only high-confidence `reserved|special` with `rir=none` may short-circuit implicit queries to `unknown`; low-confidence, allocated/legacy, non-`none` RIR, and explicit `-h` cases stay out of this path. Default-on migration requires separate review.
 
 Notes:
 - Explicit `-h` remains compatibility-first and bypasses Step 4.7 short-circuit behavior.

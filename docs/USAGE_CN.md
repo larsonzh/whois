@@ -70,6 +70,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline -DryRun
 ```
 
+49/50 缺口验证回填（2026-08-16）：
+- CIDR 正文契约：`pass=4 fail=0`，报告 `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`。
+- CIDR draft TSV：`pass=8 fail=1`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-023439.txt`；唯一失败为 `203.0.113.0/24 @ arin`，当前 IANA 实际返回 `whois.iana.org` 权威对象，而 TSV 仍期望 `whois.arin.net`，单例复核结果一致，属于测试期望与当前实际响应不一致，未改写测试数据。
+- Redirect Matrix IPv4：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025454`。
+- Redirect Matrix 参数化（`RirIpPref=NONE`、`PreferIpv4=false`）：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025728`。
+- Redirect Matrix 10x6 稳态（`InterCaseSleepMs=500`、`RateLimitRetries=2`、`RateLimitRetrySleepMs=2500`）：`authMismatchFiles=0`、`errorFiles=0`，目录 `out/artifacts/redirect_matrix_10x6/20260816-025940`。
+- Batch Strategy Golden：raw/health-first/plan-a/plan-b 全 `[golden] PASS`，总用时 `1775.592s`；目录分别为 `out/artifacts/batch_raw/20260816-030943`、`batch_health/20260816-031539`、`batch_plan/20260816-032618`、`batch_planb/20260816-033430`。
+- Phase C 新增 selftest：直接运行 `release/lzispro/whois/whois-win64.exe --selftest`，`preclass-phasec-policy`、`preclass-phasec-route`、`preclass-phasec-explicit-host-bypass`、`opts-short-parser`、`opts-long-parser` 全 PASS，证据 `out/artifacts/phasec_selftest_20260816/stderr.txt`。完整 standalone selftest 另有既有 `injection-view-fallback: FAIL`，以及网络相关 WARN/SKIP；该失败在 49/50 前已存在，未归因于本期 Phase C 变更。
+
 最新验证基线（2026-02-20，LTO）：
 - 远程编译冒烟同步 + Golden（Strict Version，2026-02-23，本轮）：`lto-auto`，默认参数与 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
 - 批量策略黄金（2026-02-23，本轮）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。
@@ -329,6 +338,8 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--step47-trial-scope minimal|reserved|all`：控制 Step 4.7 试验范围（默认 `minimal`）。
 - `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
 - `--step47-early-unknown-list <csv>`：配置 early-unknown 候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时使用默认单点候选）。
+- `--enable-preclass-first-hop`：启用专用 Phase B 分类器优先首跳开关；49/50 D4 后对隐式查询默认开启。显式 `-h` 保持旁路，`--disable-address-preclass` 提供全量回退。
+- `--enable-preclass-early-converge`：启用 Phase C reserved/special 早收敛受控能力，默认关闭；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路为 `unknown`，低置信、allocated/legacy、非 `none` RIR 与显式 `-h` 不进入该路径。默认迁移需独立评审。
 
 说明：
 - 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
