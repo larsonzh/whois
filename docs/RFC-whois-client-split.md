@@ -9408,3 +9408,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 过程记录：首次命令因命令行末尾误加续行符被手工 `^C` 中断，未形成有效失败结论；修正命令后自然完成并通过。为消除 MinGW `STDIN_FILENO redefined` 告警，`src/core/client_meta.c` 增加条件定义，复验确认无告警。
 - Windows 参数排列补充修复：49/50 后续 CIDR draft TSV 暴露 win32/win64 对 `query -h arin` 误走隐式 IANA 起始。根因是最小 `getopt_long` shim 遇位置参数即停止，未实现 GNU 参数排列；`src/core/opts.c` 已补齐稳定排列，`selftest.c` 新增 `opts-permuted-parser`。win32/win64 对照恢复 ARIN 权威，CIDR Bundle 复跑 body `4/4`、matrix `9/9`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 
+**Phase C 默认开启独立评审（2026-08-16，PASS）**：
+
+- 新增独立门禁 `tools/test/preclass_phasec_default_review.ps1`，以最终 win64 制品连续执行 2 周期、每周期 10 案例，`20/20 PASS`；证据为 `out/artifacts/preclass_phasec_review/20260816-044919/summary.txt` 与 `summary.csv`。
+- R0 `255.0.0.0` 与 R1 `10.0.0.1`、`fc00::1`、`fe80::1` 均按高置信 reserved/special 路径收敛 unknown；显式 `-h` 保持 `hint-bypassed`，`--disable-address-preclass` 保持 `hint-disabled/disabled=1/route_change=0`，未传专用开关时默认仍关。
+- allocated-control、allocated/low 与 non-ip/low 运行时控制组均禁入；当前 CLI 分类顺序没有稳定可达的 `class=unknown` 地址样例，故 `selftest.c` 直接增加 `unknown/unknown/low` 纯策略拒绝断言，不以 non-ip 替代 unknown 证据。
+- 独立 win64 审查制品位于 `out/artifacts/phasec_review_build/20260816-045230/build_out/win64/whois-win64.exe`，SHA-256=`e264710159fdacfd4fc80e1ff3131e3ce0c440d690ef047bb45bdbfd3487fb33`；哈希校验及 Phase C policy/route/显式主机/parser selftest 标签全 PASS。
+- 评审结论允许进入独立默认翻转任务，但本轮不修改 `preclass_early_converge_enable`、不更新黄金基线，也不宣称 Phase C 或 Address-Space 前置分类器已正式收尾。
+

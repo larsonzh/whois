@@ -4166,4 +4166,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 过程记录：首次命令因命令行末尾误加续行符被手工 `^C` 中断，未形成有效失败结论；修正命令后自然完成并通过。为消除 MinGW `STDIN_FILENO redefined` 告警，`src/core/client_meta.c` 增加条件定义，复验确认无告警。
 - Windows 参数排列补充修复：49/50 后续 CIDR draft TSV 暴露 win32/win64 对 `query -h arin` 误走隐式 IANA 起始。根因是最小 `getopt_long` shim 遇位置参数即停止，未实现 GNU 参数排列；`src/core/opts.c` 已补齐稳定排列，`selftest.c` 新增 `opts-permuted-parser`。win32/win64 对照恢复 ARIN 权威，CIDR Bundle 复跑 body `4/4`、matrix `9/9`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 
+#### 24.18 Phase C 默认开启独立评审（2026-08-16，PASS）
+
+- 评审入口：`tools/test/preclass_phasec_default_review.ps1`；本轮仅增加评审门禁与 unknown 纯策略回归，未翻转 `preclass_early_converge_enable`，未更新黄金基线。
+- 连续门禁周期：最终制品 `release/lzispro/whois/whois-win64.exe` 连续执行 2 周期、每周期 10 案例，结果 `20/20 PASS`；证据为 `out/artifacts/preclass_phasec_review/20260816-044919/summary.txt` 与 `summary.csv`。
+- R0/R1：R0 `255.0.0.0` 与 R1 `10.0.0.1`、`fc00::1`、`fe80::1` 均为 `reserved|special + rir=none + confidence=high`，开启受控开关时动作均为 `preclass-early-converge-unknown`，收敛 `unknown`。
+- 回退与兼容：`--disable-address-preclass` 输出 `action=hint-disabled`、`disabled=1`、`route_change=0`；显式 `-h 127.0.0.1` 输出 `host_mode=explicit`、`action=hint-bypassed`、`route_change=0`；未传专用开关时保持 `hint-bypassed`，证明当前默认仍关。
+- 禁入：`8.8.8.8` 的 allocated-control 实况分类为 `legacy/arin/medium`，`2001:db9::1` 为 `allocated/unknown/low`，`example.test` 为 `non-ip/none/low`，均未进入 Phase C。`class=unknown` 在当前 CLI 分类顺序下无稳定可达地址样例，因此由公共纯策略 selftest 直接断言 `unknown/unknown/low` 不得早收敛，禁止用 non-ip 样例冒充 unknown。
+- 独立审查制品：`out/artifacts/phasec_review_build/20260816-045230/build_out/win64/whois-win64.exe`，SHA-256=`e264710159fdacfd4fc80e1ff3131e3ce0c440d690ef047bb45bdbfd3487fb33`，本地哈希校验 PASS；其 `--selftest` 中 `preclass-phasec-policy`、`preclass-phasec-route`、`preclass-phasec-explicit-host-bypass`、`opts-permuted-parser` 全 PASS。
+- 结论：现有 Phase C 受控路径的默认开启技术条件评审通过；但 `203.0.113.0/24` 等 IANA special-purpose 地址暴露出终态语义、权威归属与快照覆盖层尚未定案，因此默认翻转任务暂缓。必须先完成 24.19 第 1 项 RFC 收口，再评审是否建立独立任务翻转 `preclass_early_converge_enable` 并更新黄金基线；在两项任务均完成前，Phase C 与整个 Address-Space 前置分类器仍不得标记正式收尾。
+
+#### 24.19 后续工作顺序调整（2026-08-16，待执行）
+
+> 顺序变更原因：`203.0.113.0/24`（TEST-NET-3）在 IPv4 `/8` 基础分配表中继承 `203/8 -> APNIC`，但在 IANA IPv4 Special-Purpose Address Registry 中是 RFC 5737 Documentation 地址。不同 WHOIS 起点当前可分别收敛到 IANA/APNIC/ARIN/LACNIC/unknown，证明“上层 covering RIR”“特殊用途登记权威”和“最终 Authoritative RIR”尚未分层。默认早收敛翻转不得先于该语义决策。
+
+1. **先完成 RFC 遗留待定项（阻断默认翻转）**
+  - 决定高置信 `reserved/special` 的用户可见终态：继续复用 `unknown`，还是新增稳定且可向后兼容的 `reserved/special` 语义；不得仅因某 RIR 保存镜像/登记正文就把该 RIR 输出为特殊用途地址的最终权威。
+  - 明确分层数据模型：基础地址空间表提供 `covering_rir`，IANA Special-Purpose Registry 通过最长前缀匹配覆盖 `class/purpose/RFC/routability/reserved-by-protocol`；IANA 是 special-purpose 登记来源，不等同于 RIR，`covering_rir` 也不等同于最终 `authoritative_rir`。
+  - 固化地址空间快照更新频率与发布流程：官方 CSV 固化到 `docs/registry-snapshots/`，由 `tools/preclass/update_iana_registry_snapshots.ps1` 构建前/发布前更新和校验；客户端运行时禁止联网读取 registry，只使用编译进二进制的生成表。
+  - 建议更新策略：每月检查上游变化，发布前强制复检；快照、manifest、生成表任一变化均需独立审查，验证 source/stored SHA-256、schema、最长前缀覆盖、关键 special-purpose 样例、黄金矩阵与多架构构建后方可发布。
+  - RFC 决策完成后，同步 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、双语使用文档、发布说明、生成器说明与相关测试基线，并为 TEST-NET-1/2/3、IPv6 Documentation、Private-Use、Benchmarking、Loopback、ULA、Link-Local、协议保留与 future-use 建立明确矩阵。
+
+2. **RFC 收口通过后，再建立 Phase C 默认翻转独立任务**
+  - 准入条件：第 1 项的终态语义、数据模型、快照更新与发布流程均已有批准结论；生成器已消费固定 CSV 快照并通过最长前缀覆盖验证；特殊用途地址不再因 WHOIS 起点不同产生冲突终态。
+  - 独立任务仅负责翻转 `preclass_early_converge_enable` 默认值、更新帮助文本与黄金基线，并复跑 Phase C 连续门禁、R0/R1、显式 `-h`、全量回退、allocated/unknown/low-confidence 禁入、CIDR 契约、重定向矩阵、Step47、Strict 多架构与发布制品哈希检查。
+  - 默认翻转任务不得顺带重新设计第 1 项语义，也不得用更新黄金期望掩盖起点相关漂移。
+  - 只有第 1 项 RFC/快照收口和第 2 项默认翻转任务均 PASS，才可标记 Phase C 与整个 Address-Space 前置分类器正式收尾。
+
 

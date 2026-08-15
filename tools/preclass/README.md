@@ -20,6 +20,16 @@ Generate preclass runtime table artifacts from address-space snapshots.
 python tools/preclass/gen_preclass_table.py
 ```
 
+Refresh the pinned IANA CSV snapshots before regenerating tables:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_iana_registry_snapshots.ps1
+```
+
+The updater validates all four CSV schemas before replacing any existing files and writes
+`docs/registry-snapshots/manifest.json` with source and stored SHA-256 values. Runtime code
+must not access IANA over the network; generated C tables consume these pinned snapshots.
+
 ## Notes
 
 - This is D0 scaffolding and does not switch runtime lookup behavior yet.

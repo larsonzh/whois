@@ -1,0 +1,52 @@
+﻿{
+    "schema":  "IANA_REGISTRY_SNAPSHOT_MANIFEST_V1",
+    "generated_at_utc":  "2026-08-15T22:51:03.5869886+00:00",
+    "normalization":  "UTF-8 BOM + LF",
+    "file_count":  4,
+    "files":  [
+                  {
+                      "file":  "iana-ipv4-address-space.csv",
+                      "url":  "https://www.iana.org/assignments/ipv4-address-space/ipv4-address-space.csv",
+                      "retrieved_at_utc":  "2026-08-15T22:51:03.5869886+00:00",
+                      "content_type":  "text/csv; charset=UTF-8; header=present",
+                      "row_count":  256,
+                      "source_length":  22972,
+                      "source_sha256":  "b7b28385e8bc8785c117e2ea65974f942cc6f7dd9dce914f2253ff0adfad4b03",
+                      "stored_length":  22718,
+                      "stored_sha256":  "98960d65bfb03c9e3998e7b03c60d1fe45b0439fefde6ac0bc54be24bf602804"
+                  },
+                  {
+                      "file":  "iana-ipv6-address-space.csv",
+                      "url":  "https://www.iana.org/assignments/ipv6-address-space/ipv6-address-space-1.csv",
+                      "retrieved_at_utc":  "2026-08-15T22:51:03.5869886+00:00",
+                      "content_type":  "text/csv; charset=UTF-8; header=present",
+                      "row_count":  20,
+                      "source_length":  2093,
+                      "source_sha256":  "41fef65d7a5fb32076175ffac1b663a9153d5593d3e2c840696ed8ffa1c7af29",
+                      "stored_length":  2075,
+                      "stored_sha256":  "c14dc88152d43969dd43b3d23d86421283bdf8a82d463e0dcbae5d5deee416f8"
+                  },
+                  {
+                      "file":  "iana-ipv4-special-registry.csv",
+                      "url":  "https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry-1.csv",
+                      "retrieved_at_utc":  "2026-08-15T22:51:03.5869886+00:00",
+                      "content_type":  "text/csv; charset=UTF-8; header=present",
+                      "row_count":  25,
+                      "source_length":  2423,
+                      "source_sha256":  "e3e39e76d00b1677335db8e9a805c7b9480ea2f4dc9e33f0b93cd3a905128d73",
+                      "stored_length":  2400,
+                      "stored_sha256":  "25bcc3bf28abcc4a689b8c2a742fdf2153a9eb1f769479e0e4ccb23bf0340702"
+                  },
+                  {
+                      "file":  "iana-ipv6-special-registry.csv",
+                      "url":  "https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry-1.csv",
+                      "retrieved_at_utc":  "2026-08-15T22:51:03.5869886+00:00",
+                      "content_type":  "text/csv; charset=UTF-8; header=present",
+                      "row_count":  25,
+                      "source_length":  2289,
+                      "source_sha256":  "775feea0621dec8735a44fbf30f762e721e8f0a1b3ab7eb341961a88cfce2139",
+                      "stored_length":  2266,
+                      "stored_sha256":  "9501073c7895d647de11cce9c8fb032224ba06ba7cdd8a2dbd79fea6f8b92dbf"
+                  }
+              ]
+}

@@ -420,6 +420,7 @@ static int selftest_preclass_phasec_policy(void)
     if (!wc_preclass_classification_should_early_converge("reserved", "none", "high") ||
         !wc_preclass_classification_should_early_converge("special", "none", "high") ||
         wc_preclass_classification_should_early_converge("reserved", "none", "low") ||
+        wc_preclass_classification_should_early_converge("unknown", "unknown", "low") ||
         wc_preclass_classification_should_early_converge("allocated", "arin", "high") ||
         wc_preclass_classification_should_early_converge("reserved", "unknown", "high")) {
         fprintf(stderr, "[SELFTEST] preclass-phasec-policy: FAIL\n");
