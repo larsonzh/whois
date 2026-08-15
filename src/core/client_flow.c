@@ -77,6 +77,8 @@ static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
     const char* query);
 static int wc_client_is_p1_tier_candidate(const Config* config,
     const char* query);
+static int wc_client_is_phasec_early_converge_candidate(const Config* config,
+    const char* query);
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host);
 
@@ -314,13 +316,33 @@ static const char* wc_client_preclass_first_hop_hint(const Config* config,
 
     if (!config || !query || !*query)
         return NULL;
-    if (!config->preclass_action_enable)
+    if (!config->preclass_first_hop_enable)
         return NULL;
     if (config->disable_address_preclass)
         return NULL;
     wc_preclass_classify_ip(query, &family, &cls, &rir,
         &reason, &confidence);
     return wc_preclass_classification_first_hop_host(cls, rir);
+}
+
+static int wc_client_is_phasec_early_converge_candidate(const Config* config,
+    const char* query)
+{
+    const char* family = NULL;
+    const char* cls = NULL;
+    const char* rir = NULL;
+    const char* reason = NULL;
+    const char* confidence = NULL;
+
+    if (!config || !query || !*query)
+        return 0;
+    if (!config->preclass_early_converge_enable)
+        return 0;
+    if (config->disable_address_preclass)
+        return 0;
+    wc_preclass_classify_ip(query, &family, &cls, &rir,
+        &reason, &confidence);
+    return wc_preclass_classification_should_early_converge(cls, rir, confidence);
 }
 
 static int wc_client_is_step47_trial_candidate(const Config* config,
@@ -453,6 +475,8 @@ static void wc_client_resolve_preclass_decision(const Config* config,
     wc_preclass_resolve_route_decision(start_host, has_explicit_host,
         hint_applied,
         classifier_hint_applied,
+        preclass_enabled &&
+            wc_client_is_phasec_early_converge_candidate(config, query),
         preclass_enabled &&
             wc_client_is_step47_early_unknown_candidate(config, query),
         preclass_enabled &&

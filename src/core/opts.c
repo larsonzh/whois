@@ -11,9 +11,109 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <io.h>
+#else
 #include <getopt.h>
 #include <unistd.h>
+#endif
 #include <ctype.h>
+
+#if defined(_WIN32) || defined(__MINGW32__)
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
+#if defined(_WIN32) || defined(__MINGW32__)
+/* Minimal getopt shim for Windows/MinGW hosts (no system getopt.h). */
+#define no_argument 0
+#define required_argument 1
+struct option {
+    const char* name;
+    int has_arg;
+    int* flag;
+    int val;
+};
+int optind = 1;
+char* optarg = NULL;
+static int wc_opts_getopt_long_shim(int argc,
+    char* const argv[],
+    const char* shortopts,
+    const struct option* longopts,
+    int* idx)
+{
+    static const char* short_cursor = NULL;
+    const char* arg;
+    const struct option* opt;
+    const char* short_spec;
+    char short_name;
+
+    optarg = NULL;
+    if (short_cursor && *short_cursor) {
+        short_name = *short_cursor++;
+        short_spec = shortopts ? strchr(shortopts, short_name) : NULL;
+        if (!short_spec) {
+            short_cursor = NULL;
+            return '?';
+        }
+        if (short_spec[1] == ':') {
+            if (*short_cursor != '\0')
+                optarg = (char*)short_cursor;
+            else if (optind < argc)
+                optarg = argv[optind++];
+            else {
+                short_cursor = NULL;
+                return '?';
+            }
+            short_cursor = NULL;
+        }
+        else if (*short_cursor == '\0') {
+            short_cursor = NULL;
+        }
+        return (unsigned char)short_name;
+    }
+
+    if (optind >= argc)
+        return -1;
+    arg = argv[optind];
+    if (!arg || arg[0] != '-' || arg[1] == '\0')
+        return -1;
+    if (strcmp(arg, "--") == 0) {
+        optind++;
+        return -1;
+    }
+
+    if (arg[1] != '-') {
+        short_cursor = arg + 1;
+        optind++;
+        return wc_opts_getopt_long_shim(argc, argv, shortopts, longopts, idx);
+    }
+
+    arg += 2;
+    for (opt = longopts; opt && opt->name; ++opt) {
+        size_t n = strlen(opt->name);
+        if (strncmp(arg, opt->name, n) != 0)
+            continue;
+        if (arg[n] != '\0' && arg[n] != '=')
+            continue;
+        if (idx)
+            *idx = (int)(opt - longopts);
+        optind++;
+        if (opt->has_arg) {
+            if (arg[n] == '=')
+                optarg = (char*)(arg + n + 1);
+            else if (optind < argc)
+                optarg = argv[optind++];
+            else
+                return '?';
+        }
+        return opt->val;
+    }
+    optind++;
+    return '?';
+}
+#define getopt_long(argc, argv, opts, longopts, idx) wc_opts_getopt_long_shim(argc, argv, opts, longopts, idx)
+#endif
 
 #include "wc/wc_defaults.h"
 #include "wc/wc_opts.h"
@@ -251,6 +351,8 @@ static struct option wc_long_options[] = {
     {"step47-trial-scope", required_argument, 0, 1314},
     {"enable-step47-early-unknown", no_argument, 0, 1315},
     {"step47-early-unknown-list", required_argument, 0, 1316},
+    {"enable-preclass-first-hop", no_argument, 0, 1320},
+    {"enable-preclass-early-converge", no_argument, 0, 1321},
     {"fold-unique", no_argument, 0, 1012},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
@@ -423,6 +525,8 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 }
                 o->step47_early_unknown_list = optarg;
                 break;
+            case 1320: o->preclass_first_hop_enable = 1; break;
+            case 1321: o->preclass_early_converge_enable = 1; break;
             case 1012: o->fold_unique = 1; break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;

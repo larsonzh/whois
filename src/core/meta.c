@@ -56,6 +56,8 @@ static const char* const k_diagnostics_lines[] = {
     "      --step47-trial-scope S  Step 4.7 trial scope: minimal|reserved|all (default: minimal)",
     "      --enable-step47-early-unknown  Enable Step 4.7 early-unknown trial (default: off; reserved scope only)",
     "      --step47-early-unknown-list CSV  Step 4.7 early-unknown candidate list, e.g. 255.0.0.0,10.0.0.1",
+    "      --enable-preclass-first-hop  Phase B classifier-preferred first hop for implicit queries (default: on)",
+    "      --enable-preclass-early-converge  Enable Phase C reserved/special early converge (default: off)",
     "      --debug-verbose       Extra verbose debug (cache/redirect instrumentation)",
     "      --selftest            Run internal self-tests and exit",
     "      --selftest-fail-first-attempt  Force first attempt to fail once (A/B pacing)",

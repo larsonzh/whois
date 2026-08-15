@@ -1,7 +1,16 @@
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <io.h>
+#include <stdio.h>
+#define isatty _isatty
+#ifndef STDIN_FILENO
+#define STDIN_FILENO _fileno(stdin)
+#endif
+#else
 #include <unistd.h>
 #include <stdio.h>
+#endif
 
 #include "wc/wc_client_meta.h"
 #include "wc/wc_client_usage.h"
@@ -102,6 +111,8 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->step47_trial_scope = opts->step47_trial_scope;
 	cfg->step47_early_unknown_enable = opts->step47_early_unknown_enable;
 	cfg->step47_early_unknown_list = opts->step47_early_unknown_list;
+	cfg->preclass_first_hop_enable = opts->preclass_first_hop_enable;
+	cfg->preclass_early_converge_enable = opts->preclass_early_converge_enable;
 }
 
 int wc_client_handle_meta_requests(const wc_opts_t* opts,

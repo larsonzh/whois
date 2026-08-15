@@ -52,6 +52,8 @@ struct Config {
 	int step47_trial_scope;        // Step 4.7 trial scope: 0=minimal, 1=reserved, 2=all
 	int step47_early_unknown_enable; // Enable Step 4.7 early-unknown trial path (default off)
 	const char* step47_early_unknown_list; // Step 4.7 early-unknown candidate query list (CSV)
+	int preclass_first_hop_enable;   // Enable Phase B classifier-preferred first hop (default off)
+	int preclass_early_converge_enable; // Enable Phase C reserved/special early converge (default off)
 	int fold_unique;               // Deduplicate folded output segments when enabled
 	int dns_neg_ttl;               // Negative DNS cache TTL (seconds)
 	int dns_neg_cache_disable;     // Disable negative DNS caching

@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdlib.h> // free
 #include "wc/wc_selftest.h"
+#include "wc/wc_preclass.h"
+#include "wc/wc_opts.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_server.h"
@@ -410,8 +412,76 @@ static int selftest_dns_fallback_toggles(void) {
     return failed_local;
 }
 
+static int selftest_preclass_phasec_policy(void)
+{
+    int failed = 0;
+    wc_preclass_route_decision_t decision;
+
+    if (!wc_preclass_classification_should_early_converge("reserved", "none", "high") ||
+        !wc_preclass_classification_should_early_converge("special", "none", "high") ||
+        wc_preclass_classification_should_early_converge("reserved", "none", "low") ||
+        wc_preclass_classification_should_early_converge("allocated", "arin", "high") ||
+        wc_preclass_classification_should_early_converge("reserved", "unknown", "high")) {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-policy: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-policy: PASS\n");
+    }
+
+    memset(&decision, 0, sizeof(decision));
+    wc_preclass_resolve_route_decision("whois.iana.org", 0, 0, 0, 1, 0, 0, 0, &decision);
+    if (!decision.short_circuit || !decision.route_change ||
+        !decision.start_host || strcmp(decision.start_host, "unknown") != 0 ||
+        !decision.action || strcmp(decision.action, "preclass-early-converge-unknown") != 0) {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-route: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-route: PASS\n");
+    }
+
+    memset(&decision, 0, sizeof(decision));
+    wc_preclass_resolve_route_decision("whois.arin.net", 1, 1, 0, 1, 0, 0, 0, &decision);
+    if (decision.short_circuit || decision.route_change ||
+        !decision.action || strcmp(decision.action, "hint-bypassed") != 0) {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-explicit-host-bypass: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-explicit-host-bypass: PASS\n");
+    }
+
+    {
+        extern int optind;
+        wc_opts_t short_opts;
+        wc_opts_t long_opts;
+        char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
+        char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
+        optind = 1;
+        if (wc_opts_parse(5, short_argv, &short_opts) != 0 || !short_opts.debug || !short_opts.plain_mode ||
+            !short_opts.host || strcmp(short_opts.host, "whois.arin.net") != 0 || optind != 4) {
+            fprintf(stderr, "[SELFTEST] opts-short-parser: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] opts-short-parser: PASS\n");
+        }
+        wc_opts_free(&short_opts);
+        optind = 1;
+        if (wc_opts_parse(4, long_argv, &long_opts) != 0 || !long_opts.debug ||
+            !long_opts.host || strcmp(long_opts.host, "whois.arin.net") != 0 || optind != 3) {
+            fprintf(stderr, "[SELFTEST] opts-long-parser: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] opts-long-parser: PASS\n");
+        }
+        wc_opts_free(&long_opts);
+    }
+    return failed;
+}
+
 int wc_selftest_run(void) {
     int failed = 0;
+
+    int phasec = selftest_preclass_phasec_policy();
+    if (phasec != 0) failed = 1;
 
     int crlf = selftest_crlf_normalization();
     if (crlf != 0) failed = 1;

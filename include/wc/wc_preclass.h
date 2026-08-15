@@ -40,6 +40,7 @@ void wc_preclass_resolve_route_decision(const char* start_host,
         int has_explicit_host,
         int hint_applied,
         int classifier_hint_applied,
+        int early_converge,
         int step47_early_unknown,
         int p1_controlled_unknown,
         int step47_trial_candidate,
@@ -50,6 +51,12 @@ void wc_preclass_resolve_route_decision(const char* start_host,
 // the reserved/special early-unknown short-circuit candidate set.
 int wc_preclass_classification_is_allocated_control(const char* cls,
         const char* rir);
+
+// Returns 1 only for high-confidence reserved/special classifications with
+// rir=none, which are eligible for Phase C early convergence.
+int wc_preclass_classification_should_early_converge(const char* cls,
+        const char* rir,
+        const char* confidence);
 
 // Returns the canonical WHOIS host for the classification when the Phase B
 // classifier-preferred first hop applies (allocated/legacy with a real RIR

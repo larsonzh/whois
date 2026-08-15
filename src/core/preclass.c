@@ -228,6 +228,11 @@ static const char* wc_preclass_action_classifier_rir_hint_literal(void)
 	return "classifier-rir-hint";
 }
 
+static const char* wc_preclass_action_early_converge_literal(void)
+{
+	return "preclass-early-converge-unknown";
+}
+
 static const char* wc_preclass_action_preclass_short_circuit_literal(void)
 {
 	return "preclass-short-circuit-unknown";
@@ -304,6 +309,7 @@ static void wc_preclass_apply_route_change_finalize(int route_change, wc_preclas
 	if (out_fields && out_fields->route_change == 1 &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_hint_applied_literal()) &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_classifier_rir_hint_literal()) &&
+		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_early_converge_literal()) &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_preclass_short_circuit_literal()) &&
 		!wc_preclass_token_equals(out_fields->action, wc_preclass_action_step47_short_circuit_literal())) {
 			out_fields->route_change = 0;
@@ -315,6 +321,7 @@ void wc_preclass_resolve_route_decision(const char* start_host,
         int has_explicit_host,
         int hint_applied,
         int classifier_hint_applied,
+        int early_converge,
         int step47_early_unknown,
         int p1_controlled_unknown,
         int step47_trial_candidate,
@@ -333,6 +340,13 @@ void wc_preclass_resolve_route_decision(const char* start_host,
     if (classifier_hint_applied) {
         out_decision->action = "classifier-rir-hint";
         out_decision->route_change = 1;
+        return;
+    }
+    if (early_converge) {
+        out_decision->action = "preclass-early-converge-unknown";
+        out_decision->route_change = 1;
+        out_decision->short_circuit = 1;
+        out_decision->start_host = "unknown";
         return;
     }
     if (hint_applied) {
@@ -366,6 +380,19 @@ int wc_preclass_classification_is_allocated_control(const char* cls,
     if (strcmp(cls, "allocated") != 0 && strcmp(cls, "legacy") != 0)
         return 0;
     return strcmp(rir, "none") != 0 && strcmp(rir, "unknown") != 0;
+}
+
+int wc_preclass_classification_should_early_converge(const char* cls,
+        const char* rir,
+        const char* confidence)
+{
+    if (!cls || !rir || !confidence)
+        return 0;
+    if (strcmp(cls, "reserved") != 0 && strcmp(cls, "special") != 0)
+        return 0;
+    if (strcmp(rir, "none") != 0)
+        return 0;
+    return strcmp(confidence, "high") == 0;
 }
 
 const char* wc_preclass_classification_first_hop_host(const char* cls,
