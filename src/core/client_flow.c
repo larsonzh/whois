@@ -308,11 +308,7 @@ static const char* wc_client_guess_query_rir_host(const char* query)
 static const char* wc_client_preclass_first_hop_hint(const Config* config,
     const char* query)
 {
-    const char* family = NULL;
-    const char* cls = NULL;
-    const char* rir = NULL;
-    const char* reason = NULL;
-    const char* confidence = NULL;
+    wc_preclass_result_t result;
 
     if (!config || !query || !*query)
         return NULL;
@@ -320,19 +316,15 @@ static const char* wc_client_preclass_first_hop_hint(const Config* config,
         return NULL;
     if (config->disable_address_preclass)
         return NULL;
-    wc_preclass_classify_ip(query, &family, &cls, &rir,
-        &reason, &confidence);
-    return wc_preclass_classification_first_hop_host(cls, rir);
+    if (!wc_preclass_classify_query(query, &result))
+        return NULL;
+    return wc_preclass_classification_first_hop_host(result.cls, result.rir);
 }
 
 static int wc_client_is_phasec_early_converge_candidate(const Config* config,
     const char* query)
 {
-    const char* family = NULL;
-    const char* cls = NULL;
-    const char* rir = NULL;
-    const char* reason = NULL;
-    const char* confidence = NULL;
+    wc_preclass_result_t result;
 
     if (!config || !query || !*query)
         return 0;
@@ -340,9 +332,10 @@ static int wc_client_is_phasec_early_converge_candidate(const Config* config,
         return 0;
     if (config->disable_address_preclass)
         return 0;
-    wc_preclass_classify_ip(query, &family, &cls, &rir,
-        &reason, &confidence);
-    return wc_preclass_classification_should_early_converge(cls, rir, confidence);
+    if (!wc_preclass_classify_query(query, &result))
+        return 0;
+    return wc_preclass_classification_should_early_converge(
+        result.cls, result.rir, result.confidence);
 }
 
 static int wc_client_is_step47_trial_candidate(const Config* config,

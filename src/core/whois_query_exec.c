@@ -377,6 +377,12 @@ void wc_preclass_emit_observation(const Config* config,
 	const char* rir = "none";
 	const char* reason = "NON_IP_INPUT";
 	const char* confidence = "low";
+	const char* covering_rir = "unknown";
+	const char* registry = "none";
+	const char* purpose = "none";
+	const char* globally_reachable = "na";
+	const char* reserved_by_protocol = "na";
+	wc_preclass_result_t detailed_result;
 
 	if (normalized && wc_client_is_valid_ip_address(normalized)) {
 		family = (strchr(normalized, ':') != NULL) ? "v6" : "v4";
@@ -401,6 +407,13 @@ void wc_preclass_emit_observation(const Config* config,
 				&reason,
 				&confidence);
 		}
+		if (wc_preclass_classify_query(normalized, &detailed_result)) {
+			covering_rir = detailed_result.covering_rir;
+			registry = detailed_result.registry;
+			purpose = detailed_result.purpose;
+			globally_reachable = detailed_result.globally_reachable;
+			reserved_by_protocol = detailed_result.reserved_by_protocol;
+		}
 	}
 	wc_preclass_observation_codes(reason,
 		confidence,
@@ -410,12 +423,17 @@ void wc_preclass_emit_observation(const Config* config,
 		&confidence_rank);
 
 	fprintf(stderr,
-		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",
+		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s covering_rir=%s registry=%s purpose=%s globally_reachable=%s reserved_by_protocol=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",
 		query,
 		decision_fields.input_label,
 		family,
 		cls,
 		rir,
+		covering_rir,
+		registry,
+		purpose,
+		globally_reachable,
+		reserved_by_protocol,
 		reason,
 		reason_code,
 		reason_key,

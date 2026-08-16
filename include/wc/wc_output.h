@@ -20,6 +20,11 @@ void wc_output_header_via_ip(const char* query,
 void wc_output_header_via_unknown(const char* query,
     const char* via_host);
 
+void wc_output_address_status(const char* status,
+    const char* purpose,
+    const char* registry,
+    const char* covering_rir);
+
 // Tail: authoritative unknown (no IP section)
 void wc_output_tail_unknown_plain(void);
 

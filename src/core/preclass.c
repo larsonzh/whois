@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#if !defined(_WIN32) && !defined(__MINGW32__)
+#if defined(_MSC_VER)
+#define strncasecmp _strnicmp
+#else
 #include <strings.h>
 #endif
 
@@ -651,12 +653,16 @@ enum {
 	WC_PRECLASS_REASON_ID_V4_ALLOCATED = 1001u,
 	WC_PRECLASS_REASON_ID_V4_LEGACY = 1002u,
 	WC_PRECLASS_REASON_ID_V4_RESERVED = 1003u,
+	WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE = 1010u,
+	WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL = 1011u,
 	WC_PRECLASS_REASON_ID_V4_UNKNOWN = 1099u,
 	WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST = 2001u,
 	WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL = 2002u,
 	WC_PRECLASS_REASON_ID_V6_LINK_LOCAL = 2003u,
 	WC_PRECLASS_REASON_ID_V6_MULTICAST = 2004u,
 	WC_PRECLASS_REASON_ID_V6_RESERVED = 2005u,
+	WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE = 2010u,
+	WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL = 2011u,
 	WC_PRECLASS_REASON_ID_V6_UNKNOWN = 2099u
 };
 
@@ -680,6 +686,16 @@ static const char* wc_preclass_reason_v4_unknown_registry_literal(void)
 	return "V4_UNKNOWN_REGISTRY";
 }
 
+static const char* wc_preclass_reason_v4_special_purpose_literal(void)
+{
+	return "V4_SPECIAL_PURPOSE";
+}
+
+static const char* wc_preclass_reason_v4_reserved_special_literal(void)
+{
+	return "V4_RESERVED_SPECIAL";
+}
+
 static const char* wc_preclass_reason_v6_reserved_ietf_literal(void)
 {
 	return "V6_RESERVED_IETF";
@@ -688,6 +704,16 @@ static const char* wc_preclass_reason_v6_reserved_ietf_literal(void)
 static const char* wc_preclass_reason_v6_unknown_registry_literal(void)
 {
 	return "V6_UNKNOWN_REGISTRY";
+}
+
+static const char* wc_preclass_reason_v6_special_purpose_literal(void)
+{
+	return "V6_SPECIAL_PURPOSE";
+}
+
+static const char* wc_preclass_reason_v6_reserved_special_literal(void)
+{
+	return "V6_RESERVED_SPECIAL";
 }
 
 static const char* wc_preclass_v6_unique_local_reason_literal(void);
@@ -700,12 +726,16 @@ static const char* wc_preclass_reason_name(uint16_t reason_id)
 		case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal();
 		case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal();
 		case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal();
+		case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return wc_preclass_reason_v4_special_purpose_literal();
+		case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return wc_preclass_reason_v4_reserved_special_literal();
 		case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal();
 		case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL: return wc_preclass_v6_unique_local_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_LINK_LOCAL: return wc_preclass_v6_link_local_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_MULTICAST: return wc_preclass_v6_multicast_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal();
+		case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return wc_preclass_reason_v6_special_purpose_literal();
+		case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return wc_preclass_reason_v6_reserved_special_literal();
 		case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal();
 		default: return wc_preclass_reason_unknown_literal();
 	}
@@ -803,6 +833,55 @@ static int wc_preclass_lookup_row_v6(uint64_t hi,
 	}
 
 	return 0;
+}
+
+static const wc_preclass_table_row_t* wc_preclass_lookup_row_text(const char* normalized)
+{
+	struct in_addr addr4;
+	struct in6_addr addr6;
+	const wc_preclass_table_row_t* row = NULL;
+
+	if (!normalized)
+		return NULL;
+	if (inet_pton(AF_INET, normalized, &addr4) == 1) {
+		const unsigned char* b = (const unsigned char*)&addr4;
+		uint32_t ip = (((uint32_t)b[0]) << 24) |
+			(((uint32_t)b[1]) << 16) |
+			(((uint32_t)b[2]) << 8) |
+			((uint32_t)b[3]);
+		return wc_preclass_lookup_row_v4(ip, &row) ? row : NULL;
+	}
+	if (inet_pton(AF_INET6, normalized, &addr6) == 1) {
+		const unsigned char* b = addr6.s6_addr;
+		uint64_t hi = (((uint64_t)b[0]) << 56) | (((uint64_t)b[1]) << 48) |
+			(((uint64_t)b[2]) << 40) | (((uint64_t)b[3]) << 32) |
+			(((uint64_t)b[4]) << 24) | (((uint64_t)b[5]) << 16) |
+			(((uint64_t)b[6]) << 8) | ((uint64_t)b[7]);
+		uint64_t lo = (((uint64_t)b[8]) << 56) | (((uint64_t)b[9]) << 48) |
+			(((uint64_t)b[10]) << 40) | (((uint64_t)b[11]) << 32) |
+			(((uint64_t)b[12]) << 24) | (((uint64_t)b[13]) << 16) |
+			(((uint64_t)b[14]) << 8) | ((uint64_t)b[15]);
+		return wc_preclass_lookup_row_v6(hi, lo, &row) ? row : NULL;
+	}
+	return NULL;
+}
+
+static const char* wc_preclass_registry_name(uint8_t registry_id)
+{
+	switch (registry_id) {
+		case 1u: return "iana";
+		case 2u: return "rir";
+		default: return "none";
+	}
+}
+
+static const char* wc_preclass_tristate_name(uint8_t value)
+{
+	switch (value) {
+		case 1u: return "false";
+		case 2u: return "true";
+		default: return "na";
+	}
 }
 
 static int wc_preclass_lookup_row_and_assign_v4(struct in_addr addr4,
@@ -1075,4 +1154,39 @@ void wc_preclass_classify_ip(const char* normalized,
 		}
 		return;
 	}
+}
+
+int wc_preclass_classify_query(const char* query,
+		wc_preclass_result_t* out_result)
+{
+	char normalized[128];
+	const char* slash;
+	size_t normalized_len;
+	const wc_preclass_table_row_t* row;
+
+	if (!query || !*query || !out_result)
+		return 0;
+	memset(out_result, 0, sizeof(*out_result));
+	slash = strchr(query, '/');
+	normalized_len = slash ? (size_t)(slash - query) : strlen(query);
+	if (normalized_len == 0 || normalized_len >= sizeof(normalized))
+		return 0;
+	memcpy(normalized, query, normalized_len);
+	normalized[normalized_len] = '\0';
+	row = wc_preclass_lookup_row_text(normalized);
+	if (!row)
+		return 0;
+
+	wc_preclass_classify_ip(normalized,
+		&out_result->family,
+		&out_result->cls,
+		&out_result->rir,
+		&out_result->reason,
+		&out_result->confidence);
+	out_result->covering_rir = wc_preclass_rir_name(row->covering_rir_id);
+	out_result->registry = wc_preclass_registry_name(row->registry_id);
+	out_result->purpose = row->purpose ? row->purpose : "none";
+	out_result->globally_reachable = wc_preclass_tristate_name(row->globally_reachable);
+	out_result->reserved_by_protocol = wc_preclass_tristate_name(row->reserved_by_protocol);
+	return 1;
 }

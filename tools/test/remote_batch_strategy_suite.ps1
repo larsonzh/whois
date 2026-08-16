@@ -24,6 +24,7 @@
     [switch]$SkipPlanB,
     [switch]$RemoteGolden,
     [switch]$NoGolden,
+    [switch]$SkipRemote,
     [switch]$DryRun,
     [switch]$QuietRemote
 )
@@ -47,6 +48,7 @@ $null = @(
     $BackoffActions,
     $RemoteGolden,
     $NoGolden,
+    $SkipRemote,
     $DryRun,
     $QuietRemote
 )
@@ -223,7 +225,7 @@ function Get-GoldenPresetArgText {
                      @{ Flag = "--dns-start"; Value = "ipv4" })
         }
         "plan-a" { return @(@{ Flag = "--batch-actions"; Value = "plan-a-cache,plan-a-faststart,plan-a-skip,debug-penalize" }) }
-        "plan-b" { return @(@{ Flag = "--batch-actions"; Value = "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override" }) }
+        "plan-b" { return @(@{ Flag = "--batch-actions"; Value = "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last|force-override" }) }
         default { throw "[suite] Unknown golden preset: $Preset" }
     }
 }
@@ -274,6 +276,9 @@ function Invoke-Golden {
     else {
         $presetArgs = Get-GoldenPresetArgText -Preset $Preset
         $argString = " -l $logQuoted"
+        if ($Preset -ne "raw") {
+            $argString += " --start whois.iana.org --auth whois.arin.net"
+        }
         foreach ($arg in $presetArgs) {
             $argString += " " + $arg.Flag + " " + (Convert-ToBashLiteral -Text $arg.Value)
         }
@@ -293,9 +298,9 @@ function Invoke-Golden {
         $reportPath = Join-Path $logDir "golden_report_$($Preset.Replace(' ','_')).txt"
         $reportMsys = Convert-ToMsysPath -Path $reportPath
         $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
-        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString | tee $reportQuoted"
+        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check.sh$argString 2>&1 | tee $reportQuoted"
     }
-    Write-Output "[suite] Golden check ($Preset): $cmd"
+    Write-Host "[suite] Golden check ($Preset): $cmd"
     & $bashExe -lc $cmd | Out-Host
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
@@ -306,7 +311,7 @@ function Invoke-Golden {
             ExitCode = $exitCode
         }
     }
-    Write-Output "[suite] Golden check ($Preset) PASS. Report: $reportPath"
+    Write-Host "[suite] Golden check ($Preset) PASS. Report: $reportPath"
     return [pscustomobject]@{
         Status = "PASS"
         ReportPath = $reportPath
@@ -325,7 +330,7 @@ function Invoke-Strategy {
         [bool]$SkipFlag
     )
     if ($SkipFlag) {
-        Write-Output "[suite] Skip $Label (flag set)"
+        Write-Host "[suite] Skip $Label (flag set)"
         return $null
     }
     if ($NeedsBatchInput -and [string]::IsNullOrWhiteSpace($batchInputArg)) {
@@ -379,30 +384,35 @@ function Invoke-Strategy {
         $envPrefix = "WHOIS_BATCH_DEBUG_PENALIZE=" + (Convert-ToBashLiteral -Text $PenaltyHosts) + " "
     }
     $command = "cd $repoQuoted && ${envPrefix}./tools/remote/remote_build_and_test.sh $argString"
-    Write-Output "[suite] [$Label] launch: $command"
-    Write-Output "[suite] [$Label] remote build running, please wait..."
-    if ($DryRun) {
-        Write-Output "[suite] [$Label] dry-run: skipped"
-        return $null
-    }
-    if ($QuietRemote) {
-        $prevEap = $ErrorActionPreference
-        try {
-            $ErrorActionPreference = "Continue"
-            & $bashExe -lc $command *> $null
+    if (-not $SkipRemote) {
+        Write-Host "[suite] [$Label] launch: $command"
+        Write-Host "[suite] [$Label] remote build running, please wait..."
+        if ($DryRun) {
+            Write-Host "[suite] [$Label] dry-run: skipped"
+            return $null
         }
-        finally {
-            $ErrorActionPreference = $prevEap
+        if ($QuietRemote) {
+            $prevEap = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = "Continue"
+                & $bashExe -lc $command *> $null
+            }
+            finally {
+                $ErrorActionPreference = $prevEap
+            }
+        }
+        else {
+            & $bashExe -lc $command | Out-Host
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "[suite] $Label remote_build_and_test.sh failed (rc=$LASTEXITCODE)"
         }
     }
     else {
-        & $bashExe -lc $command
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "[suite] $Label remote_build_and_test.sh failed (rc=$LASTEXITCODE)"
+        Write-Host "[suite] [$Label] skip-remote: reuse latest log under $FetchSubdir"
     }
     $logPath = Get-LatestLogPath -RelativeSubdir $FetchSubdir
-    Write-Output "[suite] [$Label] latest log: $logPath"
+    Write-Host "[suite] [$Label] latest log: $logPath"
     $goldenMeta = $null
     if ($NoGolden) {
         $goldenMeta = [pscustomobject]@{

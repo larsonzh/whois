@@ -95,7 +95,7 @@ case "$preset" in
     preset_backoff_default=""
     ;;
   plan-b)
-    preset_args=("--batch-actions" "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last,force-override")
+    preset_args=("--batch-actions" "plan-b-force-start,plan-b-fallback,debug-penalize,start-skip,force-last|force-override")
     preset_backoff_default=""
     ;;
   *)

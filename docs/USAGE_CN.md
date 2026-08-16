@@ -71,6 +71,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 ```
 
 49/50 缺口验证回填（2026-08-16）：
+- 2026-08-17 追加复核：Strict 默认/debug 两轮 Local hash、Golden、referral 全 PASS（`20260817-000833`、`20260817-001953`）；Batch/Selftest 四策略 Golden 全 PASS（`002627/003207/003826/004414`、`010022/010604/011235/011843`）。12x6 authority mismatch 空表；唯一 LACNIC `45.113.52.0/22` rate-limit error 单例重测恢复 APNIC，保留日志 `out/artifacts/redirect_matrix_10x6/20260817-014619` 作为网络瞬态证据。
+- 末端失败节点重查：RIR 轮询耗尽且权威未决时，对曾出现拒绝、限流或持久空响应的 RIR 各做一次受限单跳重查；仅权威结果清偿 failure debt，非权威/再次失败保持原终态。调试标签为 `[TERMINAL-RETRY]`，仅写 stderr。验证：P0 `12/12`、special `17/17`、CIDR `4/4 + 9/9`、12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260816-194455`），Strict 全架构 PASS（`out/artifacts/20260816-201756`，325s）。
+- 最新发布候选复核：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，9 架构 SHA-256、Local hash、Golden、referral 全 PASS（`out/artifacts/20260816-203059`，276s；`20260816-203903`，286s）；批量四策略 Golden 全 PASS（`204504/205026/205622/210225`，1315.436s），自检四策略全 PASS（`210950/211526/212129/212741`，1369.958s）。最终 12x6 authority mismatch 空表且无 errors（`out/artifacts/redirect_matrix_10x6/20260816-213231`）。此前 `lacnic_158.60.0.0_16` 的 APNIC 空响应瞬态保留在历史目录 `20260816-161935`，本轮已正常收敛。
 - CIDR 正文契约：`pass=4 fail=0`，报告 `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`。
 - CIDR draft TSV 首轮为 `pass=8 fail=1`；跨平台对照确认并非测试期望过时，而是 Windows `getopt_long` shim 遇到查询位置参数后提前停止，未解析后置 `-h arin`。补齐 GNU 风格稳定参数排列并新增 `opts-permuted-parser` 回归后，win32/win64 均以 ARIN 为显式起始和最终权威；复跑 body `pass=4 fail=0`、draft TSV `pass=9 fail=0`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 - Redirect Matrix IPv4：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025454`。
@@ -339,10 +342,12 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
 - `--step47-early-unknown-list <csv>`：配置 early-unknown 候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时使用默认单点候选）。
 - `--enable-preclass-first-hop`：启用专用 Phase B 分类器优先首跳开关；49/50 D4 后对隐式查询默认开启。显式 `-h` 保持旁路，`--disable-address-preclass` 提供全量回退。
-- `--enable-preclass-early-converge`：启用 Phase C reserved/special 早收敛受控能力，默认关闭；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路为 `unknown`，低置信、allocated/legacy、非 `none` RIR 与显式 `-h` 不进入该路径。默认迁移需独立评审。
+- `--enable-preclass-early-converge`：启用 Phase C reserved/special 早收敛受控能力，默认关闭；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路。命中 IANA special-purpose 静态表时，普通输出增加 `=== Address Status: ... ===`，权威尾行统一为 `unknown @ unknown`。显式 `-h` 仍查询并显示指定服务器正文，但成功响应同样执行 special-purpose 权威归一化；低置信、allocated/legacy 与非 `none` RIR 不进入该路径。默认迁移仍需独立任务。
 
 说明：
 - 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
+- Address Status 仅在普通输出出现；`--plain`/`--fold` 不新增结构行，fold 末项继续为 `unknown`。
+- `tools/test/preclass_special_registry_matrix.ps1` 提供 10 个离线 special-purpose 样例；加 `-RunExplicitHosts` 后追加 TEST-NET-3 七起点一致性验证。
 - `[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于观测 P1 候选来源（tier 默认或自定义 CSV）。
 - 建议优先使用 VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入，一键执行 readiness + A/B + rollback）。
 - 建议配合以下脚本做 pre-release 验证：

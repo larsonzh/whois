@@ -118,11 +118,20 @@ $reasonObj = Get-Content -Raw -Path $reasonMapFullPath | ConvertFrom-Json
 
 $manifestIpv4Path = Resolve-RepoPath -Path $manifest.source_ipv4
 $manifestIpv6Path = Resolve-RepoPath -Path $manifest.source_ipv6
+$manifestIpv4SpecialPath = Resolve-RepoPath -Path $manifest.source_ipv4_special
+$manifestIpv6SpecialPath = Resolve-RepoPath -Path $manifest.source_ipv6_special
+$snapshotManifestPath = Resolve-RepoPath -Path $manifest.snapshot_manifest
 
 $hashIpv4Actual = Get-Sha256Lower -PathValue $manifestIpv4Path
 $hashIpv6Actual = Get-Sha256Lower -PathValue $manifestIpv6Path
+$hashIpv4SpecialActual = Get-Sha256Lower -PathValue $manifestIpv4SpecialPath
+$hashIpv6SpecialActual = Get-Sha256Lower -PathValue $manifestIpv6SpecialPath
+$snapshotManifestHashActual = Get-Sha256Lower -PathValue $snapshotManifestPath
 $hashIpv4Expected = ([string]$manifest.source_ipv4_sha256).ToLowerInvariant()
 $hashIpv6Expected = ([string]$manifest.source_ipv6_sha256).ToLowerInvariant()
+$hashIpv4SpecialExpected = ([string]$manifest.source_ipv4_special_sha256).ToLowerInvariant()
+$hashIpv6SpecialExpected = ([string]$manifest.source_ipv6_special_sha256).ToLowerInvariant()
+$snapshotManifestHashExpected = ([string]$manifest.snapshot_manifest_sha256).ToLowerInvariant()
 
 $reasonMap = @{}
 $allowedOrphanIds = @()
@@ -135,7 +144,7 @@ foreach ($prop in $reasonObj.PSObject.Properties) {
 }
 
 $tableText = Get-Content -Raw -Path $tableSourceFullPath
-$rowPattern = '\{(?<family>\d+)u,\s*\d+u,\s*\d+u,\s*\d+u,\s*(?<confidence>\d+)u,\s*(?<reason>\d+)u,\s*0x[0-9A-Fa-f]+ULL,\s*0x[0-9A-Fa-f]+ULL\}'
+$rowPattern = '\{(?<family>\d+)u,\s*\d+u,\s*\d+u,\s*\d+u,\s*\d+u,\s*\d+u,\s*(?<confidence>\d+)u,\s*\d+u,\s*\d+u,\s*(?<reason>\d+)u,\s*"[^"]+",\s*0x[0-9A-Fa-f]+ULL,\s*0x[0-9A-Fa-f]+ULL\}'
 $rowMatches = [regex]::Matches($tableText, $rowPattern)
 
 $rowsTotal = $rowMatches.Count
@@ -179,6 +188,9 @@ $missingReverseConfidenceIds = @($usedConfidenceIdList | Where-Object { $confide
 
 $checkHashV4 = ($hashIpv4Actual -eq $hashIpv4Expected)
 $checkHashV6 = ($hashIpv6Actual -eq $hashIpv6Expected)
+$checkHashV4Special = ($hashIpv4SpecialActual -eq $hashIpv4SpecialExpected)
+$checkHashV6Special = ($hashIpv6SpecialActual -eq $hashIpv6SpecialExpected)
+$checkSnapshotManifestHash = ($snapshotManifestHashActual -eq $snapshotManifestHashExpected)
 $checkCountV4 = ($rowsV4 -eq [int]$manifest.record_count_v4)
 $checkCountV6 = ($rowsV6 -eq [int]$manifest.record_count_v6)
 $checkCountTotal = ($rowsTotal -eq [int]$manifest.record_count_total)
@@ -190,6 +202,9 @@ $checkConfidenceReverse = ($missingReverseConfidenceIds.Count -eq 0)
 $allPass = @(
     $checkHashV4,
     $checkHashV6,
+    $checkHashV4Special,
+    $checkHashV6Special,
+    $checkSnapshotManifestHash,
     $checkCountV4,
     $checkCountV6,
     $checkCountTotal,
@@ -206,6 +221,9 @@ $summaryObj = [ordered]@{
     checks = [ordered]@{
         hash_ipv4_match = $checkHashV4
         hash_ipv6_match = $checkHashV6
+        hash_ipv4_special_match = $checkHashV4Special
+        hash_ipv6_special_match = $checkHashV6Special
+        snapshot_manifest_hash_match = $checkSnapshotManifestHash
         row_count_v4_match = $checkCountV4
         row_count_v6_match = $checkCountV6
         row_count_total_match = $checkCountTotal
@@ -244,6 +262,15 @@ $summaryObj = [ordered]@{
         ipv4_sha256_actual = $hashIpv4Actual
         ipv6_sha256_expected = $hashIpv6Expected
         ipv6_sha256_actual = $hashIpv6Actual
+        ipv4_special = $manifest.source_ipv4_special
+        ipv4_special_sha256_expected = $hashIpv4SpecialExpected
+        ipv4_special_sha256_actual = $hashIpv4SpecialActual
+        ipv6_special = $manifest.source_ipv6_special
+        ipv6_special_sha256_expected = $hashIpv6SpecialExpected
+        ipv6_special_sha256_actual = $hashIpv6SpecialActual
+        snapshot_manifest = $manifest.snapshot_manifest
+        snapshot_manifest_sha256_expected = $snapshotManifestHashExpected
+        snapshot_manifest_sha256_actual = $snapshotManifestHashActual
         table_source = $TableSourcePath
         preclass_core_source = $PreclassCoreSourcePath
         reason_map = $ReasonMapPath
@@ -258,7 +285,7 @@ $summaryObj | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryJsonPath -Enc
 $summaryLines = @(
     "[PRECLASS-TABLE-GUARD] out_dir=$outDir",
     "[PRECLASS-TABLE-GUARD] manifest=$ManifestPath",
-    "[PRECLASS-TABLE-GUARD] hash_ipv4_match=$checkHashV4 hash_ipv6_match=$checkHashV6",
+    "[PRECLASS-TABLE-GUARD] hash_ipv4_match=$checkHashV4 hash_ipv6_match=$checkHashV6 hash_ipv4_special_match=$checkHashV4Special hash_ipv6_special_match=$checkHashV6Special snapshot_manifest_hash_match=$checkSnapshotManifestHash",
     "[PRECLASS-TABLE-GUARD] count_v4=$rowsV4/$($manifest.record_count_v4) count_v6=$rowsV6/$($manifest.record_count_v6) count_total=$rowsTotal/$($manifest.record_count_total)",
     "[PRECLASS-TABLE-GUARD] missing_reason_ids=$($missingReasonIds -join ',')",
     "[PRECLASS-TABLE-GUARD] missing_reverse_reason_ids=$($missingReverseReasonIds -join ',')",

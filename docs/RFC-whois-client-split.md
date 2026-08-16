@@ -9408,6 +9408,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 过程记录：首次命令因命令行末尾误加续行符被手工 `^C` 中断，未形成有效失败结论；修正命令后自然完成并通过。为消除 MinGW `STDIN_FILENO redefined` 告警，`src/core/client_meta.c` 增加条件定义，复验确认无告警。
 - Windows 参数排列补充修复：49/50 后续 CIDR draft TSV 暴露 win32/win64 对 `query -h arin` 误走隐式 IANA 起始。根因是最小 `getopt_long` shim 遇位置参数即停止，未实现 GNU 参数排列；`src/core/opts.c` 已补齐稳定排列，`selftest.c` 新增 `opts-permuted-parser`。win32/win64 对照恢复 ARIN 权威，CIDR Bundle 复跑 body `4/4`、matrix `9/9`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
 
+**最终四轮 Golden 与重定向矩阵收口（2026-08-16）**：
+
+- 2026-08-17 后续复核：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260817-000833`，305s；`20260817-001953`，290s）；Batch/Selftest Golden 四策略均 PASS（`002627/003207/003826/004414`、`010022/010604/011235/011843`）。12x6 authority mismatch 为空；唯一 LACNIC `45.113.52.0/22` rate-limit error 在同参数单例重测已恢复 APNIC，归类为外部限流瞬态，不触发代码或任务定义修改。
+- Strict `lto-auto` 默认轮 `out/artifacts/20260816-203059`（276s）与 debug/metrics/DNS-family 轮 `out/artifacts/20260816-203903`（286s）均完成 9 架构构建，无编译/LTO 告警；SHA-256 清单逐文件实算均 `hash_mismatches=0`，Local hash、Golden、IANA/ARIN/AFRINIC 三条 referral 全 PASS。
+- Batch Golden raw/health-first/plan-a/plan-b 全 PASS：`batch_raw/20260816-204504`、`batch_health/20260816-205026`、`batch_plan/20260816-205622`、`batch_planb/20260816-210225`，总用时 `1315.436s`。
+- Selftest Golden raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`：`batch_raw/20260816-210950`、`batch_health/20260816-211526`、`batch_plan/20260816-212129`、`batch_planb/20260816-212741`，总用时 `1369.958s`。
+- 最终 12x6 矩阵目录 `out/artifacts/redirect_matrix_10x6/20260816-213231`：authority mismatch 文件为空，errors 为 `(no errors found)`；`158.60.0.0/16` 等此前瞬态样例均按静态期望收敛。本轮无需代码修复，Phase B/Phase C、Golden 基线与统一末端失败节点重查进入文档收口状态。
+
 **Phase C 默认开启独立评审（2026-08-16，PASS）**：
 
 - 新增独立门禁 `tools/test/preclass_phasec_default_review.ps1`，以最终 win64 制品连续执行 2 周期、每周期 10 案例，`20/20 PASS`；证据为 `out/artifacts/preclass_phasec_review/20260816-044919/summary.txt` 与 `summary.csv`。

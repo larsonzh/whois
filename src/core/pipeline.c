@@ -8,6 +8,7 @@
 #include "wc/wc_fold.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_output.h"
+#include "wc/wc_preclass.h"
 #include "wc/wc_title.h"
 #include "wc/wc_util.h"
 #include "wc/wc_workbuf.h"
@@ -270,6 +271,23 @@ void wc_pipeline_render(const Config* cfg,
     }
     const int fold_output = render_opts ? render_opts->fold_output : 0;
     const int plain_mode = render_opts ? render_opts->plain_mode : 0;
+    wc_preclass_result_t address_status;
+    const int has_address_status = cfg &&
+        cfg->preclass_early_converge_enable &&
+        !cfg->disable_address_preclass &&
+        res->err == 0 &&
+        wc_preclass_classify_query(query, &address_status) &&
+        wc_preclass_classification_should_early_converge(
+            address_status.cls,
+            address_status.rir,
+            address_status.confidence) &&
+        strcmp(address_status.registry, "iana") == 0;
+    if (has_address_status) {
+        snprintf(res->meta.authoritative_host,
+            sizeof(res->meta.authoritative_host), "%s", "unknown");
+        snprintf(res->meta.authoritative_ip,
+            sizeof(res->meta.authoritative_ip), "%s", "unknown");
+    }
     if (!fold_output && !plain_mode) {
         const char* via_host = res->meta.via_host[0]
             ? res->meta.via_host
@@ -281,6 +299,12 @@ void wc_pipeline_render(const Config* cfg,
             wc_output_header_via_ip(query, via_host, via_ip);
         else
             wc_output_header_via_unknown(query, via_host);
+        if (has_address_status) {
+            wc_output_address_status(address_status.cls,
+                address_status.purpose,
+                address_status.registry,
+                address_status.covering_rir);
+        }
         if (in_batch)
             fflush(stdout);
     }

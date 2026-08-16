@@ -14,8 +14,13 @@ typedef struct wc_preclass_table_row_s {
     uint8_t prefix_len;
     uint8_t class_id;
     uint8_t rir_id;
+    uint8_t covering_rir_id;
+    uint8_t registry_id;
     uint8_t confidence_id;
+    uint8_t globally_reachable;
+    uint8_t reserved_by_protocol;
     uint16_t reason_id;
+    const char* purpose;
     uint64_t addr_hi;
     uint64_t addr_lo;
 } wc_preclass_table_row_t;
@@ -26,10 +31,13 @@ typedef struct wc_preclass_table_meta_s {
     uint32_t record_count_v6;
     const char* source_ipv4_sha256;
     const char* source_ipv6_sha256;
+    const char* source_ipv4_special_sha256;
+    const char* source_ipv6_special_sha256;
+    const char* snapshot_manifest_sha256;
     const char* generated_at;
 } wc_preclass_table_meta_t;
 
-#define WC_PRECLASS_TABLE_SCHEMA_VERSION (1u)
+#define WC_PRECLASS_TABLE_SCHEMA_VERSION (2u)
 
 extern const wc_preclass_table_row_t wc_preclass_table[];
 extern const size_t wc_preclass_table_count;

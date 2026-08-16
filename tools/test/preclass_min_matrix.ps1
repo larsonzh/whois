@@ -68,6 +68,9 @@ function Test-ImplicitDecision {
     if ($Action -eq "hint-applied") {
         return $RouteChange -eq "1"
     }
+    if ($Action -eq "classifier-rir-hint") {
+        return $RouteChange -eq "1"
+    }
     if ($Action -eq "hint-bypassed") {
         return $RouteChange -eq "0"
     }

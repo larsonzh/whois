@@ -19,6 +19,24 @@ void wc_preclass_classify_ip(const char* normalized,
                              const char** reason,
                              const char** confidence);
 
+typedef struct wc_preclass_result {
+        const char* family;
+        const char* cls;
+        const char* rir;
+        const char* covering_rir;
+        const char* registry;
+        const char* purpose;
+        const char* globally_reachable;
+        const char* reserved_by_protocol;
+        const char* reason;
+        const char* confidence;
+} wc_preclass_result_t;
+
+// Classifies an IP or CIDR query. CIDR inputs are classified by their base
+// address. Returns 1 for valid IP/CIDR input and 0 for non-IP input.
+int wc_preclass_classify_query(const char* query,
+                                                           wc_preclass_result_t* out_result);
+
 // Unified decision fields for PRECLASS log lines.
 typedef struct wc_preclass_decision_fields {
     const char* action;

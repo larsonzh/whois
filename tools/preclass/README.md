@@ -4,8 +4,11 @@ Generate preclass runtime table artifacts from address-space snapshots.
 
 ## Inputs
 
-- `docs/ipv4-address-space.txt`
-- `docs/ipv6-address-space.txt`
+- `docs/registry-snapshots/iana-ipv4-address-space.csv`
+- `docs/registry-snapshots/iana-ipv6-address-space.csv`
+- `docs/registry-snapshots/iana-ipv4-special-registry.csv`
+- `docs/registry-snapshots/iana-ipv6-special-registry.csv`
+- `docs/registry-snapshots/manifest.json`
 - `tools/preclass/reason_code_map.json`
 
 ## Outputs
@@ -32,5 +35,7 @@ must not access IANA over the network; generated C tables consume these pinned s
 
 ## Notes
 
-- This is D0 scaffolding and does not switch runtime lookup behavior yet.
-- Generated files are deterministic for the same inputs when `SOURCE_DATE_EPOCH` is set.
+- Schema v2 merges base address-space rows with longest-prefix special-purpose overlays.
+- Generated rows carry `covering_rir`, registry, purpose, globally-reachable, and reserved-by-protocol metadata.
+- Generated files are deterministic for the same snapshot manifest. `SOURCE_DATE_EPOCH` may override the generated timestamp for reproducible external builds.
+- Runtime behavior remains gated by `--enable-preclass-early-converge`; the default is still off.

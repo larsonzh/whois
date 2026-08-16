@@ -9,8 +9,14 @@
 > - `docs/ipv4-address-space.txt`（IANA，Last Updated: 2025-10-10）
 > - `docs/ipv6-address-space.txt`（IANA，Last Updated: 2025-10-23）
 
-## 0. 最近执行验证（2026-02-23）
+## 0. 最近执行验证（2026-08-16）
 
+- 2026-08-17 四轮 Golden 复核：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260817-000833`，305s；`out/artifacts/20260817-001953`，290s）；Batch Golden 四策略全 PASS（`002627/003207/003826/004414`，1357.129s），Selftest Golden 四策略全 PASS（`010022/010604/011235/011843`，1410.913s）。12x6 authority mismatch 为空；唯一 `lacnic_45.113.52.0_22` rate-limit error（`out/artifacts/redirect_matrix_10x6/20260817-014619`）由同参数单例重测恢复 APNIC，判定为外部瞬态，未改变规则或代码。
+- 最终四轮 Golden + 矩阵复核通过：Strict `lto-auto` 默认轮与 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 轮均无编译/LTO 告警，9 架构 SHA-256 清单实算零不匹配，Local hash、Golden、三条 referral 全 PASS；证据 `out/artifacts/20260816-203059`（276s）、`out/artifacts/20260816-203903`（286s）。Batch Golden 四策略 raw/health-first/plan-a/plan-b 全 PASS（`batch_raw/20260816-204504`、`batch_health/20260816-205026`、`batch_plan/20260816-205622`、`batch_planb/20260816-210225`，1315.436s）；Selftest Golden 四策略全 PASS（`batch_raw/20260816-210950`、`batch_health/20260816-211526`、`batch_plan/20260816-212129`、`batch_planb/20260816-212741`，1369.958s）。最终 12x6 authority mismatch 为空、errors=`(no errors found)`（`out/artifacts/redirect_matrix_10x6/20260816-213231`）。未发现需修复的规则或代码回归。
+- 统一末端失败节点重查已落地：`denied/rate-limit/EMPTY-RESP give-up` 按 RIR 登记并合并原因位，只在轮询耗尽且权威未决时各执行一次受限单跳重查；仅权威结果清偿 failure debt，非权威结果保留债务。selftest `terminal-retry-registry/policy` PASS；P0 `12/12`、special `17/17`、CIDR `4/4 + 9/9`、12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260816-194455`）；全架构 Strict hash/Golden/referral PASS（`out/artifacts/20260816-201756`，325s）。
+- Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：无编译/LTO 告警，Local hash、Golden、referral 全 PASS；证据 `out/artifacts/20260816-152132`（250s）、`out/artifacts/20260816-152908`（278s）。
+- Batch Golden 四策略全部 PASS：raw `batch_raw/20260816-153443`、health-first `batch_health/20260816-153930`、plan-a `batch_plan/20260816-154447`、plan-b `batch_planb/20260816-155008`（1167.514s）。Selftest Golden 四策略也全部 PASS：`batch_raw/20260816-155757`、`batch_health/20260816-160310`、`batch_plan/20260816-160845`、`batch_planb/20260816-161433`（1272.104s）。
+- Redirect Matrix 12x6 首轮（`out/artifacts/redirect_matrix_10x6/20260816-161935`）`errorFiles=0`；唯一 mismatch 为 `lacnic_158.60.0.0_16`，日志显示 APNIC hop 空响应重试耗尽后落 `unknown`，同轮其余五起点均收敛 APNIC。相同参数定向复测连续 2 次恢复 APNIC，按外部网络瞬态处理，不改变 authority 规则与静态期望；随后完整复跑达到 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260816-173702`）。
 - Strict Version 两轮（`lto-auto`，默认 / `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）均通过：`no warnings + no LTO warnings + hash PASS + golden PASS + referral PASS`，日志 `out/artifacts/20260223-062933`、`out/artifacts/20260223-063512`。
 - Batch Golden 与 Selftest Golden 四策略（raw/health-first/plan-a/plan-b）均通过，日志分别位于 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408` 与 `out/artifacts/batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`。
 - Redirect Matrix 12x6 结果全绿：`authMismatchFiles=0` 且 `errorFiles=0`（`errors=(no errors found)`），日志 `out/artifacts/redirect_matrix_10x6/20260223-072410`。
@@ -158,6 +164,17 @@
 
 - rate-limit/temporary denied/permanently denied/timeout 不应直接当作“权威否定证据”；应继续可行跳转。
 - 失败 hop 不应强持久污染 visited，避免把“临时失败”误当作“已完成访问”。
+
+### 5.3 末端失败节点统一重查
+
+- 适用失败类型首批固定为：限流、拒绝访问、语义空响应重试耗尽（`EMPTY-RESP give-up`）。实现以原因位掩码登记，后续新增失败类型时扩展原因位与登记点，不复制末端查询流程。
+- 登记按规范 RIR host 去重，同一 RIR 多种失败原因合并；最多覆盖 APNIC/ARIN/RIPE/AFRINIC/LACNIC 五个节点，IANA 不进入 RIR 末端重查集合。
+- 仅当 RIR 轮询已耗尽、权威仍为 `unknown|error|empty`、未因重定向上限停止、且当前不在嵌套重查 guard 中时触发。
+- 每个登记节点只执行一次原始查询的单跳重查：`no_redirect=1`、`max_hops=1`；不得清除 visited 或重新启动完整 RIR 轮询。
+- 重查得到可判定权威正文时，清偿该 RIR failure debt、追加重查 header/body，并以该 RIR 收敛。
+- 重查得到 ERX/IANA marker、referral 或其它可判定非权威正文时，只补充链路证据，不清偿 failure debt；既有 failure-debt 终态优先级保持不变。
+- 重查仍为空、限流、拒绝或传输失败时保留原债务与终态，不重复重查。
+- 可观测性：stderr 输出 `[TERMINAL-RETRY] action=attempt|result host=<host> reasons=0x<n> [result=authoritative|non-authoritative|failed]`；stdout 仅在拿到可判定正文时按既有 Additional/Redirected header + body 契约追加。
 - LACNIC 内部到 ARIN 且出现 ambiguous、无有效 referral 时，继续按非权威分流，不得提前收敛。
 - 非 CIDR 下，若 LACNIC 内部重定向到“未访问 ARIN”，允许 LACNIC 与 ARIN 均进入 visited，并由 ARIN 响应内容决定后续走向。
 
@@ -227,7 +244,9 @@ CIDR 必须采用“原始查询 + 基准回查 + 一致性验证”的闭环流
 2. **首标记 RIR 内基准回查（仅一次）**
    - 基准查询项为 CIDR 去掩码后的 IP 字面量。
    - 基准回查只在首次出现 `ERX/IANA` 标记的 RIR 内执行一次，不得在其它 RIR 重复此步骤。
-   - 若该次基准回查命中可确认权威，则立即确定该 RIR 为权威并结束全部查询。
+  - “可确认权威”必须同时满足：响应正文非空且具备权威响应证据；不含 `ERX/IANA` 标记；不含 referral、strong redirect hint 或其它已定义的非权威内容；未命中失败类响应。
+  - APNIC CIDR 快速确认：原始 CIDR 在 APNIC 命中 `ERX/IANA` 标记后，若基地址在 APNIC 的重查满足上述“可确认权威”条件，则立即确定 APNIC 为权威并结束全部查询，不再遍历其它 RIR。该优化以基地址响应证据为依据，不是把原始 CIDR 的 `ERX/IANA` 正文直接提升为权威。
+  - 若基地址重查仍含 `ERX/IANA` 标记或其它非权威内容，则本步骤视为未命中；不得确认首标记 RIR，必须进入第 3 步遍历后续可达 RIR。
 
 3. **后续跳基准查询（仅在第 2 步失败时）**
    - 仅当第 2 步未命中时，才将基准查询项带到“首标记 RIR 之后的后续跳 RIR”继续查询。
@@ -378,10 +397,12 @@ return authoritative(first_erx_marker)
 2. **首标记 RIR 内基准回查命中**
    - 路径：原始 CIDR 命中首个 `ERX/IANA` 标记 -> 在该 RIR 内执行一次基准回查并命中。
    - 结果：权威 = 首标记 RIR；立即结束（不进入后续跳、不做一致性验证）。
+  - APNIC 示例：`158.60.0.0/16` 的原始 CIDR 响应含 `ERX-NETBLOCK`；基地址 `158.60.0.0` 在 APNIC 的重查不含 `ERX/IANA`、referral 或其它非权威内容，因此直接确认 APNIC，无需遍历其它 RIR。
 
 3. **首标记 RIR 基准回查未命中，后续跳命中且一致性验证成功**
    - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续跳某 RIR 命中 -> 对该 RIR 做一次原始查询项一致性验证并成功。
    - 结果：权威 = 后续跳命中 RIR；立即结束。
+  - APNIC 示例：`143.128.0.0/16` 的原始 CIDR 与基地址 `143.128.0.0` 在 APNIC 均保留 `ERX/IANA` 非权威证据，不能确认 APNIC；继续遍历后由 AFRINIC 的基地址命中与原始 CIDR 一致性验证确认 AFRINIC。
 
 4. **首标记 RIR 基准回查未命中，后续跳命中但一致性验证失败**
    - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续跳某 RIR 命中 -> 原始查询项一致性验证失败。
@@ -390,6 +411,7 @@ return authoritative(first_erx_marker)
 5. **首标记 RIR 基准回查未命中，后续跳全部未命中**
   - 路径：首标记 RIR 基准回查失败 -> 基准查询项在后续所有可达 RIR 均未命中 -> APNIC 前候选 RIR 回查均未命中。
   - 结果：权威 = APNIC（首个 APNIC `ERX/IANA` 标记 RIR）；立即结束。
+  - APNIC 示例：原始 CIDR 与基地址在 APNIC 均含 `ERX/IANA` 非权威证据，后续其它 RIR 也均未形成可确认权威；若不存在未清偿 failure debt，则按首个 APNIC `ERX/IANA` 标记回落 APNIC。该结果是遍历后的规则回落，不是第 2 步的基地址快速确认。
 
 6. **顺序无关性（ARIN/APNIC 先后不影响终态）**
   - 路径：同一 CIDR 输入分别从 `apnic/ripe/arin` 起跳，若可达性一致且均满足“第 5 步命中（或均未命中）”条件。
@@ -401,7 +423,7 @@ return authoritative(first_erx_marker)
 
 ---
 
-## 7. IANA 地址空间文件的使用边界
+## 7. IANA 地址空间与 Special-Purpose 文件的使用边界
 
 ### 7.1 可做（SHOULD）
 
@@ -409,21 +431,25 @@ return authoritative(first_erx_marker)
   - IPv4：按首字节 `/8` 前缀映射候选 RIR。
   - IPv6：按全局单播可分配区段（重点 `2000::/3`）决定候选优先级。
 - 用于提示“保留/私有/特殊用途地址”的预判，减少无意义跳转。
+- Special-Purpose Registry 以最长前缀覆盖基础地址空间分类，并提供独立 Address Status；基础地址空间 RIR 仅作为 `covering_rir`，不作为特殊用途地址的最终权威。
 
 ### 7.2 不可做（MUST NOT）
 
 - 不得将地址空间分配表作为“最终权威裁决”的唯一依据。
 - 不得据此新增 `IANA-NETBLOCK-8`、`IANA-NETBLOCK-45` 之类硬编码分支。
+- 不得将 IANA 当作 RIR，也不得把 APNIC/ARIN 等镜像或 covering RIR 响应直接提升为 special-purpose 地址的最终 Authoritative RIR。
 
-### 7.3 数据更新建议
+### 7.3 数据更新与发布规则
 
-- 建议在仓库建立“快照更新时间 + 差异审查”流程：
-  - 每次升级 `ipv4-address-space.txt` / `ipv6-address-space.txt` 时记录日期与变更摘要。
-  - 回归矩阵至少覆盖：`8.8.0.0/16`、`45.113.52.0`、`45.71.8.0/22`、`1.1.1.1`、典型 IPv6 样例。
+- 机器输入固定为 `docs/registry-snapshots/` 的四份 IANA CSV 与 manifest；运行时不得联网或解析外部文件。
+- 每 30 天至少检查一次上游；发布候选要求 manifest 抓取时间在 7 天内。
+- 上游变化必须提交快照、manifest、生成表与测试基线差异并完成审查；校验失败或无法完成新鲜度检查时 fail-close。
+- 紧急离线豁免不得超过最近成功检查后 30 天，并须在 release notes 记录四份 source SHA-256、原因与批准人。
+- 回归矩阵除普通地址外，至少覆盖 TEST-NET-1/2/3、IPv6 Documentation、Private-Use、Benchmarking、Loopback、ULA、Link-Local、协议保留与 future-use。
 
 ---
 
-## 8. 输出与可观测性契约（保持不变）
+## 8. 输出与可观测性契约
 
 保持现有 stdout/stderr 分工：
 
@@ -433,8 +459,11 @@ return authoritative(first_erx_marker)
 保持现有格式约束：
 
 - 头行：`=== Query: <item> === via <host-or-alias> @ <ip|unknown>`
+- special-purpose 状态行：`=== Address Status: <reserved|special> purpose=<token> registry=iana covering-rir=<rir|none|unknown> ===`
 - 尾行：`=== Authoritative RIR: <rir-host> @ <ip|unknown|error> ===`
 - fold：`<query> <UPPER_VALUE_...> <RIR>`
+
+状态行仅对高置信 reserved/special 命中输出，位于头行之后、正文之前。此时尾行必须为 `unknown @ unknown`；IANA、covering RIR 或显式 `-h` 服务器均不得写入 Authoritative RIR。显式 `-h` 继续决定传输目标和正文来源，但不旁路该终态归一化。真实传输失败仍按 `error` 契约处理。fold 格式不扩展，末项继续为 `unknown`。
 
 正文显示开关约束：
 

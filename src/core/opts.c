@@ -331,6 +331,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->fold_upper = 1;
     o->cidr_strip_query = 0;
     o->cidr_erx_recheck = 1;
+    o->preclass_first_hop_enable = 1;
     o->prefer_ipv4 = 0; // default preference ordering (IPv6 then IPv4)
     o->prefer_ipv6 = 1;
     o->ip_pref_mode = WC_IP_PREF_MODE_FORCE_V6_FIRST;

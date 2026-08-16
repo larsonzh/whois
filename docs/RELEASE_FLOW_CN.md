@@ -90,6 +90,12 @@
 
 - 适用范围：P2 收口后的常规发版前门禁复核（不改变默认语义）。
 - 必跑门禁（顺序固定）：
+   0. IANA Registry 快照新鲜度与差异审查
+       - 执行：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_iana_registry_snapshots.ps1`。
+       - 通过标准：四份 CSV 均完成 schema/行数校验，`manifest.json` 的 `file_count=4`，抓取时间距发布候选不超过 7 天，source/stored SHA-256 与文件一致。
+       - 若 source SHA-256 变化：必须重新生成静态表，审查最长前缀覆盖差异并复跑 special-purpose 矩阵后，方可进入第 1 闸；禁止静默接受上游变化。
+       - 若仅抓取时间/manifest 变化且四份 source SHA-256 不变：记录“上游无数据变化”，提交新 manifest 后可继续。
+       - 网络不可用或任一校验失败时默认阻断发布；紧急豁免仅按 `RFC-address-space-preclassifier.md` 第 13 节执行。
   1. `Remote: Build (Strict Version)`（建议 `rbPreflight=1`）
      - 通过标准：`Local hash verify PASS`、`Golden PASS`、`referral check PASS`、`Step47 preclass preflight PASS`。
   2. `Test: CIDR Contract Bundle (prefilled)`
@@ -106,6 +112,7 @@
      - 通过标准：stage/resume/guard 三个脚本中不存在本地 `Invoke-KeyValueFileValueUpdate` 函数，且 `tools/test/unattended_startfile_identity.ps1` 中仅保留共享核心 `Invoke-KeyValueFileValueUpdateCore`。
 - 异常处理：任一门禁失败即中止发布，不允许“先打标签后补修”。
 - 证据留存（最少项）：
+   - `docs/registry-snapshots/manifest.json` 及本次 source SHA-256 对照结论。
   - `out/artifacts/<timestamp>` 主目录。
   - preflight 目录（若启用）：`out/artifacts/step47_preclass_preflight/<timestamp>`。
   - Step47 预发布目录：`out/artifacts/step47_prerelease/<timestamp>`。

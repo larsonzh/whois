@@ -17,7 +17,7 @@ Usage: $(basename "$0") [-l <smoke_log>] [--query Q] [--start S] [--auth A] [--b
   --require-tags              Comma-separated substrings that must appear somewhere in the log (e.g., "[DNS-CACHE-SUM],[NET-PROBE]")
   -l  Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
   --query  Query string expected in header (default: 8.8.8.8)
-  --start  Starting whois server shown in header (default: whois.iana.org)
+  --start  Starting whois server shown in header (default: whois.arin.net)
   --auth   Authoritative RIR expected in tail (default: whois.arin.net)
   --batch-actions  Comma-separated [DNS-BATCH] action names that must appear in the log
   --backoff-actions  Comma-separated [DNS-BACKOFF] action names that must appear in the log (use "a|b" to accept either)
@@ -42,7 +42,7 @@ require_arg() {
 
 LOG="./out/build_out/smoke_test.log"
 Q="8.8.8.8"
-S="whois.iana.org"
+S="whois.arin.net"
 A="whois.arin.net"
 ALT_AUTH="whois.apnic.net"
 BATCH_ACTIONS=""
@@ -133,14 +133,15 @@ if [[ "$SKIP_HEADER_TAIL" != "1" ]]; then
     ref_found=0
     redirect_found=0
   fi
-  if grep -E "$ref_re" "$LOG" >/dev/null; then
+  if [[ "$A" == "$S" ]]; then
+    ref_found=0
+    echo "[golden][INFO] referral skipped: start host already authoritative"
+  elif grep -E "$ref_re" "$LOG" >/dev/null; then
     ref_found=1
   else
     echo "[golden][ERROR] referral line not found matching: $ref_re" >&2
     # Fallback: if APNIC became first hop (direct authoritative), allow missing referral
-    if [[ "$A" == "$S" ]]; then
-      echo "[golden][INFO] referral skipped: start host already authoritative"
-    elif grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\/} @" "$LOG" >/dev/null; then
+    if grep -E "^=== Authoritative RIR: ${ALT_AUTH//\//\/} @" "$LOG" >/dev/null; then
       echo "[golden][INFO] referral skipped: direct authoritative to $ALT_AUTH"
     else
       ok=0
@@ -180,9 +181,24 @@ if [[ -n "$BATCH_ACTIONS" ]]; then
   for action in "${_actions[@]}"; do
     action_trimmed="${action//[[:space:]]/}"
     [[ -z "$action_trimmed" ]] && continue
-    if ! grep -F "[DNS-BATCH]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
-      echo "[golden][ERROR] missing [DNS-BATCH] action '$action_trimmed'" >&2
-      ok=0
+    if [[ "$action_trimmed" == *"|"* ]]; then
+      IFS='|' read -ra _batch_alts <<<"$action_trimmed"
+      batch_found=0
+      for alt in "${_batch_alts[@]}"; do
+        alt_trimmed="${alt//[[:space:]]/}"
+        [[ -z "$alt_trimmed" ]] && continue
+        if grep -F "[DNS-BATCH]" "$LOG" | grep -F "action=$alt_trimmed" >/dev/null; then
+          batch_found=1
+          break
+        fi
+      done
+      if [[ "$batch_found" != "1" ]]; then
+        echo "[golden][ERROR] missing [DNS-BATCH] action alternative '$action_trimmed'" >&2
+        ok=0
+      fi
+    elif ! grep -F "[DNS-BATCH]" "$LOG" | grep -F "action=$action_trimmed" >/dev/null; then
+        echo "[golden][ERROR] missing [DNS-BATCH] action '$action_trimmed'" >&2
+        ok=0
     fi
   done
 fi

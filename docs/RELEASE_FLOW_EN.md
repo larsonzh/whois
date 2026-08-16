@@ -98,6 +98,12 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 
 - Scope: standard pre-release gate verification after P2 closure, without changing default semantics.
 - Required gates (fixed order):
+  0. IANA registry snapshot freshness and diff review
+    - Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_iana_registry_snapshots.ps1`.
+    - Pass criteria: all four CSV files pass schema/row validation, `manifest.json` has `file_count=4`, retrieval time is no older than 7 days at release-candidate time, and source/stored SHA-256 values match their files.
+    - If any source SHA-256 changes: regenerate the static table, review longest-prefix overlay changes, and rerun the special-purpose matrix before gate 1; upstream changes must never be accepted silently.
+    - If only retrieval timestamps/manifest change while all four source SHA-256 values remain unchanged: record “no upstream data change”, commit the refreshed manifest, and continue.
+    - Network unavailability or any validation failure blocks release by default; emergency waiver follows section 13 of `RFC-address-space-preclassifier.md` only.
   1. `Remote: Build (Strict Version)` (recommended with `rbPreflight=1`)
     - Pass criteria: `Local hash verify PASS`, `Golden PASS`, `referral check PASS`, and `Step47 preclass preflight PASS`.
   2. `Test: CIDR Contract Bundle (prefilled)`
@@ -113,6 +119,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
     - Pass criteria: no local `Invoke-KeyValueFileValueUpdate` function in stage/resume/guard scripts, and exactly one shared core `Invoke-KeyValueFileValueUpdateCore` in `tools/test/unattended_startfile_identity.ps1`.
 - Failure policy: stop release immediately on any gate failure; do not tag first and fix later.
 - Evidence retention (minimum):
+  - `docs/registry-snapshots/manifest.json` and the source SHA-256 comparison verdict for this release.
   - Main artifact root: `out/artifacts/<timestamp>`.
   - Preflight folder when enabled: `out/artifacts/step47_preclass_preflight/<timestamp>`.
   - Step47 prerelease folder: `out/artifacts/step47_prerelease/<timestamp>`.

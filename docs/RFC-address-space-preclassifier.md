@@ -4,6 +4,12 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-17：Phase B/Phase C 与 CIDR ERX 闭环复核继续通过。Strict 默认/debug 两轮无编译/LTO 告警且 Local hash、Golden、referral PASS（`out/artifacts/20260817-000833`、`20260817-001953`）；Batch/Selftest Golden 四策略均 PASS。12x6 authority mismatch 为空；唯一 LACNIC `45.113.52.0/22` rate-limit 在单例重测中恢复 APNIC，判定为环境瞬态，不修改分类器或权威规则。
+- 2026-08-16：Phase B/Phase C 与末端失败节点重查完成最终四轮 Golden + 12x6 复核。Strict `lto-auto` 默认/debug 两轮均无编译/LTO 告警，9 架构 SHA-256 实算、Local hash、Golden、三条 referral 全 PASS（`out/artifacts/20260816-203059`，276s；`out/artifacts/20260816-203903`，286s）；批量四策略 Golden 全 PASS（`204504/205026/205622/210225`），自检四策略 Golden 全 PASS（`210950/211526/212129/212741`）；12x6 authority mismatch 空表且无 errors（`out/artifacts/redirect_matrix_10x6/20260816-213231`）。本轮未发现分类、权威裁决或失败债务回归，无需代码修复。
+- 2026-08-16：针对 `lacnic_158.60.0.0/16` 暴露的 APNIC 空响应窗口，查询核心新增统一末端失败节点重查：按 RIR/原因位登记 denied、rate-limit、persistent-empty，仅在轮询耗尽且权威未决时各单跳重查一次；权威结果才清偿债务，非权威结果只补证。该机制不改变 Phase B 分类首跳或 Phase C special-purpose 早收敛。P0 `12/12`、special `17/17`、CIDR `4/4 + 9/9`、12x6 全绿（`out/artifacts/redirect_matrix_10x6/20260816-194455`），Strict 全架构 hash/Golden/referral PASS（`out/artifacts/20260816-201756`，325s）。
+- 2026-08-16：Phase B/Phase C 变更后的发布候选全链复核完成。Strict `lto-auto` 默认与 debug/metrics 两轮均无编译/LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260816-152132`、`20260816-152908`）；批量四策略 Golden 与自检四策略 Golden 全 PASS（批量 `153443/153930/154447/155008`，自检 `155757/160310/160845/161433`）。首轮 12x6 矩阵唯一 `lacnic_158.60.0.0_16` authority mismatch 的日志显示 APNIC hop `[EMPTY-RESP] retry/give-up` 后落 `unknown`，同轮其余五起点均为 APNIC；相同参数定向复测连续 2 次恢复 APNIC，归类为外部瞬态，不修改分类、权威裁决或矩阵静态期望。随后完整复跑 12x6 达到 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260816-173702`）；原始瞬态证据保留于 `20260816-161935`。
+- 2026-08-16：批量策略 Golden 复核发现 health-first/plan-a/plan-b 的 penalty 夹具首跳仍按设计为 IANA，但 suite 错套 raw 的 ARIN 直达基准；且 PowerShell 成功流污染使三个 FAIL 未进入最终聚合，错误输出 `Summary: PASS`。现固定 raw=ARIN 直达、三种 penalty 策略=IANA→ARIN，plan-b 接受 `force-last|force-override` 二选一，stderr 写入报告，并让失败可靠传播 exit 3。新增 `remote_batch_strategy_suite.ps1 -SkipRemote` 本地重放入口；`20260816-143333/143915/144531/145100` 四份日志复核全 PASS，负向错误首跳注入得到 `Summary: FAIL` 与 exit 3。
+- 2026-08-16：Phase B 默认首跳修复后，Strict 首轮 `out/artifacts/20260816-132955` 的运行输出已正确变为 `8.8.8.8 via whois.arin.net`，但 `golden_check.sh` 仍硬编码 IANA→ARIN referral 旧基准而误报 FAIL。默认 golden 契约现改为 ARIN 直达，`start==auth` 时不再把缺少 referral 记录为错误；显式 `--start whois.iana.org --auth whois.arin.net` 仍可校验历史链路。全架构 Strict `lto-auto` 复跑无编译/LTO 告警，9 架构 Local hash、Golden、referral 全 PASS（`out/artifacts/20260816-134711`，336s）。
 - 2026-08-15：新增并完成串行第 49/50 份“无人值守超高密度 A/B”任务定义与启动文件编制（窗口 `2027-04-29 ~ 2027-05-12`，A/49=Vx-3 收尾：专用首跳开关与跨平台补齐 / B/50=Vx-4：Phase C reserved/special 早收敛受控开关）；A/B 任务定义、active 启动文件及 24.14~24.16 清单已完成执行回填。
 - 2026-08-16：串行第 49/50 份 A/B 无人值守执行完成，`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260815-063717`，B run=`out/artifacts/dev_verify_multiround/20260815-160211`，A/B 合计用时 `0d 16:40:28`（会话 `2026-08-15 06:36:41` 至 `2026-08-15 23:17:08`）。全程无事故、自愈或阶段重启；A→B 交接事件票与最终状态票均完成 ACK，最终 heartbeat 在 `2026-08-15 23:11:28` 记录 `session=RUNNING, a=PASS, b=RUNNING`，随后 session 正常收口。最终 Strict Version（`lto-auto` 默认）复验无告警、Local hash verify/Golden/referral 全 PASS，产物 `out/artifacts/20260816-014807`，用时 `305s`；首次命令因末尾误加续行符被手工 `^C` 中断，修正命令后复验通过。
 - 2026-08-15：串行第 47/48 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-15 ~ 2027-04-28`（Vx-3 预备能力切片，A=分类器优先首跳接入 / B=公共分类器首跳 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260814-052520，B run=out/artifacts/dev_verify_multiround/20260814-122229）；A 启动期经一次计划性维护（TASK-DESIGN 旧式检查误报 → 修复 `start_dev_verify_8round_multiround.ps1` 兼容 V1/Vx marker 并取消 D4 noop 建议，提交 `d505e69e`，`-UseTemplateBaseline` 全新建档重启 A）后一次通过，无事故票、无自愈；A→B 交接与 chat-session-final-status 事件评审闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260815-032547`，179s）（详见 24.11~24.13）。
@@ -50,18 +56,17 @@
 ## 3. 非目标
 
 - 不在本 RFC 中完全替代现有 WHOIS 正文规则。
-- 不在本 RFC 中定义最终 CLI 文案细节。
 - 不在运行时动态联网抓取 IANA 数据。
 
-## 4. 数据来源与形态
+## 4. 数据来源与形态（已决议）
 
-- IPv4：`docs/ipv4-address-space.txt`
-- IPv6：`docs/ipv6-address-space.txt`
+机器输入固定为 `docs/registry-snapshots/` 中的四份 IANA 官方 CSV 快照：
 
-建议运行模型：
-- 文档文件作为“人类可读源快照”；
-- 构建期（或预处理脚本）生成紧凑运行时表；
-- 运行时不直接解析完整 txt 文本，降低复杂度与性能波动。
+- `iana-ipv4-address-space.csv` / `iana-ipv6-address-space.csv`：基础地址空间与 covering RIR。
+- `iana-ipv4-special-registry.csv` / `iana-ipv6-special-registry.csv`：更具体的 special-purpose 语义覆盖层。
+- `manifest.json`：下载 URL、抓取时间、行数、原始字节 SHA-256 与仓库存储字节 SHA-256。
+
+`docs/ipv4-address-space.txt`、`docs/ipv6-address-space.txt` 与两份 `iana-*-special-registry.txt` 保留为人类审计材料，不作为生成器的权威机器输入。构建期将 CSV 合并为紧凑静态表并编译进二进制；客户端运行时不得读取仓库文件，也不得联网访问 IANA。
 
 ## 5. 前置分类器输出模型
 
@@ -69,9 +74,24 @@
 
 - `ip_version`: `v4|v6`
 - `class`: `allocated|legacy|reserved|special|unallocated|unknown`
-- `rir_hint`: `apnic|arin|ripe|afrinic|lacnic|none`
+- `rir_hint`: `apnic|arin|ripe|afrinic|lacnic|none`，仅用于普通 allocated/legacy 首跳。
+- `covering_rir`: `apnic|arin|ripe|afrinic|lacnic|none|unknown`，表示基础地址空间上层管理者，不等于最终权威。
+- `registry`: `iana|rir|none`，表示当前最长前缀语义记录的来源类型。
+- `purpose`: IANA Name 归一化后的稳定 token（例如 `documentation`、`private-use`、`benchmarking`、`loopback`、`reserved`）。
+- `globally_reachable`: `true|false|na`
+- `reserved_by_protocol`: `true|false|na`
 - `reason_code`: 稳定符号码（用于诊断/观测）
 - `confidence`: `high|medium|low`
+
+覆盖规则固定为最长前缀优先：special-purpose 记录覆盖基础地址空间记录的 `class/purpose/registry/routability/reserved_by_protocol`；基础记录的 RIR 仅保留为 `covering_rir`。任何 special-purpose 命中均不得把 `covering_rir` 复制到 `rir_hint` 或最终 `authoritative_rir`。
+
+分类映射固定如下：
+
+- 当前有效的 IANA special-purpose 记录中，Name 归一化后精确为 `reserved` 的条目映射 `class=reserved`；其他条目（Documentation、Private-Use、Benchmarking、Loopback、ULA 等）映射 `class=special`。
+- `Reserved-by-Protocol` 是独立布尔属性，不用于决定 `class`。例如 TEST-NET-3 为 `class=special`、`purpose=documentation`、`reserved_by_protocol=false`。
+- 基础地址空间中状态为 `RESERVED` 且没有更具体有效 special-purpose 覆盖的前缀映射 `class=reserved`。
+- Termination Date 已到期的 special-purpose 记录只保留审计信息，不参与当前语义覆盖；空值或 `N/A` 视为未设置终止日期。
+- `purpose` token 使用 ASCII 小写 kebab-case；未知 Name 必须生成稳定 token 或 fail-close，不得静默降级成 `reserved`。
 
 示例 reason_code：
 - `V4_FUTURE_USE_240_4`
@@ -85,15 +105,16 @@
 
 ### 6.1 显式指定 `-h` 的查询
 
-- 默认保持兼容：沿用现有行为。
-- 前置分类器可运行并输出诊断，但不强制覆盖首跳（可通过后续开关讨论是否允许覆盖）。
+- `-h` 继续决定首跳服务器与该服务器正文是否展示，不触发 Phase C 传输短路。
+- 对高置信 IANA special-purpose 命中，显式服务器响应不得被标记为最终 RIR 权威；成功响应仍统一输出 Address Status，并将 Authoritative RIR 归一为 `unknown @ unknown`。
+- 连接失败、超时、限流或拒绝仍按 failure debt/`error` 契约处理；静态分类不得掩盖真实传输失败。
 
 ### 6.2 未指定 `-h` 的查询（新默认）
 
 将“默认 IANA 首跳”替换为“分类器优先”：
 
 1. `class in {reserved, special}` 且 `rir_hint=none`
-   - 直接收敛到 `unknown`（或未来引入 `reserved` 专用收敛语义）。
+  - 直接收敛到独立的 `reserved|special` Address Status；Authoritative RIR 继续为 `unknown @ unknown`。
    - 默认跳过完整 RIR 轮询。
 
 2. `class in {allocated, legacy}` 且 `rir_hint` 明确
@@ -113,11 +134,12 @@
 
 依据 `IPv4 Address Space`：
 - 大量前缀属于 `RESERVED` 或特殊用途，不应收敛为某个 RIR 权威。
-- 对 `255.0.0.0` 这类地址，目标应是 `unknown`（或未来 `reserved`），而非“最后一跳 RIR”。
+- 对 `255.0.0.0` 这类地址，Address Status 应为 `reserved|special`，Authoritative RIR 为 `unknown`，而非“最后一跳 RIR”。
 
 建议映射：
 - `RESERVED` -> `class=reserved`, `rir_hint=none`
 - `ALLOCATED|LEGACY` 且表中存在 RIR 归属 -> `class=allocated|legacy`, `rir_hint=<rir>`
+- 命中更具体 IANA special-purpose 前缀 -> 以 special 表覆盖 class/purpose，`rir_hint=none`，基础表 RIR 仅写入 `covering_rir`。
 
 ## 8. IPv6 设计要点
 
@@ -129,15 +151,24 @@
 - `2000::/3` -> `class=allocated`（或 `global-unicast` 子类），走正常 WHOIS 流程；
 - `fc00::/7`、`fe80::/10`、`ff00::/8` 及其他 reserved -> `class=special|reserved`, `rir_hint=none`；未指定 `-h` 时优先早收敛 `unknown`。
 
-## 9. 观测与诊断
+## 9. 输出、观测与诊断（已决议）
 
-新增 stderr 标签（仅在 `--debug` 或 `--retry-metrics` 开启）：
+普通输出新增独立状态行，仅在高置信 `reserved|special` 命中时出现，位置固定在 Query 标题之后、正文之前：
+
+`=== Address Status: <reserved|special> purpose=<token> registry=iana covering-rir=<rir|none|unknown> ===`
+
+兼容约束：
+
+- 既有尾行格式不变：`=== Authoritative RIR: unknown @ unknown ===`；不得把 `reserved`、`special`、`iana` 或 covering RIR 填入该字段。
+- fold 格式保持 `<query> <UPPER_VALUE_...> <RIR>`，末项继续为 `unknown`；Address Status 不进入 fold token，避免破坏 BusyBox 消费者。
+- `title -> grep -> fold` 正文处理顺序不变；Address Status 与 Query/Authoritative RIR 一样属于结构行，不进入正文 grep。普通模式固定输出，plain/fold 模式不单独输出。
+- 即使显式 `-h` 返回 APNIC/ARIN/LACNIC/IANA 的镜像或登记正文，special-purpose 命中仍使用相同 Address Status 与 `unknown` 权威尾行，消除起点相关漂移。
+
+stderr 诊断标签（仅在 `--debug` 或 `--retry-metrics` 开启）：
 
 - `[PRECLASS] ip=<q> ver=v4 class=reserved rir=none reason=V4_FUTURE_USE_240_4 confidence=high`
 - `[PRECLASS-DECISION] start=unknown action=short-circuit-unknown`
 - `[PRECLASS-DECISION] start=whois.arin.net action=classifier-rir-hint`
-
-首轮不改 stdout 契约。
 
 ## 10. 分阶段落地
 
@@ -172,11 +203,13 @@ IPv6：
 - `fe80::1` -> link-local 处理
 - `2001:4860:4860::8888` -> 正常 global-unicast 路径
 
-## 13. 待定问题
+## 13. 遗留问题决议（2026-08-16）
 
-1. 保留/特殊用途的尾行是否持续使用 `unknown`，还是引入新状态（如 `reserved`）？
-2. 显式 `-h` 是否永远旁路短路逻辑，还是允许用额外开关强制启用？
-3. 地址空间快照的更新频率与发布流程如何绑定？
+1. **终态**：新增独立 `Address Status: reserved|special` 业务语义；Authoritative RIR 尾行继续使用 `unknown @ unknown`。两者不得混用。
+2. **显式 `-h`**：始终旁路 Phase C 传输短路，但不旁路 special-purpose 最终语义归一化；显式服务器只决定查询目标和正文来源，不成为特殊用途地址的最终 RIR 权威。
+3. **快照与发布**：每 30 天至少检查一次 IANA 上游；每次发布候选必须使用 7 天内执行 `tools/preclass/update_iana_registry_snapshots.ps1` 生成的 manifest。客户端运行时仅使用内置静态表。
+4. **发布 fail-close**：更新脚本、schema、哈希、行数、最长前缀覆盖、关键样例或生成可重复性任一失败即阻断发布；上游有变化时必须提交快照、manifest、生成表和测试基线的可审查差异，不允许发布过程中静默拉取后继续。
+5. **网络不可用**：无法完成发布前 7 天新鲜度检查时默认阻断发布；紧急豁免必须在 release notes 记录快照时间、四份 source SHA-256、原因和批准人，且不得超过最近一次成功检查后的 30 天。
 
 ## 14. 建议结论
 
@@ -621,7 +654,11 @@ IPv6：
 - `prefix_len`：前缀长度（IPv4: 0~32，IPv6: 0~128）
 - `addr_hi` / `addr_lo`：前缀起始地址（IPv4 固定写入 `addr_lo`，`addr_hi=0`）
 - `class_id`：`allocated|legacy|reserved|special|unallocated|unknown`
-- `rir_id`：`apnic|arin|ripe|afrinic|lacnic|none|unknown`
+- `rir_id`：普通 allocated/legacy 的首跳 RIR；special-purpose 记录固定为 `none`。
+- `covering_rir_id`：基础地址空间中覆盖该前缀的上层 RIR，仅用于解释与观测。
+- `registry_id`：`iana|rir|none`
+- `purpose_id`：IANA Name 的稳定枚举 token。
+- `globally_reachable` / `reserved_by_protocol`：`true|false|na` 三态字段。
 - `reason_id`：稳定整数编号（与 `reason_code` 一一映射）
 - `confidence_id`：`high|medium|low`
 - `flags`：保留扩展位（如“仅观测”“禁止 early-unknown”）
@@ -629,7 +666,7 @@ IPv6：
 配套元数据：
 
 - `schema_version`：表结构版本
-- `source_ipv4_sha256` / `source_ipv6_sha256`：源快照哈希
+- 四份 CSV 的 stored SHA-256 与 snapshot manifest SHA-256。
 - `generated_at`：生成时间戳
 - `record_count_v4` / `record_count_v6`：记录数
 
@@ -637,8 +674,11 @@ IPv6：
 
 输入：
 
-- `docs/ipv4-address-space.txt`
-- `docs/ipv6-address-space.txt`
+- `docs/registry-snapshots/iana-ipv4-address-space.csv`
+- `docs/registry-snapshots/iana-ipv6-address-space.csv`
+- `docs/registry-snapshots/iana-ipv4-special-registry.csv`
+- `docs/registry-snapshots/iana-ipv6-special-registry.csv`
+- `docs/registry-snapshots/manifest.json`
 - `tools/preclass/reason_code_map.json`（新增，维护 `reason_code <-> reason_id`）
 
 输出：
@@ -649,9 +689,9 @@ IPv6：
 
 构建流程：
 
-1. 解析 IPv4/IPv6 快照并标准化为 CIDR 记录。
-2. 归一化 `class/rir/reason/confidence` 到稳定枚举。
-3. 做重叠检测与最长前缀优先排序。
+1. 解析 IPv4/IPv6 基础快照并标准化为 CIDR 记录，保留 covering RIR。
+2. 解析 special-purpose 快照，以最长前缀覆盖 class/purpose/registry/routability，且将 `rir_id` 归一为 `none`。
+3. 归一化稳定枚举并做重叠、冲突、终止日期与最长前缀排序检查。
 4. 生成 C 表与 manifest。
 5. 在构建中校验“生成结果可重复”（同输入同输出哈希）。
 
@@ -4180,12 +4220,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 > 顺序变更原因：`203.0.113.0/24`（TEST-NET-3）在 IPv4 `/8` 基础分配表中继承 `203/8 -> APNIC`，但在 IANA IPv4 Special-Purpose Address Registry 中是 RFC 5737 Documentation 地址。不同 WHOIS 起点当前可分别收敛到 IANA/APNIC/ARIN/LACNIC/unknown，证明“上层 covering RIR”“特殊用途登记权威”和“最终 Authoritative RIR”尚未分层。默认早收敛翻转不得先于该语义决策。
 
-1. **先完成 RFC 遗留待定项（阻断默认翻转）**
+1. **先完成 RFC 遗留待定项（决议已冻结，工程落地仍阻断默认翻转）**
   - 决定高置信 `reserved/special` 的用户可见终态：继续复用 `unknown`，还是新增稳定且可向后兼容的 `reserved/special` 语义；不得仅因某 RIR 保存镜像/登记正文就把该 RIR 输出为特殊用途地址的最终权威。
   - 明确分层数据模型：基础地址空间表提供 `covering_rir`，IANA Special-Purpose Registry 通过最长前缀匹配覆盖 `class/purpose/RFC/routability/reserved-by-protocol`；IANA 是 special-purpose 登记来源，不等同于 RIR，`covering_rir` 也不等同于最终 `authoritative_rir`。
   - 固化地址空间快照更新频率与发布流程：官方 CSV 固化到 `docs/registry-snapshots/`，由 `tools/preclass/update_iana_registry_snapshots.ps1` 构建前/发布前更新和校验；客户端运行时禁止联网读取 registry，只使用编译进二进制的生成表。
   - 建议更新策略：每月检查上游变化，发布前强制复检；快照、manifest、生成表任一变化均需独立审查，验证 source/stored SHA-256、schema、最长前缀覆盖、关键 special-purpose 样例、黄金矩阵与多架构构建后方可发布。
   - RFC 决策完成后，同步 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`、双语使用文档、发布说明、生成器说明与相关测试基线，并为 TEST-NET-1/2/3、IPv6 Documentation、Private-Use、Benchmarking、Loopback、ULA、Link-Local、协议保留与 future-use 建立明确矩阵。
+
+    **决议状态（2026-08-16）**：终态、显式 `-h` 边界、分层数据模型、30 天检查周期、发布前 7 天新鲜度、运行时离线静态表及 fail-close/紧急豁免规则已在第 4/5/6/9/13/23 节冻结。第 1 项的“RFC 决策”完成；生成器、运行时、输出链与验证矩阵尚未工程落地，因此仍阻断默认翻转。
+
+  #### 24.20 Special-Purpose 工程落地（2026-08-16，受控路径 PASS）
+
+  - 生成器升级为 schema v2，机器输入切换到四份固定 IANA CSV 与 snapshot manifest；基础地址空间和 special-purpose 记录按最长前缀合并，同前缀时 special overlay 优先。
+  - 静态表新增 `covering_rir/registry/purpose/globally_reachable/reserved_by_protocol`；TEST-NET-3 结果固定为 `class=special rir=none covering_rir=apnic registry=iana purpose=documentation`。
+  - 新增 query-aware 分类 API，CIDR 使用基准地址分类；修复旧 Phase C helper 直接把 CIDR 交给 `inet_pton`、导致候选不命中的缺口。
+  - 在现有 `--enable-preclass-early-converge` 门控下，普通输出增加 Address Status，成功响应权威归一为 `unknown @ unknown`；显式 `-h` 保留传输与正文，plain/fold 保持既有结构。`preclass_early_converge_enable` 默认值未修改。
+  - 生成器连续两次输出哈希一致；schema v2 table guard PASS，证据 `out/artifacts/preclass_table_guard/20260816-110940`。
+  - 专项矩阵：10 个离线 IPv4/IPv6 special-purpose 样例 `10/10 PASS`（`out/artifacts/preclass_special_registry/20260816-110835`）；追加 TEST-NET-3 七个显式起点后 `17/17 PASS`（`out/artifacts/preclass_special_registry/20260816-110851`）。
+  - 默认关闭回归已完成：Phase C 两周期 `20/20 PASS`（`out/artifacts/preclass_phasec_review/20260816-111128`）、P0 `12/12 PASS`（`out/artifacts/preclass_matrix/20260816-111153`）、P1 `232/232 PASS` 且分组阈值全绿（`out/artifacts/preclass_p1_matrix/20260816-111319`）、CIDR body `4/4` + draft TSV `9/9`（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-111229.txt`）、Step47 完整串联 PASS。
+  - 最终全架构 Strict：9 架构构建、Local hash、Golden、referral 全 PASS，发布制品已同步，证据 `out/artifacts/20260816-113503`；最终发布 win64 制品 special-purpose 矩阵（含七显式起点）`17/17 PASS`，证据 `out/artifacts/preclass_special_registry/20260816-113551`。
+  - 当前边界：第 1 项 RFC/快照/生成器/受控运行时/输出链/验证矩阵已完成且默认行为未翻转；现在可以建立第 2 项独立任务翻转 `preclass_early_converge_enable` 默认值并更新黄金基线。该任务完成前仍不得标记 Phase C 与整个 Address-Space 前置分类器正式收尾。
 
 2. **RFC 收口通过后，再建立 Phase C 默认翻转独立任务**
   - 准入条件：第 1 项的终态语义、数据模型、快照更新与发布流程均已有批准结论；生成器已消费固定 CSV 快照并通过最长前缀覆盖验证；特殊用途地址不再因 WHOIS 起点不同产生冲突终态。

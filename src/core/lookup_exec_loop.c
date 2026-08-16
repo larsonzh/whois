@@ -53,6 +53,7 @@
 #include "lookup_exec_decision.h"
 #include "lookup_exec_tail.h"
 #include "lookup_exec_post.h"
+#include "lookup_exec_terminal_retry.h"
 
 
 static const Config* wc_lookup_resolve_config(const struct wc_lookup_opts* opts)
@@ -168,7 +169,7 @@ static int wc_lookup_exec_failure_debt_has_unresolved(const int debt_slots[5])
     return 0;
 }
 
-static int wc_lookup_exec_body_is_determinable(const char* body)
+static int wc_lookup_exec_body_settles_failure_debt(const char* body)
 {
     if (!body || !body[0])
         return 0;
@@ -178,6 +179,11 @@ static int wc_lookup_exec_body_is_determinable(const char* body)
         wc_lookup_body_contains_rate_limit(body) ||
         wc_lookup_body_contains_temporary_denied(body) ||
         wc_lookup_body_contains_permanent_denied(body)) {
+        return 0;
+    }
+    if (!is_authoritative_response(body) ||
+        wc_lookup_body_has_strong_redirect_hint(body) ||
+        wc_lookup_body_contains_erx_iana_marker(body)) {
         return 0;
     }
     return 1;
@@ -506,6 +512,8 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
     erx_fast_authoritative_host[0] = '\0';
     erx_fast_authoritative_ip[0] = '\0';
     int failure_debt_slots[5] = {0, 0, 0, 0, 0};
+    struct wc_terminal_retry_registry terminal_retry_registry;
+    wc_terminal_retry_registry_init(&terminal_retry_registry);
     char pre_apnic_rir_candidates[5][128];
     int pre_apnic_rir_candidate_count = 0;
     int pre_apnic_rir_capture_closed = 0;
@@ -753,6 +761,10 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
                 cfg,
                 current_host,
                 q ? q->raw : NULL);
+            wc_terminal_retry_register(
+                &terminal_retry_registry,
+                current_host,
+                WC_TERMINAL_RETRY_EMPTY);
         }
         if (blen > 0) {
             empty_retry = 0;
@@ -817,6 +829,17 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         int next_port = current_port;
         int allow_apnic_ambiguous_revisit = 0;
         int ref_explicit_allow_visited = 0;
+        unsigned int response_terminal_reason = WC_TERMINAL_RETRY_NONE;
+        if (current_hop_is_original_query && body && body[0]) {
+            if (wc_lookup_body_contains_access_denied(body) ||
+                wc_lookup_body_contains_permanent_denied(body) ||
+                wc_lookup_body_contains_temporary_denied(body)) {
+                response_terminal_reason |= WC_TERMINAL_RETRY_DENIED;
+            }
+            if (wc_lookup_body_contains_rate_limit(body)) {
+                response_terminal_reason |= WC_TERMINAL_RETRY_RATE_LIMIT;
+            }
+        }
 
         struct wc_lookup_exec_decision_ctx decision_ctx = {
             .zopts = &zopts,
@@ -926,6 +949,16 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         int erx_marker_seen_before_decision = erx_marker_seen;
         wc_lookup_exec_decide_next(&decision_ctx);
 
+        if (response_terminal_reason != WC_TERMINAL_RETRY_NONE) {
+                const char* failed_host = last_failure_host[0]
+                    ? last_failure_host
+                    : current_host;
+                wc_terminal_retry_register(
+                    &terminal_retry_registry,
+                    failed_host,
+                    response_terminal_reason);
+        }
+
         if (last_hop_rir[0]) {
             last_hop_rir[0] = '\0';
         }
@@ -944,7 +977,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             }
         }
         if (current_hop_is_original_query &&
-            wc_lookup_exec_body_is_determinable(body)) {
+            wc_lookup_exec_body_settles_failure_debt(body)) {
             wc_lookup_exec_failure_debt_settle(
                 failure_debt_slots,
                 cfg,
@@ -1136,6 +1169,125 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             break;
         }
         // continue loop for next hop
+    }
+
+    {
+        int authority_unresolved =
+            (!out->meta.authoritative_host[0] ||
+             strcasecmp(out->meta.authoritative_host, "unknown") == 0 ||
+             strcasecmp(out->meta.authoritative_host, "error") == 0);
+        if (wc_terminal_retry_should_run(
+            &terminal_retry_registry,
+            rir_cycle_exhausted,
+            redirect_cap_hit,
+            authority_unresolved,
+            wc_lookup_erx_baseline_recheck_guard_get())) {
+            for (int i = 0; i < terminal_retry_registry.count; ++i) {
+                struct wc_terminal_retry_entry* entry =
+                    &terminal_retry_registry.entries[i];
+                struct wc_result retry_result;
+                char ts[32];
+                wc_lookup_format_time(ts, sizeof(ts));
+                fprintf(stderr,
+                    "[TERMINAL-RETRY] action=attempt host=%s reasons=0x%x query=%s time=%s\n",
+                    entry->host,
+                    entry->reasons,
+                    q && q->raw ? q->raw : "",
+                    ts);
+
+                enum wc_terminal_retry_result retry_state =
+                    wc_terminal_retry_attempt(entry, q, &zopts, &retry_result);
+                const char* retry_ip = retry_result.meta.authoritative_ip[0]
+                    ? retry_result.meta.authoritative_ip
+                    : retry_result.meta.last_ip;
+                wc_lookup_format_time(ts, sizeof(ts));
+                fprintf(stderr,
+                    "[TERMINAL-RETRY] action=result host=%s reasons=0x%x result=%s query=%s time=%s\n",
+                    entry->host,
+                    entry->reasons,
+                    retry_state == WC_TERMINAL_RETRY_AUTHORITATIVE
+                        ? "authoritative"
+                        : (retry_state == WC_TERMINAL_RETRY_DETERMINABLE
+                            ? "non-authoritative"
+                            : "failed"),
+                    q && q->raw ? q->raw : "",
+                    ts);
+
+                if (retry_state != WC_TERMINAL_RETRY_NO_RESULT) {
+                    int retry_has_erx_marker =
+                        retry_result.body &&
+                        wc_lookup_body_contains_erx_iana_marker(retry_result.body);
+
+                    wc_lookup_exec_append_redirect_header(
+                        &combined,
+                        entry->host,
+                        (retry_ip && retry_ip[0]) ? retry_ip : "unknown",
+                        &additional_emitted,
+                        emit_redirect_headers);
+                    combined = wc_lookup_exec_append_body(
+                        combined,
+                        &retry_result.body,
+                        0);
+
+                    if (retry_state == WC_TERMINAL_RETRY_AUTHORITATIVE) {
+                        wc_lookup_exec_failure_debt_settle(
+                            failure_debt_slots,
+                            cfg,
+                            entry->host,
+                            q ? q->raw : NULL);
+                        entry->reasons = WC_TERMINAL_RETRY_NONE;
+                        const char* retry_authority =
+                            retry_result.meta.authoritative_host[0]
+                                ? retry_result.meta.authoritative_host
+                                : entry->host;
+                        snprintf(out->meta.authoritative_host,
+                                 sizeof(out->meta.authoritative_host),
+                                 "%s",
+                                 retry_authority);
+                        snprintf(out->meta.authoritative_ip,
+                                 sizeof(out->meta.authoritative_ip),
+                                 "%s",
+                                 (retry_ip && retry_ip[0]) ? retry_ip : "unknown");
+                        last_hop_authoritative = 1;
+                        last_hop_need_redirect = 0;
+                        last_hop_has_ref = 0;
+                        wc_lookup_result_free(&retry_result);
+                        break;
+                    }
+
+                    if (retry_has_erx_marker) {
+                        const char* retry_rir = wc_guess_rir(entry->host);
+                        erx_marker_seen = 1;
+                        snprintf(erx_marker_host,
+                                 sizeof(erx_marker_host),
+                                 "%s",
+                                 entry->host);
+                        snprintf(erx_marker_ip,
+                                 sizeof(erx_marker_ip),
+                                 "%s",
+                                 (retry_ip && retry_ip[0]) ? retry_ip : "unknown");
+                        if (retry_rir && strcasecmp(retry_rir, "apnic") == 0) {
+                            apnic_erx_root = 1;
+                            apnic_redirect_reason = APNIC_REDIRECT_ERX;
+                            seen_apnic_iana_netblock = 1;
+                            snprintf(apnic_erx_root_host,
+                                     sizeof(apnic_erx_root_host),
+                                     "%s",
+                                     entry->host);
+                            snprintf(apnic_erx_root_ip,
+                                     sizeof(apnic_erx_root_ip),
+                                     "%s",
+                                     (retry_ip && retry_ip[0]) ? retry_ip : "unknown");
+                        }
+                    }
+                }
+                wc_lookup_result_free(&retry_result);
+            }
+
+            saw_rate_limit_or_denied = wc_terminal_retry_has_reason(
+                &terminal_retry_registry,
+                WC_TERMINAL_RETRY_DENIED | WC_TERMINAL_RETRY_RATE_LIMIT);
+        }
     }
 
     if (query_is_cidr_effective && cidr_base_query && apnic_erx_root &&

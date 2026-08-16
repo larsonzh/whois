@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h> // free
 #include "wc/wc_selftest.h"
+#include "lookup_exec_terminal_retry.h"
 #include "wc/wc_preclass.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_fold.h"
@@ -416,6 +417,43 @@ static int selftest_preclass_phasec_policy(void)
 {
     int failed = 0;
     wc_preclass_route_decision_t decision;
+    wc_preclass_result_t test_net_result;
+    struct wc_terminal_retry_registry retry_registry;
+
+    wc_terminal_retry_registry_init(&retry_registry);
+    wc_terminal_retry_register(&retry_registry, "apnic", WC_TERMINAL_RETRY_EMPTY);
+    wc_terminal_retry_register(&retry_registry, "whois.apnic.net", WC_TERMINAL_RETRY_RATE_LIMIT);
+    wc_terminal_retry_register(&retry_registry, "arin", WC_TERMINAL_RETRY_DENIED);
+    wc_terminal_retry_register(&retry_registry, "ripe", WC_TERMINAL_RETRY_EMPTY);
+    wc_terminal_retry_register(&retry_registry, "afrinic", WC_TERMINAL_RETRY_EMPTY);
+    wc_terminal_retry_register(&retry_registry, "lacnic", WC_TERMINAL_RETRY_EMPTY);
+    wc_terminal_retry_register(&retry_registry, "iana", WC_TERMINAL_RETRY_EMPTY);
+    if (retry_registry.count != WC_TERMINAL_RETRY_MAX_RIRS ||
+        strcmp(retry_registry.entries[0].host, "whois.apnic.net") != 0 ||
+        strcmp(retry_registry.entries[4].host, "whois.lacnic.net") != 0 ||
+        !wc_terminal_retry_has_reason(&retry_registry, WC_TERMINAL_RETRY_EMPTY) ||
+        !wc_terminal_retry_has_reason(&retry_registry, WC_TERMINAL_RETRY_RATE_LIMIT) ||
+        !wc_terminal_retry_has_reason(&retry_registry, WC_TERMINAL_RETRY_DENIED)) {
+        fprintf(stderr, "[SELFTEST] terminal-retry-registry: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] terminal-retry-registry: PASS\n");
+    }
+    if (!wc_terminal_retry_should_run(&retry_registry, 1, 0, 1, 0) ||
+        wc_terminal_retry_should_run(&retry_registry, 0, 0, 1, 0) ||
+        wc_terminal_retry_should_run(&retry_registry, 1, 1, 1, 0) ||
+        wc_terminal_retry_should_run(&retry_registry, 1, 0, 0, 0) ||
+        wc_terminal_retry_should_run(&retry_registry, 1, 0, 1, 1) ||
+        wc_terminal_retry_classify_body("") != WC_TERMINAL_RETRY_NO_RESULT ||
+        wc_terminal_retry_classify_body("Access denied\n") != WC_TERMINAL_RETRY_NO_RESULT ||
+        wc_terminal_retry_classify_body("refer: whois.arin.net\n") != WC_TERMINAL_RETRY_DETERMINABLE ||
+        wc_terminal_retry_classify_body("NetRange: 8.8.8.0 - 8.8.8.255\nOrgName: Google LLC\n") !=
+            WC_TERMINAL_RETRY_AUTHORITATIVE) {
+        fprintf(stderr, "[SELFTEST] terminal-retry-policy: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] terminal-retry-policy: PASS\n");
+    }
 
     if (!wc_preclass_classification_should_early_converge("reserved", "none", "high") ||
         !wc_preclass_classification_should_early_converge("special", "none", "high") ||
@@ -427,6 +465,20 @@ static int selftest_preclass_phasec_policy(void)
         failed = 1;
     } else {
         fprintf(stderr, "[SELFTEST] preclass-phasec-policy: PASS\n");
+    }
+
+    if (!wc_preclass_classify_query("203.0.113.0/24", &test_net_result) ||
+        strcmp(test_net_result.cls, "special") != 0 ||
+        strcmp(test_net_result.rir, "none") != 0 ||
+        strcmp(test_net_result.covering_rir, "apnic") != 0 ||
+        strcmp(test_net_result.registry, "iana") != 0 ||
+        strcmp(test_net_result.purpose, "documentation") != 0 ||
+        strcmp(test_net_result.globally_reachable, "false") != 0 ||
+        strcmp(test_net_result.reserved_by_protocol, "false") != 0) {
+        fprintf(stderr, "[SELFTEST] preclass-special-test-net-3: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] preclass-special-test-net-3: PASS\n");
     }
 
     memset(&decision, 0, sizeof(decision));
@@ -460,7 +512,8 @@ static int selftest_preclass_phasec_policy(void)
         char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
         optind = 1;
         if (wc_opts_parse(5, short_argv, &short_opts) != 0 || !short_opts.debug || !short_opts.plain_mode ||
-            !short_opts.host || strcmp(short_opts.host, "whois.arin.net") != 0 || optind != 4) {
+            !short_opts.host || strcmp(short_opts.host, "whois.arin.net") != 0 ||
+            !short_opts.preclass_first_hop_enable || optind != 4) {
             fprintf(stderr, "[SELFTEST] opts-short-parser: FAIL\n");
             failed = 1;
         } else {

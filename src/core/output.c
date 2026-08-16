@@ -38,6 +38,18 @@ void wc_output_header_via_unknown(const char* query,
 	printf("=== Query: %s via %s @ unknown ===\n", query, via_host);
 }
 
+void wc_output_address_status(const char* status,
+	const char* purpose,
+	const char* registry,
+	const char* covering_rir)
+{
+	printf("=== Address Status: %s purpose=%s registry=%s covering-rir=%s ===\n",
+		status ? status : "unknown",
+		purpose ? purpose : "none",
+		registry ? registry : "none",
+		covering_rir ? covering_rir : "unknown");
+}
+
 void wc_output_tail_unknown_plain(void)
 {
 	printf("=== Authoritative RIR: unknown ===\n");
