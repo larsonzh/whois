@@ -32,7 +32,8 @@ $cases = @(
     [pscustomobject]@{ Name = "disable-rollback"; Query = "255.0.0.0"; Mode = "rollback"; ExpectedClass = "reserved"; ExpectedConfidence = "high" },
     [pscustomobject]@{ Name = "default-on"; Query = "255.0.0.0"; Mode = "default"; ExpectedClass = "reserved"; ExpectedConfidence = "high" },
     [pscustomobject]@{ Name = "batch-default-on"; Query = "10.0.0.8"; Mode = "batch-default"; ExpectedClass = "special"; ExpectedConfidence = "high" },
-    [pscustomobject]@{ Name = "batch-force-private"; Query = "10.0.0.8"; Mode = "batch-force-private"; ExpectedClass = ""; ExpectedConfidence = "" }
+    [pscustomobject]@{ Name = "batch-force-private"; Query = "10.0.0.8"; Mode = "batch-force-private"; ExpectedClass = ""; ExpectedConfidence = "" },
+    [pscustomobject]@{ Name = "single-force-private"; Query = "10.0.0.8"; Mode = "single-force-private"; ExpectedClass = ""; ExpectedConfidence = "" }
 )
 
 function ConvertTo-NormalizedLine {
@@ -78,7 +79,7 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
         if ($case.Mode -eq "rollback") {
             $cliOptions += "--disable-address-preclass"
         }
-        if ($case.Mode -eq "batch-force-private") {
+        if ($case.Mode -eq "batch-force-private" -or $case.Mode -eq "single-force-private") {
             $cliOptions += @("--selftest-force-private", $case.Query)
         }
 
@@ -155,6 +156,16 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
                     $text -match '(?m)^10\.0\.0\.8 is a private IP address$' -and
                     $exitCode -eq 0
                 $reason = "batch-force-private-preserved"
+            }
+            "single-force-private" {
+                $pass = (
+                    $class -eq "" -and $action -eq "" -and
+                    $text -match '(?m)^=== Query: 10\.0\.0\.8 ===$' -and
+                    $text -match '(?m)^10\.0\.0\.8 is a private IP address$' -and
+                    $text -notmatch '(?m)^=== Query: 10\.0\.0\.8 via unknown @ unknown ===$' -and
+                    $text -notmatch '(?m)^=== Address Status:' -and
+                    $exitCode -eq 0)
+                $reason = "single-force-private-preserved"
             }
         }
 

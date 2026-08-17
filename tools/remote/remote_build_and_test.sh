@@ -37,17 +37,6 @@ SQUOTE_ESC="'\"'\"'"
 RB_LTO_MODE=${RB_LTO_MODE:-""}
 RB_LTO_SERIAL=${RB_LTO_SERIAL:-""}
 RB_LTO_PARALLEL=${RB_LTO_PARALLEL:-""}
-if [[ "$RB_OPT_PROFILE" == "lto-auto" ]]; then
-  RB_OPT_PROFILE="lto"
-  if [[ -z "$RB_LTO_PARALLEL" ]]; then
-    RB_LTO_PARALLEL="1"
-  fi
-elif [[ "$RB_OPT_PROFILE" == "lto-serial" ]]; then
-  RB_OPT_PROFILE="lto"
-  if [[ -z "$RB_LTO_SERIAL" ]]; then
-    RB_LTO_SERIAL="1"
-  fi
-fi
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release
 RELEASE_TAG=${RELEASE_TAG:-""}  # tag name to upload to (e.g. v3.1.4)
 # Optional: enable grep/seclog self-test hooks (compile-time + runtime)
@@ -210,6 +199,20 @@ done
 shift $((OPTIND-1))
 if (( $# >= 1 )) && [[ -z "$SSH_KEY" ]]; then
   [[ -f "$1" ]] && SSH_KEY="$1"
+fi
+
+# Normalize profile aliases after getopts so command-line -O values and
+# environment-provided RB_OPT_PROFILE values follow the same path.
+if [[ "$RB_OPT_PROFILE" == "lto-auto" ]]; then
+  RB_OPT_PROFILE="lto"
+  if [[ -z "$RB_LTO_PARALLEL" ]]; then
+    RB_LTO_PARALLEL="1"
+  fi
+elif [[ "$RB_OPT_PROFILE" == "lto-serial" ]]; then
+  RB_OPT_PROFILE="lto"
+  if [[ -z "$RB_LTO_SERIAL" ]]; then
+    RB_LTO_SERIAL="1"
+  fi
 fi
 
 # Optionally append Windows targets (win32/win64) when requested

@@ -741,6 +741,14 @@ static int wc_client_dispatch_queries(const Config* config,
     if (wc_client_should_abort_due_to_signal())
         return WC_EXIT_SIGINT;
     if (!batch_mode) {
+        const wc_selftest_injection_t* injection =
+            (net_ctx && net_ctx->injection)
+                ? net_ctx->injection
+                : wc_selftest_injection_view();
+        if (wc_query_exec_is_forced_private(injection, single_query)) {
+            return wc_client_run_single_query(config, render_opts,
+                single_query, server_host, port, net_ctx);
+        }
         const char* hinted = NULL;
         if ((!server_host || !*server_host) && config &&
             !config->disable_address_preclass) {

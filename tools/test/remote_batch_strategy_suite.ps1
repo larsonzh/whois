@@ -14,6 +14,7 @@
     [string]$PrefLabels = "NONE",
     [string]$SelftestActions = "",
     [string]$SelftestExpectations = "",
+    [string]$SelftestLinePatterns = "",
     [string]$BackoffActions = "NONE",
     [string]$HealthFirstPenalty = "whois.arin.net,whois.iana.org,whois.ripe.net",
     [string]$PlanAPenalty = "whois.arin.net,whois.ripe.net",
@@ -45,6 +46,7 @@ $null = @(
     $PrefLabels,
     $SelftestActions,
     $SelftestExpectations,
+    $SelftestLinePatterns,
     $BackoffActions,
     $RemoteGolden,
     $NoGolden,
@@ -238,7 +240,8 @@ function Invoke-Golden {
     $logMsys = Convert-ToMsysPath -Path $LogPath
     $logQuoted = Convert-ToBashLiteral -Text $logMsys
     $useSelftestGolden = ($null -ne $SelftestActions -and -not [string]::IsNullOrWhiteSpace($SelftestActions) -and $SelftestActions -ne "NONE") -or
-                         ($null -ne $SelftestExpectations -and -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -ne "NONE")
+                         ($null -ne $SelftestExpectations -and -not [string]::IsNullOrWhiteSpace($SelftestExpectations) -and $SelftestExpectations -ne "NONE") -or
+                         ($null -ne $SelftestLinePatterns -and -not [string]::IsNullOrWhiteSpace($SelftestLinePatterns) -and $SelftestLinePatterns -ne "NONE")
     $logDir = Split-Path -Parent $LogPath
     if ($useSelftestGolden) {
         $argString = " -l $logQuoted"
@@ -265,6 +268,14 @@ function Invoke-Golden {
                     if (-not [string]::IsNullOrWhiteSpace($trimmedAction)) {
                         $argString += " --expect " + (Convert-ToBashLiteral -Text ("action=$trimmedAction"))
                     }
+                }
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($SelftestLinePatterns) -and $SelftestLinePatterns -ne "NONE") {
+            foreach ($regex in $SelftestLinePatterns.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)) {
+                $trimmedRegex = $regex.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmedRegex)) {
+                    $argString += " --require-line " + (Convert-ToBashLiteral -Text $trimmedRegex)
                 }
             }
         }

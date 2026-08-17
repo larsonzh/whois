@@ -11,6 +11,7 @@
     [string]$OptProfile = "NONE",
     [string]$SelftestExpectations = "action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result",
     [string]$ErrorPatterns = "Suspicious query detected;Private query denied",
+    [string]$LinePatterns = "10\.0\.0\.8 is a private IP address",
     [string]$TagExpectations = "SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS",
     [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
     [switch]$SkipRemote,
@@ -110,6 +111,7 @@ $SmokeExtraArgs = ConvertTo-OptionalValue -Value $SmokeExtraArgs
 $SelftestActions = ConvertTo-OptionalValue -Value $SelftestActions
 $SelftestExpectations = ConvertTo-OptionalValue -Value $SelftestExpectations
 $ErrorPatterns = ConvertTo-OptionalValue -Value $ErrorPatterns
+$LinePatterns = ConvertTo-OptionalValue -Value $LinePatterns
 $TagExpectations = ConvertTo-OptionalValue -Value $TagExpectations
 $PlanBTagExpectations = ConvertTo-OptionalValue -Value $PlanBTagExpectations
 $CflagsExtra = ConvertTo-OptionalValue -Value $CflagsExtra
@@ -221,6 +223,10 @@ $errorList = @()
 if (-not [string]::IsNullOrWhiteSpace($ErrorPatterns)) {
     $errorList = $ErrorPatterns.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
 }
+$lineList = @()
+if (-not [string]::IsNullOrWhiteSpace($LinePatterns)) {
+    $lineList = $LinePatterns.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+}
 $tagList = @()
 if (-not [string]::IsNullOrWhiteSpace($TagExpectations)) {
     $tagList = $TagExpectations.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
@@ -262,6 +268,12 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
         $trimRegex = $regex.Trim()
         if (-not [string]::IsNullOrWhiteSpace($trimRegex)) {
             $cmdArgs += " --require-error " + (Convert-ToBashLiteral -Text $trimRegex)
+        }
+    }
+    foreach ($regex in $lineList) {
+        $trimRegex = $regex.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimRegex)) {
+            $cmdArgs += " --require-line " + (Convert-ToBashLiteral -Text $trimRegex)
         }
     }
     $tagsForRun = @()

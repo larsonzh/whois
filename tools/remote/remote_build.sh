@@ -215,6 +215,14 @@ build_one() {
     MAKE_LTO_ARGS+=(LTO_PARALLEL="$RB_LTO_PARALLEL")
     LTO_DESC+=" LTO_PARALLEL='$RB_LTO_PARALLEL'"
   fi
+  # Assignment words produced by array expansion are parsed as commands when
+  # placed after other VAR=value prefixes. Export them explicitly so every
+  # make invocation (including Windows fallback attempts) inherits them.
+  unset LTO_MODE LTO_SERIAL LTO_PARALLEL
+  if (( ${#MAKE_LTO_ARGS[@]} > 0 )); then
+    export "${MAKE_LTO_ARGS[@]}"
+    MAKE_LTO_ARGS=()
+  fi
   local out=""
   case "$target" in
     aarch64)
