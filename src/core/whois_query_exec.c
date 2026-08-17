@@ -45,6 +45,14 @@ static int wc_query_exec_match_forced(const char* forced, const char* query)
 	return strcmp(forced, query) == 0;
 }
 
+int wc_query_exec_is_forced_private(
+		const wc_selftest_injection_t* injection,
+		const char* query)
+{
+	return injection &&
+		wc_query_exec_match_forced(injection->force_private, query);
+}
+
 static const wc_selftest_injection_t*
 wc_query_exec_resolve_injection(const wc_net_context_t* net_ctx)
 {
@@ -613,8 +621,7 @@ int wc_handle_private_ip(const Config* config,
 	if (!injection)
 		injection = wc_query_exec_resolve_injection(
 			wc_net_context_get_active());
-	int forced = injection &&
-		wc_query_exec_match_forced(injection->force_private, safe_query);
+	int forced = wc_query_exec_is_forced_private(injection, safe_query);
 	if (!forced && !wc_client_is_private_ip(safe_query))
 		return 0;
 	if (forced) {

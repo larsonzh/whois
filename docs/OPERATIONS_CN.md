@@ -35,6 +35,7 @@
 49/50 缺口验证记录（2026-08-16）：Windows `getopt_long` shim 补齐 GNU 风格参数排列，修复查询后的 `-h` 未解析；新增 `opts-permuted-parser`。CIDR body contract `4/4 PASS`、draft TSV `9/9 PASS`（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`）；Redirect IPv4/参数化首轮均 `66/66 PASS`，10x6 稳态 `authMismatchFiles=0/errorFiles=0`；`remote_batch_strategy_suite.ps1` 的 raw/health-first/plan-a/plan-b 全 `[golden] PASS`，总用时 `1775.592s`。直接 `--selftest` 的 Phase C 新增 parser/策略断言全 PASS，但完整旧 selftest 仍有 `injection-view-fallback: FAIL` 与网络 WARN/SKIP，不能把 standalone 总结果写成全绿。
 末端失败节点重查运维口径（2026-08-16）：`[TERMINAL-RETRY] action=attempt` 表示 RIR 轮询耗尽后的单跳重查；对应 `action=result result=authoritative|non-authoritative|failed`。`reasons` 为可扩展位掩码，当前 `0x1=denied`、`0x2=rate-limit`、`0x4=empty`，可按位组合。只有 authoritative 会清偿 failure debt；non-authoritative/failed 后最终 error 或 unknown 仍按主规则判定。
 2026-08-17 追加验证：Strict 默认/debug 两轮无编译/LTO 告警，Local hash、Golden、referral 均 PASS（`out/artifacts/20260817-000833`，305s；`20260817-001953`，290s）；Batch/Selftest Golden 四策略均 PASS。12x6 authority mismatch 为空；唯一 LACNIC `45.113.52.0/22` rate-limit 在同参数单例重测已收敛 APNIC，属外部限流窗口，未实施代码修复。
+Phase C 默认开启收尾（2026-08-17）：reserved/special 隐式查询默认早收敛；显式 `-h` 保持兼容，`--disable-address-preclass` 为全量回退。专项与合同门禁全绿，最终 Strict `out/artifacts/20260817-034423` 9 架构、hash、Golden、referral PASS，发布制品已同步。
 发布候选复核记录（2026-08-16）：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，9 架构 SHA-256 实算、Local hash、Golden、referral 全 PASS（`out/artifacts/20260816-203059`，276s；`20260816-203903`，286s）；批量四策略 Golden 全 PASS（`204504/205026/205622/210225`，1315.436s），自检四策略 Golden 全 PASS（`210950/211526/212129/212741`，1369.958s）。最终 12x6 authority mismatch 空表、errors=`(no errors found)`（`out/artifacts/redirect_matrix_10x6/20260816-213231`）。原始 APNIC 空响应瞬态仍保留于 `20260816-161935`，本轮无需修复。
 黄金脚本说明补充：`golden_check_batch_presets.sh`/`golden_check_batch_suite.ps1` 负责头尾、重定向和批量标签断言；`golden_check_selftest.sh` 负责无头尾 selftest 日志中的 `[SELFTEST]` 期望。运行 `whois-win64.exe --selftest` 是独立的核心自测，不等同于四策略黄金；若 standalone 出现旧 selftest 失败，应单独记录，不要用 Batch Golden PASS 覆盖它。
 ARIN 前缀剥离提示（2026-01-15）：查询中含空格（ARIN 风格前缀）且当前 hop 为非 ARIN 时，会在再次查询前剥离前缀，并在 debug/metrics 下输出 `[DNS-ARIN] action=strip-prefix host=<server> query=<raw> stripped=<no-prefix>`。
@@ -1088,6 +1089,8 @@ golden-suite `
    - `-SelftestActions` 让 `golden_check.sh` 与实际注入的 fault 一致，缺失时会直接报 `[golden][ERROR] missing [SELFTEST] action=...`。
    - `-SmokeExtraArgs` 把 `--selftest-force-*` 等开关附加到每轮远端 `-a '...'` 参数，确保 `[SELFTEST]` 行真实存在于 `smoke_test.log`。
    - `-SelftestExpectations` / `-ErrorPatterns` / `-TagExpectations` 为分号分隔列表，分别转换成 `--expect`、`--require-error`、`--require-tag 组件 正则`；留空或输入 `NONE` 即视为跳过。
+  - 三个 VS Code Selftest Golden 任务以 `SelftestExpectations` 为权威动作清单并设置 `SelftestActions=NONE`；默认标签同时要求 `SELFTEST:action=force-(suspicious|private)` 与 `WORKBUF:action=summary result=PASS`，避免启用 workbuf 却未断言。
+  - 任一策略日志缺失、TagExpectations 格式非法或 checker 非零都会 fail-close；checker 使用 `set -o pipefail` 与 `2>&1 | tee`，同时保留退出码和 stderr 报告。
   - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan,planb}` 下最新时间戳的日志。
   - `-NoGolden` 会在远端四策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
    推荐预设（同时断言 force-suspicious 与 force-private）：

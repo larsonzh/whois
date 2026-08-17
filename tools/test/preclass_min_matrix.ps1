@@ -77,6 +77,9 @@ function Test-ImplicitDecision {
     if ($Action -eq "step47-short-circuit-unknown") {
         return $RouteChange -eq "1"
     }
+    if ($Action -eq "preclass-early-converge-unknown") {
+        return $RouteChange -eq "1"
+    }
     if ($Action -eq "step47-eligible") {
         return $RouteChange -eq "0"
     }

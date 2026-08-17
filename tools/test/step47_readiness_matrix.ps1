@@ -23,7 +23,7 @@ if (-not (Test-Path $outDir)) {
 }
 
 $cases = @(
-    [pscustomobject]@{ Query = "255.0.0.0"; ExpectedCurrent = "whois.iana.org"; ExpectedTarget = "unknown"; ClassGroup = "reserved-special" },
+    [pscustomobject]@{ Query = "255.0.0.0"; ExpectedCurrent = "unknown"; ExpectedTarget = "unknown"; ClassGroup = "reserved-special" },
     [pscustomobject]@{ Query = "10.0.0.1"; ExpectedCurrent = "unknown"; ExpectedTarget = "unknown"; ClassGroup = "reserved-special" },
     [pscustomobject]@{ Query = "fc00::1"; ExpectedCurrent = "unknown"; ExpectedTarget = "unknown"; ClassGroup = "reserved-special" },
     [pscustomobject]@{ Query = "fe80::1"; ExpectedCurrent = "unknown"; ExpectedTarget = "unknown"; ClassGroup = "reserved-special" },
@@ -100,7 +100,12 @@ foreach ($case in $cases) {
         $currentMatch = $true
     }
     $targetGap = $authoritative -ne $case.ExpectedTarget
-    $decisionOk = ($action -eq "hint-bypassed" -and $routeChange -eq "0")
+    $decisionOk = if ($case.ClassGroup -eq "reserved-special") {
+        $action -eq "preclass-early-converge-unknown" -and $routeChange -eq "1"
+    }
+    else {
+        $action -eq "classifier-rir-hint" -and $routeChange -eq "1"
+    }
     $outputComplete = ($queryHeaderPresent -and -not [string]::IsNullOrWhiteSpace($authoritative))
 
     $rows += [pscustomobject]@{

@@ -30,7 +30,9 @@ $cases = @(
     [pscustomobject]@{ Name = "deny-non-ip-low"; Query = "example.test"; Mode = "deny"; ExpectedClass = "non-ip"; ExpectedConfidence = "low" },
     [pscustomobject]@{ Name = "explicit-host-bypass"; Query = "255.0.0.0"; Mode = "explicit"; ExpectedClass = "reserved"; ExpectedConfidence = "high" },
     [pscustomobject]@{ Name = "disable-rollback"; Query = "255.0.0.0"; Mode = "rollback"; ExpectedClass = "reserved"; ExpectedConfidence = "high" },
-    [pscustomobject]@{ Name = "default-off"; Query = "255.0.0.0"; Mode = "default"; ExpectedClass = "reserved"; ExpectedConfidence = "high" }
+    [pscustomobject]@{ Name = "default-on"; Query = "255.0.0.0"; Mode = "default"; ExpectedClass = "reserved"; ExpectedConfidence = "high" },
+    [pscustomobject]@{ Name = "batch-default-on"; Query = "10.0.0.8"; Mode = "batch-default"; ExpectedClass = "special"; ExpectedConfidence = "high" },
+    [pscustomobject]@{ Name = "batch-force-private"; Query = "10.0.0.8"; Mode = "batch-force-private"; ExpectedClass = ""; ExpectedConfidence = "" }
 )
 
 function ConvertTo-NormalizedLine {
@@ -76,9 +78,17 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
         if ($case.Mode -eq "rollback") {
             $cliOptions += "--disable-address-preclass"
         }
-        $cliOptions += $case.Query
+        if ($case.Mode -eq "batch-force-private") {
+            $cliOptions += @("--selftest-force-private", $case.Query)
+        }
 
-        $raw = & $BinaryPath @cliOptions 2>&1
+        if ($case.Mode -like "batch-*") {
+            $raw = $case.Query | & $BinaryPath @cliOptions 2>&1
+        }
+        else {
+            $cliOptions += $case.Query
+            $raw = & $BinaryPath @cliOptions 2>&1
+        }
         $exitCode = $LASTEXITCODE
         $lines = @(ConvertTo-NormalizedLine -Raw $raw)
         $text = $lines -join "`n"
@@ -125,8 +135,26 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
                 $reason = "global-disable-restored"
             }
             "default" {
-                $pass = $pass -and $action -ne "preclass-early-converge-unknown"
-                $reason = "default-remains-off"
+                $pass = $pass -and $rir -eq "none" -and
+                    $action -eq "preclass-early-converge-unknown" -and
+                    $routeChange -eq "1" -and $authority -eq "unknown" -and $exitCode -eq 0
+                $reason = "default-enabled-short-circuit"
+            }
+            "batch-default" {
+                $pass = $pass -and $rir -eq "none" -and
+                    $action -eq "preclass-early-converge-unknown" -and
+                    $routeChange -eq "1" -and $authority -eq "unknown" -and
+                    $text -match '(?m)^=== Address Status: special purpose=private-use ' -and
+                    $exitCode -eq 0
+                $reason = "batch-default-enabled-short-circuit"
+            }
+            "batch-force-private" {
+                $pass = $pass -and $class -eq "" -and $action -eq "" -and
+                    $text -match '(?m)^\[SELFTEST\] action=force-private query=10\.0\.0\.8$' -and
+                    $text -match '(?m)^Error: Private query denied$' -and
+                    $text -match '(?m)^10\.0\.0\.8 is a private IP address$' -and
+                    $exitCode -eq 0
+                $reason = "batch-force-private-preserved"
             }
         }
 

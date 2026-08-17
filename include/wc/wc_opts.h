@@ -78,7 +78,7 @@ typedef struct wc_opts_s {
     int step47_early_unknown_enable; // --enable-step47-early-unknown
     const char* step47_early_unknown_list; // --step47-early-unknown-list q1,q2,...
     int preclass_first_hop_enable; // --enable-preclass-first-hop (Phase B classifier-preferred first hop, default on)
-    int preclass_early_converge_enable; // --enable-preclass-early-converge (Phase C reserved/special early converge, trial off)
+    int preclass_early_converge_enable; // --enable-preclass-early-converge (Phase C reserved/special early converge, default on)
     int show_selftest;           // --selftest
 
     // Selftest / fault injection toggles

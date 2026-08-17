@@ -185,7 +185,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 
 - 运行期的所有故障开关（黑洞、DNS negative、force-iana、fail-first 等）会统一写入 `wc_selftest_fault_profile_t`，DNS / lookup / net 仅需读取该结构与版本号即可保持注入行为一致，不再手动同步多个 `extern`。
 - `--selftest-force-suspicious <query|*>` 可在静态检测前把某条（或全部 `*`）查询标记为“可疑”。命中时 stderr 会打印 `[SELFTEST] action=force-suspicious query=<值>`，并额外输出错误行供黄金校验，但在开启 force 时不再阻断；正常（非自测）可疑检测仍保持原有阻断行为。
-- `--selftest-force-private <query|*>` 以同样方式强制触发“私网 IP”路径，stdout 仍输出标准私网提示/尾行并结束该查询；stderr 会输出 `[SELFTEST] action=force-private query=<值>`，并恒打印 `Error: Private query denied` 便于冒烟脚本断言。正常私网检测行为不变。
+- `--selftest-force-private <query|*>` 以同样方式强制触发“私网 IP”路径，并优先于 Phase C 早收敛：命中时 stdout 输出标准私网提示/尾行并结束该查询，stderr 输出 `[SELFTEST] action=force-private query=<值>` 与 `Error: Private query denied`，确保冒烟真实覆盖私网处理分支。未命中该自测钩子的普通隐式私网查询（含批量）仍按 Phase C 输出 Address Status 并早收敛 `unknown @ unknown`；显式 `-h` 保持旧私网提示兼容。
 - `--selftest-registry` 运行本地批量策略注册表自测（不触网），验证默认激活、显式 override 与每次运行隔离，stderr 输出 `[SELFTEST] action=batch-registry-*` 标签；默认关闭，可在冒烟时显式开启。
 
 提示：自 2025-12-25 起，以上 `[SELFTEST]` 标签统一带 `action=` 前缀，并在每个进程内最多输出一次（即便未显式执行 `--selftest` 套件，也会在首次命中强制钩子时落盘），便于 smoke/golden 统一 grep；同批次 DNS ipv6-only/fallback 自测已降级为 WARN，避免偶发网络导致自测中止。
@@ -342,7 +342,7 @@ Usage: whois-<arch> [OPTIONS] <IP or domain>
 - `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
 - `--step47-early-unknown-list <csv>`：配置 early-unknown 候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时使用默认单点候选）。
 - `--enable-preclass-first-hop`：启用专用 Phase B 分类器优先首跳开关；49/50 D4 后对隐式查询默认开启。显式 `-h` 保持旁路，`--disable-address-preclass` 提供全量回退。
-- `--enable-preclass-early-converge`：启用 Phase C reserved/special 早收敛受控能力，默认关闭；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路。命中 IANA special-purpose 静态表时，普通输出增加 `=== Address Status: ... ===`，权威尾行统一为 `unknown @ unknown`。显式 `-h` 仍查询并显示指定服务器正文，但成功响应同样执行 special-purpose 权威归一化；低置信、allocated/legacy 与非 `none` RIR 不进入该路径。默认迁移仍需独立任务。
+- `--enable-preclass-early-converge`：Phase C reserved/special 早收敛能力，默认开启；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路。命中 IANA special-purpose 静态表时，普通输出增加 `=== Address Status: ... ===`，权威尾行统一为 `unknown @ unknown`。显式 `-h` 仍查询并显示指定服务器正文，但成功响应同样执行 special-purpose 权威归一化；低置信、allocated/legacy 与非 `none` RIR 不进入该路径。使用 `--disable-address-preclass` 可全量回退旧路径。
 
 说明：
 - 显式 `-h` 保持兼容，不参与 Step 4.7 短路。

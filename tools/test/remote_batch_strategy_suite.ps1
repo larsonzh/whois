@@ -271,7 +271,7 @@ function Invoke-Golden {
         $reportPath = Join-Path $logDir "golden_selftest_report_$($Preset.Replace(' ','_')).txt"
         $reportMsys = Convert-ToMsysPath -Path $reportPath
         $reportQuoted = Convert-ToBashLiteral -Text $reportMsys
-        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check_selftest.sh$argString | tee $reportQuoted"
+        $cmd = "cd $repoQuoted && set -o pipefail && ./tools/test/golden_check_selftest.sh$argString 2>&1 | tee $reportQuoted"
     }
     else {
         $presetArgs = Get-GoldenPresetArgText -Preset $Preset

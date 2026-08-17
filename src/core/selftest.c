@@ -418,6 +418,7 @@ static int selftest_preclass_phasec_policy(void)
     int failed = 0;
     wc_preclass_route_decision_t decision;
     wc_preclass_result_t test_net_result;
+    wc_selftest_injection_t private_injection = {0};
     struct wc_terminal_retry_registry retry_registry;
 
     wc_terminal_retry_registry_init(&retry_registry);
@@ -500,6 +501,22 @@ static int selftest_preclass_phasec_policy(void)
         failed = 1;
     } else {
         fprintf(stderr, "[SELFTEST] preclass-phasec-explicit-host-bypass: PASS\n");
+    }
+
+    private_injection.force_private = "10.0.0.8";
+    if (!wc_query_exec_is_forced_private(&private_injection, "10.0.0.8") ||
+        wc_query_exec_is_forced_private(&private_injection, "10.0.0.9") ||
+        wc_query_exec_is_forced_private(NULL, "10.0.0.8")) {
+        fprintf(stderr, "[SELFTEST] preclass-phasec-force-private-priority: FAIL\n");
+        failed = 1;
+    } else {
+        private_injection.force_private = "*";
+        if (!wc_query_exec_is_forced_private(&private_injection, "10.0.0.9")) {
+            fprintf(stderr, "[SELFTEST] preclass-phasec-force-private-priority: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] preclass-phasec-force-private-priority: PASS\n");
+        }
     }
 
     {

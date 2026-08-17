@@ -353,6 +353,8 @@ foreach ($case in $cases) {
         $actionSrcOk = ($decisionActionSrc -eq "decision")
         $matchLayerOk = ($decisionMatchLayer -eq "ip")
         $fallbackOk = ($decisionFallback -eq "none")
+        $phaseCDefaultAction =
+            ($decisionAction -eq "preclass-early-converge-unknown" -and $decisionRoute -eq "1")
 
         if ($mode.Explicit) {
             $hostModeOk = ($decisionHostMode -eq "explicit")
@@ -389,7 +391,8 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r0")
             $p1ListOk = ($decisionP1List -eq "default")
             if ($case.ExpectR0) {
-                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+                $actionOk = (($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1") -or
+                    $phaseCDefaultAction)
             }
             else {
                 $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
@@ -403,7 +406,8 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r0")
             $p1ListOk = ($decisionP1List -eq "custom")
             if ($case.ExpectCustom) {
-                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+                $actionOk = (($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1") -or
+                    $phaseCDefaultAction)
             }
             else {
                 $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
@@ -417,7 +421,8 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r0")
             $p1ListOk = ($decisionP1List -eq "custom")
             if ($case.ExpectCustomMulti) {
-                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+                $actionOk = (($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1") -or
+                    $phaseCDefaultAction)
             }
             else {
                 $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
@@ -431,7 +436,8 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r1")
             $p1ListOk = ($decisionP1List -eq "default")
             if ($case.ExpectR1) {
-                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+                $actionOk = (($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1") -or
+                    $phaseCDefaultAction)
             }
             else {
                 $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")
@@ -445,7 +451,8 @@ foreach ($case in $cases) {
             $p1TierOk = ($decisionP1Tier -eq "r1")
             $p1ListOk = ($decisionP1List -eq "default")
             if ($case.ExpectR1) {
-                $actionOk = ($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1")
+                $actionOk = (($decisionAction -eq "preclass-short-circuit-unknown" -and $decisionRoute -eq "1") -or
+                    $phaseCDefaultAction)
             }
             else {
                 $actionOk = ($decisionAction -ne "preclass-short-circuit-unknown")

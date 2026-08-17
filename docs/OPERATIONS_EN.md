@@ -8,6 +8,8 @@ Release-candidate verification record (2026-08-16): the default and debug Strict
 
 Terminal failed-node retry operations note (2026-08-16): `[TERMINAL-RETRY] action=attempt` marks a bounded single-hop retry after RIR-cycle exhaustion; the matching result is `authoritative`, `non-authoritative`, or `failed`. `reasons` is an extensible bitmask: `0x1=denied`, `0x2=rate-limit`, `0x4=empty`, with combinations allowed. Only authoritative results settle failure debt; non-authoritative/failed results retain the normal error/unknown precedence.
 
+Phase C default-on closure (2026-08-17): reserved/special implicit queries now early-converge by default; explicit `-h` remains compatible and `--disable-address-preclass` is the full rollback. All focused and contract gates pass; final Strict `out/artifacts/20260817-034423` passes nine architectures, hash, Golden, and referral, with release artifacts synchronized.
+
 Follow-up verification (2026-08-17): default/debug Strict runs have no compile/LTO warnings and pass Local hash, Golden, and referral (`out/artifacts/20260817-000833`, 305s; `out/artifacts/20260817-001953`, 290s); all four Batch and Selftest Golden strategies pass. The 12x6 authority-mismatch table is empty. The only LACNIC `45.113.52.0/22` rate-limit error recovered to APNIC in the same-parameter targeted rerun, so it is recorded as an external rate-limit window rather than a code regression.
 
 ## One-paragraph Daily/Release Conclusion Template (A/B unattended)
@@ -1135,6 +1137,8 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
       - `-SelftestActions` keeps `golden_check.sh` in sync with the fault you injected so the traditional batch presets know which `[SELFTEST] action=...` lines to expect.
       - `-SmokeExtraArgs` appends the actual CLI toggles (e.g., `--selftest-force-suspicious '*'`) to every remote smoke command, guaranteeing that the `[SELFTEST]` logs exist in `smoke_test.log`.
       - `-SelftestExpectations`, `-ErrorPatterns`, and `-TagExpectations` accept semicolon-separated lists that become `--expect`, `--require-error`, and `--require-tag component regex` arguments for `golden_check_selftest.sh`. Leave them blank or type `NONE` to skip a category.
+      - The three VS Code Selftest Golden tasks use `SelftestExpectations` as the authoritative action list and set `SelftestActions=NONE`. Their default tags require both `SELFTEST:action=force-(suspicious|private)` and `WORKBUF:action=summary result=PASS`.
+      - Missing strategy logs, malformed TagExpectations, and nonzero checkers fail closed. Checkers use `set -o pipefail` and `2>&1 | tee`, preserving both exit status and stderr diagnostics.
       - `-SkipRemote` allows a “golden only” pass that simply picks the newest timestamped logs under `out/artifacts/batch_{raw,health,plan,planb}`.
       - `-NoGolden` forwards to `remote_batch_strategy_suite.ps1` so the upstream batch runs skip `golden_check.sh` (no `[golden][ERROR]` noise when a forced selftest short-circuits the query). Use this whenever only the selftest assertions matter.
     1.1 Recommended expectation bundle (force-suspicious + force-private):

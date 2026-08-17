@@ -28,7 +28,8 @@ trap {
         $scriptStopwatch.Stop()
         Write-Output ("[suite-selftest] Elapsed: {0:N3}s" -f $scriptStopwatch.Elapsed.TotalSeconds)
     }
-    throw
+    Write-Error $_.Exception.Message
+    exit 1
 }
 
 function ConvertTo-OptionalValue {
@@ -239,6 +240,12 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
     }
     catch {
         Write-Output "[suite-selftest] $($entry.Key): skipped ($($_.Exception.Message))"
+        $results += [pscustomobject]@{
+            Strategy = $entry.Key
+            Log = ""
+            Report = ""
+            ExitCode = 2
+        }
         continue
     }
     $logMsys = Convert-ToMsysPath -Path $logPath
@@ -269,13 +276,12 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
         if (-not [string]::IsNullOrWhiteSpace($trimTag)) {
             $parts = $trimTag.Split(':', 2)
             if ($parts.Count -lt 2 -or [string]::IsNullOrWhiteSpace($parts[0]) -or [string]::IsNullOrWhiteSpace($parts[1])) {
-                Write-Output "[suite-selftest] Invalid tag expectation '$trimTag' (use COMPONENT:regex)"
-                continue
+                throw "[suite-selftest] Invalid tag expectation '$trimTag' (use COMPONENT:regex)"
             }
             $cmdArgs += " --require-tag " + (Convert-ToBashLiteral -Text $parts[0].Trim()) + " " + (Convert-ToBashLiteral -Text $parts[1].Trim())
         }
     }
-    $cmd = "cd $repoQuoted && $cmdArgs | tee " + (Convert-ToBashLiteral -Text $reportMsys)
+    $cmd = "cd $repoQuoted && set -o pipefail && $cmdArgs 2>&1 | tee " + (Convert-ToBashLiteral -Text $reportMsys)
     Write-Output "[suite-selftest] [$($entry.Key)] golden: $cmd"
     & $bashExe -lc $cmd
     $rc = $LASTEXITCODE

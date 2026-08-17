@@ -823,8 +823,14 @@ int wc_client_run_batch_stdin(const Config* config,
             continue;
         if (wc_handle_suspicious_query(query, 1, injection))
             continue;
-        if (wc_handle_private_ip(cfg, query, query, 1, injection))
-            continue;
+          /* Let normal implicit special-purpose queries reach Phase C while
+              preserving explicit hosts and force-private selftest coverage. */
+          if (wc_query_exec_is_forced_private(injection, query) ||
+                (server_host && *server_host) ||
+            !wc_client_is_phasec_early_converge_candidate(cfg, query)) {
+            if (wc_handle_private_ip(cfg, query, query, 1, injection))
+                continue;
+        }
 
         if (!batch_strategy_ready) {
             wc_client_init_batch_strategy_system(cfg);

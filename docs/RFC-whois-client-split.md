@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-17：四轮 Golden 与 12x6 复核发现并修复 Phase C 批量路径早收敛遗漏与自检黄金退出码掩盖。raw 自检 golden 报告实际 `[golden-selftest] FAIL`（`batch_raw/20260817-051757`）：Phase C 翻转后单条查询对 `10.0.0.8` 早收敛 `unknown @ unknown`，而批量流程因 `wc_handle_private_ip` 先短路仍走私网提示；`selftest_golden_suite.ps1` 的 `cmd | tee` 管道无 pipefail 把真实失败掩盖为 PASS，且任务预填 `-ErrorPatterns 'private IP address'` 无法匹配早收敛形态。修复：`src/core/client_flow.c` 批量循环对隐式 early-converge 候选跳过私网提示（显式 `-h` 保持兼容），`selftest_golden_suite.ps1` 加 `set -o pipefail`，`tasks.json` ErrorPatterns 改为 `Suspicious query detected;Private query denied`。快速构建 `out/artifacts/20260817-072058` 验证隐式批量早收敛、显式 `-h` 兼容、本地 selftest golden 新期望 PASS（详见“批量路径早收敛补全与自检黄金期望修复”段落）。
 - 2026-08-15：新增并完成串行第 49/50 份“无人值守超高密度 A/B”任务定义与启动文件编制（窗口 `2027-04-29 ~ 2027-05-12`，A/49=Vx-3 收尾：专用首跳开关与跨平台补齐 / B/50=Vx-4：Phase C reserved/special 早收敛受控开关）；A/B 任务定义、active 启动文件及第 49/50 份清单已完成执行回填。
 - 2026-08-16：串行第 49/50 份 A/B 无人值守执行完成，`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260815-063717`，B run=`out/artifacts/dev_verify_multiround/20260815-160211`，A/B 合计用时 `0d 16:40:28`（会话 `2026-08-15 06:36:41` 至 `2026-08-15 23:17:08`）。全程无事故、自愈或阶段重启；A→B 交接事件票与最终状态票均完成 ACK，最终 heartbeat 在 `2026-08-15 23:11:28` 记录 `session=RUNNING, a=PASS, b=RUNNING`，随后 session 正常收口。最终 Strict Version（`lto-auto` 默认）复验无告警、Local hash verify/Golden/referral 全 PASS，产物 `out/artifacts/20260816-014807`，用时 `305s`；首次命令因末尾误加续行符被手工 `^C` 中断，修正命令后复验通过。
 - 2026-08-15：串行第 47/48 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-15 ~ 2027-04-28`（Vx-3 预备能力切片，A=分类器优先首跳接入 / B=公共分类器首跳 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260814-052520，B run=out/artifacts/dev_verify_multiround/20260814-122229）；A 启动期经一次计划性维护（TASK-DESIGN 旧式检查误报 → 修复 `start_dev_verify_8round_multiround.ps1` 兼容 V1/Vx marker 并取消 D4 noop 建议，提交 `d505e69e`，`-UseTemplateBaseline` 全新建档重启 A）后一次通过，无事故票、无自愈；A→B 交接与 chat-session-final-status 事件评审闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260815-032547`，179s）（详见文内第 47/48 份清单段与启动文件段）。
@@ -9423,4 +9424,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - allocated-control、allocated/low 与 non-ip/low 运行时控制组均禁入；当前 CLI 分类顺序没有稳定可达的 `class=unknown` 地址样例，故 `selftest.c` 直接增加 `unknown/unknown/low` 纯策略拒绝断言，不以 non-ip 替代 unknown 证据。
 - 独立 win64 审查制品位于 `out/artifacts/phasec_review_build/20260816-045230/build_out/win64/whois-win64.exe`，SHA-256=`e264710159fdacfd4fc80e1ff3131e3ce0c440d690ef047bb45bdbfd3487fb33`；哈希校验及 Phase C policy/route/显式主机/parser selftest 标签全 PASS。
 - 评审结论允许进入独立默认翻转任务，但本轮不修改 `preclass_early_converge_enable`、不更新黄金基线，也不宣称 Phase C 或 Address-Space 前置分类器已正式收尾。
+
+**Phase C 默认翻转正式收尾（2026-08-17，PASS）**：
+
+- opts/runner 默认开启；P0/P1、CIDR、Step47 readiness/rollback 黄金基线同步更新，`--disable-address-preclass` 保持全量回退。
+- Phase C `20/20`、special-purpose `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6 全 PASS；12x6 证据 `out/artifacts/redirect_matrix_10x6/20260817-033253`。
+- 最终 Strict `out/artifacts/20260817-034423` 完成 9 架构、Local hash、Golden、referral 全 PASS（302s）并同步发布制品。Phase C 与 Address-Space 前置分类器正式收尾。
+
+**批量路径早收敛补全与自检黄金期望修复（2026-08-17，PASS）**：
+
+- 背景：Phase C 默认翻转后，单条查询对高置信 `reserved|special + rir=none`（如 `10.0.0.8`）早收敛 `unknown @ unknown`，但批量流程在循环中先执行 `wc_handle_private_ip` 私网提示短路，导致同一查询在单条/批量模式下输出不一致（批量仍输出 `10.0.0.8 is a private IP address`），不符合“隐式查询收敛 unknown”契约。
+- 发现路径：四轮 Golden + 12x6 复核中，raw 自检 golden 报告实际为 `[golden-selftest] FAIL`（`out/artifacts/batch_raw/20260817-051757/build_out/golden_selftest_report.txt` 缺少 `error pattern matched: private IP address`），而 suite 汇总显示 PASS——`selftest_golden_suite.ps1` 的 `cmd | tee` 管道无 `pipefail`，bash 返回 tee 退出码（0）掩盖了 `golden_check_selftest.sh` 的真实失败；`remote_batch_strategy_suite.ps1` 已带 pipefail，属遗漏。
+- 修复：
+  1. `src/core/client_flow.c` 批量循环：普通隐式（无 `-h`）Phase C early-converge 候选跳过 `wc_handle_private_ip` 私网提示，交由 `wc_client_handle_batch_query` 的早收敛分支处理；显式 `-h` 与命中 `--selftest-force-private` 的查询仍走真实私网处理分支。
+  2. `tools/test/selftest_golden_suite.ps1` 与 `remote_batch_strategy_suite.ps1`：selftest golden 调用统一使用 `set -o pipefail` 和 `2>&1 | tee`，使失败可靠传播 rc=3，并把 stderr 诊断写入报告；缺失策略日志、非法 TagExpectations 与 checker 非零均 fail-close，trap 保留原始错误消息。
+  3. `.vscode/tasks.json`：三处 `-ErrorPatterns` 预填值由 `Suspicious query detected;private IP address` 改为 `Suspicious query detected;Private query denied`（匹配 hook 恒打的 stderr 错误行，raw 与批量均存在）；三个任务统一以显式 `SelftestExpectations` 为权威、设置 `SelftestActions=NONE`，并补回被覆盖的 `WORKBUF:action=summary result=PASS` 标签断言。
+- 审计补强：`tools/test/preclass_phasec_default_review.ps1` 新增 `batch-default-on` 与 `batch-force-private` 两个案例，长期锁定正常批量早收敛与自测钩子优先级；C 内置 selftest 新增 `preclass-phasec-force-private-priority`，覆盖精确匹配、通配符和不匹配。最终快速构建 `out/artifacts/20260817-081022`（x86_64+win32+win64，Local hash PASS，163s）；扩展后的 Phase C review `24/24 PASS`（`out/artifacts/preclass_phasec_review/20260817-075434`），新增 C selftest 标签 PASS。完整 standalone selftest 的唯一 FAIL 仍是既有 `injection-view-fallback`，与本次无关；负向 golden 注入验证退出码非零且报告包含 `[golden-selftest][ERROR]`。
 

@@ -29,6 +29,9 @@ int wc_handle_private_ip(const Config* config,
                          const char* ip,
                          int in_batch,
                          const wc_selftest_injection_t* injection);
+int wc_query_exec_is_forced_private(
+                         const wc_selftest_injection_t* injection,
+                         const char* query);
 int wc_query_exec_validate_ip_or_cidr(const Config* config,
                          const char* query);
 void wc_preclass_emit_observation(const Config* config,

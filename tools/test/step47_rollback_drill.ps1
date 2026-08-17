@@ -30,9 +30,9 @@ if ($EarlyUnknownListFile -and $EarlyUnknownListFile.Trim().Length -gt 0) {
         exit 2
     }
 
-    $lines = Get-Content -Path $EarlyUnknownListFile | ForEach-Object { $_.Trim() } | Where-Object {
+    $lines = @(Get-Content -Path $EarlyUnknownListFile | ForEach-Object { $_.Trim() } | Where-Object {
         $_.Length -gt 0 -and -not $_.StartsWith("#")
-    }
+    })
     if ($lines.Count -eq 0) {
         Write-Error "Early unknown list file has no usable entries: $EarlyUnknownListFile"
         exit 2
@@ -148,8 +148,10 @@ foreach ($q in $cases) {
         BaseAuth = $baseResult.Authoritative
         TrialAuth = $trialResult.Authoritative
         RollbackAuth = $rollbackResult.Authoritative
-        RollbackAuthMatchBase = ($rollbackResult.Authoritative -eq $baseResult.Authoritative)
-        RollbackViaMatchBase = ($rollbackResult.Via -eq $baseResult.Via)
+        RollbackPolicyOk = ($rollbackResult.Action -eq "hint-disabled" -and
+            $rollbackResult.RouteChange -eq "0")
+        RollbackLegacyViaOk = ([string]::IsNullOrWhiteSpace($rollbackResult.Via) -or
+            $rollbackResult.Via -eq "whois.iana.org")
     }
 }
 
@@ -158,8 +160,8 @@ $summaryTxt = Join-Path $outDir "summary.txt"
 $rows | Export-Csv -Path $summaryCsv -NoTypeInformation -Encoding UTF8
 $rows | Format-Table -AutoSize | Out-String | Out-File -FilePath $summaryTxt -Encoding utf8
 
-$authMismatch = @($rows | Where-Object { -not $_.RollbackAuthMatchBase }).Count
-$viaMismatch = @($rows | Where-Object { -not $_.RollbackViaMatchBase }).Count
+$authMismatch = @($rows | Where-Object { -not $_.RollbackPolicyOk }).Count
+$viaMismatch = @($rows | Where-Object { -not $_.RollbackLegacyViaOk }).Count
 
 Write-Output ("[STEP47-ROLLBACK] out_dir={0}" -f $outDir)
 Write-Output ("[STEP47-ROLLBACK] scope={0} early_unknown={1} list={2} auth_mismatch={3} via_mismatch={4}" -f $scopeNorm, ([int][bool]$EnableEarlyUnknown), ($EarlyUnknownList -replace '\s+', ''), $authMismatch, $viaMismatch)

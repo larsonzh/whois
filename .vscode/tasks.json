@@ -191,8 +191,8 @@
 		{
 			"id": "selftestActions",
 			"type": "promptString",
-			"description": "Selftest actions for golden (comma list, e.g., force-suspicious,8.8.8.8)",
-			"default": "force-suspicious,8.8.8.8;force-private,10.0.0.8;injection-view-fallback"
+			"description": "Fallback selftest actions used only when SelftestExpectations is empty (comma list, e.g., force-suspicious,8.8.8.8; NONE to skip)",
+			"default": "NONE"
 		},
 		{
 			"id": "selftestSmokeArgs",
@@ -216,13 +216,13 @@
 			"id": "selftestErrors",
 			"type": "promptString",
 			"description": "Semicolon list of regexes required via --require-error (NONE to skip)",
-			"default": "Suspicious query detected;private IP address"
+			"default": "Suspicious query detected;Private query denied"
 		},
 		{
 			"id": "selftestTags",
 			"type": "promptString",
 			"description": "Semicolon list of component:regex pairs for --require-tag (NONE to skip)",
-			"default": "SELFTEST:action=force-(suspicious|private)"
+			"default": "SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS"
 		},
 		{
 			"id": "selftestPlanBTags",
@@ -1108,15 +1108,15 @@
 				"-OptProfile",
 				"NONE",
 				"-SelftestActions",
-				"force-suspicious,8.8.8.8;force-private,10.0.0.8;injection-view-fallback",
+				"NONE",
 				"-SmokeExtraArgs",
 				"--selftest-workbuf",
 				"-SelftestExpectations",
 				"action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result",
 				"-ErrorPatterns",
-				"Suspicious query detected;private IP address",
+				"Suspicious query detected;Private query denied",
 				"-TagExpectations",
-				"SELFTEST:action=force-(suspicious|private)",
+				"SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS",
 				"-PlanBTagExpectations",
 				"DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
 				"-NoGoldenToggle",
@@ -1155,15 +1155,15 @@
 				"-OptProfile",
 				"${input:rbSelftestLtoProfile}",
 				"-SelftestActions",
-				"force-suspicious,8.8.8.8;force-private,10.0.0.8;injection-view-fallback",
+				"NONE",
 				"-SmokeExtraArgs",
 				"--selftest-workbuf",
 				"-SelftestExpectations",
 				"action=force-suspicious,query=8.8.8.8;action=force-private,query=10.0.0.8;action=injection-view-fallback;action=batch-registry-default;action=batch-registry-set-active;action=batch-registry-override-pick;action=batch-registry-override-on-result",
 				"-ErrorPatterns",
-				"Suspicious query detected;private IP address",
+				"Suspicious query detected;Private query denied",
 				"-TagExpectations",
-				"SELFTEST:action=force-(suspicious|private)",
+				"SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS",
 				"-PlanBTagExpectations",
 				"DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
 				"-NoGoldenToggle",
