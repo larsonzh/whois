@@ -1,0 +1,335 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx5-preclass-consistency-guard-metrics-d1-d4-20270513-20270519",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "selftest_source",
+      "file": "src/core/selftest.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "query_exec",
+      "file": "src/core/whois_query_exec.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "runtime_source",
+      "file": "src/core/runtime.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Serial 51 (Checklist A) merges two independent 24.23 slices per the merge policy: (1) 24.23.1 classifier consistency guard - add wc_preclass_verify_hardcoded_consistency() that compares every hardcoded fast-path segment (IPv4: 255.255.255.255, 240/4, 0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, 224/4; IPv6: ::1, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32, 2000::/3) against frozen full-path expectations and the generated table's longest-prefix view (family/cls/rir/reason/confidence; approved per-side deltas: 224/4 class special-vs-reserved, 2000::/3 confidence low-vs-medium, reason strings intentionally different granularity), fail-closing through the built-in selftest with [PRECLASS-CONSISTENCY] diagnostics; (2) 24.23.5 observability - one-shot [PRECLASS-METRICS] exit line counting classified-query observations by family/class/confidence, emitted only under --retry-metrics/--debug and styled like the existing [RETRY-METRICS*]/[DNS-CACHE-SUM] tags. No classification semantics change; stdout contract untouched. Generator-side assertions and smoke greps live in scripts/docs and stay outside this closure.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Introduce the classifier consistency guard: declare wc_preclass_verify_hardcoded_consistency() in the preclass header, add the stdio include required for its diagnostics, and append the frozen-expectation table plus the verify function at the end of preclass.c. The verify function cross-checks the full classify_ip path and the generated table longest-prefix view against frozen cls/rir/reason/confidence expectations for every hardcoded fast-path segment.",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "int wc_preclass_verify_hardcoded_consistency(void);"
+        ],
+        "preclass_source": [
+          "#include <stdio.h>",
+          "int wc_preclass_verify_hardcoded_consistency(void)\n{"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "const char\\* wc_preclass_classification_first_hop_host\\(const char\\* cls,\n        const char\\* rir\\);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "replacement": "const char* wc_preclass_classification_first_hop_host(const char* cls,\n        const char* rir);\n\n// Verifies that every hardcoded fast-path segment in wc_preclass_classify_ip\n// still agrees with the generated IANA snapshot table (longest-prefix match)\n// on the frozen cls/rir/reason/confidence contract. Returns the number of\n// failed consistency checks (0 = all consistent).\nint wc_preclass_verify_hardcoded_consistency(void);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "idempotentContains": [
+            "int wc_preclass_verify_hardcoded_consistency(void);"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "#include <ctype\\.h>\n#include <stdint\\.h>\n#include <stdlib\\.h>\n#include <string\\.h>",
+          "replacement": "#include <ctype.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>",
+          "idempotentContains": [
+            "#include <stdio.h>"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\tout_result->covering_rir = wc_preclass_rir_name\\(row->covering_rir_id\\);\n\tout_result->registry = wc_preclass_registry_name\\(row->registry_id\\);\n\tout_result->purpose = row->purpose \\? row->purpose : \"none\";\n\tout_result->globally_reachable = wc_preclass_tristate_name\\(row->globally_reachable\\);\n\tout_result->reserved_by_protocol = wc_preclass_tristate_name\\(row->reserved_by_protocol\\);\n\treturn 1;\n\\}\n\\z",
+          "replacement": "\tout_result->covering_rir = wc_preclass_rir_name(row->covering_rir_id);\n\tout_result->registry = wc_preclass_registry_name(row->registry_id);\n\tout_result->purpose = row->purpose ? row->purpose : \"none\";\n\tout_result->globally_reachable = wc_preclass_tristate_name(row->globally_reachable);\n\tout_result->reserved_by_protocol = wc_preclass_tristate_name(row->reserved_by_protocol);\n\treturn 1;\n}\n\nstatic int wc_preclass_consistency_check(const char* ip,\n\t\tconst char* field,\n\t\tconst char* expected,\n\t\tconst char* actual)\n{\n\tif (!expected || !actual || strcmp(expected, actual) != 0) {\n\t\tfprintf(stderr,\n\t\t\t\"[PRECLASS-CONSISTENCY] ip=%s field=%s expected=%s actual=%s\\n\",\n\t\t\tip,\n\t\t\tfield,\n\t\t\texpected ? expected : \"null\",\n\t\t\tactual ? actual : \"null\");\n\t\treturn 1;\n\t}\n\treturn 0;\n}\n\ntypedef struct wc_preclass_consistency_expect {\n\tconst char* ip;\n\tconst char* expect_family;\n\tconst char* expect_cls;\n\tconst char* expect_rir;\n\tconst char* expect_reason;\n\tconst char* expect_confidence;\n\tconst char* table_cls;\n\tconst char* table_rir;\n\tconst char* table_reason;\n\tconst char* table_confidence;\n} wc_preclass_consistency_expect_t;\n\nstatic const wc_preclass_consistency_expect_t wc_preclass_consistency_expects[] = {\n\t/* IPv4 hardcoded fast-path segments */\n\t{\"255.255.255.255\", \"v4\", \"special\", \"none\", \"V4_LIMITED_BROADCAST_255_255_255_255\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"240.0.0.1\", \"v4\", \"reserved\", \"none\", \"special\", \"high\", \"reserved\", \"none\", \"V4_RESERVED_REGISTRY\", \"high\"},\n\t{\"0.0.0.1\", \"v4\", \"special\", \"none\", \"V4_THIS_NETWORK_0_8\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"10.0.0.1\", \"v4\", \"special\", \"none\", \"V4_PRIVATE_10_8\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"127.0.0.1\", \"v4\", \"special\", \"none\", \"V4_LOOPBACK_127_8\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"169.254.10.20\", \"v4\", \"special\", \"none\", \"V4_LINK_LOCAL_169_254_16\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"172.16.0.1\", \"v4\", \"special\", \"none\", \"V4_PRIVATE_172_16_12\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"172.31.255.254\", \"v4\", \"special\", \"none\", \"V4_PRIVATE_172_16_12\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"192.168.0.1\", \"v4\", \"special\", \"none\", \"V4_PRIVATE_192_168_16\", \"high\", \"special\", \"none\", \"V4_SPECIAL_PURPOSE\", \"high\"},\n\t{\"224.0.0.1\", \"v4\", \"special\", \"none\", \"V4_MULTICAST_224_4\", \"high\", \"reserved\", \"none\", \"V4_RESERVED_REGISTRY\", \"high\"},\n\t{\"239.255.255.254\", \"v4\", \"special\", \"none\", \"V4_MULTICAST_224_4\", \"high\", \"reserved\", \"none\", \"V4_RESERVED_REGISTRY\", \"high\"},\n\t/* IPv6 hardcoded fast-path segments */\n\t{\"::1\", \"v6\", \"special\", \"none\", \"V6_LOOPBACK_1\", \"high\", \"special\", \"none\", \"V6_SPECIAL_PURPOSE\", \"high\"},\n\t{\"fc00::1\", \"v6\", \"special\", \"none\", \"V6_UNIQUE_LOCAL_FC00_7\", \"high\", \"special\", \"none\", \"V6_SPECIAL_PURPOSE\", \"high\"},\n\t{\"fd00::1\", \"v6\", \"special\", \"none\", \"V6_UNIQUE_LOCAL_FC00_7\", \"high\", \"special\", \"none\", \"V6_SPECIAL_PURPOSE\", \"high\"},\n\t{\"fe80::1\", \"v6\", \"special\", \"none\", \"V6_LINK_LOCAL_FE80_10\", \"high\", \"special\", \"none\", \"V6_SPECIAL_PURPOSE\", \"high\"},\n\t{\"ff00::1\", \"v6\", \"special\", \"none\", \"V6_MULTICAST_FF00_8\", \"high\", \"special\", \"none\", \"V6_MULTICAST\", \"high\"},\n\t{\"2001:db8::1\", \"v6\", \"special\", \"none\", \"V6_DOCUMENTATION_2001_DB8_32\", \"high\", \"special\", \"none\", \"V6_SPECIAL_PURPOSE\", \"high\"},\n\t{\"2001:db9::1\", \"v6\", \"allocated\", \"unknown\", \"V6_GLOBAL_UNICAST_2000_3\", \"low\", \"allocated\", \"unknown\", \"V6_GLOBAL_UNICAST\", \"medium\"}\n};\n\nint wc_preclass_verify_hardcoded_consistency(void)\n{\n\tsize_t i;\n\tint failures = 0;\n\n\tfor (i = 0; i < sizeof(wc_preclass_consistency_expects) /\n\t\t\tsizeof(wc_preclass_consistency_expects[0]); ++i) {\n\t\tconst wc_preclass_consistency_expect_t* exp =\n\t\t\t&wc_preclass_consistency_expects[i];\n\t\tconst char* family = NULL;\n\t\tconst char* cls = NULL;\n\t\tconst char* rir = NULL;\n\t\tconst char* reason = NULL;\n\t\tconst char* confidence = NULL;\n\t\tconst char* t_family = NULL;\n\t\tconst char* t_cls = NULL;\n\t\tconst char* t_rir = NULL;\n\t\tconst char* t_reason = NULL;\n\t\tconst char* t_confidence = NULL;\n\t\tstruct in_addr a4;\n\t\tstruct in6_addr a6;\n\n\t\twc_preclass_classify_ip(exp->ip,\n\t\t\t&family, &cls, &rir, &reason, &confidence);\n\n\t\tif (inet_pton(AF_INET, exp->ip, &a4) == 1) {\n\t\t\twc_preclass_lookup_row_and_assign_v4(a4,\n\t\t\t\t&t_family, &t_cls, &t_rir, &t_reason, &t_confidence);\n\t\t} else if (inet_pton(AF_INET6, exp->ip, &a6) == 1) {\n\t\t\twc_preclass_lookup_row_and_assign_v6(a6,\n\t\t\t\t&t_family, &t_cls, &t_rir, &t_reason, &t_confidence);\n\t\t}\n\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"family\", exp->expect_family, family);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"cls\", exp->expect_cls, cls);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"rir\", exp->expect_rir, rir);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"reason\", exp->expect_reason, reason);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"confidence\", exp->expect_confidence, confidence);\n\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-family\", exp->expect_family, t_family);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-cls\", exp->table_cls, t_cls);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-rir\", exp->table_rir, t_rir);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-reason\", exp->table_reason, t_reason);\n\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-confidence\", exp->table_confidence, t_confidence);\n\t}\n\n\treturn failures;\n}",
+          "idempotentContains": [
+            "int wc_preclass_verify_hardcoded_consistency(void)\n{"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "verify-declared-in-header",
+          "target": "preclass_header",
+          "pattern": "int wc_preclass_verify_hardcoded_consistency\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "stdio-include-added",
+          "target": "preclass_source",
+          "pattern": "#include <stdio\\.h>",
+          "expectedCount": 1
+        },
+        {
+          "name": "verify-function-defined",
+          "target": "preclass_source",
+          "pattern": "int wc_preclass_verify_hardcoded_consistency\\(void\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "expectation-table-defined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_consistency_expects\\[\\] = \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "ipv6-representative-coverage",
+          "target": "preclass_source",
+          "pattern": "\\{\"2001:db9::1\", \"v6\", \"allocated\", \"unknown\", \"V6_GLOBAL_UNICAST_2000_3\", \"low\", \"allocated\", \"unknown\", \"V6_GLOBAL_UNICAST\", \"medium\"\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-future-use-table-reason-frozen",
+          "target": "preclass_source",
+          "pattern": "\\{\"240\\.0\\.0\\.1\", \"v4\", \"reserved\", \"none\", \"special\", \"high\", \"reserved\", \"none\", \"V4_RESERVED_REGISTRY\", \"high\"\\}",
+          "expectedCount": 1
+        },
+        {
+          "name": "fail-close-diagnostics-emitted",
+          "target": "preclass_source",
+          "pattern": "\\[PRECLASS-CONSISTENCY\\] ip=%s field=%s expected=%s actual=%s",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Wire the consistency guard into the built-in selftest: add selftest_preclass_consistency() which fails the selftest run when any hardcoded segment drifts from the frozen contract, and invoke it at the head of wc_selftest_run().",
+      "idempotentContainsByTarget": {
+        "selftest_source": [
+          "static int selftest_preclass_consistency(void)\n{",
+          "int consistency = selftest_preclass_consistency();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "    return failed;\n\\}\n\nint wc_selftest_run\\(void\\) \\{",
+          "replacement": "    return failed;\n}\n\nstatic int selftest_preclass_consistency(void)\n{\n    if (wc_preclass_verify_hardcoded_consistency() != 0) {\n        fprintf(stderr, \"[SELFTEST] preclass-consistency: FAIL\\n\");\n        return 1;\n    }\n    fprintf(stderr, \"[SELFTEST] preclass-consistency: PASS\\n\");\n    return 0;\n}\n\nint wc_selftest_run(void) {",
+          "idempotentContains": [
+            "static int selftest_preclass_consistency(void)\n{"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "int wc_selftest_run\\(void\\) \\{\n    int failed = 0;\n\n    int phasec = selftest_preclass_phasec_policy\\(\\);\n    if \\(phasec != 0\\) failed = 1;\n\n    int crlf = selftest_crlf_normalization\\(\\);",
+          "replacement": "int wc_selftest_run(void) {\n    int failed = 0;\n\n    int consistency = selftest_preclass_consistency();\n    if (consistency != 0) failed = 1;\n\n    int phasec = selftest_preclass_phasec_policy();\n    if (phasec != 0) failed = 1;\n\n    int crlf = selftest_crlf_normalization();",
+          "idempotentContains": [
+            "int consistency = selftest_preclass_consistency();"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "consistency-selftest-defined",
+          "target": "selftest_source",
+          "pattern": "static int selftest_preclass_consistency\\(void\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "consistency-selftest-called",
+          "target": "selftest_source",
+          "pattern": "int consistency = selftest_preclass_consistency\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "consistency-selftest-verifies",
+          "target": "selftest_source",
+          "pattern": "wc_preclass_verify_hardcoded_consistency\\(\\) != 0",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add the [PRECLASS-METRICS] counter infrastructure: declare the record/enable/flush API in the preclass header and append the module-level counters plus the idempotent flush printer at the end of preclass.c. The flush prints one [PRECLASS-METRICS] line at process exit when enabled under --retry-metrics/--debug (zero counts allowed).",
+      "idempotentContainsByTarget": {
+        "preclass_header": [
+          "void wc_preclass_metrics_flush(void);"
+        ],
+        "preclass_source": [
+          "void wc_preclass_metrics_flush(void)\n{"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_header",
+          "pattern": "int wc_preclass_verify_hardcoded_consistency\\(void\\);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "replacement": "int wc_preclass_verify_hardcoded_consistency(void);\n\n// Enables the one-shot [PRECLASS-METRICS] exit summary (idempotent).\nvoid wc_preclass_metrics_enable(void);\n\n// Records one classified-query observation (family/class/confidence).\nvoid wc_preclass_metrics_record(const char* family,\n        const char* cls,\n        const char* confidence);\n\n// Prints [PRECLASS-METRICS] once at process exit when enabled (--retry-metrics/--debug); zero counts allowed.\nvoid wc_preclass_metrics_flush(void);\n\n// Resolves trial/action decision fields into a stable, log-ready view.",
+          "idempotentContains": [
+            "void wc_preclass_metrics_flush(void);"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\t\tfailures \\+= wc_preclass_consistency_check\\(exp->ip,\n\t\t\t\"table-confidence\", exp->table_confidence, t_confidence\\);\n\t\\}\n\n\treturn failures;\n\\}\\z",
+          "replacement": "\t\tfailures += wc_preclass_consistency_check(exp->ip,\n\t\t\t\"table-confidence\", exp->table_confidence, t_confidence);\n\t}\n\n\treturn failures;\n}\n\nstatic unsigned long g_wc_preclass_metrics_total = 0;\nstatic unsigned long g_wc_preclass_metrics_v4 = 0;\nstatic unsigned long g_wc_preclass_metrics_v6 = 0;\nstatic unsigned long g_wc_preclass_metrics_class_special = 0;\nstatic unsigned long g_wc_preclass_metrics_class_reserved = 0;\nstatic unsigned long g_wc_preclass_metrics_class_allocated = 0;\nstatic unsigned long g_wc_preclass_metrics_class_legacy = 0;\nstatic unsigned long g_wc_preclass_metrics_class_unknown = 0;\nstatic unsigned long g_wc_preclass_metrics_class_unallocated = 0;\nstatic unsigned long g_wc_preclass_metrics_conf_high = 0;\nstatic unsigned long g_wc_preclass_metrics_conf_medium = 0;\nstatic unsigned long g_wc_preclass_metrics_conf_low = 0;\nstatic int g_wc_preclass_metrics_enabled = 0;\nstatic int g_wc_preclass_metrics_emitted = 0;\n\nvoid wc_preclass_metrics_enable(void)\n{\n\tg_wc_preclass_metrics_enabled = 1;\n}\n\nvoid wc_preclass_metrics_record(const char* family,\n\t\tconst char* cls,\n\t\tconst char* confidence)\n{\n\tif (!family || !cls || !confidence)\n\t\treturn;\n\tg_wc_preclass_metrics_enabled = 1;\n\t++g_wc_preclass_metrics_total;\n\tif (strcmp(family, \"v4\") == 0)\n\t\t++g_wc_preclass_metrics_v4;\n\telse if (strcmp(family, \"v6\") == 0)\n\t\t++g_wc_preclass_metrics_v6;\n\tif (strcmp(cls, \"special\") == 0)\n\t\t++g_wc_preclass_metrics_class_special;\n\telse if (strcmp(cls, \"reserved\") == 0)\n\t\t++g_wc_preclass_metrics_class_reserved;\n\telse if (strcmp(cls, \"allocated\") == 0)\n\t\t++g_wc_preclass_metrics_class_allocated;\n\telse if (strcmp(cls, \"legacy\") == 0)\n\t\t++g_wc_preclass_metrics_class_legacy;\n\telse if (strcmp(cls, \"unknown\") == 0)\n\t\t++g_wc_preclass_metrics_class_unknown;\n\telse if (strcmp(cls, \"unallocated\") == 0)\n\t\t++g_wc_preclass_metrics_class_unallocated;\n\tif (strcmp(confidence, \"high\") == 0)\n\t\t++g_wc_preclass_metrics_conf_high;\n\telse if (strcmp(confidence, \"medium\") == 0)\n\t\t++g_wc_preclass_metrics_conf_medium;\n\telse if (strcmp(confidence, \"low\") == 0)\n\t\t++g_wc_preclass_metrics_conf_low;\n}\n\nvoid wc_preclass_metrics_flush(void)\n{\n\tif (g_wc_preclass_metrics_emitted)\n\t\treturn;\n\tif (!g_wc_preclass_metrics_enabled)\n\t\treturn;\n\tg_wc_preclass_metrics_emitted = 1;\n\tfprintf(stderr,\n\t\t\"[PRECLASS-METRICS] total=%lu v4=%lu v6=%lu class_special=%lu class_reserved=%lu class_allocated=%lu class_legacy=%lu class_unknown=%lu class_unallocated=%lu conf_high=%lu conf_medium=%lu conf_low=%lu\\n\",\n\t\tg_wc_preclass_metrics_total,\n\t\tg_wc_preclass_metrics_v4,\n\t\tg_wc_preclass_metrics_v6,\n\t\tg_wc_preclass_metrics_class_special,\n\t\tg_wc_preclass_metrics_class_reserved,\n\t\tg_wc_preclass_metrics_class_allocated,\n\t\tg_wc_preclass_metrics_class_legacy,\n\t\tg_wc_preclass_metrics_class_unknown,\n\t\tg_wc_preclass_metrics_class_unallocated,\n\t\tg_wc_preclass_metrics_conf_high,\n\t\tg_wc_preclass_metrics_conf_medium,\n\t\tg_wc_preclass_metrics_conf_low);\n}",
+          "idempotentContains": [
+            "void wc_preclass_metrics_flush(void)\n{"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "metrics-record-declared",
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_metrics_record\\(const char\\* family,",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-enable-declared",
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_metrics_enable\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-flush-declared",
+          "target": "preclass_header",
+          "pattern": "void wc_preclass_metrics_flush\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-record-defined",
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_metrics_record\\(const char\\* family,",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-flush-defined",
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_metrics_flush\\(void\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-label-emitted",
+          "target": "preclass_source",
+          "pattern": "\\[PRECLASS-METRICS\\] total=%lu v4=%lu v6=%lu class_special=%lu",
+          "expectedCount": 1
+        },
+        {
+          "name": "metrics-class-unallocated-included",
+          "target": "preclass_source",
+          "pattern": "class_unallocated=%lu",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Wire the metrics into the observation and exit paths: record one observation per emitted classification in wc_preclass_emit_observation (already gated by --debug/--retry-metrics), enable the exit summary in runtime init under the same flags, and flush the one-shot line inside wc_runtime_exit_flush().",
+      "idempotentContainsByTarget": {
+        "query_exec": [
+          "wc_preclass_metrics_record(family, cls, confidence);"
+        ],
+        "runtime_source": [
+          "#include \"wc/wc_preclass.h\"",
+          "wc_preclass_metrics_enable();",
+          "wc_preclass_metrics_flush();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "query_exec",
+          "pattern": "\twc_preclass_observation_codes\\(reason,\n\t\tconfidence,\n\t\t&reason_code,\n\t\t&reason_key,\n\t\t&confidence_code,\n\t\t&confidence_rank\\);\n\n\tfprintf\\(stderr,\n\t\t\"\\[PRECLASS\\] query=%s input=%s",
+          "replacement": "\twc_preclass_observation_codes(reason,\n\t\tconfidence,\n\t\t&reason_code,\n\t\t&reason_key,\n\t\t&confidence_code,\n\t\t&confidence_rank);\n\twc_preclass_metrics_record(family, cls, confidence);\n\n\tfprintf(stderr,\n\t\t\"[PRECLASS] query=%s input=%s",
+          "idempotentContains": [
+            "wc_preclass_metrics_record(family, cls, confidence);"
+          ]
+        },
+        {
+          "target": "runtime_source",
+          "pattern": "#include \"wc/wc_net\\.h\"\n#include \"wc/wc_selftest\\.h\"",
+          "replacement": "#include \"wc/wc_net.h\"\n#include \"wc/wc_preclass.h\"\n#include \"wc/wc_selftest.h\"",
+          "idempotentContains": [
+            "#include \"wc/wc_preclass.h\""
+          ]
+        },
+        {
+          "target": "runtime_source",
+          "pattern": "\tif \\(config && config->retry_metrics &&\n\t    !wc_runtime_cache_counter_sampling_enabled\\(\\)\\) \\{\n\t\tstatic int cache_stats_exit_registered = 0;\n\t\tif \\(!cache_stats_exit_registered\\) \\{\n\t\t\tcache_stats_exit_registered = 1;\n\t\t\tatexit\\(wc_runtime_emit_cache_stats_once\\);\n\t\t\\}\n\t\\}\n\tif \\(config && config->debug\\)",
+          "replacement": "\tif (config && config->retry_metrics &&\n\t    !wc_runtime_cache_counter_sampling_enabled()) {\n\t\tstatic int cache_stats_exit_registered = 0;\n\t\tif (!cache_stats_exit_registered) {\n\t\t\tcache_stats_exit_registered = 1;\n\t\t\tatexit(wc_runtime_emit_cache_stats_once);\n\t\t}\n\t}\n\tif (config && (config->debug || config->retry_metrics))\n\t\twc_preclass_metrics_enable();\n\tif (config && config->debug)",
+          "idempotentContains": [
+            "wc_preclass_metrics_enable();"
+          ]
+        },
+        {
+          "target": "runtime_source",
+          "pattern": "\t// Flush any registered net contexts \\(idempotent, guarded internally\\).\n\twc_net_flush_registered_contexts\\(\\);\n\t// Keep legacy cleanup side effects \\(active connection closure, neg stats\\).",
+          "replacement": "\t// Flush any registered net contexts (idempotent, guarded internally).\n\twc_net_flush_registered_contexts();\n\t// Emit preclass hit counters once when --retry-metrics/--debug enabled.\n\twc_preclass_metrics_flush();\n\t// Keep legacy cleanup side effects (active connection closure, neg stats).",
+          "idempotentContains": [
+            "wc_preclass_metrics_flush();"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "record-wired-into-observation",
+          "target": "query_exec",
+          "pattern": "wc_preclass_metrics_record\\(family, cls, confidence\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "runtime-preclass-include",
+          "target": "runtime_source",
+          "pattern": "#include \"wc/wc_preclass\\.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "runtime-enable-wired",
+          "target": "runtime_source",
+          "pattern": "wc_preclass_metrics_enable\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "runtime-flush-wired",
+          "target": "runtime_source",
+          "pattern": "wc_preclass_metrics_flush\\(\\);",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}

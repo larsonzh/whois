@@ -8,10 +8,11 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-19：新增串行第 51/52 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-05-13 ~ 2027-05-26`，依据 `docs/RFC-address-space-preclassifier.md` 24.23 后续优化清单；A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270513_20270519.json`、`testdata/autopilot_code_step_tasks_20270520_20270526.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与统一 launch-ready 检查均通过（详见文内第 51/52 份清单段与启动文件段）；2026-08-19 审计修订（240.0.0.1 表侧 reason 修正、metrics 补 class_unallocated、B/52 追加 query-keyed 缓存与缓存去重断言、文案对齐已批准差异）已完成并全部复验；24.23.3/24.23.4/24.23.7 不在本轮范围（脚本目标 / 独立评审 / 低优先随功能顺带）。
 - 2026-08-18：提交 `22e0247f` 后的四轮 Golden + 12x6 复核全 PASS（Strict `20260817-090311/091109`，批量 `091732..093454`，自检 `094804..100557`，矩阵 `100855` 无 errors）。审计发现 raw 自检单条路径下 `--selftest-force-private 10.0.0.8` 仍被 early-converge 绕过；已在 `client_flow.c` 单条 preclass 决策前按 `net_ctx->injection` 优先、全局 view 回退检查 `wc_query_exec_is_forced_private`，Phase C review 新增 `single-force-private` 案例后 `26/26 PASS`（详见“批量路径早收敛补全与自检黄金期望修复”段落）。
 - 2026-08-17：四轮 Golden 与 12x6 复核发现并修复 Phase C 批量路径早收敛遗漏与自检黄金退出码掩盖。raw 自检 golden 报告实际 `[golden-selftest] FAIL`（`batch_raw/20260817-051757`）：Phase C 翻转后单条查询对 `10.0.0.8` 早收敛 `unknown @ unknown`，而批量流程因 `wc_handle_private_ip` 先短路仍走私网提示；`selftest_golden_suite.ps1` 的 `cmd | tee` 管道无 pipefail 把真实失败掩盖为 PASS，且任务预填 `-ErrorPatterns 'private IP address'` 无法匹配早收敛形态。修复：`src/core/client_flow.c` 批量循环对隐式 early-converge 候选跳过私网提示（显式 `-h` 保持兼容），`selftest_golden_suite.ps1` 加 `set -o pipefail`，`tasks.json` ErrorPatterns 改为 `Suspicious query detected;Private query denied`。快速构建 `out/artifacts/20260817-072058` 验证隐式批量早收敛、显式 `-h` 兼容、本地 selftest golden 新期望 PASS（详见“批量路径早收敛补全与自检黄金期望修复”段落）。
-- 2026-08-15：新增并完成串行第 49/50 份“无人值守超高密度 A/B”任务定义与启动文件编制（窗口 `2027-04-29 ~ 2027-05-12`，A/49=Vx-3 收尾：专用首跳开关与跨平台补齐 / B/50=Vx-4：Phase C reserved/special 早收敛受控开关）；A/B 任务定义、active 启动文件及第 49/50 份清单已完成执行回填。
 - 2026-08-16：串行第 49/50 份 A/B 无人值守执行完成，`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260815-063717`，B run=`out/artifacts/dev_verify_multiround/20260815-160211`，A/B 合计用时 `0d 16:40:28`（会话 `2026-08-15 06:36:41` 至 `2026-08-15 23:17:08`）。全程无事故、自愈或阶段重启；A→B 交接事件票与最终状态票均完成 ACK，最终 heartbeat 在 `2026-08-15 23:11:28` 记录 `session=RUNNING, a=PASS, b=RUNNING`，随后 session 正常收口。最终 Strict Version（`lto-auto` 默认）复验无告警、Local hash verify/Golden/referral 全 PASS，产物 `out/artifacts/20260816-014807`，用时 `305s`；首次命令因末尾误加续行符被手工 `^C` 中断，修正命令后复验通过。
+- 2026-08-15：新增并完成串行第 49/50 份“无人值守超高密度 A/B”任务定义与启动文件编制（窗口 `2027-04-29 ~ 2027-05-12`，A/49=Vx-3 收尾：专用首跳开关与跨平台补齐 / B/50=Vx-4：Phase C reserved/special 早收敛受控开关）；A/B 任务定义、active 启动文件及第 49/50 份清单已完成执行回填。
 - 2026-08-15：串行第 47/48 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-15 ~ 2027-04-28`（Vx-3 预备能力切片，A=分类器优先首跳接入 / B=公共分类器首跳 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260814-052520，B run=out/artifacts/dev_verify_multiround/20260814-122229）；A 启动期经一次计划性维护（TASK-DESIGN 旧式检查误报 → 修复 `start_dev_verify_8round_multiround.ps1` 兼容 V1/Vx marker 并取消 D4 noop 建议，提交 `d505e69e`，`-UseTemplateBaseline` 全新建档重启 A）后一次通过，无事故票、无自愈；A→B 交接与 chat-session-final-status 事件评审闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260815-032547`，179s）（详见文内第 47/48 份清单段与启动文件段）。
 - 2026-08-14：新增串行第 47/48 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-04-15 ~ 2027-04-28`，**Vx-3 预备能力切片**（Phase B 默认首跳迁移前置），A=分类器优先首跳接入 / B=公共分类器首跳 API），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270415_20270421.json`、`testdata/autopilot_code_step_tasks_20270422_20270428.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270415-20270428.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与有效源码编译验证均通过；受控开关**暂**复用 `--enable-preclass-actions`（临时过渡，专用 `--enable-preclass-first-hop` 由 49/50 补齐），默认首跳翻转与规则 RFC/使用文档/发布说明/矩阵同步在专用开关验证稳定后单独评审（详见文内第 47/48 份清单段的覆盖边界与开关定调）。
 - 2026-08-13：串行第 45/46 份“无人值守超高密度 A/B”已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-04-01 ~ 2027-04-14`（Vx-2 Step 4.7 受控放量切片，A=R0 候选治理 / B=公共候选治理 API），A/B 各 8/8 轮通过（A run=out/artifacts/dev_verify_multiround/20260813-044152，B run=out/artifacts/dev_verify_multiround/20260813-113036）；B 首跑 D1 编译/验证失败经 guard incident 重启后收敛（`incident_20260813-112537`），根因 8.8.8.8 baseline 实况查询 `BaseAuth=error` 网络瞬态，判定非代码缺陷、未修改任务定义/源码、未触发代码/脚本自愈；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260813-223230`，285s）（详见文内第 45/46 份清单段与启动文件段）。
@@ -9445,4 +9446,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - LTO 审计更正：命令行 `-O lto-auto|lto-serial` 原先在 `getopts` 后未重新归一化，实际未进入 Makefile `lto` 分支；历史同名轮次的业务、hash、Golden/referral 证据仍有效，但“LTO 无告警”证据无效。修复后 x86_64 判别轮 `out/artifacts/20260818-064740` 明确使用 `-flto=auto`；最终全架构 `out/artifacts/20260818-065540` 的 9 架构编译/链接均含 `-flto=auto`，Local hash、Golden、三条 referral PASS，release 已同步（455s）。
 - 2026-08-18 提交 `7e1f2fa7` 后四轮复核：Strict lto-auto 默认/debug 两轮无编译与 LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260818-071217`，224s；`20260818-072952`，255s）；默认轮 9 架构 POSIX 哈希与真实 LTO 基准轮 `065540` 完全一致（Windows PE 因时间戳不同除外），确认 LTO 真实启用且构建确定性同源。Batch 四策略（`073512/073943/074445/075120`，1185.080s）与 Selftest 四策略（`080108/080605/081113/081614`，1201.862s）黄金全 PASS；自检报告均含 `output line matched: 10\.0\.0\.8 is a private IP address`，`--require-line` 真实业务输出断言已生效，阻断 marker-only 假通过。12x6 矩阵 authority 表空（`out/artifacts/redirect_matrix_10x6/20260818-083320`）；唯一 `afrinic_45.113.52.0_22` error 为 LACNIC 站点限流（`whois.lacnic.net`，hop 4/5 连续 give-up），复测 `--prefer-ipv4 --rir-ip-pref arin=ipv6 "45.113.52.0/22" -h afrinic` 收敛 APNIC 正确，与历史同段限流模式一致，属外部瞬态，非代码或脚本回归。
 - 2026-08-18 event-only 降本增效经验（已验证）：event-only 模式 A/B 无人值守任务中，前期链式验证的任务定义设计阶段 token 消耗较大，但任务设计成功率非常高——只要非环境等外在原因导致故障，任务执行基本一次性通过，运行中故障消息与代理参与度极低，极大减少运行期隐形成本。验证了无人值守“重设计、轻运行”的设计哲学：设计期验证投入是一次性的，换来每次执行可复利的一次通过收益。指导：任务定义编制优先保证链式验证完整性；event-only 静默模式适合高成功率任务；该结论支持小切片合并策略（详见 `docs/UNATTENDED_AB_OPERATION_FLOW_CN.md` 2.12 与 `docs/RFC-address-space-preclassifier.md` 24.23 前言）。
+
+**下次开工清单（Vx 多文件：一致性防护 + 可观测性合并切片，2027-05-13 ~ 2027-05-19，串行第 51 份，Checklist A，草案）**：
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270513_20270519.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：`preclass_header`、`preclass_source`、`selftest_source`、`query_exec`（`src/core/whois_query_exec.c`）、`runtime_source`（`src/core/runtime.c`）。
+> 设计说明：按 `docs/RFC-address-space-preclassifier.md` 24.23 前言合并策略，将 24.23.1（分类器一致性防护，最高优先）与 24.23.5（可观测性增强，可选）两个独立小切片合并为一次 A/B。24.23.1 新增 `wc_preclass_verify_hardcoded_consistency()`：对每个硬编码快速路径段（IPv4：`255.255.255.255`、`240/4`、`0/8`、`10/8`、`127/8`、`169.254/16`、`172.16/12`、`192.168/16`、`224/4`；IPv6：`::1`、`fc00::/7`、`fe80::/10`、`ff00::/8`、`2001:db8::/32`、`2000::/3`）同时断言全路径分类与生成表最长前缀视图各自等于冻结期望（reason 两侧冻结；除已批准差异外 cls/rir/confidence 两侧一致——224/4 class special-vs-reserved、2000::/3 confidence low-vs-medium、reason 粒度不同；240.0.0.1 表侧锁定 `V4_RESERVED_REGISTRY`），不一致时内置 selftest 输出 `[PRECLASS-CONSISTENCY]` 诊断并 fail-close，顺带补齐 v6 硬编码段缺失的直接单测缺口。24.23.5 新增 `[PRECLASS-METRICS]` 进程退出单行统计（含 class_unallocated，零计数也输出），仅在 `--retry-metrics`/`--debug` 下输出。不改分类语义；stdout 契约不动。24.23.1 的生成器输出期断言、24.23.3、24.23.4、24.23.7 均不在本闭包内。
+
+1. [ ] D1：`wc_preclass.h` 声明校验函数；`preclass.c` 补 `stdio.h` 并追加冻结期望表与校验函数（全路径 + 表最长前缀双侧断言）。
+2. [ ] D2：`selftest.c` 新增 `selftest_preclass_consistency()`（fail-close），接入 `wc_selftest_run()` 头部。
+3. [ ] D3：`wc_preclass.h` 声明 metrics API；`preclass.c` 追加计数器（含 class_unallocated）与幂等 flush 打印（零计数也输出）。
+4. [ ] D4：`whois_query_exec.c` 观测路径记录一次分类；`runtime.c` 初始化启用并在 `wc_runtime_exit_flush()` 内 flush。
+5. [ ] V1~V4：A 完成基线、噪声、混合样本与最终 8/8 收口复检。
+6. [ ] A 使用 `restore-source` 串行完成，运行期间禁止自动提交与推送。
+7. [ ] 专项验证（任务结束后单独执行）：`--retry-metrics` 冒烟 grep `[PRECLASS-METRICS]`；C 内置 selftest 新标签 PASS。
+
+**编制期验收（已完成，2026-08-19）**：TODO-free、`-SyntaxOnly` 通过（`targets=5`，`target_set_sha256=311c0754...`）；A 全定义静态检查 `errors=0 warnings=0 infos=17`，各轮 mandatory local clang 语法门禁通过；Vx 专项安全回归 `result=pass`；审计修订（2026-08-19）：240.0.0.1 表侧期望修正为 `V4_RESERVED_REGISTRY` 并新增冻结断言、metrics 补 class_unallocated、文案对齐已批准差异，修订后复验 `errors=0 warnings=0 infos=17`、安全回归 `result=pass`。
+
+
+**下次开工清单（Vx 多文件：决策链单次分类复用，2027-05-20 ~ 2027-05-26，串行第 52 份，Checklist B，草案）**：
+
+> 对应任务定义：`testdata/autopilot_code_step_tasks_20270520_20270526.json`（`schemaVersion=vx-draft`）。
+> 目标闭包：A/51 全部 5 目标 + `client_flow`；必须以第 51 份任务定义作为 prerequisite。
+> 设计说明：落地 `docs/RFC-address-space-preclassifier.md` 24.23.2（决策链单次分类复用，性能，低风险）——`wc_preclass_classify_query` 复用已找到的 row 经内部 `wc_preclass_classify_ip_with_row()` 填充，消除内部双全表扫描；公共 `wc_preclass_classify_ip()` 保持原签名与语义；`client_flow.c` 决策链为每条查询计算一次共享 `wc_preclass_result_t` 并依次传入 first-hop、Phase C 早收敛、Step47 early-unknown、P1 controlled-unknown 候选；批量候选收集与单查询派发的 first-hop 调用点、批量循环 Phase C 门禁一并接入共享结果；同时 `wc_preclass_classify_query()` 内置 16 槽轮转 query-keyed 缓存（FNV-1a 探测）去重重复的全表扫描——缓存驻留期间相同查询跳过生成表查找（条目轮转逐出，逐出后可能重扫），暴露 `wc_preclass_get_lookup_count()` 供 selftest 观测；Step47/P1 候选对含 `/` 的列表项保持“纯 IP 才看分类”的旧语义，行为零变化。D4 新增 `preclass-single-pass` selftest 锁定 `classify_query`/`classify_ip` 等价性与 CIDR base 分类，并断言第二次分类同一查询不再发生新的生成表查找（缓存去重，对任意缓存预热状态稳健）。
+
+1. [ ] D1：`preclass.c` 引入 `wc_preclass_classify_ip_with_row()`，公共 `wc_preclass_classify_ip()` 转为薄包装，`classify_query` 传入已找到的 row；并追加 16 槽轮转 query-keyed 缓存（FNV-1a 探测 + `wc_preclass_get_lookup_count()`），`wc_preclass.h` 声明计数 API。
+2. [ ] D2：`client_flow.c` 前向声明与定义同步新签名；`resolve_preclass_decision` 计算一次共享分类并传给 first-hop/Phase C 候选；批量候选与单查询派发两个 first-hop 调用点、批量循环 Phase C 门禁接入共享结果。
+3. [ ] D3：Step47 early-unknown 与 P1 controlled-unknown 候选改为接收共享结果（纯 IP 才读取分类），最终接线。
+4. [ ] D4：`selftest.c` 新增 `selftest_preclass_single_pass()` 并接入 `wc_selftest_run()`；内含缓存去重断言（第二次分类不再新增生成表查找）。
+5. [ ] V1~V4：B 完成基线、噪声、混合样本与最终 8/8 收口复检。
+6. [ ] B 在 A PASS snapshot 完整后以 `state-only` 承接启动；A 失败阻断 B。
+7. [ ] 行为零变化门禁：Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致。
+
+**编制期验收（已完成，2026-08-19）**：TODO-free、`-SyntaxOnly` 通过（`targets=6`，`target_set_sha256=d6c8eca3...`）；以 A/51 为 prerequisite 的链式全定义静态检查 `errors=0 warnings=0 infos=46`，`-RoundTag D1 -ChainRounds` 链式检查 `errors=0 warnings=0`；Vx 专项安全回归 `result=pass`；审计修订（2026-08-19）：D1 追加 query-keyed 缓存与计数 API、D4 追加缓存去重断言（对任意缓存预热状态稳健），缓存代码 clang `-Wall -Wextra` 零告警复验，修订后链式 `errors=0 warnings=0 infos=46`、ChainRounds 通过、安全回归 `result=pass`。
+
+
+**对应任务启动文件（2026-08-19，准备完成，待用户确认）**：
+
+- 路径：`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`。
+- 绑定 A/51 与 B/52；`WINDOW=2027-05-13 ~ 2027-05-26`、A `restore-source`、B `state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
+- 预检状态（2026-08-19 重置）：start-file 已重新创建为初始状态（`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`）；字段同步契约检查 `result=pass`；启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填预检结果。
+- 状态：准备完成，待用户确认；仅用户明确下达启动命令后才可开跑。
 

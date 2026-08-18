@@ -1,0 +1,564 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx6-preclass-single-classification-reuse-d1-d4-20270520-20270526",
+  "targetFile": "src/core/client_flow.c",
+  "targetFiles": [
+    {
+      "id": "preclass_header",
+      "file": "include/wc/wc_preclass.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "selftest_source",
+      "file": "src/core/selftest.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "query_exec",
+      "file": "src/core/whois_query_exec.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "runtime_source",
+      "file": "src/core/runtime.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "client_flow",
+      "file": "src/core/client_flow.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "client_flow",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "qualityPolicyNotes": "Serial 52 (Checklist B) implements 24.23.2 single-classification reuse on top of A/51: wc_preclass_classify_query stops double-scanning the generated table by reusing the already-found row through the new internal wc_preclass_classify_ip_with_row() (public wc_preclass_classify_ip keeps its exact signature and semantics); the client_flow decision chain computes one shared wc_preclass_result_t per query and passes it to the first-hop, Phase C early-converge, Step47 early-unknown and P1 controlled-unknown candidates, while a 16-slot round-robin query-keyed cache (FNV-1a probe) inside wc_preclass_classify_query() makes repeated identical queries skip the generated-table lookup while their entry stays cached (entries are evicted round-robin, so an evicted query may be re-scanned later; observable through wc_preclass_get_lookup_count(), which the selftest uses to prove the second classification of the same query performs no new table scan). Plain-IP-only classification semantics are preserved for CIDR-listed Step47/P1 queries (classification is consulted only when the query classified and contains no '/'), so behavior is zero-change: Phase C/P0/P1/Step47/12x6/Golden/referral must all stay PASS. D4 adds selftest preclass-single-pass locking classify_query/classify_ip equivalence across representative addresses plus CIDR base classification, and a cache single-scan assertion proving a repeated query performs exactly one generated-table lookup.",
+  "executionHints": {
+    "devVerifyStride": 2,
+    "verifyExecutionProfile": "d6-only",
+    "enableGuardedFastMode": true,
+    "enableGateOnlySourceDrivenSkip": true,
+    "dRoundChangeDensity": "very-high",
+    "minOperationsPerDRound": 1
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Eliminate the double table scan inside the preclass core: introduce the internal wc_preclass_classify_ip_with_row() that reuses an already-looked-up table row (falling back to the full lookup when no row is provided), keep the public wc_preclass_classify_ip() as a thin wrapper with unchanged semantics, and make wc_preclass_classify_query() pass the row it already found. It also adds a 16-slot round-robin query-keyed cache with an FNV-1a probe so repeated identical queries skip the generated-table lookup entirely; wc_preclass_get_lookup_count() exposes the row-text lookup count for the selftest.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "static void wc_preclass_classify_ip_with_row(const char* normalized,\n\t\tconst wc_preclass_table_row_t* row,",
+          "void wc_preclass_classify_ip(const char* normalized,\n\t\tconst char** family,",
+          "wc_preclass_classify_ip_with_row(normalized, row,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "void wc_preclass_classify_ip\\(const char\\* normalized,\n\t\tconst char\\*\\* family,\n\t\tconst char\\*\\* cls,\n\t\tconst char\\*\\* rir,\n\t\tconst char\\*\\* reason,\n\t\tconst char\\*\\* confidence\\)\n\\{\n\tif \\(!normalized \\|\\| !family \\|\\| !cls \\|\\| !rir \\|\\| !reason \\|\\| !confidence\\)\n\t\treturn;\n\n\t\\*family = \"non-ip\";\n\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\n\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\n\t\\*reason = wc_preclass_reason_non_ip_input_literal\\(\\);\n\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\n\n\t\\(void\\)wc_preclass_lookup_table\\(normalized,\n\t\tfamily,\n\t\tcls,\n\t\trir,\n\t\treason,\n\t\tconfidence\\);",
+          "replacement": "static void wc_preclass_classify_ip_with_row(const char* normalized,\n\t\tconst wc_preclass_table_row_t* row,\n\t\tconst char** family,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\tif (!normalized || !family || !cls || !rir || !reason || !confidence)\n\t\treturn;\n\n\t*family = \"non-ip\";\n\t*cls = wc_preclass_class_unknown_literal();\n\t*rir = wc_preclass_rir_unknown_literal();\n\t*reason = wc_preclass_reason_non_ip_input_literal();\n\t*confidence = wc_preclass_confidence_low_literal();\n\n\tif (row) {\n\t\t*family = (row->family == 4u) ? \"v4\" : \"v6\";\n\t\t*cls = wc_preclass_class_name(row->class_id);\n\t\t*rir = wc_preclass_rir_name(row->rir_id);\n\t\t*reason = wc_preclass_reason_name(row->reason_id);\n\t\t*confidence = wc_preclass_confidence_name(row->confidence_id);\n\t} else {\n\t\t(void)wc_preclass_lookup_table(normalized,\n\t\t\tfamily,\n\t\t\tcls,\n\t\t\trir,\n\t\t\treason,\n\t\t\tconfidence);\n\t}",
+          "idempotentContains": [
+            "static void wc_preclass_classify_ip_with_row(const char* normalized,\n\t\tconst wc_preclass_table_row_t* row,"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\t\tif \\(wc_preclass_token_equals\\(\\*cls, wc_preclass_class_unknown_literal\\(\\)\\)\\) \\{\n\t\t\t\\*cls = wc_preclass_class_unknown_literal\\(\\);\n\t\t\t\\*rir = wc_preclass_rir_unknown_literal\\(\\);\n\t\t\t\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\n\t\t\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);\n\t\t\\}\n\t\treturn;\n\t\\}\n\\}\n\nint wc_preclass_classify_query\\(const char\\* query,",
+          "replacement": "\t\tif (wc_preclass_token_equals(*cls, wc_preclass_class_unknown_literal())) {\n\t\t\t*cls = wc_preclass_class_unknown_literal();\n\t\t\t*rir = wc_preclass_rir_unknown_literal();\n\t\t\t*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t\t*confidence = wc_preclass_confidence_low_literal();\n\t\t}\n\t\treturn;\n\t}\n}\n\nvoid wc_preclass_classify_ip(const char* normalized,\n\t\tconst char** family,\n\t\tconst char** cls,\n\t\tconst char** rir,\n\t\tconst char** reason,\n\t\tconst char** confidence)\n{\n\twc_preclass_classify_ip_with_row(normalized, NULL,\n\t\tfamily,\n\t\tcls,\n\t\trir,\n\t\treason,\n\t\tconfidence);\n}\n\nint wc_preclass_classify_query(const char* query,",
+          "idempotentContains": [
+            "void wc_preclass_classify_ip(const char* normalized,\n\t\tconst char** family,"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\trow = wc_preclass_lookup_row_text\\(normalized\\);\n\tif \\(!row\\)\n\t\treturn 0;\n\n\twc_preclass_classify_ip\\(normalized,\n\t\t&out_result->family,",
+          "replacement": "\trow = wc_preclass_lookup_row_text(normalized);\n\tif (!row)\n\t\treturn 0;\n\n\twc_preclass_classify_ip_with_row(normalized, row,\n\t\t&out_result->family,",
+          "idempotentContains": [
+            "wc_preclass_classify_ip_with_row(normalized, row,"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const wc_preclass_table_row_t\\* wc_preclass_lookup_row_text\\(const char\\* normalized\\)\n\\{\n\tstruct in_addr addr4;",
+          "replacement": "#define WC_PRECLASS_CACHE_SLOTS 16\n#define WC_PRECLASS_CACHE_KEY_MAX 128\n\ntypedef struct wc_preclass_query_cache_entry {\n\tchar key[WC_PRECLASS_CACHE_KEY_MAX];\n\twc_preclass_result_t result;\n\tunsigned int used;\n} wc_preclass_query_cache_entry;\n\nstatic wc_preclass_query_cache_entry g_wc_preclass_query_cache[WC_PRECLASS_CACHE_SLOTS];\nstatic unsigned int g_wc_preclass_query_cache_next = 0;\nstatic unsigned long g_wc_preclass_lookup_row_text_count = 0;\n\nunsigned long wc_preclass_get_lookup_count(void)\n{\n\treturn g_wc_preclass_lookup_row_text_count;\n}\n\nstatic const wc_preclass_table_row_t* wc_preclass_lookup_row_text(const char* normalized)\n{\n\t++g_wc_preclass_lookup_row_text_count;\n\tstruct in_addr addr4;",
+          "idempotentContains": [
+            "static wc_preclass_query_cache_entry g_wc_preclass_query_cache[WC_PRECLASS_CACHE_SLOTS];"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\tif \\(!query \\|\\| !\\*query \\|\\| !out_result\\)\n\t\treturn 0;\n\tmemset\\(out_result, 0, sizeof\\(\\*out_result\\)\\);\n\tslash = strchr\\(query, '/'\\);",
+          "replacement": "\tif (!query || !*query || !out_result)\n\t\treturn 0;\n\tmemset(out_result, 0, sizeof(*out_result));\n\t{\n\t\tunsigned int h = 2166136261u;\n\t\tconst unsigned char* kp = (const unsigned char*)query;\n\t\tunsigned int start;\n\t\tunsigned int ci;\n\t\twhile (*kp) {\n\t\t\th ^= (unsigned int)*kp++;\n\t\t\th *= 16777619u;\n\t\t}\n\t\tstart = h % WC_PRECLASS_CACHE_SLOTS;\n\t\tfor (ci = 0; ci < WC_PRECLASS_CACHE_SLOTS; ++ci) {\n\t\t\tunsigned int idx = (start + ci) % WC_PRECLASS_CACHE_SLOTS;\n\t\t\twc_preclass_query_cache_entry* e = &g_wc_preclass_query_cache[idx];\n\t\t\tif (e->used && strcmp(e->key, query) == 0) {\n\t\t\t\t*out_result = e->result;\n\t\t\t\treturn 1;\n\t\t\t}\n\t\t}\n\t}\n\tslash = strchr(query, '/');",
+          "idempotentContains": [
+            "for (ci = 0; ci < WC_PRECLASS_CACHE_SLOTS; ++ci) {"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\tout_result->reserved_by_protocol = wc_preclass_tristate_name\\(row->reserved_by_protocol\\);\n\treturn 1;\n\\}",
+          "replacement": "\tout_result->reserved_by_protocol = wc_preclass_tristate_name(row->reserved_by_protocol);\n\t{\n\t\tunsigned int slot = g_wc_preclass_query_cache_next;\n\t\twc_preclass_query_cache_entry* e = &g_wc_preclass_query_cache[slot];\n\t\tif (strlen(query) < WC_PRECLASS_CACHE_KEY_MAX) {\n\t\t\tmemcpy(e->key, query, strlen(query) + 1);\n\t\t\te->result = *out_result;\n\t\t\te->used = 1;\n\t\t\tg_wc_preclass_query_cache_next =\n\t\t\t\t(g_wc_preclass_query_cache_next + 1) % WC_PRECLASS_CACHE_SLOTS;\n\t\t}\n\t}\n\treturn 1;\n}",
+          "idempotentContains": [
+            "g_wc_preclass_query_cache_next =\n\t\t\t\t(g_wc_preclass_query_cache_next + 1) % WC_PRECLASS_CACHE_SLOTS;"
+          ]
+        },
+        {
+          "target": "preclass_header",
+          "pattern": "// address. Returns 1 for valid IP/CIDR input and 0 for non-IP input.\nint wc_preclass_classify_query\\(const char\\* query,",
+          "replacement": "// address. Returns 1 for valid IP/CIDR input and 0 for non-IP input.\n// Cache single-scan observability for the built-in selftest.\nunsigned long wc_preclass_get_lookup_count(void);\nint wc_preclass_classify_query(const char* query,",
+          "idempotentContains": [
+            "unsigned long wc_preclass_get_lookup_count(void);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "cache-infra-defined",
+          "target": "preclass_source",
+          "pattern": "static wc_preclass_query_cache_entry g_wc_preclass_query_cache\\[WC_PRECLASS_CACHE_SLOTS\\];",
+          "expectedCount": 1
+        },
+        {
+          "name": "lookup-counter-incremented",
+          "target": "preclass_source",
+          "pattern": "\\+\\+g_wc_preclass_lookup_row_text_count;",
+          "expectedCount": 1
+        },
+        {
+          "name": "cache-lookup-in-classify-query",
+          "target": "preclass_source",
+          "pattern": "for \\(ci = 0; ci < WC_PRECLASS_CACHE_SLOTS; \\+\\+ci\\) \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "cache-store-in-classify-query",
+          "target": "preclass_source",
+          "pattern": "g_wc_preclass_query_cache_next =\n\t\t\t\t\\(g_wc_preclass_query_cache_next \\+ 1\\) % WC_PRECLASS_CACHE_SLOTS;",
+          "expectedCount": 1
+        },
+        {
+          "name": "get-lookup-count-declared",
+          "target": "preclass_header",
+          "pattern": "unsigned long wc_preclass_get_lookup_count\\(void\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "with-row-internal-defined",
+          "target": "preclass_source",
+          "pattern": "static void wc_preclass_classify_ip_with_row\\(const char\\* normalized,\n\t\tconst wc_preclass_table_row_t\\* row,",
+          "expectedCount": 1
+        },
+        {
+          "name": "row-reuse-branch-present",
+          "target": "preclass_source",
+          "pattern": "\\*family = \\(row->family == 4u\\) \\? \"v4\" : \"v6\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "public-wrapper-present",
+          "target": "preclass_source",
+          "pattern": "\nvoid wc_preclass_classify_ip\\(const char\\* normalized,",
+          "expectedCount": 1
+        },
+        {
+          "name": "classify-query-reuses-row",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_classify_ip_with_row\\(normalized, row,",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-query-direct-classify-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_classify_ip\\(normalized,\n\t\t&out_result->family,",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Start the client_flow single-classification restructure: compute one shared wc_preclass_result_t per query in wc_client_resolve_preclass_decision and convert the first-hop hint and Phase C early-converge candidates to consume the shared result instead of re-classifying. Step47/P1 candidates keep their old signatures in this round.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);",
+          "wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);",
+          "int classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !query || !*query)\n        return NULL;",
+          "if (!classified || !result)\n        return 0;",
+          "int preclass_classified = 0;\n    int preclass_plain_ip = 0;",
+          "int preclass_classified =\n        wc_preclass_classify_query(query, &preclass_result);",
+          "int preclass_classified =\n                wc_preclass_classify_query(single_query, &preclass_result);",
+          "int phasec_classified =\n                wc_preclass_classify_query(query, &phasec_result);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query\\);",
+          "replacement": "static const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);",
+          "idempotentContains": [
+            "wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "replacement": "static int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);",
+          "idempotentContains": [
+            "wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    wc_preclass_result_t result;\n\n    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return NULL;\n    if \\(!config->preclass_first_hop_enable\\)\n        return NULL;\n    if \\(config->disable_address_preclass\\)\n        return NULL;\n    if \\(!wc_preclass_classify_query\\(query, &result\\)\\)\n        return NULL;\n    return wc_preclass_classification_first_hop_host\\(result\\.cls, result\\.rir\\);\n\\}",
+          "replacement": "static const char* wc_client_preclass_first_hop_hint(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !query || !*query)\n        return NULL;\n    if (!config->preclass_first_hop_enable)\n        return NULL;\n    if (config->disable_address_preclass)\n        return NULL;\n    if (!classified || !result)\n        return NULL;\n    return wc_preclass_classification_first_hop_host(result->cls, result->rir);\n}",
+          "idempotentContains": [
+            "int classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !query || !*query)\n        return NULL;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    wc_preclass_result_t result;\n\n    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return 0;\n    if \\(!config->preclass_early_converge_enable\\)\n        return 0;\n    if \\(config->disable_address_preclass\\)\n        return 0;\n    if \\(!wc_preclass_classify_query\\(query, &result\\)\\)\n        return 0;\n    return wc_preclass_classification_should_early_converge\\(\n        result\\.cls, result\\.rir, result\\.confidence\\);\n\\}",
+          "replacement": "static int wc_client_is_phasec_early_converge_candidate(const Config* config,\n    const char* query,\n    int classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !query || !*query)\n        return 0;\n    if (!config->preclass_early_converge_enable)\n        return 0;\n    if (config->disable_address_preclass)\n        return 0;\n    if (!classified || !result)\n        return 0;\n    return wc_preclass_classification_should_early_converge(\n        result->cls, result->rir, result->confidence);\n}",
+          "idempotentContains": [
+            "if (!classified || !result)\n        return 0;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    const char\\* classifier_hint =\n        wc_client_preclass_first_hop_hint\\(config, query\\);\n    const int classifier_hint_applied =\n        \\(classifier_hint && start_host &&\n            strcasecmp\\(classifier_hint, start_host\\) == 0\\) \\? 1 : 0;\n\n    wc_preclass_resolve_route_decision\\(start_host, has_explicit_host,\n        hint_applied,\n        classifier_hint_applied,\n        preclass_enabled &&\n            wc_client_is_phasec_early_converge_candidate\\(config, query\\),",
+          "replacement": "    wc_preclass_result_t preclass_result;\n    int preclass_classified = 0;\n    int preclass_plain_ip = 0;\n    if (preclass_enabled) {\n        preclass_classified =\n            wc_preclass_classify_query(query, &preclass_result);\n        preclass_plain_ip = preclass_classified &&\n            (strchr(query, '/') == NULL);\n    }\n    const char* classifier_hint =\n        wc_client_preclass_first_hop_hint(config, query,\n            preclass_classified, &preclass_result);\n    const int classifier_hint_applied =\n        (classifier_hint && start_host &&\n            strcasecmp(classifier_hint, start_host) == 0) ? 1 : 0;\n\n    wc_preclass_resolve_route_decision(start_host, has_explicit_host,\n        hint_applied,\n        classifier_hint_applied,\n        preclass_enabled &&\n            wc_client_is_phasec_early_converge_candidate(config, query,\n                preclass_classified, &preclass_result),",
+          "idempotentContains": [
+            "int preclass_classified = 0;\n    int preclass_plain_ip = 0;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    const char\\* guessed = wc_client_preclass_first_hop_hint\\(config, query\\);\n    if \\(!guessed\\)\n        guessed = wc_client_guess_query_rir_host\\(query\\);",
+          "replacement": "    wc_preclass_result_t preclass_result;\n    int preclass_classified =\n        wc_preclass_classify_query(query, &preclass_result);\n    const char* guessed = wc_client_preclass_first_hop_hint(config, query,\n        preclass_classified, &preclass_result);\n    if (!guessed)\n        guessed = wc_client_guess_query_rir_host(query);",
+          "idempotentContains": [
+            "int preclass_classified =\n        wc_preclass_classify_query(query, &preclass_result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "            hinted = wc_client_preclass_first_hop_hint\\(config, single_query\\);\n            if \\(!hinted\\)\n                hinted = wc_client_guess_query_rir_host\\(single_query\\);",
+          "replacement": "            wc_preclass_result_t preclass_result;\n            int preclass_classified =\n                wc_preclass_classify_query(single_query, &preclass_result);\n            hinted = wc_client_preclass_first_hop_hint(config, single_query,\n                preclass_classified, &preclass_result);\n            if (!hinted)\n                hinted = wc_client_guess_query_rir_host(single_query);",
+          "idempotentContains": [
+            "int preclass_classified =\n                wc_preclass_classify_query(single_query, &preclass_result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "          if \\(wc_query_exec_is_forced_private\\(injection, query\\) \\|\\|\n                \\(server_host && \\*server_host\\) \\|\\|\n            !wc_client_is_phasec_early_converge_candidate\\(cfg, query\\)\\) \\{\n            if \\(wc_handle_private_ip\\(cfg, query, query, 1, injection\\)\\)\n                continue;\n        \\}",
+          "replacement": "        {\n            wc_preclass_result_t phasec_result;\n            int phasec_classified =\n                wc_preclass_classify_query(query, &phasec_result);\n            if (wc_query_exec_is_forced_private(injection, query) ||\n                (server_host && *server_host) ||\n                !wc_client_is_phasec_early_converge_candidate(cfg, query,\n                    phasec_classified, &phasec_result)) {\n                if (wc_handle_private_ip(cfg, query, query, 1, injection))\n                    continue;\n            }\n        }",
+          "idempotentContains": [
+            "int phasec_classified =\n                wc_preclass_classify_query(query, &phasec_result);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "first-hop-shared-signature",
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query,\n    int classified,",
+          "expectedCount": 2
+        },
+        {
+          "name": "phasec-shared-signature",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query,\n    int classified,",
+          "expectedCount": 2
+        },
+        {
+          "name": "shared-result-computed-once",
+          "target": "client_flow",
+          "pattern": "int preclass_classified = 0;\n    int preclass_plain_ip = 0;",
+          "expectedCount": 1
+        },
+        {
+          "name": "first-hop-uses-shared-result",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(config, query,\n            preclass_classified, &preclass_result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-uses-shared-result",
+          "target": "client_flow",
+          "pattern": "wc_client_is_phasec_early_converge_candidate\\(config, query,\n                preclass_classified, &preclass_result\\),",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-first-hop-classify-removed",
+          "target": "client_flow",
+          "pattern": "if \\(!wc_preclass_classify_query\\(query, &result\\)\\)\n        return NULL;",
+          "expectedCount": 0
+        },
+        {
+          "name": "old-phasec-classify-removed",
+          "target": "client_flow",
+          "pattern": "if \\(!wc_preclass_classify_query\\(query, &result\\)\\)\n        return 0;",
+          "expectedCount": 0
+        },
+        {
+          "name": "first-hop-prototype-updated",
+          "target": "client_flow",
+          "pattern": "static const char\\* wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query,\n    int classified,\n    const wc_preclass_result_t\\* result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "phasec-prototype-updated",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query,\n    int classified,\n    const wc_preclass_result_t\\* result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-first-hop-prototype-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 0
+        },
+        {
+          "name": "old-phasec-prototype-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_is_phasec_early_converge_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 0
+        },
+        {
+          "name": "batch-hint-call-updated",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(config, query,\n        preclass_classified, &preclass_result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-batch-hint-call-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(config, query\\);",
+          "expectedCount": 0
+        },
+        {
+          "name": "dispatch-hint-call-updated",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(config, single_query,\n                preclass_classified, &preclass_result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-dispatch-hint-call-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_preclass_first_hop_hint\\(config, single_query\\);",
+          "expectedCount": 0
+        },
+        {
+          "name": "batch-phasec-call-updated",
+          "target": "client_flow",
+          "pattern": "wc_client_is_phasec_early_converge_candidate\\(cfg, query,\n                    phasec_classified, &phasec_result\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-batch-phasec-call-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_is_phasec_early_converge_candidate\\(cfg, query\\)\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Finish the single-classification restructure: convert the Step47 early-unknown and P1 controlled-unknown candidates to consult the shared result only for plain-IP queries (classification is ignored when the query contains a '/', preserving the legacy classify_ip-based non-IP semantics for CIDR-listed queries), and wire the final call sites in wc_client_resolve_preclass_decision.",
+      "idempotentContainsByTarget": {
+        "client_flow": [
+          "wc_client_is_step47_early_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);",
+          "wc_client_is_p1_controlled_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);",
+          "int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    const char* csv;",
+          "int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !config->preclass_action_enable)",
+          "preclass_plain_ip, &preclass_result),"
+        ]
+      },
+      "operations": [
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "replacement": "static int wc_client_is_step47_early_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);",
+          "idempotentContains": [
+            "wc_client_is_step47_early_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "replacement": "static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);",
+          "idempotentContains": [
+            "wc_client_is_p1_controlled_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result);"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    const char\\* csv;\n    int listed;\n\n    if \\(!config \\|\\| !query \\|\\| !\\*query\\)\n        return 0;\n    if \\(!config->step47_trial_enable \\|\\| !config->step47_early_unknown_enable\\)\n        return 0;\n    if \\(config->step47_trial_scope != 1\\)\n        return 0;\n\n    csv = config->step47_early_unknown_list;\n    if \\(!csv \\|\\| !\\*csv \\|\\| wc_client_csv_is_default_marker\\(csv\\)\\)\n        listed = \\(strcmp\\(query, \"255\\.0\\.0\\.0\"\\) == 0\\);\n    else\n        listed = wc_client_csv_contains_query\\(csv, query\\);\n    if \\(!listed\\)\n        return 0;\n\n    \\{\n        const char\\* family = NULL;\n        const char\\* cls = NULL;\n        const char\\* rir = NULL;\n        const char\\* reason = NULL;\n        const char\\* confidence = NULL;\n        wc_preclass_classify_ip\\(query, &family, &cls, &rir,\n            &reason, &confidence\\);\n        if \\(wc_preclass_classification_is_allocated_control\\(cls, rir\\)\\)\n            return 0;\n    \\}\n    return 1;\n\\}",
+          "replacement": "static int wc_client_is_step47_early_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    const char* csv;\n    int listed;\n\n    if (!config || !query || !*query)\n        return 0;\n    if (!config->step47_trial_enable || !config->step47_early_unknown_enable)\n        return 0;\n    if (config->step47_trial_scope != 1)\n        return 0;\n\n    csv = config->step47_early_unknown_list;\n    if (!csv || !*csv || wc_client_csv_is_default_marker(csv))\n        listed = (strcmp(query, \"255.0.0.0\") == 0);\n    else\n        listed = wc_client_csv_contains_query(csv, query);\n    if (!listed)\n        return 0;\n\n    if (plain_ip_classified && result &&\n        wc_preclass_classification_is_allocated_control(\n            result->cls, result->rir))\n        return 0;\n    return 1;\n}",
+          "idempotentContains": [
+            "int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    const char* csv;"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\)\n\\{\n    const char\\* pfamily = NULL;\n    const char\\* pcls = NULL;\n    const char\\* prir = NULL;\n    const char\\* preason = NULL;\n    const char\\* pconfidence = NULL;\n\n    if \\(!config \\|\\| !config->preclass_action_enable\\)\n        return 0;\n    if \\(!config->step47_trial_enable\\)\n        return 0;\n    if \\(!query \\|\\| !\\*query\\)\n        return 0;\n    if \\(!wc_client_is_p1_tier_candidate\\(config, query\\)\\)\n        return 0;\n    if \\(!wc_client_is_step47_trial_candidate\\(config, query\\)\\)\n        return 0;\n\n    wc_preclass_classify_ip\\(query, &pfamily, &pcls, &prir,\n        &preason, &pconfidence\\);\n    if \\(wc_preclass_classification_is_allocated_control\\(pcls, prir\\)\\)\n        return 0;\n    return 1;\n\\}",
+          "replacement": "static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,\n    const char* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !config->preclass_action_enable)\n        return 0;\n    if (!config->step47_trial_enable)\n        return 0;\n    if (!query || !*query)\n        return 0;\n    if (!wc_client_is_p1_tier_candidate(config, query))\n        return 0;\n    if (!wc_client_is_step47_trial_candidate(config, query))\n        return 0;\n\n    if (plain_ip_classified && result &&\n        wc_preclass_classification_is_allocated_control(\n            result->cls, result->rir))\n        return 0;\n    return 1;\n}",
+          "idempotentContains": [
+            "int plain_ip_classified,\n    const wc_preclass_result_t* result)\n{\n    if (!config || !config->preclass_action_enable)"
+          ]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "        preclass_enabled &&\n            wc_client_is_step47_early_unknown_candidate\\(config, query\\),\n        preclass_enabled &&\n            wc_client_is_p1_controlled_unknown_candidate\\(config, query\\),",
+          "replacement": "        preclass_enabled &&\n            wc_client_is_step47_early_unknown_candidate(config, query,\n                preclass_plain_ip, &preclass_result),\n        preclass_enabled &&\n            wc_client_is_p1_controlled_unknown_candidate(config, query,\n                preclass_plain_ip, &preclass_result),",
+          "idempotentContains": [
+            "wc_client_is_p1_controlled_unknown_candidate(config, query,\n                preclass_plain_ip, &preclass_result),"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "step47-shared-signature",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query,\n    int plain_ip_classified,",
+          "expectedCount": 2
+        },
+        {
+          "name": "p1-shared-signature",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query,\n    int plain_ip_classified,",
+          "expectedCount": 2
+        },
+        {
+          "name": "plain-ip-guard-applied-twice",
+          "target": "client_flow",
+          "pattern": "if \\(plain_ip_classified && result &&\n        wc_preclass_classification_is_allocated_control\\(",
+          "expectedCount": 2
+        },
+        {
+          "name": "step47-final-wiring",
+          "target": "client_flow",
+          "pattern": "wc_client_is_step47_early_unknown_candidate\\(config, query,\n                preclass_plain_ip, &preclass_result\\),",
+          "expectedCount": 1
+        },
+        {
+          "name": "p1-final-wiring",
+          "target": "client_flow",
+          "pattern": "wc_client_is_p1_controlled_unknown_candidate\\(config, query,\n                preclass_plain_ip, &preclass_result\\),",
+          "expectedCount": 1
+        },
+        {
+          "name": "no-client-side-reclassification-left",
+          "target": "client_flow",
+          "pattern": "wc_preclass_classify_ip\\(query,",
+          "expectedCount": 0
+        },
+        {
+          "name": "step47-prototype-updated",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t\\* result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "p1-prototype-updated",
+          "target": "client_flow",
+          "pattern": "static int wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query,\n    int plain_ip_classified,\n    const wc_preclass_result_t\\* result\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "old-step47-prototype-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_is_step47_early_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 0
+        },
+        {
+          "name": "old-p1-prototype-removed",
+          "target": "client_flow",
+          "pattern": "wc_client_is_p1_controlled_unknown_candidate\\(const Config\\* config,\n    const char\\* query\\);",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Add the single-pass regression selftest: verify that wc_preclass_classify_query() yields the same family/cls/rir/reason/confidence as wc_preclass_classify_ip() for representative hardcoded and allocated addresses, and that CIDR base classification still resolves its covering row; it also asserts that reclassifying the same query performs no new generated-table lookup (cache dedup, robust to any prior warm-cache state). Then wire it into wc_selftest_run() after the A/51 consistency check.",
+      "idempotentContainsByTarget": {
+        "selftest_source": [
+          "static int selftest_preclass_single_pass(void)\n{",
+          "int singlepass = selftest_preclass_single_pass();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "    return 0;\n\\}\n\nint wc_selftest_run\\(void\\) \\{",
+          "replacement": "    return 0;\n}\n\nstatic int selftest_preclass_single_pass(void)\n{\n    int failed = 0;\n    const char* ips[] = {\n        \"10.0.0.1\", \"127.0.0.1\", \"169.254.10.20\", \"172.16.0.1\",\n        \"192.168.0.1\", \"224.0.0.1\", \"240.0.0.1\", \"255.255.255.255\",\n        \"0.0.0.1\", \"::1\", \"fc00::1\", \"fe80::1\", \"ff00::1\",\n        \"2001:db8::1\", \"2001:db9::1\", \"8.8.8.8\", \"203.0.113.1\", NULL\n    };\n    size_t i;\n\n    for (i = 0; ips[i]; ++i) {\n        const char* family = NULL;\n        const char* cls = NULL;\n        const char* rir = NULL;\n        const char* reason = NULL;\n        const char* confidence = NULL;\n        wc_preclass_result_t result;\n\n        wc_preclass_classify_ip(ips[i], &family, &cls, &rir,\n            &reason, &confidence);\n        if (!wc_preclass_classify_query(ips[i], &result) ||\n            !result.family || strcmp(result.family, family) != 0 ||\n            !result.cls || strcmp(result.cls, cls) != 0 ||\n            !result.rir || strcmp(result.rir, rir) != 0 ||\n            !result.reason || strcmp(result.reason, reason) != 0 ||\n            !result.confidence || strcmp(result.confidence, confidence) != 0) {\n            fprintf(stderr, \"[SELFTEST] preclass-single-pass: FAIL (%s)\\n\", ips[i]);\n            failed = 1;\n        }\n    }\n\n    {\n        wc_preclass_result_t cidr_result;\n        if (!wc_preclass_classify_query(\"203.0.113.0/24\", &cidr_result) ||\n            strcmp(cidr_result.cls, \"special\") != 0 ||\n            strcmp(cidr_result.rir, \"none\") != 0 ||\n            strcmp(cidr_result.covering_rir, \"apnic\") != 0) {\n            fprintf(stderr, \"[SELFTEST] preclass-single-pass-cidr: FAIL\\n\");\n            failed = 1;\n        }\n    }\n\n    if (failed == 0)\n        fprintf(stderr, \"[SELFTEST] preclass-single-pass: PASS\\n\");\n    return failed;\n}\n\nint wc_selftest_run(void) {",
+          "idempotentContains": [
+            "static int selftest_preclass_single_pass(void)\n{"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    int phasec = selftest_preclass_phasec_policy\\(\\);\n    if \\(phasec != 0\\) failed = 1;\n\n    int crlf = selftest_crlf_normalization\\(\\);",
+          "replacement": "    int phasec = selftest_preclass_phasec_policy();\n    if (phasec != 0) failed = 1;\n\n    int singlepass = selftest_preclass_single_pass();\n    if (singlepass != 0) failed = 1;\n\n    int crlf = selftest_crlf_normalization();",
+          "idempotentContains": [
+            "int singlepass = selftest_preclass_single_pass();"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    \\}\n\n    if \\(failed == 0\\)",
+          "replacement": "    }\n\n    {\n        wc_preclass_result_t c1;\n        wc_preclass_result_t c2;\n        unsigned long after_first = 0;\n        if (!wc_preclass_classify_query(\"1.1.1.1\", &c1))\n            failed = 1;\n        after_first = wc_preclass_get_lookup_count();\n        if (!wc_preclass_classify_query(\"1.1.1.1\", &c2) ||\n            c1.family != c2.family || c1.cls != c2.cls ||\n            c1.rir != c2.rir || c1.reason != c2.reason ||\n            c1.confidence != c2.confidence ||\n            (wc_preclass_get_lookup_count() - after_first) != 0) {\n            fprintf(stderr, \"[SELFTEST] preclass-cache-single-scan: FAIL\\n\");\n            failed = 1;\n        } else {\n            fprintf(stderr, \"[SELFTEST] preclass-cache-single-scan: PASS\\n\");\n        }\n    }\n    if (failed == 0)",
+          "idempotentContains": [
+            "[SELFTEST] preclass-cache-single-scan: PASS"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "cache-single-scan-asserted",
+          "target": "selftest_source",
+          "pattern": "\\[SELFTEST\\] preclass-cache-single-scan: PASS",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-pass-selftest-defined",
+          "target": "selftest_source",
+          "pattern": "static int selftest_preclass_single_pass\\(void\\)\n\\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-pass-selftest-called",
+          "target": "selftest_source",
+          "pattern": "int singlepass = selftest_preclass_single_pass\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-pass-ip-equivalence",
+          "target": "selftest_source",
+          "pattern": "wc_preclass_classify_query\\(ips\\[i\\], &result\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "single-pass-cidr-base-verification",
+          "target": "selftest_source",
+          "pattern": "wc_preclass_classify_query\\(\"203\\.0\\.113\\.0/24\", &cidr_result\\)",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}
