@@ -154,6 +154,17 @@
 - `2000::/3` -> `class=allocated`（或 `global-unicast` 子类），走正常 WHOIS 流程；
 - `fc00::/7`、`fe80::/10`、`ff00::/8` 及其他 reserved -> `class=special|reserved`, `rir_hint=none`；未指定 `-h` 时优先早收敛 `unknown`。
 
+落地覆盖策略（2026-08-18 补记，对应 24.23.6）：
+
+v6 分类采用“生成表 + 硬编码快速路径”双层结构，表不是唯一真相：
+- 生成表（`wc_preclass_table`，schema v2，来自 `docs/registry-snapshots/` 的 IANA IPv6 快照与 special registry）覆盖：全部已定义 special-purpose 前缀（unspecified、loopback、IPv4-mapped、IPv4-IPv6-translat、discard-only、benchmarking、as112、teredo、AMT、documentation、ORCHIDv2、DRIP、SRv6、6to4、direct-delegation-as112 等，`class=special`）与 IETF 保留前缀（`reserved-by-ietf`，`class=reserved`），以及基础 `2000::/3`（`class=allocated`、`rir=unknown`、`registry=iana`、`confidence=medium`）。
+- 硬编码快速路径（`wc_preclass_classify_ip`）对 6 个最常见确定性段在表之后无条件覆盖 cls/rir/reason/confidence：`::1`（V6_LOOPBACK_1）、`fc00::/7`（V6_UNIQUE_LOCAL_FC00_7）、`fe80::/10`（V6_LINK_LOCAL_FE80_10）、`ff00::/8`（V6_MULTICAST_FF00_8）、`2001:db8::/32`（V6_DOCUMENTATION_2001_DB8_32）、`2000::/3`（V6_GLOBAL_UNICAST_2000_3）。
+- 二者 class 语义一致（special/reserved/allocated）；reason 细节以硬编码为准，表 row 的 reason 仅作 `purpose/covering_rir/registry` 附加字段来源（例如 `::1` 硬编码 reason=`V6_LOOPBACK_1`，表 row purpose=`loopback-address`）。
+- `2000::/3` 归属：`class=allocated` 走正常 WHOIS 流程、不早收敛；硬编码在表结果基础上用 `wc_guess_rir` 细化 rir_hint——命中 RIR → `rir=该 RIR`、`confidence=medium`；未命中 → `rir=unknown`、`confidence=low`。
+- `wc_guess_rir` 兜底仅对 global unicast（allocated）生效（用于分类器首跳 hint）；special/reserved 永不进入 rir 猜测（`rir_hint=none`）。
+- v6 无 unallocated/legacy 分类：v6 类目仅 allocated/special/reserved/unknown。
+- 一致性风险：硬编码段与表 row 需保持同步，防漂移断言见 24.23.1。
+
 ## 9. 输出、观测与诊断（已决议）
 
 普通输出新增独立状态行，仅在高置信 `reserved|special` 命中时出现，位置固定在 Query 标题之后、正文之前：
@@ -4268,4 +4279,73 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 2026-08-18 复核补强：提交 `22e0247f` 后的四轮 Golden + 12x6 全 PASS（Strict `20260817-090311`/`20260817-091109`，批量 `091732/092237/092812/093454`，自检 `094804/095342/095957/100557`，矩阵 `100855` authority 空表且无 errors）。审计确认 raw 自检走单条路径时 `--selftest-force-private 10.0.0.8` 仍被 early-converge 短路绕过（golden 仅靠启动 marker 通过），而 24.22 只修复了批量循环。最终实现将 force-private 检查前移到单条 preclass 决策之前，并按执行器相同优先级读取 `net_ctx->injection`、为空时回退 `wc_selftest_injection_view()`；命中即转入 `wc_client_run_single_query` 的真实私网分支，不再输出虚假的 early-converge 观察。golden checker 新增 `--require-line` 阻断 marker-only 假通过；最终真实 LTO 制品通过 Phase C review `26/26 PASS`（`out/artifacts/preclass_phasec_review/20260818-070138`）。普通单条隐式私网查询仍早收敛，显式 `-h` 保持兼容。另记录：Strict 两轮 POSIX 哈希不同源于第一轮构建同步 release 后第二轮工作区出现未提交变更，`WHOIS_STRICT_VERSION=1` 下追加 `-dirty` 版本后缀，属预期行为而非回归。
 - LTO 审计更正：命令行 `-O lto-auto|lto-serial` 原先在 `getopts` 后未重新归一化，实际未进入 Makefile `lto` 分支；历史同名轮次的业务、hash、Golden/referral 证据仍有效，但“LTO 无告警”证据无效。修复后 x86_64 判别轮 `out/artifacts/20260818-064740` 明确使用 `-flto=auto`；最终全架构 `out/artifacts/20260818-065540` 的 9 架构编译/链接均含 `-flto=auto`，Local hash、Golden、三条 referral PASS，release 已同步（455s）。
 - 2026-08-18 提交 `7e1f2fa7` 后四轮复核：Strict lto-auto 默认/debug 两轮无编译与 LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260818-071217`，224s；`20260818-072952`，255s）；默认轮 9 架构 POSIX 哈希与真实 LTO 基准轮 `065540` 完全一致（Windows PE 因时间戳不同除外），确认 LTO 真实启用且构建确定性同源。Batch 四策略（`073512/073943/074445/075120`，1185.080s）与 Selftest 四策略（`080108/080605/081113/081614`，1201.862s）黄金全 PASS；自检报告均含 `output line matched: 10\.0\.0\.8 is a private IP address`，`--require-line` 真实业务输出断言已生效，阻断 marker-only 假通过。12x6 矩阵 authority 表空（`out/artifacts/redirect_matrix_10x6/20260818-083320`）；唯一 `afrinic_45.113.52.0_22` error 为 LACNIC 站点限流（`whois.lacnic.net`，hop 4/5 连续 give-up），复测 `--prefer-ipv4 --rir-ip-pref arin=ipv6 "45.113.52.0/22" -h afrinic` 收敛 APNIC 正确，与历史同段限流模式一致，属外部瞬态，非代码或脚本回归。
+
+#### 24.23 前置分类器后续优化清单（2026-08-18，待执行）
+
+> 依据：Phase C 默认翻转与正式收尾（24.21）后代码审计确认功能与结构已成熟、无需功能性改动；但存在以下非功能性优化空间。每项均记录目标闭包、问题证据、改动内容、验收门禁与边界，可作为独立 A/B Vx 任务切片直接编制引用。任何涉及 `src/core/preclass.c` / `src/core/client_flow.c` 的改动必须走完整 D 轮任务定义 + Step47/Phase C/P0/P1/CIDR/12x6/Strict 全门禁，且不应与功能收尾混在同一批次。
+
+> 设计原则（2026-08-18 补充）：当前代码已趋于成熟稳定，A/B Vx 任务设计中任何代码改动都必须全盘深入考虑与评估后再做出，最大限度减少缺陷的产生，不给代码整体执行带来负面影响；严禁为“凑轮次”而引入不必要或未经充分论证的改动。
+
+> 切片合并策略（2026-08-18 补充）：A/B Vx 无人值守脚本本身已成熟稳定、执行流畅，但编译/验证环节较多、任务整体耗时较长。当单个待办切片代码开发量较小（单独占用一次 A/B 会造成轮次任务不饱和、时间成本浪费过大，发挥不出无人值守脚本的任务执行优势）时，优先评估合并编排——将多个独立、无冲突的小切片放入同一次 A/B Vx 无人值守任务中执行，而不是逐个单独占用完整任务窗口；若单个切片确实过小，也可评估直接采用传统交互式开发而非 A/B 无人值守。合并前提与约束：
+> 1. 各合并切片的目标文件/函数域相互独立、无依赖冲突，合并后的 D1-D4 轮次编排必须通过完整静态检查与真实编译验证；
+> 2. 若现有 A/B Vx 任务的验证测试无法覆盖某切片特有需求，该任务结束后单独执行专项验证测试（如 Phase C review、special 矩阵、CIDR 契约、12x6、Strict 多架构等），并记录证据；
+> 3. 合并不得破坏既有验收语义：有独立评审要求的改动（如默认翻转、开关放量，见 24.23.4 与 24.21 红线）仍须独立任务或独立评审记录，不得借合并混批绕过；
+> 4. 合并后任一切片失败即按既有 first-fail-stop 规则阻断整轮，故每片应保持小而独立，合并数量适度，避免一轮承载过多改动导致失败面过大。
+
+##### 24.23.1 分类器一致性防护（最高优先，防漂移）
+
+- 问题证据：`wc_preclass_classify_ip`（`src/core/preclass.c`）含约 15 个硬编码段（IPv4：`10/8`、`127/8`、`169.254/16`、`172.16/12`、`192.168/16`、`224/4`、`240/4`、`255.255.255.255`、`0/8`；IPv6：`::1`、`fc00::/7`、`fe80::/10`、`ff00::/8`、`2001:db8::/32`、`2000::/3`），对 `wc_preclass_lookup_table` 结果无条件覆盖；表由 IANA 快照自动生成（`tools/preclass/gen_preclass_table.py`）。当前两源一致（golden 全过），但快照更新后若不同步硬编码段，将出现“表说 A、硬编码说 B”的静默漂移。另：v6 硬编码段（尤其 `::1`、`ff00::/8`、`2001:db8::/32`）在 C 内置 selftest 与端到端矩阵中缺少直接断言（special `17/17` 仅覆盖 `2001:db8::`/`fc00::`/`fe80::`，Phase C 覆盖 `fc00::`/`fe80::`/`2001:db9::`），一致性断言顺带补足该单测缺口。
+- 目标闭包：`src/core/preclass.c`（一致性校验入口）、`src/core/selftest.c`（selftest 断言）、生成器 `tools/preclass/gen_preclass_table.py`（输出期断言，可选）。
+- 改动内容：对每个硬编码段前缀断言其分类（cls/rir/reason/confidence）与表最长前缀匹配结果一致；断言范围必须覆盖 IPv4 与 IPv6 **全部**硬编码段，IPv6 段用代表性 IP 逐一断言（`::1`、`fc00::1`、`fe80::1`、`ff00::1`、`2001:db8::1`、`2001:db9::1` 等）；不一致时 fail-close（自检 FAIL 或生成器报错），不得静默降级。
+- 验收门禁：C 内置 selftest 新标签 PASS（含上述 IPv6 代表性 IP 断言）；Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6、Strict 多架构全 PASS。
+- 边界：只加防护断言，不改分类语义；不得用更新黄金期望掩盖漂移。
+
+##### 24.23.2 决策链单次分类复用（性能，低风险）
+
+- 问题证据：`wc_preclass_classify_query` 内部先 `wc_preclass_lookup_row_text`（全表 331 行扫描）再经 `classify_ip` 内 `wc_preclass_lookup_table`（再次全表扫描）取同一行；`client_flow.c` 的 `wc_client_resolve_preclass_decision` 决策链上同一查询最多被独立分类 4 次（first_hop_hint / phasec_early_converge / step47_early_unknown / p1_controlled_unknown），单条查询最多约 8 次线性全表扫描；批量模式每条查询 × 多个候选主机进一步放大。
+- 目标闭包：`src/core/preclass.c`、`src/core/client_flow.c`、`include/wc/wc_preclass.h`。
+- 改动内容：`classify_query` 复用已找到的 row 填充结果，消除内部双扫描；决策链“一次分类、结果在调用间传递”（复用 `wc_preclass_result_t`，或按 query 哈希新增内部小缓存）。
+- 验收门禁：行为零变化——Phase C `26/26`、P0/P1、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致（`--require-line` 断言保持）。
+- 边界：性能收益为微秒级（单条），批量海量场景才显著；不得改变分类结果、reason/confidence 或任何输出契约。
+
+##### 24.23.3 表数据更新流程自动化（运维）
+
+- 问题证据：24.19 已固化“每月检查、发布前强制复检、snapshot/manifest/表任一变化独立审查”，但“快照更新 → 重新生成表 → 全门禁”尚未形成一键流程。
+- 目标闭包：`tools/preclass/update_iana_registry_snapshots.ps1`、`tools/preclass/gen_preclass_table.py`、相关 golden/矩阵脚本。
+- 改动内容：新增一键流程（或扩展既有脚本）在快照更新后依次执行：表重新生成 → 生成器哈希一致 → schema/table guard → P0/P1/Phase C/CIDR/Step47/12x6 → 输出 diff 摘要；表变更时强制 diff 评审记录。
+- 验收门禁：模拟快照变更的 dry-run PASS；无变更时全门禁 PASS 且生成器输出哈希不变。
+- 边界：不改变既有快照固化与运行时离线静态表契约。
+
+##### 24.23.4 受控开关放量与契约同步（随放量推进）
+
+- 问题证据：24.11/24.14 已规划专用 `--enable-preclass-first-hop`（49/50 补齐）与 Phase C 受控开关；默认翻转时需确保开关默认值、帮助文本、文档、矩阵静态期望四者一致。
+- 目标闭包：`src/core/opts.c`、`src/core/client_meta.c`、`src/core/client_runner.c`、`docs/USAGE_CN.md`/`docs/USAGE_EN.md`/`RELEASE_NOTES.md`/规则 RFC。
+- 改动内容：放量时以独立任务翻转开关默认值，并同步更新帮助文本、文档与黄金基线（不得顺带重设计语义）。
+- 验收门禁：与 24.21 同等全门禁；显式 `-h` 旁路与 `--disable-address-preclass` 全量回退保持。
+- 边界：默认翻转必须独立评审、独立记录，不得与其它功能改动混批。
+
+##### 24.23.5 可观测性增强（可选）
+
+- 问题证据：PRECLASS-DECISION 行已覆盖 query/input/action/route_change/host_mode/tier 等，但缺少跨查询的分类命中统计。
+- 目标闭包：`src/core/preclass.c`（或 `whois_query_exec.c` 观察输出）、`src/core/selftest.c`。
+- 改动内容：`--retry-metrics` 下进程退出时输出一行分类命中统计（按 family/class/confidence 计数，如 `[PRECLASS-METRICS] ...`，写 stderr，标签风格与既有 `[RETRY-METRICS*]` 一致）。
+- 验收门禁：新标签仅在 `--retry-metrics`/`--debug` 下出现；进程退出时输出；远程冒烟 grep 新标签 PASS。
+- 边界：不得改变 stdout 业务输出；不得改变既有标签名称。
+
+##### 24.23.6 IPv6 覆盖策略文档化（纯文档，可直接编辑；已完成 2026-08-18）
+
+- 问题证据：生成表内 v6 记录与硬编码快速路径的分工未文字化；表不是 v6 分类的唯一真相，缺少文字记录。
+- 目标闭包：`docs/RFC-address-space-preclassifier.md`（第 8 节）。
+- 改动内容：明确记录 v6 覆盖策略（表 + 硬编码分工、`2000::/3` 归属、`wc_guess_rir` 兜底），避免维护者误以为表是唯一真相。
+- 验收门禁：文档评审；无需代码变更。
+- 边界：仅文档；无需 A/B 代码任务切片，可直接编辑。
+- 状态：已完成（2026-08-18，见第 8 节“落地覆盖策略”补记）。
+
+##### 24.23.7 代码清理（低优先，随功能开发顺带做）
+
+- 问题证据：`src/core/preclass.c` 约 40 个 `static const char* xxx_literal(void){ return "xxx"; }` 单行函数；`client_flow.c` 的 `wc_client_csv_is_default_marker` 与 `preclass.c` 公共版本完全重复；`lookup_row_text` 与 `lookup_table` 的 IPv4/IPv6 字节组装重复；`whois_query_exec.c` 的 `emit_observation` 中 if/else 两分支调用相同 `classify_ip`。
+- 目标闭包：`src/core/preclass.c`、`src/core/client_flow.c`、`src/core/whois_query_exec.c`。
+- 改动内容：literal 函数收敛（先确认是否为 selftest/防内联刻意设计，必要时保留）；重复 helper 复用公共版；消除冗余分支。
+- 验收门禁：行为零变化，全门禁 PASS；编码门禁通过。
+- 边界：如 literal 函数被 selftest 符号或防优化需求依赖，不得盲目合并。
 
