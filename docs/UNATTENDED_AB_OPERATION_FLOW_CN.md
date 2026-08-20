@@ -1038,12 +1038,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/stop_unattended_a
 
 推荐做法：优先直接运行统一检查脚本，而不是把静态体检、字段同步、预检回填拆成多次人工确认。
 
+**确认前三类产物前必须用 `-DryRun`，且任务基线先于预检回填**：在用户确认任务定义文件、本任务权威文档集合中的下次开工清单、任务启动文件三类产物之前，统一启动前检查一律加 `-DryRun` 参数执行——只检查、只报告拟写入值，不写回 `PRECHECK_*` 等运行态字段，保证 start-file 保持模板生成后的最初始干净状态（`PRECHECK_STATUS=NOT_RUN`/`PRECHECK_START_GATE=NOT_RUN`/`PRECHECK_REMOTE_LOCK=NOT_RUN`/各阶段 `FINAL_STATUS=NOT_RUN`），也避免把尚未获用户确认的预检结果固化到任务基线。确认动作与执行顺序固定为：用户审核三类产物后，要求将任务定义/清单/启动文件（不带 `PRECHECK_*`，即保持初始 `NOT_RUN` 状态的文件）一并提交推送形成任务基线——此即确认动作；提交推送完成后，才可运行不带 `-DryRun` 的完整检查（此时才原子回填 `PRECHECK_*`）；之后仍须等待用户明确启动授权才可启动 A/B。不得在提交推送形成任务基线前运行不带 `-DryRun` 的检查，也不得把 `PRECHECK_*` 已回填的 start-file 作为任务基线提交。
+
 参数速览（`tools/test/check_unattended_ab_launch_ready.ps1`）：
 - `-StartFile <path>`：必填，待启动的 start-file。
 - `-Stage A|B`：可选，默认 `A`；用于按阶段执行门禁策略。
 - `-Operator <name>`：可选，默认 `Copilot`；用于预检回填操作者标记。
 - `-RequireCleanWorkspace`：可选，要求工作区必须 clean。
-- `-DryRun`：可选，只检查不写回 `PRECHECK_*`。
+- `-DryRun`：可选，只检查不写回 `PRECHECK_*`（确认三类产物前必须使用）。
 - `-DetailedOutput`：可选，输出完整明细（默认会做摘要压缩）。
 - `-AsJson`：可选，按 JSON 输出结果，便于脚本解析。
 

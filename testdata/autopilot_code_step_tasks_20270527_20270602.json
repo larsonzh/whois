@@ -1,0 +1,380 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx53-preclass-literal-inline-15-d1-d4-20270527-20270602",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the five single-use RIR literal helpers (apnic/arin/ripe/afrinic/lacnic) at their unique call sites inside wc_preclass_rir_name(), then delete their single-line definitions in preclass.c. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "case WC_PRECLASS_RIR_ID_APNIC: return \"apnic\";",
+          "case WC_PRECLASS_RIR_ID_ARIN: return \"arin\";",
+          "case WC_PRECLASS_RIR_ID_RIPE: return \"ripe\";",
+          "case WC_PRECLASS_RIR_ID_AFRINIC: return \"afrinic\";",
+          "case WC_PRECLASS_RIR_ID_LACNIC: return \"lacnic\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_rir_apnic_literal\\(void\\)\n\\{\n\treturn \"apnic\";\n\\}\n\nstatic const char\\* wc_preclass_rir_arin_literal\\(void\\)\n\\{\n\treturn \"arin\";\n\\}\n\nstatic const char\\* wc_preclass_rir_ripe_literal\\(void\\)\n\\{\n\treturn \"ripe\";\n\\}\n\nstatic const char\\* wc_preclass_rir_afrinic_literal\\(void\\)\n\\{\n\treturn \"afrinic\";\n\\}\n\nstatic const char\\* wc_preclass_rir_lacnic_literal\\(void\\)\n\\{\n\treturn \"lacnic\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_low_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_confidence_low_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_low_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_APNIC: return wc_preclass_rir_apnic_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_APNIC: return \"apnic\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_APNIC: return \"apnic\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_ARIN: return wc_preclass_rir_arin_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_ARIN: return \"arin\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_ARIN: return \"arin\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_RIPE: return wc_preclass_rir_ripe_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_RIPE: return \"ripe\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_RIPE: return \"ripe\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_AFRINIC: return wc_preclass_rir_afrinic_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_AFRINIC: return \"afrinic\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_AFRINIC: return \"afrinic\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_LACNIC: return wc_preclass_rir_lacnic_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_LACNIC: return \"lacnic\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_LACNIC: return \"lacnic\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "rir-apnic-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_APNIC: return \"apnic\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-arin-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_ARIN: return \"arin\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-ripe-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_RIPE: return \"ripe\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-afrinic-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_AFRINIC: return \"afrinic\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-lacnic-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_LACNIC: return \"lacnic\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-literal-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_rir_(apnic|arin|ripe|afrinic|lacnic)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline class_legacy/class_unallocated at their unique call sites in wc_preclass_class_name(), and the disabled/default fallback-reason literals at their unique call sites in the disabled/default decision-field setters; delete the four single-line definitions.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "case WC_PRECLASS_CLASS_ID_LEGACY: return \"legacy\";",
+          "case WC_PRECLASS_CLASS_ID_UNALLOCATED: return \"unallocated\";",
+          "out_fields->fallback_reason = \"preclass-disabled\";",
+          "out_fields->fallback_reason = \"no-decision-action\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_class_allocated_literal\\(void\\)\n\\{\n\treturn \"allocated\";\n\\}\n\nstatic const char\\* wc_preclass_class_legacy_literal\\(void\\)\n\\{\n\treturn \"legacy\";\n\\}\n\nstatic const char\\* wc_preclass_class_reserved_literal\\(void\\)\n\\{\n\treturn \"reserved\";\n\\}",
+          "replacement": "static const char* wc_preclass_class_allocated_literal(void)\n{\n\treturn \"allocated\";\n}\n\nstatic const char* wc_preclass_class_reserved_literal(void)\n{\n\treturn \"reserved\";\n}",
+          "idempotentContains": [
+            "static const char* wc_preclass_class_reserved_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_class_special_literal\\(void\\)\n\\{\n\treturn \"special\";\n\\}\n\nstatic const char\\* wc_preclass_class_unallocated_literal\\(void\\)\n\\{\n\treturn \"unallocated\";\n\\}\n\nstatic const char\\* wc_preclass_rir_unknown_literal\\(void\\)\n\\{\n\treturn \"unknown\";\n\\}",
+          "replacement": "static const char* wc_preclass_class_special_literal(void)\n{\n\treturn \"special\";\n}\n\nstatic const char* wc_preclass_rir_unknown_literal(void)\n{\n\treturn \"unknown\";\n}",
+          "idempotentContains": [
+            "static const char* wc_preclass_rir_unknown_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_policy_action_source_literal\\(void\\)\n\\{\n\treturn \"policy\";\n\\}\n\nstatic const char\\* wc_preclass_disabled_fallback_reason_literal\\(void\\)\n\\{\n\treturn \"preclass-disabled\";\n\\}\n\nstatic const char\\* wc_preclass_default_fallback_reason_literal\\(void\\)\n\\{\n\treturn \"no-decision-action\";\n\\}\n\nstatic void wc_preclass_apply_disabled_decision_fields\\(wc_preclass_decision_fields_t\\* out_fields\\)",
+          "replacement": "static const char* wc_preclass_policy_action_source_literal(void)\n{\n\treturn \"policy\";\n}\n\nstatic void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)",
+          "idempotentContains": [
+            "static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_LEGACY: return wc_preclass_class_legacy_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CLASS_ID_LEGACY: return \"legacy\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CLASS_ID_LEGACY: return \"legacy\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_UNALLOCATED: return wc_preclass_class_unallocated_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CLASS_ID_UNALLOCATED: return \"unallocated\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CLASS_ID_UNALLOCATED: return \"unallocated\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal\\(\\);",
+          "replacement": "out_fields->fallback_reason = \"preclass-disabled\";",
+          "idempotentContains": [
+            "out_fields->fallback_reason = \"preclass-disabled\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = wc_preclass_default_fallback_reason_literal\\(\\);",
+          "replacement": "out_fields->fallback_reason = \"no-decision-action\";",
+          "idempotentContains": [
+            "out_fields->fallback_reason = \"no-decision-action\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "class-legacy-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_LEGACY: return \"legacy\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "class-unallocated-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_UNALLOCATED: return \"unallocated\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "disabled-fallback-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = \"preclass-disabled\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "default-fallback-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = \"no-decision-action\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "class-legacy-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_class_legacy_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "class-unallocated-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_class_unallocated_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "fallback-reason-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(disabled|default)_fallback_reason_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the three single-use v4 reason literals at their unique call sites in wc_preclass_classify_ip_with_row(), then delete their three adjacent single-line definitions.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "\"V4_LIMITED_BROADCAST_255_255_255_255\");",
+          "\"V4_THIS_NETWORK_0_8\");",
+          "\"V4_LINK_LOCAL_169_254_16\");"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v4_limited_broadcast_reason_literal\\(void\\)\n{\n\treturn \"V4_LIMITED_BROADCAST_255_255_255_255\";\n}\n\nstatic const char\\* wc_preclass_v4_this_network_reason_literal\\(void\\)\n{\n\treturn \"V4_THIS_NETWORK_0_8\";\n}\n\nstatic const char\\* wc_preclass_v4_link_local_reason_literal\\(void\\)\n{\n\treturn \"V4_LINK_LOCAL_169_254_16\";\n}\n\nstatic const char\\* wc_preclass_v6_loopback_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_loopback_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_loopback_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_limited_broadcast_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_LIMITED_BROADCAST_255_255_255_255\");",
+          "idempotentContains": [
+            "\"V4_LIMITED_BROADCAST_255_255_255_255\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_this_network_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_THIS_NETWORK_0_8\");",
+          "idempotentContains": [
+            "\"V4_THIS_NETWORK_0_8\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_link_local_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_LINK_LOCAL_169_254_16\");",
+          "idempotentContains": [
+            "\"V4_LINK_LOCAL_169_254_16\");"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v4-limited-broadcast-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_LIMITED_BROADCAST_255_255_255_255\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-this-network-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_THIS_NETWORK_0_8\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-link-local-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_LINK_LOCAL_169_254_16\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-reason-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_v4_(limited_broadcast|this_network|link_local)_reason_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the three single-use registry reason literals at their unique call sites in wc_preclass_reason_name(), then delete their three adjacent single-line definitions.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return \"V4_SPECIAL_PURPOSE\";",
+          "case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return \"V4_RESERVED_SPECIAL\";",
+          "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_reason_v4_unknown_registry_literal\\(void\\)\n{\n\treturn \"V4_UNKNOWN_REGISTRY\";\n}\n\nstatic const char\\* wc_preclass_reason_v4_special_purpose_literal\\(void\\)\n{\n\treturn \"V4_SPECIAL_PURPOSE\";\n}\n\nstatic const char\\* wc_preclass_reason_v4_reserved_special_literal\\(void\\)\n{\n\treturn \"V4_RESERVED_SPECIAL\";\n}\n\nstatic const char\\* wc_preclass_reason_v6_reserved_ietf_literal\\(void\\)\n{\n\treturn \"V6_RESERVED_IETF\";\n}\n\nstatic const char\\* wc_preclass_reason_v6_unknown_registry_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_reason_v4_unknown_registry_literal(void)\n{\n\treturn \"V4_UNKNOWN_REGISTRY\";\n}\n\nstatic const char* wc_preclass_reason_v6_unknown_registry_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_reason_v6_unknown_registry_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return wc_preclass_reason_v4_special_purpose_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return \"V4_SPECIAL_PURPOSE\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return \"V4_SPECIAL_PURPOSE\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return wc_preclass_reason_v4_reserved_special_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return \"V4_RESERVED_SPECIAL\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return \"V4_RESERVED_SPECIAL\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v4-special-purpose-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return \"V4_SPECIAL_PURPOSE\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-reserved-special-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return \"V4_RESERVED_SPECIAL\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-reserved-ietf-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED: return \"V6_RESERVED_IETF\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "registry-reason-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_reason_v4_(special_purpose|reserved_special)_literal\\(void\\)|wc_preclass_reason_v6_reserved_ietf_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}

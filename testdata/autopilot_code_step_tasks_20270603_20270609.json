@@ -1,0 +1,402 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx54-preclass-literal-inline-15-d1-d4-20270603-20270609",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the four single-use v4 registry reason helpers (allocated/legacy/reserved/unknown_registry) at their unique case sites inside wc_preclass_reason_name(), then delete their single-line definitions in preclass.c. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";",
+          "case WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";",
+          "case WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";",
+          "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_reason_v4_allocated_registry_literal\\(void\\)\n\\{\n\treturn \"V4_ALLOCATED_REGISTRY\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v4_legacy_registry_literal\\(void\\)\n\\{\n\treturn \"V4_LEGACY_REGISTRY\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v4_reserved_registry_literal\\(void\\)\n\\{\n\treturn \"V4_RESERVED_REGISTRY\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v4_unknown_registry_literal\\(void\\)\n\\{\n\treturn \"V4_UNKNOWN_REGISTRY\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v6_unknown_registry_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_reason_v6_unknown_registry_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_reason_v6_unknown_registry_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v4-allocated-registry-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return \"V4_ALLOCATED_REGISTRY\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-legacy-registry-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_LEGACY: return \"V4_LEGACY_REGISTRY\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-reserved-registry-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_RESERVED: return \"V4_RESERVED_REGISTRY\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-unknown-registry-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return \"V4_UNKNOWN_REGISTRY\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-registry-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_reason_v4_(allocated|legacy|reserved|unknown)_registry_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline the three single-use v6 registry/special reason helpers (v6_unknown_registry/v6_special_purpose/v6_reserved_special) at their unique case sites in wc_preclass_reason_name(), plus reason_unknown at the default case, then delete their single-line definitions.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";",
+          "case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return \"V6_SPECIAL_PURPOSE\";",
+          "case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return \"V6_RESERVED_SPECIAL\";",
+          "default: return \"PRECLASS_REASON_UNKNOWN\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_reason_v6_unknown_registry_literal\\(void\\)\n\\{\n\treturn \"V6_UNKNOWN_REGISTRY\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v6_special_purpose_literal\\(void\\)\n\\{\n\treturn \"V6_SPECIAL_PURPOSE\";\n\\}\n\nstatic const char\\* wc_preclass_reason_v6_reserved_special_literal\\(void\\)\n\\{\n\treturn \"V6_RESERVED_SPECIAL\";\n\\}\n\nstatic const char\\* wc_preclass_v6_unique_local_reason_literal\\(void\\);",
+          "replacement": "static const char* wc_preclass_v6_unique_local_reason_literal(void);",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_unique_local_reason_literal(void);"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_reason_no_rir_hint_literal\\(void\\)\n\\{\n\treturn \"NO_RIR_HINT\";\n\\}\n\nstatic const char\\* wc_preclass_reason_unknown_literal\\(void\\)\n\\{\n\treturn \"PRECLASS_REASON_UNKNOWN\";\n\\}\n\nstatic const char\\* wc_preclass_v6_global_unicast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_reason_no_rir_hint_literal(void)\n{\n\treturn \"NO_RIR_HINT\";\n}\n\nstatic const char* wc_preclass_v6_global_unicast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_global_unicast_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return wc_preclass_reason_v6_special_purpose_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return \"V6_SPECIAL_PURPOSE\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return \"V6_SPECIAL_PURPOSE\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return wc_preclass_reason_v6_reserved_special_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return \"V6_RESERVED_SPECIAL\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return \"V6_RESERVED_SPECIAL\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "default: return wc_preclass_reason_unknown_literal\\(\\);",
+          "replacement": "default: return \"PRECLASS_REASON_UNKNOWN\";",
+          "idempotentContains": [
+            "default: return \"PRECLASS_REASON_UNKNOWN\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v6-unknown-registry-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return \"V6_UNKNOWN_REGISTRY\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-special-purpose-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return \"V6_SPECIAL_PURPOSE\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-reserved-special-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return \"V6_RESERVED_SPECIAL\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-unknown-inlined",
+          "target": "preclass_source",
+          "pattern": "default: return \"PRECLASS_REASON_UNKNOWN\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-registry-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_reason_v6_(unknown_registry|special_purpose|reserved_special)_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "reason-unknown-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_reason_unknown_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the four single-use v4 special-range reason helpers (private_10/loopback/private_172/private_192) at their unique call sites inside wc_preclass_classify_ip_with_row(), then delete their single-line definitions in preclass.c. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_10_8\");",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_LOOPBACK_127_8\");",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_172_16_12\");",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_192_168_16\");"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v6_loopback_reason_literal\\(void\\)\n\\{\n\treturn \"V6_LOOPBACK_1\";\n\\}\n\nstatic const char\\* wc_preclass_v4_private_10_reason_literal\\(void\\)\n\\{\n\treturn \"V4_PRIVATE_10_8\";\n\\}\n\nstatic const char\\* wc_preclass_v4_loopback_reason_literal\\(void\\)\n\\{\n\treturn \"V4_LOOPBACK_127_8\";\n\\}\n\nstatic const char\\* wc_preclass_v6_unique_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_loopback_reason_literal(void)\n{\n\treturn \"V6_LOOPBACK_1\";\n}\n\nstatic const char* wc_preclass_v6_unique_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_loopback_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v6_documentation_reason_literal\\(void\\)\n\\{\n\treturn \"V6_DOCUMENTATION_2001_DB8_32\";\n\\}\n\nstatic const char\\* wc_preclass_v4_private_172_reason_literal\\(void\\)\n\\{\n\treturn \"V4_PRIVATE_172_16_12\";\n\\}\n\nstatic const char\\* wc_preclass_v4_private_192_reason_literal\\(void\\)\n\\{\n\treturn \"V4_PRIVATE_192_168_16\";\n\\}\n\nstatic const char\\* wc_preclass_v6_link_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_documentation_reason_literal(void)\n{\n\treturn \"V6_DOCUMENTATION_2001_DB8_32\";\n}\n\nstatic const char* wc_preclass_v6_link_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_documentation_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_private_10_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_10_8\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_10_8\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_loopback_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_LOOPBACK_127_8\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_LOOPBACK_127_8\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_private_172_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_172_16_12\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_172_16_12\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_private_192_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_192_168_16\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_PRIVATE_192_168_16\");"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v4-private-10-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_PRIVATE_10_8\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-loopback-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_LOOPBACK_127_8\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-private-172-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_PRIVATE_172_16_12\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-private-192-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_PRIVATE_192_168_16\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-reason-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_v4_(private_10|loopback|private_172|private_192)_reason_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the three remaining single-use special-range reason helpers (v6_loopback/v6_documentation/v4_multicast) at their unique call sites inside wc_preclass_classify_ip_with_row(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_LOOPBACK_1\");",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_DOCUMENTATION_2001_DB8_32\");",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_MULTICAST_224_4\");"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v6_loopback_reason_literal\\(void\\)\n\\{\n\treturn \"V6_LOOPBACK_1\";\n\\}\n\nstatic const char\\* wc_preclass_v6_unique_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_unique_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_unique_local_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v6_documentation_reason_literal\\(void\\)\n\\{\n\treturn \"V6_DOCUMENTATION_2001_DB8_32\";\n\\}\n\nstatic const char\\* wc_preclass_v6_link_local_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_link_local_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_link_local_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_v4_multicast_reason_literal\\(void\\)\n\\{\n\treturn \"V4_MULTICAST_224_4\";\n\\}\n\nstatic const char\\* wc_preclass_v6_multicast_reason_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_v6_multicast_reason_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_v6_multicast_reason_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v6_loopback_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_LOOPBACK_1\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_LOOPBACK_1\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v6_documentation_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_DOCUMENTATION_2001_DB8_32\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V6_DOCUMENTATION_2001_DB8_32\");"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), wc_preclass_v4_multicast_reason_literal\\(\\)\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_MULTICAST_224_4\");",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), \"V4_MULTICAST_224_4\");"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "v6-loopback-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V6_LOOPBACK_1\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-documentation-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V6_DOCUMENTATION_2001_DB8_32\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v4-multicast-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_special_literal\\(\\), \"V4_MULTICAST_224_4\"\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-loopback-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_v6_loopback_reason_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "v6-documentation-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_v6_documentation_reason_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "v4-multicast-def-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_v4_multicast_reason_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}

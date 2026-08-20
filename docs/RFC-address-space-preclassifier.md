@@ -4509,3 +4509,196 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **提交与文档**：按仓库规则等待用户同轮授权后 `git add <具体文件>` + commit/push（仅 origin，不推 gitee）；变更输出契约/DNS 策略/自测流程时同步 `docs/USAGE_CN.md`/`docs/USAGE_EN.md`/`RELEASE_NOTES.md` 与相关 RFC/黄金脚本说明。
 
+#### 24.28 下次开工清单（无人值守 A/B，2027-05-27 ~ 2027-06-09，草案，串行第 53/54 份）
+
+> 任务性质：literal 收敛磨刀石（管道验证）。依据 24.23.7 审计定稿（约 66 helper / 约 180 引用、无 selftest/防内联依赖），将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），验证 Vx A/B 管道跑通后再决定剩余 36 个 helper 是否续编后续窗口。
+> 目标闭包：仅 `preclass_source`（`src/core/preclass.c`），单目标 Vx。helper 均为 static 单行返回字符串字面量，内联后行为零变化（stdout/stderr 契约、分类语义、生成表均不动）。
+
+#### 共享身份与串行约束
+
+| 字段 | 值 |
+|---|---|
+| 清单状态 | 草案（编制期验收已完成；start-file 已重新生成并保持初始 NOT_RUN，待用户确认） |
+| 运行窗口 | `2027-05-27 ~ 2027-06-09`（A：2027-05-27 ~ 2027-06-02；B：2027-06-03 ~ 2027-06-09） |
+| 运行模式 | code-change |
+| 质量策略 | enforce（`qualityPolicy.operationSafetyPolicy=enforce`） |
+| Checklist A 任务定义 | `testdata/autopilot_code_step_tasks_20270527_20270602.json` |
+| Checklist B 任务定义 | `testdata/autopilot_code_step_tasks_20270603_20270609.json` |
+| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270527-20270609.md`（已生成，初始 NOT_RUN，待用户确认） |
+| A schema | `vx-draft` |
+| B schema | `vx-draft` |
+| A target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
+| B target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
+| 主归属文档 | `docs/RFC-address-space-preclassifier.md` |
+| 协同文档 | `docs/RFC-whois-client-split.md` |
+| 用户启动授权 | pending |
+
+**权威文档落点**
+
+| 角色 | 文档路径 | 章节号或稳定标题 | 纳入原因 |
+|---|---|---|---|
+| 主归属 | `docs/RFC-address-space-preclassifier.md` | 24.28 | 直接拥有 literal 收敛（24.23.7 延迟项）的设计与执行 |
+| 协同 | `docs/RFC-whois-client-split.md` | 快速索引 / 24.28 落点 | 客户端拆分架构与整体进度记录 |
+
+- [x] A/B 严格串行，不并发运行。
+- [x] B 仅在 A 最终 PASS、A 成功快照完整性通过且 B 启动门禁通过后启动。
+- [x] A FAIL、BLOCKED、快照缺失或快照不一致时，B 保持 `blocked-by-a`。
+- [x] 启动前不执行 `git commit`、`git push`，也不预填运行结果。
+- [x] 权威文档集合已按需求归属冻结，且集合内各落点的共享身份字段与证据路径已逐项核对一致。
+
+#### Checklist A：literal 收敛第 1 批 15 helper（vx53）
+
+**目标与边界**
+
+- 目标：内联 15 个单次使用 literal helper 并在其唯一调用点替换为字符串字面量，随后删除对应单行定义。
+  - D1：5 个 RIR helper（`rir_apnic/arin/ripe/afrinic/lacnic`）→ `wc_preclass_rir_name()` switch 5 处。
+  - D2：`class_legacy`/`class_unallocated`（`wc_preclass_class_name()` switch 2 处）+ `disabled_fallback_reason`/`default_fallback_reason`（决策字段 setter 2 处）。
+  - D3：`v4_limited_broadcast`/`v4_this_network`/`v4_link_local`（`wc_preclass_classify_ip_with_row()` v4 分支 3 处）。
+  - D4：`reason_v4_special_purpose`/`reason_v4_reserved_special`/`reason_v6_reserved_ietf`（`wc_preclass_reason_name()` switch 3 处）。
+- 非目标：剩余 36 个 helper（后续窗口决定）；class_special（16 引用）/class_unknown（8 引用）等多调用 helper 不在本批；任何行为/输出契约/分类语义/生成表变更。
+- 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）；`docs/USAGE_CN.md`/`docs/USAGE_EN.md`。
+- 任务定义：`testdata/autopilot_code_step_tasks_20270527_20270602.json`
+- schema：`vx-draft`
+- 轮次范围：`D1-D4 + V1-V4`
+- 前置条件：无（直接基于当前 `src/core/preclass.c`）。
+- 完成后交付给 B：A 成功快照、final result、运行目录与绑定证据。
+
+**目标注册表**
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `preclass_source` | `src/core/preclass.c` | c-source | existing | D1、D2、D3、D4 |
+
+- `defaultTarget`: `preclass_source`
+- `target_set_sha256`: `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166`
+
+**推荐命令**
+
+```powershell
+# SyntaxOnly 装载检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270527_20270602.json -Policy enforce -SyntaxOnly
+
+# A 编制期全定义严格检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270527_20270602.json -Policy enforce -FailOnWarnings
+
+# A 有效源码编译（D4 后）与内联结果核对
+# clang -std=c11 -fsyntax-only -Wall -Wextra -I include <effective preclass.c>
+
+# 经用户授权后使用 stage window 启动 A
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20270527-20270609.md" -StartMonitors
+```
+
+**预期验证范围**
+
+- [x] D1-D4 各轮目标、operation 顺序、marker 与 assertions 已明确。
+- [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
+- [x] TODO-free、`operationSafetyPolicy=enforce`、完整编译及适用专项回归通过。
+- [x] 预期 stdout/stderr 契约与禁止变更项已记录：title/尾行/折叠行、`[PRECLASS]` 分类输出、`[DNS-*]`/`[RETRY-METRICS*]`/`[SELFTEST]` 标签与 Step47 矩阵均不得因内联改变。
+- [ ] A PASS 后生成并验证覆盖完整 A target set 的成功快照。
+
+**编制期验收证据（2026-08-21 填写）**
+
+| 门禁 | 状态 | 证据或摘要 |
+|---|---|---|
+| TODO-free / 编码 | PASS | TODO-free OK；JSON 解析通过 |
+| SyntaxOnly | PASS | `status=PASS schema=vx-draft targets=1 target_set_sha256=93485c16...` |
+| A 全定义静态检查 | PASS | `-Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=26`；D1-D4 21 ops 全 `pattern_match=1`，各轮 clang syntax gate pass |
+| Vx 专项安全回归 | PASS | `task_definition_safety_regression.ps1` `result=pass`；`task_definition_vx_checker_regression.ps1`/`autopilot_code_step_vx_regression.ps1`/`task_definition_repair_transaction_vx_regression.ps1` 均 `status=PASS` |
+| 完整编译 | PASS | A 有效源码（`tmp/vx53_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
+| 黄金 / Step47 | PENDING | 运行时执行 |
+| launch-ready | PENDING | start-file 未生成 |
+
+#### Checklist B：literal 收敛第 2 批 15 helper（vx54）
+
+> 硬门禁：仅在 Checklist A 最终 PASS、A 成功快照完整性通过且 B 启动门禁通过后启动；否则保持 `blocked-by-a`。
+
+**目标与边界**
+
+- 目标：内联 15 个单次使用 literal helper 并在其唯一调用点替换为字符串字面量，随后删除对应单行定义。
+  - D1：`reason_v4_allocated_registry`/`reason_v4_legacy_registry`/`reason_v4_reserved_registry`/`reason_v4_unknown_registry`（`wc_preclass_reason_name()` switch 4 处）。
+  - D2：`reason_v6_unknown_registry`/`reason_v6_special_purpose`/`reason_v6_reserved_special`（switch 3 处）+ `reason_unknown`（default case）。
+  - D3：`v4_private_10`/`v4_loopback`/`v4_private_172`/`v4_private_192`（`wc_preclass_classify_ip_with_row()` v4 分支 4 处）。
+  - D4：`v6_loopback`/`v6_documentation`/`v4_multicast`（v4/v6 分支 3 处）。
+- 非目标：剩余 36 个 helper（后续窗口决定）；带 prototype 的 helper（`v6_unique_local`/`v6_link_local`/`v6_multicast`）与多调用 helper（`class_special`/`class_unknown`/`confidence_*` 等）不在本批；任何行为/输出契约/分类语义/生成表变更。
+- 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）。
+- 任务定义：`testdata/autopilot_code_step_tasks_20270603_20270609.json`
+- schema：`vx-draft`
+- 轮次范围：`D1-D4 + V1-V4`
+- 设计期前置：Checklist A 全定义有效结果。
+- 运行期前置：Checklist A 成功快照及其完整性门禁。
+
+**目标注册表**
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `preclass_source` | `src/core/preclass.c` | c-source | existing | D1、D2、D3、D4 |
+
+- `defaultTarget`: `preclass_source`
+- `target_set_sha256`: `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166`
+- 与 A 的 target set 关系：相同（单目标 `preclass_source`）。
+
+**推荐命令**
+
+```powershell
+# SyntaxOnly 装载检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270603_20270609.json -Policy enforce -SyntaxOnly
+
+# B 以 A 为 prerequisite 的编制期链式全定义检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270603_20270609.json -PrerequisiteTaskDefinitionFiles testdata/autopilot_code_step_tasks_20270527_20270602.json -Policy enforce -FailOnWarnings
+
+# A+B effective target set 的有效源码编译与内联结果核对
+# clang -std=c11 -fsyntax-only -Wall -Wextra -I include <A+B effective preclass.c>
+
+# 经用户授权且 A PASS 后启动 B
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20270527-20270609.md" -StartMonitors
+```
+
+**预期验证范围**
+
+- [x] D1-D4 各轮目标、operation 顺序、marker 与 assertions 已明确。
+- [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
+- [x] B 使用 A 作为 prerequisite 的链式全定义检查通过。
+- [x] A+B effective target set 的完整编译及适用专项回归通过。
+- [ ] B 启动前重新核对 A snapshot、target set 交集与 B baseline。
+- [x] 预期 stdout/stderr 契约与禁止变更项已记录：与 A 相同，分类/输出/标签/Step47 矩阵均不得因内联改变。
+
+**编制期验收证据（2026-08-21 填写）**
+
+| 门禁 | 状态 | 证据或摘要 |
+|---|---|---|
+| TODO-free / 编码 | PASS | TODO-free OK；JSON 解析通过 |
+| SyntaxOnly | PASS | `status=PASS schema=vx-draft targets=1 target_set_sha256=93485c16...` |
+| B 使用 A prerequisite 的链式全定义检查 | PASS | `-PrerequisiteTaskDefinitionFiles A -Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=55`（A 前置 21 ops + B 23 ops 全 `pattern_match=1`）；`-RoundTag D1 -ChainRounds` `errors=0 warnings=0` |
+| Vx 专项安全回归 | PASS | 仓库级回归（与 A 共用）均 `status=PASS` |
+| A+B effective target set 完整编译 | PASS | B 有效源码（`tmp/vx54_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
+| 黄金 / Step47 | PENDING | 运行时执行 |
+| launch-ready | PENDING | start-file 未生成 |
+
+#### 启动前联合确认
+
+- [x] 两份任务定义均已通过初始编制完整验收，且没有残留占位符或 TODO。
+- [x] active start-file 已生成并通过字段同步、编码和 launch-ready 检查（DryRun，未写回 `PRECHECK_*`，保持初始 NOT_RUN）。
+- [x] 权威文档集合内每份文档均已包含本组 Checklist A/B，身份字段和证据一致。
+- [ ] 用户已检查任务定义、权威文档集合中的清单和 start-file。
+- [ ] 当前状态为“准备完成，待启动授权”；未获得明确授权前不启动 A。
+
+#### 执行回填（运行后填写，起草时不得预填 PASS）
+
+**Checklist A 回填**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | `<PASS/FAIL/BLOCKED>` |
+| started_at / completed_at / elapsed | `<TIMESTAMPS>` |
+| run_dir | `<A_RUN_DIR>` |
+| final result / summary | `<A_RESULT_PATHS>` |
+
+**Checklist B 回填**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | `<PASS/FAIL/BLOCKED>` |
+| started_at / completed_at / elapsed | `<TIMESTAMPS>` |
+| run_dir | `<B_RUN_DIR>` |
+| final result / summary | `<B_RESULT_PATHS>` |
+
