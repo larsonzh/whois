@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-20：24.23.7 代码清理开发方式确定为**传统交互式**（不占 A/B 窗口，见 `docs/RFC-address-space-preclassifier.md` 24.23.8/24.27）：切片 A（observation 冗余分支）→ B（重复 default-marker helper）→ C（IPv4/IPv6 字节组装抽取）顺序实施、每片独立验证；literal 收敛审计（约 66 helper / 约 180 引用、无 selftest/防内联依赖）判定高改动低收益，本次不实施并记录为延迟项（详见文内“24.23.7 代码清理交互式开工清单”段）。
 - 2026-08-20：串行第 51/52 份“无人值守超高密度 A/B”已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-05-13 ~ 2027-05-26`（A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260819-131334`，B run=`out/artifacts/dev_verify_multiround/20260820-083409`，会话 `2026-08-19 13:12:35` 至 `2026-08-20 13:05:36`，A/B 合计 `0d 23:53:01`）；B 首跑 D4（2026-08-19 23:38）失败——Step47 预检 `status_ticket_mini_regression.ps1` 写被 trigger 占用的生产 `takeover_trigger_*.log` 触发 `IOException` 连锁致 AUTOPILOT-8R 复检 D4 fail（旧分类一度误判 code-or-unknown），经根因消除（回归脚本不再写 live 日志）+ 故障分类链加固（独立分类器、递归子日志追踪、可选网络超时豁免、summary 不覆盖强证据、TOCTOU/Tail 窗口修复，提交 `99c26d56`）后 B 于 2026-08-20 08:33 重启续跑 D4 收敛；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260820-150254`，253s）（详见文内第 51/52 份清单段执行回填）。
 - 2026-08-19：修复 Step47 验证契约过期（`tools/test/step47_ab_compare.ps1`）。根因：`356a970d`
   Phase B/C 正式收尾（24.21）后，reserved/special + rir=none 高置信隐式查询默认早收敛
@@ -273,6 +274,7 @@
 - 2026-01-18：启动成本优化与 LTO 验证；基准方法与验证矩阵建立。
 
 ### 计划/清单导航（按日期）
+- 下次开工清单（2026-08-20，交互式 24.23.7 代码清理，切片 A/B/C，文内清单段 / `docs/RFC-address-space-preclassifier.md` 24.27）
 - 下次开工清单（2026-10-31 ~ 2026-11-15，无人值守超高密度 A/B，文内清单段）
 - 下次开工清单（2026-10-15 ~ 2026-10-30，无人值守更高密度 A/B，文内清单段）
 - 下次开工清单（2026-09-29 ~ 2026-10-14，无人值守高密度 A/B，文内清单段）
@@ -9501,4 +9503,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 - 状态：已完成执行回填（2026-08-20，见下）。
 
 **执行回填（2026-08-20）**：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260819-131334`，B run=`out/artifacts/dev_verify_multiround/20260820-083409`，会话 `2026-08-19 13:12:35` 至 `2026-08-20 13:05:36`，A/B 合计 `0d 23:53:01`）。B 首跑 D4（2026-08-19 23:38:31）失败：Step47 预检 `status_ticket_mini_regression.ps1` 向被 trigger 进程占用的生产 `takeover_trigger_*.log` 写入合成证据触发 `IOException`，连锁 Step47 预检 fail → no-delta dryrun fail → AUTOPILOT-8R 复检 D4 fail → B 退出（guard incident，旧分类一度误判 `code-or-unknown`）。修复：① 回归脚本不再写 live 生产日志（根因消除）；② 故障分类链加固——独立可测分类器（`tools/test/unattended_failure_log_classifier.ps1`）、递归追踪失败子 summary 日志、可选网络超时豁免、summary 不覆盖强证据、TOCTOU 竞态与 Tail 窗口索引修复（提交 `99c26d56`）。恢复：B 于 2026-08-20 08:33 经 `open_unattended_ab_stage_window -Stage B` 从 A 快照恢复续跑 D4，监控链重建，8/8 全部通过。最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto` 默认）无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS（`out/artifacts/20260820-150254`，253s）；`[PRECLASS-CONSISTENCY]`/`[PRECLASS-METRICS]`/`preclass-single-pass` 专项覆盖随任务与冒烟通过。
+
+
+**下次开工清单（交互式：24.23.7 代码清理，2026-08-20，切片 A/B/C，待开工）**：
+
+> 开发方式：传统交互式（2026-08-20 确定，见 `docs/RFC-address-space-preclassifier.md` 24.23.8/24.27），不占 A/B 窗口；依据 24.23.7 审计定稿与 24.23 前言“最小缺陷、不做无论证改动”原则。
+> 目标闭包：`src/core/whois_query_exec.c`（切片 A）、`src/core/client_flow.c`（切片 B）、`src/core/preclass.c`（切片 C）；literal 收敛本次不实施（高改动低收益，记录为延迟项）。
+
+1. [ ] 切片 A（低风险）：`whois_query_exec.c` 的 `emit_observation` if/else 两分支相同 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
+2. [ ] 切片 B（低风险）：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API 已确认，仅 3 处引用），step47 early-unknown 与 p1 tier 两处调用点改用公共版。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
+3. [ ] 切片 C（中风险）：`preclass.c` 内新增 static helper 收敛 `lookup_row_text` 与 `lookup_row_and_assign_v4/v6` 的 IPv4 字节→u32、IPv6 字节→hi/lo 组装；只抽取字节转换，不改查表算法与函数边界。验证：`[SELFTEST] preclass-consistency`/`preclass-single-pass` + table guard + P0/P1/special 17/17 + 高位首字节用例（`240.*`/`255.*`/`fc00::`/`fe80::`/`ff00::`）+ 多架构构建（端序）。
+4. [ ] 停止条件：每片专项验证失败即停止、仅修本片并复验后前进；12x6 仅 RIR 限流可保存证据后单例复测，分类/authority/输出差异一律不放行；完成后确认生成表文件无意外 diff。
+5. [ ] 最终验收矩阵（三片全部通过后）：① `Test: Text Encoding Gate (tracked, check)`；② `Remote: Build (Fast x86_64+win64)`；③ 一键全门禁 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1 -SkipUpdate -GateProfile all -GatesOnNoChange -BinaryPath release/lzispro/whois/whois-win64.exe`（table guard + P0/P1/special/Phase C/CIDR/Step47/12x6）；④ `Selftest Golden Suite` + `Golden Check: Batch Suite`；⑤ `Remote: Build (Strict Version)`（全架构真实 LTO、零编译/LTO warning、Local hash/Golden/referral 全 PASS）。
+6. [ ] 提交：按仓库规则等待用户同轮授权后 `git add <具体文件>` + commit/push（仅 origin，不推 gitee）；变更输出契约/DNS 策略/自测流程时同步双语使用文档、`RELEASE_NOTES.md` 与相关 RFC/黄金脚本说明。
 

@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-20：24.23.7 代码清理开发方式确定为**传统交互式**（不占 A/B 窗口，见 24.23.8/24.27），编制切片 A/B/C 下次开工清单（详见 24.27）：切片 A（`whois_query_exec.c` observation 冗余分支）→ 切片 B（`client_flow.c` 重复 default-marker helper 复用公共版）→ 切片 C（`preclass.c` IPv4/IPv6 字节组装 static helper 抽取），每片独立验证后走最终验收；literal 收敛审计（约 66 helper / 约 180 引用、无 selftest/防内联依赖）判定高改动低收益，本次不实施并记录为延迟项。
 - 2026-08-20：串行第 51/52 份“无人值守超高密度 A/B”已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-05-13 ~ 2027-05-26`，A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260819-131334`，B run=`out/artifacts/dev_verify_multiround/20260820-083409`）；B 首跑 D4 失败（Step47 预检 `status_ticket_mini_regression.ps1` 写 live log 触发 `IOException`，旧分类误判 code-or-unknown），根因消除 + 故障分类链加固（提交 `99c26d56`）后 B 重启续跑收敛；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260820-150254`，253s）（详见 24.24~24.26 执行回填）。
 - 2026-08-19：新增串行第 51/52 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-05-13 ~ 2027-05-26`，依据 24.23 后续优化清单；A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270513_20270519.json`、`testdata/autopilot_code_step_tasks_20270520_20270526.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与统一 launch-ready 检查均通过（详见 24.24~24.26）；2026-08-19 审计修订（240.0.0.1 表侧 reason 修正、metrics 补 class_unallocated、B/52 追加 query-keyed 缓存与缓存去重断言、文案对齐已批准差异）已完成并全部复验；24.23.3/24.23.4/24.23.7 不在本轮范围（脚本目标 / 独立评审 / 低优先随功能顺带）。
 - 2026-08-18：提交 `22e0247f` 后的四轮 Golden + 12x6 复核全部 PASS（Strict `20260817-090311`/`091109`，批量 `091732/092237/092812/093454`，自检 `094804/095342/095957/100557`，矩阵 `100855`）。审计发现 raw 自检单条路径下 `--selftest-force-private 10.0.0.8` 仍被 early-converge 绕过（golden 靠启动 marker 通过），批量循环已修而单条路径遗漏；已在 `client_flow.c` 单条 preclass 决策前按 `net_ctx->injection` 优先、全局 view 回退检查 `wc_query_exec_is_forced_private`，Phase C review 新增 `single-force-private` 案例后 `26/26 PASS`（详见 24.22）。
@@ -4364,12 +4365,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 ##### 24.23.7 代码清理（低优先，随功能开发顺带做）
 
-- 问题证据：`src/core/preclass.c` 约 40 个 `static const char* xxx_literal(void){ return "xxx"; }` 单行函数；`client_flow.c` 的 `wc_client_csv_is_default_marker` 与 `preclass.c` 公共版本完全重复；`lookup_row_text` 与 `lookup_table` 的 IPv4/IPv6 字节组装重复；`whois_query_exec.c` 的 `emit_observation` 中 if/else 两分支调用相同 `classify_ip`。
+- 问题证据：`src/core/preclass.c` 约 66 个 `static const char* xxx_literal(void){ return "xxx"; }` 单行函数（约 180 内部引用点）；`client_flow.c` 的 `wc_client_csv_is_default_marker` 与 `preclass.c` 公共版本完全重复；`lookup_row_text` 与 `lookup_table` 的 IPv4/IPv6 字节组装重复；`whois_query_exec.c` 的 `emit_observation` 中 if/else 两分支调用相同 `classify_ip`。
 - 目标闭包：`src/core/preclass.c`、`src/core/client_flow.c`、`src/core/whois_query_exec.c`。
-- 改动内容：literal 函数收敛（先确认是否为 selftest/防内联刻意设计，必要时保留）；重复 helper 复用公共版；消除冗余分支。
+- 改动内容（2026-08-20 审计定稿）：切片 A 消除 `emit_observation` 冗余分支；切片 B 删除 `client_flow.c` 重复 helper、改用公共 `wc_preclass_csv_is_default_marker`（公共 API 已确认，`client_flow.c` 已 include 头文件，仅 3 处引用）；切片 C 抽取 IPv4/IPv6 字节组装 static helper（只抽字节转换，不改查表算法与函数边界）；literal 收敛经审计（无 selftest 直接符号依赖、无 `noinline`/`used` 属性、无指针地址比较，但约 180 引用点、收益近零）评估为高改动低收益，本次不实施，记录为延迟项。
 - 验收门禁：行为零变化，全门禁 PASS；编码门禁通过。
-- 边界：如 literal 函数被 selftest 符号或防优化需求依赖，不得盲目合并。
-- 状态：⏳ 未排期，作未来 A/B Vx 切片候选（约 1 次 A/B 共 8 轮，或按合并策略并入后续批次；literal 函数收敛前需先确认是否为 selftest/防内联刻意设计；开发方式见 24.23.8）。
+- 边界：如 literal 函数被 selftest 符号或防优化需求依赖，不得盲目合并（本次已排除）。
+- 状态（2026-08-20）：开发方式确定为**交互式**（见 24.23.8），按切片 A → B → C 顺序实施、每片独立验证后走最终验收；literal 收敛延迟。
 
 ##### 24.23.8 后续工作安排与开发方式（2026-08-20 更新）
 
@@ -4385,12 +4386,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 | 分项 | 内容 | 开发方式 | 说明 |
 |---|---|---|---|
-| 24.23.7 代码清理 | literal 函数收敛、重复 helper 复用公共版、消除冗余分支 | **无人值守 A/B Vx 切片** | 源码目标（`preclass.c`/`client_flow.c`/`whois_query_exec.c`），行为零变化 + 全门禁；约 1 次 A/B 共 8 轮，或按 24.23 前言合并策略与其它独立小切片合并 |
+| 24.23.7 代码清理 | 切片 A 冗余分支消除、切片 B 重复 helper 复用公共版、切片 C 字节组装抽取；literal 收敛延迟 | **交互式（2026-08-20 确定）** | 源码目标（`preclass.c`/`client_flow.c`/`whois_query_exec.c`），行为零变化 + 全门禁；不占 A/B 窗口，每片独立验证；literal 收敛高改动低收益，本次不实施 |
 
-**执行顺序建议**：
-1. **24.23.7（无人值守）**：作为下一次 A/B Vx 任务候选——行为零变化、门禁完整，适合无人值守；若切片代码量小，按合并策略与其它独立小切片合并编排，或评估直接采用交互式开发。
-2. 24.23.7 开工前先按边界条款确认 literal 函数是否为 selftest/防内联刻意设计，必要时保留。
-3. **24.23.3 已完成**：表更新一键流程已落地（`update_and_verify_preclass_table.ps1`），后续快照更新直接走该脚本（交互式，不占 A/B 窗口）。
+**执行顺序建议（2026-08-20 更新）**：
+1. **24.23.7（交互式）**：不占 A/B 窗口，按切片 A → B → C 顺序实施；每片完成后立即跑该片专项验证，通过后再进入下一片；全部通过后走最终验收（编码门禁 + Fast 构建 + 一键全门禁 + Selftest/Batch Golden + Strict 多架构）。literal 收敛本次不实施，记录为延迟项。
+2. **切片 A（observation 冗余分支，低风险）**：`whois_query_exec.c` if/else 两分支相同的 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
+3. **切片 B（重复 helper，低风险）**：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API 已确认），step47 early-unknown 与 p1 tier 两处调用点改用 `wc_preclass_csv_is_default_marker`。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
+4. **切片 C（字节组装抽取，中风险）**：`preclass.c` 内新增 static helper 收敛 `lookup_row_text` 与 `lookup_row_and_assign_v4/v6` 的 IPv4 字节→u32、IPv6 字节→hi/lo 组装；只抽取字节转换，不改查表算法与函数边界。验证：`[SELFTEST] preclass-consistency`/`preclass-single-pass` + table guard + P0/P1/special 17/17 + 高位首字节用例（`240.*`/`255.*`/`fc00::`/`fe80::`/`ff00::`）+ 多架构构建（端序）。
+5. **24.23.3 已完成**：表更新一键流程已落地（`update_and_verify_preclass_table.ps1`），后续快照更新直接走该脚本（交互式，不占 A/B 窗口）。
 
 #### 24.24 下次开工清单（Vx 多文件：一致性防护 + 可观测性合并切片，2027-05-13 ~ 2027-05-19，串行第 51 份，Checklist A，草案）
 
@@ -4476,4 +4479,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 绑定 A/51 与 B/52，`WINDOW=2027-05-13 ~ 2027-05-26`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
 - 预检状态（2026-08-19 重置）：start-file 已重新创建为初始状态（`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`）；字段同步契约检查 `result=pass`；启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填预检结果。
 - 状态：已完成执行回填（2026-08-20，A/B 全 PASS，见 24.24/24.25 执行回填）。
+
+#### 24.27 下次开工清单（交互式：24.23.7 代码清理，2026-08-20，切片 A/B/C，待开工）
+
+> 开发方式：传统交互式（2026-08-20 确定，见 24.23.8），不占 A/B 窗口；依据 24.23.7 审计定稿与 24.23 前言“最小缺陷、不做无论证改动”原则。
+> 目标闭包：`src/core/whois_query_exec.c`（切片 A）、`src/core/client_flow.c`（切片 B）、`src/core/preclass.c`（切片 C）；literal 收敛本次不实施（约 66 helper / 约 180 引用、无 selftest/防内联依赖，高改动低收益，记录为延迟项）。
+
+**切片与每片验证（顺序执行，前片通过才进入下一片）**：
+
+1. [ ] 切片 A（低风险）：`whois_query_exec.c` 的 `emit_observation` if/else 两分支相同 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
+2. [ ] 切片 B（低风险）：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API `wc_preclass_csv_is_default_marker` 已确认、`client_flow.c` 已 include 头文件，仅 3 处引用），step47 early-unknown 与 p1 tier 两处调用点改用公共版。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
+3. [ ] 切片 C（中风险）：`preclass.c` 内新增 static helper 收敛 `lookup_row_text` 与 `lookup_row_and_assign_v4/v6` 的 IPv4 字节→u32、IPv6 字节→hi/lo 组装；只抽取字节转换，不改查表算法与函数边界。验证：`[SELFTEST] preclass-consistency`/`preclass-single-pass` + table guard + P0/P1/special 17/17 + 高位首字节用例（`240.*`/`255.*`/`fc00::`/`fe80::`/`ff00::`）+ 多架构构建（端序）。
+
+**停止条件**：
+- 每片专项验证失败即停止，仅修本片问题并复验，通过后再前进。
+- 12x6 仅 RIR 限流可保存证据后单例复测；分类/authority/输出差异一律不放行。
+- 完成后确认生成表文件无意外 diff。
+
+**最终验收矩阵（三片全部通过后）**：
+1. `Test: Text Encoding Gate (tracked, check)`。
+2. `Remote: Build (Fast x86_64+win64)`。
+3. 一键全门禁（无快照下载、强制跑门禁）：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1 -SkipUpdate -GateProfile all -GatesOnNoChange -BinaryPath release/lzispro/whois/whois-win64.exe`（覆盖 table guard、P0 12/12、P1 232/232、special 17/17、Phase C 26/26、CIDR 4/4+9/9、Step47、12x6 authority 空表）。
+4. `Selftest Golden Suite` + `Golden Check: Batch Suite`。
+5. `Remote: Build (Strict Version)`（全架构真实 LTO、零编译/LTO warning、Local hash/Golden/referral 全 PASS）。
+
+**提交与文档**：按仓库规则等待用户同轮授权后 `git add <具体文件>` + commit/push（仅 origin，不推 gitee）；变更输出契约/DNS 策略/自测流程时同步 `docs/USAGE_CN.md`/`docs/USAGE_EN.md`/`RELEASE_NOTES.md` 与相关 RFC/黄金脚本说明。
 
