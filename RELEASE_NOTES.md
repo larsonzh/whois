@@ -6,6 +6,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 ## Unreleased
 
 中文摘要 / Chinese summary
+- Step47 验证契约同步 Phase C（2026-08-19）：`tools/test/step47_ab_compare.ps1` 期望从
+  `route_changed=1`（Phase C 默认翻转前 base=hint-bypassed/trial=step47-short-circuit）更新为
+  `route_changed=0`（Phase C 正式收尾后 reserved/special 高置信隐式查询默认早收敛
+  `preclass-early-converge-unknown`），并新增 `early_converge_mismatch` 强断言锁定 base/trial 收敛契约。
+  该修复仅同步验证脚本与文档（RFC-address-space-preclassifier.md 第 16/19/20 节），业务行为零变化；
+  `step47_ab_compare` 与 `step47_preclass_preflight_check` 全绿。
 - 提交 `7e1f2fa7` 后的四轮 Golden + 12x6 复核（2026-08-18）：Strict lto-auto 默认/debug 两轮无编译与 LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260818-071217`，224s；`20260818-072952`，255s）；默认轮 9 架构 POSIX 哈希与真实 LTO 基准轮 `065540` 完全一致（Windows PE 因时间戳不同除外），确认 LTO 已真实启用且构建确定性同源。Batch 四策略 Golden 全 PASS（`073512/073943/074445/075120`，1185.080s）；Selftest 四策略全 `[golden-selftest] PASS`（`080108/080605/081113/081614`，1201.862s），报告均含 `output line matched: 10\.0\.0\.8 is a private IP address`，证明 `--require-line` 真实业务输出断言已生效、阻断 marker-only 假通过。12x6 矩阵 authority 表空（`redirect_matrix_10x6/20260818-083320`）；唯一 `afrinic_45.113.52.0_22` error 为 LACNIC 站点限流（`whois.lacnic.net ... rir=lacnic`，hop 4/5 连续 give-up），复测 `--prefer-ipv4 --rir-ip-pref arin=ipv6 "45.113.52.0/22" -h afrinic` 收敛 APNIC 正确，与历史同段限流模式一致，属外部瞬态而非代码或脚本回归。
 - 单条路径 force-private 优先级补全（2026-08-18）：提交 `22e0247f` 后的四轮 Golden + 12x6 复核全部 PASS（Strict `20260817-090311`/`091109`，批量 `091732..093454`，自检 `094804..100557`，矩阵 `100855` 无 errors）。审计发现 raw 自检走单条查询时 `--selftest-force-private 10.0.0.8` 仍被 Phase C early-converge 短路绕过（golden 仅靠启动 marker 通过），批量循环已在此前修复而单条路径遗漏。最终将检查前移到单条 preclass 决策之前，按 `net_ctx->injection` 优先、全局 view 回退调用 `wc_query_exec_is_forced_private`，命中即转入真实私网分支且不输出虚假的 early-converge 观察；golden checker 新增 `--require-line`，默认精确要求 `10\.0\.0\.8 is a private IP address`，阻断 marker-only 假通过。最终真实 LTO 制品通过 Phase C review `26/26`（`preclass_phasec_review/20260818-070138`）；普通单条隐式私网查询仍早收敛，显式 `-h` 保持兼容。
 - LTO 远程构建别名修复（2026-08-18）：审计发现 `remote_build_and_test.sh` 在 `getopts` 前归一化 profile，命令行 `-O lto-auto|lto-serial` 因此未进入 Makefile `lto` 分支；历史同名轮次的跨架构/hash/Golden/referral/行为证据仍有效，但不构成实际 LTO 告警证据。现将归一化移到参数解析后，并由 `remote_build.sh` 显式 export `LTO_MODE/LTO_SERIAL/LTO_PARALLEL` 给所有 POSIX/Windows make 调用。x86_64 判别轮 `20260818-064740` 明确含 `-flto=auto`；最终全架构轮 `20260818-065540` 9 架构编译/链接均含 `-flto=auto`，Local hash、Golden、三条 referral 全 PASS，release 已同步（455s）。

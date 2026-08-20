@@ -165,6 +165,7 @@ $shortCircuitCount = @($rows | Where-Object { $_.TrialAction -eq "step47-short-c
 
 $expectedAuthChanged = 0
 $expectedRouteChanged = 0
+$earlyConvergeMismatch = 0
 if ($EnableEarlyUnknown -and $scopeNorm -eq "reserved") {
     $reservedCases = @("255.0.0.0", "10.0.0.1", "fc00::1", "fe80::1")
     $targetCases = @()
@@ -179,9 +180,30 @@ if ($EnableEarlyUnknown -and $scopeNorm -eq "reserved") {
         }
     }
 
-    $expectedRouteChanged = $targetCases.Count
+    # After Phase C formal closure (2026-08-17, RFC-address-space-preclassifier.md 24.21),
+    # high-confidence reserved/special queries with rir=none implicitly converge by default
+    # to preclass-early-converge-unknown (route=1, via/auth=unknown), no longer relying on
+    # the step47 early-unknown trial's step47-short-circuit-unknown action. Therefore the
+    # base and trial runs behave identically for matched candidates: auth_changed=0,
+    # route_changed=0. Strong assertions are kept here to lock that contract (matched
+    # candidates must be preclass-early-converge-unknown / route=1 / auth=unknown on both
+    # base and trial) so that future regressions are not masked by the 0/0 expectation.
+    # The historical route_changed=1 contract only applied before the Phase C default flip
+    # (pre-2026-08-17).
+    $expectedRouteChanged = 0
     foreach ($targetCase in $targetCases) {
         $row = $rows | Where-Object { $_.Query -eq $targetCase } | Select-Object -First 1
+        if ($null -ne $row) {
+            if ($row.BaseAction -ne "preclass-early-converge-unknown" -or $row.TrialAction -ne "preclass-early-converge-unknown") {
+                $earlyConvergeMismatch++
+            }
+            if ($row.BaseRoute -ne "1" -or $row.TrialRoute -ne "1") {
+                $earlyConvergeMismatch++
+            }
+            if ($row.BaseAuth -ne "unknown" -or $row.TrialAuth -ne "unknown") {
+                $earlyConvergeMismatch++
+            }
+        }
         if ($null -ne $row -and $row.BaseAuth -ne "unknown") {
             $expectedAuthChanged++
         }
@@ -189,13 +211,13 @@ if ($EnableEarlyUnknown -and $scopeNorm -eq "reserved") {
 }
 
 Write-Output ("[STEP47-AB] out_dir={0}" -f $outDir)
-Write-Output ("[STEP47-AB] scope={0} early_unknown={1} list={2} eligible={3} short_circuit={4} auth_changed={5} route_changed={6}" -f $scopeNorm, ([int][bool]$EnableEarlyUnknown), ($EarlyUnknownList -replace '\s+', ''), $eligibleCount, $shortCircuitCount, $authChangedCount, $routeChangedCount)
+Write-Output ("[STEP47-AB] scope={0} early_unknown={1} list={2} eligible={3} short_circuit={4} auth_changed={5} route_changed={6} early_converge_mismatch={7}" -f $scopeNorm, ([int][bool]$EnableEarlyUnknown), ($EarlyUnknownList -replace '\s+', ''), $eligibleCount, $shortCircuitCount, $authChangedCount, $routeChangedCount, $earlyConvergeMismatch)
 Write-Output ("[STEP47-AB] summary_csv={0}" -f $summaryCsv)
 Write-Output ("[STEP47-AB] summary_txt={0}" -f $summaryTxt)
 
-if ($authChangedCount -ne $expectedAuthChanged -or $routeChangedCount -ne $expectedRouteChanged) {
+if ($authChangedCount -ne $expectedAuthChanged -or $routeChangedCount -ne $expectedRouteChanged -or $earlyConvergeMismatch -ne 0) {
     Write-Output "[STEP47-AB] result=fail"
-    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-ab mismatch: auth_changed={0}/{1} route_changed={2}/{3}" -f $authChangedCount, $expectedAuthChanged, $routeChangedCount, $expectedRouteChanged) -ExitCode 1
+    Exit-UnattendedFailure -Tag $script:UnhandledExitTag -Reason ("step47-ab mismatch: auth_changed={0}/{1} route_changed={2}/{3} early_converge_mismatch={4}" -f $authChangedCount, $expectedAuthChanged, $routeChangedCount, $expectedRouteChanged, $earlyConvergeMismatch) -ExitCode 1
 }
 
 Write-Output "[STEP47-AB] result=pass"

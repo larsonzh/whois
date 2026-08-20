@@ -8,6 +8,17 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-19：修复 Step47 验证契约过期（`tools/test/step47_ab_compare.ps1`）。根因：`356a970d`
+  Phase B/C 正式收尾（24.21）后，reserved/special + rir=none 高置信隐式查询默认早收敛
+  `preclass-early-converge-unknown`（route=1），而 step47_ab_compare.ps1（2026-06-14 冻结）仍期望
+  旧契约（base=hint-bypassed route=0 / trial=step47-short-circuit-unknown route=1），导致
+  `step47_preclass_preflight` 中带 `-EnableEarlyUnknown` 的 3 个“预期 pass”用例（baseline-disabled /
+  gate-enabled-valid-threshold / gate-enabled-consistency-chain）在 A/51 D1 编译/验证阶段 fail
+  （`route_changed=0/1`）。漏检链：交互式验证（Batch/Selftest Golden、12x6、Strict golden）均不含
+  step47_ab；08-17 一次 prerelease 因 `early_unknown=0` 意外 pass；带 early-unknown 的 preclass_preflight
+  仅在 A/B D6 strict（-K 1）运行。修复：期望改为 `auth_changed=0 route_changed=0` 并新增
+  `early_converge_mismatch` 强断言（目标候选 base/trial 均须 `preclass-early-converge-unknown`/route=1/
+  auth=unknown），`step47_ab_compare` 与 `step47_preclass_preflight_check` 全绿；业务行为零变化。
 - 2026-08-19：新增串行第 51/52 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-05-13 ~ 2027-05-26`，依据 `docs/RFC-address-space-preclassifier.md` 24.23 后续优化清单；A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270513_20270519.json`、`testdata/autopilot_code_step_tasks_20270520_20270526.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与统一 launch-ready 检查均通过（详见文内第 51/52 份清单段与启动文件段）；2026-08-19 审计修订（240.0.0.1 表侧 reason 修正、metrics 补 class_unallocated、B/52 追加 query-keyed 缓存与缓存去重断言、文案对齐已批准差异）已完成并全部复验；24.23.3/24.23.4/24.23.7 不在本轮范围（脚本目标 / 独立评审 / 低优先随功能顺带）。
 - 2026-08-18：提交 `22e0247f` 后的四轮 Golden + 12x6 复核全 PASS（Strict `20260817-090311/091109`，批量 `091732..093454`，自检 `094804..100557`，矩阵 `100855` 无 errors）。审计发现 raw 自检单条路径下 `--selftest-force-private 10.0.0.8` 仍被 early-converge 绕过；已在 `client_flow.c` 单条 preclass 决策前按 `net_ctx->injection` 优先、全局 view 回退检查 `wc_query_exec_is_forced_private`，Phase C review 新增 `single-force-private` 案例后 `26/26 PASS`（详见“批量路径早收敛补全与自检黄金期望修复”段落）。
 - 2026-08-17：四轮 Golden 与 12x6 复核发现并修复 Phase C 批量路径早收敛遗漏与自检黄金退出码掩盖。raw 自检 golden 报告实际 `[golden-selftest] FAIL`（`batch_raw/20260817-051757`）：Phase C 翻转后单条查询对 `10.0.0.8` 早收敛 `unknown @ unknown`，而批量流程因 `wc_handle_private_ip` 先短路仍走私网提示；`selftest_golden_suite.ps1` 的 `cmd | tee` 管道无 pipefail 把真实失败掩盖为 PASS，且任务预填 `-ErrorPatterns 'private IP address'` 无法匹配早收敛形态。修复：`src/core/client_flow.c` 批量循环对隐式 early-converge 候选跳过私网提示（显式 `-h` 保持兼容），`selftest_golden_suite.ps1` 加 `set -o pipefail`，`tasks.json` ErrorPatterns 改为 `Suspicious query detected;Private query denied`。快速构建 `out/artifacts/20260817-072058` 验证隐式批量早收敛、显式 `-h` 兼容、本地 selftest golden 新期望 PASS（详见“批量路径早收敛补全与自检黄金期望修复”段落）。

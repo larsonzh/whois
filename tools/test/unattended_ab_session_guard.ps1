@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'unattended_startfile_identity.ps1')
 . (Join-Path $PSScriptRoot 'a_success_snapshot_integrity.ps1')
 . (Join-Path $PSScriptRoot 'recovery_grace_state.ps1')
+. (Join-Path $PSScriptRoot 'unattended_failure_log_classifier.ps1')
 $script:UnhandledExitTag = 'UNATTENDED-AB-SESSION-GUARD'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:CommitMode'] = 'Move'
 $PSDefaultParameterValues['Invoke-KeyValueFileValueUpdateCore:ReadMaxAttempts'] = 8
@@ -2440,135 +2441,9 @@ function Get-RoundFailureCategoryFromLogText {
         }
     }
 
-    $markerRegistry = [ordered]@{
-        TaskDefinition = '(?im)(\[DEV-VERIFY-MULTI\]\s+round_task_static_gate_fail=|\[TASK-STATIC-CHECK\]\s+severity=(?:error|warn)\s+detail=)'
-        StructuredCodeValidation = '(?im)(\[AB-UNATTENDED-RESULT\][^\r\n]*script=[^\r\n]*(?:PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS)[^\r\n]*result=FAIL[^\r\n]*exit_code=\d+|\[[A-Z0-9_-]*(?:PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS)[A-Z0-9_-]*\][^\r\n]*(?:result=fail|FAIL)|\[remote_build\]\[ERROR\][^\r\n]*(?:preflight|golden|selftest|matrix|check|validation|verify|preclass)[^\r\n]*FAIL)'
-        StructuredChildExit = '(?im)(\[AB-UNATTENDED-RESULT\][^\r\n]*exit_code=\d+|\[ONECLICK-DRYRUN-SMOKE\]\s+oneclick_end exit_code=\d+)'
-        StrongScriptFault = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1)'
-        WrapperStack = '(?im)(所在位置\s+.*\.ps1:\d+|at\s+.*\.ps1:\d+|line:\s*\d+\s*char:\s*\d+)'
-        Infrastructure = '(?im)(connect-timeout|timed_out|connection\s+timed\s+out|temporary\s+failure|name\s+or\s+service\s+not\s+known|network\s+is\s+unreachable|connection\s+refused|connection\s+reset|no\s+route\s+to\s+host|eai_again|lookup\s+timeout|%error:201:\s*access\s+denied|rate\s*limit|too\s+many\s+requests|service\s+unavailable)'
-        SourceCode = '(?im)(\[CODE-STEP\]\s+fatal_error=\s*[^\r\n]+|code-step\s+fatal\s+error[^\r\n]*|src[\\/].*\.(c|h):\d+:\d+:\s*error:[^\r\n]*|error\s+C\d{4}\b[^\r\n]*|undefined\s+reference\s+to[^\r\n]*|compilation\s+terminated[^\r\n]*|was\s+not\s+declared\s+in\s+this\s+scope[^\r\n]*|conflicting\s+types\s+for[^\r\n]*|redefinition\s+of[^\r\n]*|no\s+member\s+named[^\r\n]*|fatal\s+error:\s+[^\r\n]*)'
-    }
-
-    $taskDefinitionEvidence = ''
-    $taskDefinitionSourceLog = ''
-    $scriptEvidence = ''
-    $networkEvidence = ''
-    $codeEvidence = ''
-    $structuredCodeEvidence = ''
-    $scriptSourceLog = ''
-    $networkSourceLog = ''
-    $codeSourceLog = ''
-    $structuredCodeSourceLog = ''
-
-    foreach ($candidate in $logCandidates) {
-        $path = [string]$candidate.Path
-        if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
-            continue
-        }
-
-        $text = ''
-        try {
-            $text = (@(Get-Content -LiteralPath $path -Tail 600 -ErrorAction Stop) -join "`n")
-        }
-        catch {
-            continue
-        }
-
-        $taskDefinitionMarker = [regex]::Match($text, [string]$markerRegistry['TaskDefinition'])
-        if ($taskDefinitionMarker.Success -and [string]::IsNullOrWhiteSpace($taskDefinitionEvidence)) {
-            $taskDefinitionEvidence = Convert-ToBoundedSingleLineText -Text ([string]$taskDefinitionMarker.Value) -MaxChars 120
-            $taskDefinitionSourceLog = Convert-ToRepoRelativePath -Path $path
-        }
-
-        $structuredCodeMarker = [regex]::Match($text, [string]$markerRegistry['StructuredCodeValidation'])
-        if ($structuredCodeMarker.Success) {
-            $result.HasCodeFault = $true
-            if ([string]::IsNullOrWhiteSpace($structuredCodeEvidence)) {
-                $structuredCodeEvidence = Convert-ToBoundedSingleLineText -Text ([string]$structuredCodeMarker.Value) -MaxChars 120
-                $structuredCodeSourceLog = Convert-ToRepoRelativePath -Path $path
-            }
-        }
-
-        $scriptMarker = [regex]::Match($text, [string]$markerRegistry['StrongScriptFault'])
-        $scriptStackMarker = [regex]::Match($text, [string]$markerRegistry['WrapperStack'])
-        $structuredChildExitMarker = [regex]::Match($text, [string]$markerRegistry['StructuredChildExit'])
-        if ($scriptMarker.Success -or ($scriptStackMarker.Success -and -not $structuredChildExitMarker.Success)) {
-            $result.HasScriptFault = $true
-            if ([string]::IsNullOrWhiteSpace($scriptEvidence)) {
-                $scriptEvidenceValue = if ($scriptMarker.Success) { [string]$scriptMarker.Value } else { [string]$scriptStackMarker.Value }
-                $scriptEvidence = Convert-ToBoundedSingleLineText -Text $scriptEvidenceValue -MaxChars 120
-                $scriptSourceLog = Convert-ToRepoRelativePath -Path $path
-            }
-        }
-
-        $networkMarker = [regex]::Match($text, [string]$markerRegistry['Infrastructure'])
-        if ($networkMarker.Success) {
-            $result.HasNetworkTransient = $true
-            if ([string]::IsNullOrWhiteSpace($networkEvidence)) {
-                $networkEvidence = Convert-ToBoundedSingleLineText -Text ([string]$networkMarker.Value) -MaxChars 120
-                $networkSourceLog = Convert-ToRepoRelativePath -Path $path
-            }
-        }
-
-        $codeMarker = [regex]::Match($text, [string]$markerRegistry['SourceCode'])
-        if ($codeMarker.Success) {
-            $result.HasCodeFault = $true
-            if ([string]::IsNullOrWhiteSpace($codeEvidence)) {
-                $codeEvidence = Convert-ToBoundedSingleLineText -Text ([string]$codeMarker.Value) -MaxChars 120
-                $codeSourceLog = Convert-ToRepoRelativePath -Path $path
-            }
-        }
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($taskDefinitionEvidence)) {
-        $result.Category = 'task-definition-mismatch'
-        $result.Evidence = ('matched={0}' -f $taskDefinitionEvidence)
-        $result.SourceLog = $taskDefinitionSourceLog
-        return [pscustomobject]$result
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($structuredCodeEvidence)) {
-        if ([bool]$result.HasNetworkTransient) {
-            $result.Category = 'noncode-transient'
-            $result.Evidence = ('validation={0};infra={1}' -f $structuredCodeEvidence, $networkEvidence)
-            $result.SourceLog = if (-not [string]::IsNullOrWhiteSpace($networkSourceLog)) { $networkSourceLog } else { $structuredCodeSourceLog }
-            return [pscustomobject]$result
-        }
-
-        $result.Category = 'code-or-unknown'
-        $result.Evidence = ('validation={0}' -f $structuredCodeEvidence)
-        $result.SourceLog = $structuredCodeSourceLog
-        return [pscustomobject]$result
-    }
-
-    if ([bool]$result.HasCodeFault -and [bool]$result.HasScriptFault) {
-        # Compile/type/link errors take precedence over wrapper script stack traces.
-        # Route to code-fix lane to avoid repeatedly misclassifying known compile failures.
-        $result.Category = 'code-or-unknown'
-        $result.Evidence = ('code={0};script={1}' -f $codeEvidence, $scriptEvidence)
-        $result.SourceLog = if (-not [string]::IsNullOrWhiteSpace($codeSourceLog)) { $codeSourceLog } else { $scriptSourceLog }
-        return [pscustomobject]$result
-    }
-
-    if ([bool]$result.HasScriptFault) {
-        $result.Category = 'script-fault'
-        $result.Evidence = ('matched={0}' -f $scriptEvidence)
-        $result.SourceLog = $scriptSourceLog
-        return [pscustomobject]$result
-    }
-
-    if ([bool]$result.HasCodeFault) {
-        $result.Category = 'code-or-unknown'
-        $result.Evidence = ('code={0}' -f $codeEvidence)
-        $result.SourceLog = $codeSourceLog
-        return [pscustomobject]$result
-    }
-
-    if ([bool]$result.HasNetworkTransient) {
-        $result.Category = 'noncode-transient'
-        $result.Evidence = ('matched={0}' -f $networkEvidence)
-        $result.SourceLog = $networkSourceLog
+    $result = Get-UnattendedFailureLogClassification -LogCandidates $logCandidates.ToArray()
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.SourceLog)) {
+        $result.SourceLog = Convert-ToRepoRelativePath -Path ([string]$result.SourceLog)
     }
 
     # Fallback: if no code/script/network markers found, check whether the
@@ -2847,10 +2722,11 @@ function Get-FailureTicketMeta {
     $structuredFailureKind = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureKind)).ToLowerInvariant()
     $structuredFailureCategory = (Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureCategory)).ToLowerInvariant()
     $structuredFailureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.StructuredFailureSourceLog)
+    $logClassificationAuthoritative = Test-UnattendedFailureLogClassificationAuthoritative -Category $failureCategory -HasCodeFault ([bool]$FailurePolicy.FailureHasCodeFault)
     if (-not [string]::IsNullOrWhiteSpace($structuredFailurePhase)) {
         $result.FailurePhase = $structuredFailurePhase
     }
-    if (-not [string]::IsNullOrWhiteSpace($structuredFailureSource)) {
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureSource) -and (-not $logClassificationAuthoritative -or [string]::IsNullOrWhiteSpace($failureSource))) {
         $failureSource = $structuredFailureSource
     }
 
@@ -2863,6 +2739,7 @@ function Get-FailureTicketMeta {
         if ([string]::IsNullOrWhiteSpace($failureCategory)) {
             $failureCategory = 'unknown'
         }
+        $logClassificationAuthoritative = Test-UnattendedFailureLogClassificationAuthoritative -Category $failureCategory -HasCodeFault ([bool]$FailurePolicy.FailureHasCodeFault)
         $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureEvidence)
         $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.VerifyFailureSourceLog)
         $verifyComposite = ('{0} {1}' -f $failureEvidence, $failureSource)
@@ -2881,6 +2758,7 @@ function Get-FailureTicketMeta {
         if ([string]::IsNullOrWhiteSpace($failureCategory)) {
             $failureCategory = 'unknown'
         }
+        $logClassificationAuthoritative = Test-UnattendedFailureLogClassificationAuthoritative -Category $failureCategory -HasCodeFault ([bool]$FailurePolicy.FailureHasCodeFault)
 
         $failureEvidence = Convert-ToSingleLineText -Text ([string]$FailurePolicy.DevFailureEvidence)
         if ([string]::IsNullOrWhiteSpace($failureEvidence)) {
@@ -2891,13 +2769,7 @@ function Get-FailureTicketMeta {
             $failureSource = Convert-ToSingleLineText -Text ([string]$FailurePolicy.FailureSourceLog)
         }
 
-        if ($failureCategory -eq 'script-fault' -and [bool]$FailurePolicy.FailureHasCodeFault) {
-            # Upstream may tag script-fault because of wrapper stack traces,
-            # but code markers indicate this belongs to code-fix handling.
-            $failureCategory = 'code-or-unknown'
-        }
-
-        if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory)) {
+        if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory) -and -not $logClassificationAuthoritative) {
             $failureCategory = $structuredFailureCategory
         }
 
@@ -2943,11 +2815,11 @@ function Get-FailureTicketMeta {
         $result.FailureKind = 'environment-transient'
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory)) {
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureCategory) -and -not $logClassificationAuthoritative) {
         $failureCategory = $structuredFailureCategory
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($structuredFailureKind)) {
+    if (-not [string]::IsNullOrWhiteSpace($structuredFailureKind) -and -not $logClassificationAuthoritative -and -not [bool]$FailurePolicy.IsVerifyRound) {
         $result.FailureKind = $structuredFailureKind
     }
 

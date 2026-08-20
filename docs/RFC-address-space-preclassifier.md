@@ -263,6 +263,8 @@ IPv6：
   - 当前基线：`whois.iana.org`
   - Step 4.7 目标：`unknown`
   - 备注：reserved/special 早收敛的首要候选
+  - Phase C 正式收尾（2026-08-17，24.21）后更新：默认早收敛 `unknown`（Step 4.7 目标已实现），
+    不再走 `whois.iana.org` 首跳；step47_ab_compare.ps1 期望已同步（2026-08-19）。
 - `10.0.0.1`
   - 当前基线：`unknown`
   - Step 4.7 目标：`unknown`
@@ -346,6 +348,13 @@ IPv6：
 - `minimal + early-unknown`：`short_circuit=0 auth_changed=0 route_changed=0`
 - `all + early-unknown`：`short_circuit=0 auth_changed=0 route_changed=0`
 
+Phase C 正式收尾（2026-08-17，24.21）更新：reserved/special + rir=none 高置信隐式查询默认早收敛为
+`preclass-early-converge-unknown`（route=1、via/auth=unknown），step47 early-unknown 试验的
+`step47-short-circuit-unknown` 动作已被正式实现取代。因此 `reserved + early-unknown` 下命中候选的
+base 与 trial 行为一致：`auth_changed=0 route_changed=0`（2026-08-19 实测）。`step47_ab_compare.ps1`
+期望已同步，并新增 `early_converge_mismatch` 强断言锁定该契约（目标候选 base/trial 均须为
+`preclass-early-converge-unknown`、route=1、auth=unknown），防止未来回归被 0/0 期望掩盖。
+
 结论：
 
 - early-unknown 入口已被限定在 `reserved` scope 单点试验。
@@ -362,9 +371,14 @@ IPv6：
 - 命令：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test\step47_ab_compare.ps1 -BinaryPath .\release\lzispro\whois\whois-win64.exe -Scope reserved -EnableEarlyUnknown -EarlyUnknownList "255.0.0.0,10.0.0.1"`
 - 结果：`eligible=4 short_circuit=2 auth_changed=1 route_changed=2 result=pass`
+- Phase C 正式收尾（2026-08-17，24.21）更新：上述结果基于 Phase C 默认翻转前行为；现在命中候选
+  （`255.0.0.0`/`10.0.0.1`）base 与 trial 均早收敛为 `preclass-early-converge-unknown`，实测结果变为
+  `eligible=0 short_circuit=0 auth_changed=0 route_changed=0 result=pass`（2026-08-19）。
 - 断言口径更新：
   - `route_changed` 由命中候选数决定。
   - `auth_changed` 由“命中候选且 baseline authoritative != unknown”决定。
+  - Phase C 后：命中候选 base 与 trial 恒一致（route_changed=0、auth_changed=0），由
+    `early_converge_mismatch` 强断言锁定收敛契约。
 
 ### 20.2 回退演练（disable-address-preclass）
 

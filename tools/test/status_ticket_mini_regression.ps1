@@ -50,79 +50,6 @@ function Write-Utf8BomText {
     [System.IO.File]::WriteAllText($Path, $value, [System.Text.UTF8Encoding]::new($true))
 }
 
-function Add-Utf8LineWithRetry {
-    param(
-        [string]$Path,
-        [string]$Line,
-        [int]$MaxAttempts = 8,
-        [int]$RetryDelayMs = 120
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        Write-Utf8BomText -Path $Path -Text $Line
-        return
-    }
-
-    $lastError = $null
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        try {
-            $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-            try {
-                $writer = New-Object System.IO.StreamWriter($stream, [System.Text.UTF8Encoding]::new($false))
-                try {
-                    $writer.WriteLine($Line)
-                    $writer.Flush()
-                    return
-                }
-                finally {
-                    $writer.Dispose()
-                }
-            }
-            finally {
-                $stream.Dispose()
-            }
-        }
-        catch {
-            $lastError = $_
-            if ($attempt -lt $MaxAttempts) {
-                Start-Sleep -Milliseconds $RetryDelayMs
-                continue
-            }
-        }
-    }
-
-    if ($null -ne $lastError) {
-        throw $lastError.Exception
-    }
-}
-
-function New-SyntheticDispatchEvidence {
-    param(
-        [string]$StartFilePath,
-        [string]$TicketId,
-        [string]$EventName
-    )
-
-    if ([string]::IsNullOrWhiteSpace($StartFilePath) -or [string]::IsNullOrWhiteSpace($TicketId)) {
-        return
-    }
-
-    $token = Get-StableStartFileToken -StartFilePath $StartFilePath
-    $queueRoot = Join-Path (Get-UnattendedRepoRoot) 'out\artifacts\ab_agent_queue'
-    $dispatchRoot = Join-Path $queueRoot 'chat_dispatch'
-    New-Item -ItemType Directory -Path $queueRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $dispatchRoot -Force | Out-Null
-
-    $triggerLogPath = Join-Path $queueRoot ("takeover_trigger_{0}.log" -f $token)
-    $dispatchLogPath = Join-Path $dispatchRoot ("dispatch_{0}.log" -f $token)
-    $relayPath = Join-Path $dispatchRoot ("relay_{0}_{1}.md" -f $TicketId, (Get-Date -Format 'yyyyMMdd-HHmmssfff'))
-    $nowText = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-
-    Add-Utf8LineWithRetry -Path $triggerLogPath -Line ("[SYNTHETIC] ticket_dispatch id={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
-    Add-Utf8LineWithRetry -Path $dispatchLogPath -Line ("[SYNTHETIC] relay_created ticket={0} event={1} at={2}" -f $TicketId, $EventName, $nowText)
-    Write-Utf8BomText -Path $relayPath -Text (("# synthetic relay`nticket: {0}`nevent: {1}`ncreated_at: {2}" -f $TicketId, $EventName, $nowText))
-}
-
 function Get-CaseResult {
     param(
         [string]$Name,
@@ -163,6 +90,7 @@ $pollPath = Resolve-RepoPath -Path $PollScript
 $promptDocPath = Resolve-RepoPath -Path $PromptDoc
 $stageWindowPath = Resolve-RepoPath -Path 'tools/test/open_unattended_ab_stage_window.ps1'
 $sessionGuardPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_session_guard.ps1'
+$failureClassifierPath = Resolve-RepoPath -Path 'tools/test/unattended_failure_log_classifier.ps1'
 $recoveryGraceStatePath = Resolve-RepoPath -Path 'tools/test/recovery_grace_state.ps1'
 $precheckStartFilePath = Resolve-RepoPath -Path 'tools/test/precheck_unattended_ab_start_file.ps1'
 $takeoverTriggerPath = Resolve-RepoPath -Path 'tools/test/unattended_ab_takeover_trigger.ps1'
@@ -177,6 +105,8 @@ $pollText = Get-Content -LiteralPath $pollPath -Raw -Encoding utf8
 $promptDocText = Get-Content -LiteralPath $promptDocPath -Raw -Encoding utf8
 $stageWindowText = Get-Content -LiteralPath $stageWindowPath -Raw -Encoding utf8
 $sessionGuardText = Get-Content -LiteralPath $sessionGuardPath -Raw -Encoding utf8
+$failureClassifierText = Get-Content -LiteralPath $failureClassifierPath -Raw -Encoding utf8
+. $failureClassifierPath
 $recoveryGraceStateText = Get-Content -LiteralPath $recoveryGraceStatePath -Raw -Encoding utf8
 $precheckStartFileText = Get-Content -LiteralPath $precheckStartFilePath -Raw -Encoding utf8
 $takeoverTriggerText = Get-Content -LiteralPath $takeoverTriggerPath -Raw -Encoding utf8
@@ -217,6 +147,7 @@ if ($ContractGateOnly.IsPresent) {
         $dispatchPath,
         $pollPath,
         $takeoverTriggerPath,
+        $failureClassifierPath,
         $atomicCloseoutPath,
         $recoveryTransactionPath,
         (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1'),
@@ -464,6 +395,195 @@ if ($ContractGateOnly.IsPresent) {
     exit 0
 }
 
+# Failure classification uses executable log fixtures rather than source-shape assertions.
+$failureClassifierRoot = Join-Path $outDir 'failure_classifier_runtime'
+New-Item -ItemType Directory -Path $failureClassifierRoot -Force | Out-Null
+
+function Invoke-FailureClassifierProbe {
+    param(
+        [string]$Name,
+        [string[]]$LogTexts,
+        [string]$ExpectedCategory,
+        [bool]$ExpectedScriptFault,
+        [bool]$ExpectedNetworkTransient,
+        [bool]$ExpectedCodeFault,
+        [string]$ExpectedSourceName
+    )
+
+    $candidates = New-Object 'System.Collections.Generic.List[object]'
+    for ($index = 0; $index -lt $LogTexts.Count; $index++) {
+        $logName = '{0}-{1}.log' -f $Name, ($index + 1)
+        $logPath = Join-Path $failureClassifierRoot $logName
+        Write-Utf8BomText -Path $logPath -Text ([string]$LogTexts[$index])
+        [void]$candidates.Add([pscustomobject]@{ Path = $logPath; Label = $logName })
+    }
+
+    $actual = Get-UnattendedFailureLogClassification -LogCandidates $candidates.ToArray()
+    $actualSourceName = if ([string]::IsNullOrWhiteSpace([string]$actual.SourceLog)) { '' } else { Split-Path -Leaf ([string]$actual.SourceLog) }
+    return (
+        [string]$actual.Category -eq $ExpectedCategory -and
+        [bool]$actual.HasScriptFault -eq $ExpectedScriptFault -and
+        [bool]$actual.HasNetworkTransient -eq $ExpectedNetworkTransient -and
+        [bool]$actual.HasCodeFault -eq $ExpectedCodeFault -and
+        $actualSourceName -eq $ExpectedSourceName
+    )
+}
+
+$failureClassificationMatrix = [ordered]@{
+    optional_network_pass_with_script_fault = Invoke-FailureClassifierProbe -Name 'optional-script' -LogTexts @(
+        "[CHECK-NET-PREFLIGHT] scope=local host=whois.example family=ipv4 required=False status=fail detail=connect-timeout`n[CHECK-NET-PREFLIGHT] summary overall=PASS checks=2 required_fails=0 optional_fails=1`n[AB-UNATTENDED-RESULT] script=PRECLASS result=FAIL exit_code=1",
+        'IOException: file is in use'
+    ) -ExpectedCategory 'script-fault' -ExpectedScriptFault $true -ExpectedNetworkTransient $false -ExpectedCodeFault $false -ExpectedSourceName 'optional-script-2.log'
+    required_network_failure = Invoke-FailureClassifierProbe -Name 'required-network' -LogTexts @(
+        "[CHECK-NET-PREFLIGHT] scope=local host=whois.example family=ipv6 required=True status=fail detail=connect-timeout`n[CHECK-NET-PREFLIGHT] summary overall=FAIL checks=2 required_fails=1 optional_fails=0`n[NETWORK-PREFLIGHT] result=fail"
+    ) -ExpectedCategory 'noncode-transient' -ExpectedScriptFault $false -ExpectedNetworkTransient $true -ExpectedCodeFault $false -ExpectedSourceName 'required-network-1.log'
+    compile_error_beats_unrelated_script_fault = Invoke-FailureClassifierProbe -Name 'compile-script' -LogTexts @(
+        'src/core/preclass.c:42:3: error: conflicting types for wc_probe',
+        'IOException: unrelated diagnostic log failure'
+    ) -ExpectedCategory 'code-or-unknown' -ExpectedScriptFault $true -ExpectedNetworkTransient $false -ExpectedCodeFault $true -ExpectedSourceName 'compile-script-1.log'
+    wrapper_stack_suppressed_by_structured_exit = Invoke-FailureClassifierProbe -Name 'wrapper-exit' -LogTexts @(
+        "[AB-UNATTENDED-RESULT] script=PRECLASS result=FAIL exit_code=1`nAt tools/test/wrapper.ps1:42"
+    ) -ExpectedCategory 'code-or-unknown' -ExpectedScriptFault $false -ExpectedNetworkTransient $false -ExpectedCodeFault $false -ExpectedSourceName 'wrapper-exit-1.log'
+    parser_error_is_script_fault = Invoke-FailureClassifierProbe -Name 'parser-error' -LogTexts @(
+        'ParserError: UnexpectedToken at tools/test/probe.ps1:9'
+    ) -ExpectedCategory 'script-fault' -ExpectedScriptFault $true -ExpectedNetworkTransient $false -ExpectedCodeFault $false -ExpectedSourceName 'parser-error-1.log'
+    optional_network_status_is_not_structured_validation = Invoke-FailureClassifierProbe -Name 'optional-only' -LogTexts @(
+        '[CHECK-NET-PREFLIGHT] scope=local host=whois.example family=ipv4 required=False status=fail detail=connect-timeout'
+    ) -ExpectedCategory 'code-or-unknown' -ExpectedScriptFault $false -ExpectedNetworkTransient $false -ExpectedCodeFault $false -ExpectedSourceName ''
+}
+$failureChildSummaryRoot = Join-Path $failureClassifierRoot 'child-summary'
+New-Item -ItemType Directory -Path $failureChildSummaryRoot -Force | Out-Null
+$failureChildLogPath = Join-Path $failureChildSummaryRoot 'failed-child.log'
+$failureChildSummaryPath = Join-Path $failureChildSummaryRoot 'summary.csv'
+$failureParentLogPath = Join-Path $failureChildSummaryRoot 'parent.log'
+Write-Utf8BomText -Path $failureChildLogPath -Text 'IOException: failed child gate log is locked'
+@([pscustomobject]@{ Case = 'failed-child'; Pass = 'False'; Log = $failureChildLogPath }) | Export-Csv -LiteralPath $failureChildSummaryPath -NoTypeInformation -Encoding utf8
+Write-Utf8BomText -Path $failureParentLogPath -Text ("[STEP47-PREFLIGHT] summary_csv={0}`n[STEP47-PREFLIGHT] result=fail" -f $failureChildSummaryPath)
+$failureChildSummaryResult = Get-UnattendedFailureLogClassification -LogCandidates @([pscustomobject]@{ Path = $failureParentLogPath; Label = 'parent-log' })
+$failureClassificationMatrix['failed_child_summary_log_is_classified'] = (
+    [string]$failureChildSummaryResult.Category -eq 'script-fault' -and
+    [bool]$failureChildSummaryResult.HasScriptFault -and
+    (Split-Path -Leaf ([string]$failureChildSummaryResult.SourceLog)) -eq 'failed-child.log'
+)
+$failureTailRoot = Join-Path $failureClassifierRoot 'tail-window'
+New-Item -ItemType Directory -Path $failureTailRoot -Force | Out-Null
+$failureTailChild = Join-Path $failureTailRoot 'child.log'
+$failureTailCsv = Join-Path $failureTailRoot 'summary.csv'
+$failureTailParent = Join-Path $failureTailRoot 'parent.log'
+Write-Utf8BomText -Path $failureTailChild -Text 'IOException: tail-window child'
+@([pscustomobject]@{ Case = 'child'; Pass = 'False'; Log = $failureTailChild }) | Export-Csv -LiteralPath $failureTailCsv -NoTypeInformation -Encoding utf8
+$failureTailLines = New-Object 'System.Collections.Generic.List[string]'
+for ($failureTailIndex = 1; $failureTailIndex -le 700; $failureTailIndex++) {
+    if ($failureTailIndex -eq 50) { $failureTailLines.Add("[STEP47-PREFLIGHT] summary_csv=$failureTailCsv") }
+    else { $failureTailLines.Add("[NOISE] filler $failureTailIndex") }
+}
+$failureTailLines.Add('[STEP47-PREFLIGHT] result=fail')
+Write-Utf8BomText -Path $failureTailParent -Text ($failureTailLines -join "`n")
+$failureTailResult = Get-UnattendedFailureLogClassification -LogCandidates @([pscustomobject]@{ Path = $failureTailParent; Label = 'tail-parent' })
+$failureClassificationMatrix['summary_csv_index_outside_tail_window_still_found'] = (
+    [string]$failureTailResult.Category -eq 'script-fault' -and
+    [bool]$failureTailResult.HasScriptFault -and
+    (Split-Path -Leaf ([string]$failureTailResult.SourceLog)) -eq 'child.log'
+)
+function Invoke-FailureClassifierRaceProbe {
+    param(
+        [string]$CandidatePath,
+        [string]$RaceTargetPath
+    )
+
+    $script:failureClassifierRaceTarget = [System.IO.Path]::GetFullPath($RaceTargetPath)
+    $script:failureClassifierRaceTriggered = $false
+    Set-Item -LiteralPath Function:\Test-Path -Value {
+        param([string]$LiteralPath)
+        $exists = Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
+        if (-not $script:failureClassifierRaceTriggered -and $exists -and [System.IO.Path]::GetFullPath($LiteralPath) -eq $script:failureClassifierRaceTarget) {
+            $script:failureClassifierRaceTriggered = $true
+            Remove-Item -LiteralPath $LiteralPath -Force
+        }
+        return $exists
+    } -Force
+    try {
+        $raceResult = Get-UnattendedFailureLogClassification -LogCandidates @([pscustomobject]@{ Path = $CandidatePath; Label = 'race-log' })
+        return (-not $script:failureClassifierRaceTriggered -and [string]$raceResult.Category -eq 'script-fault')
+    }
+    catch {
+        return $false
+    }
+    finally {
+        Remove-Item Function:\Test-Path -Force
+        Remove-Variable -Scope Script -Name failureClassifierRaceTarget, failureClassifierRaceTriggered -ErrorAction SilentlyContinue
+    }
+}
+
+$failureCandidateRacePath = Join-Path $failureClassifierRoot 'candidate-race.log'
+Write-Utf8BomText -Path $failureCandidateRacePath -Text 'IOException: candidate remains readable without a Test-Path race window'
+$failureClassificationMatrix['candidate_resolution_has_no_test_path_race'] = Invoke-FailureClassifierRaceProbe -CandidatePath $failureCandidateRacePath -RaceTargetPath $failureCandidateRacePath
+
+$failureSummaryRaceRoot = Join-Path $failureClassifierRoot 'summary-race'
+New-Item -ItemType Directory -Path $failureSummaryRaceRoot -Force | Out-Null
+$failureSummaryRaceChild = Join-Path $failureSummaryRaceRoot 'child.log'
+$failureSummaryRaceCsv = Join-Path $failureSummaryRaceRoot 'summary.csv'
+$failureSummaryRaceParent = Join-Path $failureSummaryRaceRoot 'parent.log'
+Write-Utf8BomText -Path $failureSummaryRaceChild -Text 'IOException: summary race child'
+@([pscustomobject]@{ Pass = 'False'; Log = $failureSummaryRaceChild }) | Export-Csv -LiteralPath $failureSummaryRaceCsv -NoTypeInformation -Encoding utf8
+Write-Utf8BomText -Path $failureSummaryRaceParent -Text ("[STEP47-PREFLIGHT] summary_csv={0}" -f $failureSummaryRaceCsv)
+$failureClassificationMatrix['summary_resolution_has_no_test_path_race'] = Invoke-FailureClassifierRaceProbe -CandidatePath $failureSummaryRaceParent -RaceTargetPath $failureSummaryRaceCsv
+
+$failureChildRaceRoot = Join-Path $failureClassifierRoot 'child-race'
+New-Item -ItemType Directory -Path $failureChildRaceRoot -Force | Out-Null
+$failureChildRaceLog = Join-Path $failureChildRaceRoot 'child.log'
+$failureChildRaceCsv = Join-Path $failureChildRaceRoot 'summary.csv'
+$failureChildRaceParent = Join-Path $failureChildRaceRoot 'parent.log'
+Write-Utf8BomText -Path $failureChildRaceLog -Text 'IOException: child race log'
+@([pscustomobject]@{ Pass = 'False'; Log = $failureChildRaceLog }) | Export-Csv -LiteralPath $failureChildRaceCsv -NoTypeInformation -Encoding utf8
+Write-Utf8BomText -Path $failureChildRaceParent -Text ("[STEP47-PREFLIGHT] summary_csv={0}" -f $failureChildRaceCsv)
+$failureClassificationMatrix['child_resolution_has_no_test_path_race'] = Invoke-FailureClassifierRaceProbe -CandidatePath $failureChildRaceParent -RaceTargetPath $failureChildRaceLog
+$guardParseTokens = $null
+$guardParseErrors = $null
+$guardAst = [System.Management.Automation.Language.Parser]::ParseFile($sessionGuardPath, [ref]$guardParseTokens, [ref]$guardParseErrors)
+foreach ($functionName in @('Get-StatusValue', 'Get-FailureTicketMeta')) {
+    $guardFunction = $guardAst.Find({
+        param($node)
+        return ($node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName)
+    }, $true)
+    if ($null -ne $guardFunction) {
+        Invoke-Expression $guardFunction.Extent.Text
+    }
+}
+$verifyFailurePolicy = [pscustomobject]@{
+    FailedRoundTag = 'V1'; IsVerifyRound = $true; IsDevRound = $false
+    FailureCategory = 'code-or-unknown'; VerifyFailureCategory = 'code-or-unknown'
+    FailureEvidence = 'validation=[GOLDEN-CHECK] result=fail'; VerifyFailureEvidence = 'validation=[GOLDEN-CHECK] result=fail'
+    FailureSourceLog = 'verify.log'; VerifyFailureSourceLog = 'verify.log'
+    FailureHasCodeFault = $false; FailurePhase = 'compile-or-test'
+    StructuredFailureKind = 'compile-or-test-failure'; StructuredFailureCategory = 'code-or-unknown'; StructuredFailureSourceLog = 'summary.log'
+}
+$verifyFailureMeta = Get-FailureTicketMeta -FailurePolicy $verifyFailurePolicy -AStatus 'PASS' -BStatus 'FAIL'
+$failureClassificationMatrix['verify_kind_not_overridden_by_weak_summary'] = ([string]$verifyFailureMeta.FailureKind -eq 'verify-failure')
+$scriptFailurePolicy = [pscustomobject]@{
+    FailedRoundTag = 'D4'; IsVerifyRound = $false; IsDevRound = $true
+    FailureCategory = 'script-fault'; DevFailureCategory = 'script-fault'
+    FailureEvidence = 'matched=IOException'; DevFailureEvidence = 'matched=IOException'
+    FailureSourceLog = 'failed-child.log'; DevFailureSourceLog = 'failed-child.log'
+    FailureHasCodeFault = $false; FailurePhase = 'compile-or-test'
+    StructuredFailureKind = 'compile-or-test-failure'; StructuredFailureCategory = 'code-or-unknown'; StructuredFailureSourceLog = 'summary.log'
+}
+$scriptFailureMeta = Get-FailureTicketMeta -FailurePolicy $scriptFailurePolicy -AStatus 'PASS' -BStatus 'FAIL'
+$failureClassificationMatrix['script_kind_not_overridden_by_stale_summary'] = (
+    [string]$scriptFailureMeta.FailureCategory -eq 'script-fault' -and
+    [string]$scriptFailureMeta.FailureKind -eq 'script-edit-failure'
+)
+$failureClassificationAuthorityPass = (
+    (Test-UnattendedFailureLogClassificationAuthoritative -Category 'script-fault' -HasCodeFault $false) -and
+    (Test-UnattendedFailureLogClassificationAuthoritative -Category 'noncode-transient' -HasCodeFault $false) -and
+    (Test-UnattendedFailureLogClassificationAuthoritative -Category 'code-or-unknown' -HasCodeFault $true) -and
+    -not (Test-UnattendedFailureLogClassificationAuthoritative -Category 'code-or-unknown' -HasCodeFault $false)
+)
+$failureClassificationMatrixFailures = @($failureClassificationMatrix.GetEnumerator() | Where-Object { -not [bool]$_.Value } | ForEach-Object { [string]$_.Key })
+$failureClassificationMatrixPass = ($failureClassificationMatrixFailures.Count -eq 0 -and $failureClassificationAuthorityPass)
+$failureClassificationMatrixReason = if ($failureClassificationMatrixPass) { 'failure-log-classification-matrix-pass' } else { 'failed:' + ($failureClassificationMatrixFailures -join ',') }
+[void]$results.Add((Get-CaseResult -Name 'failure-log-classification-runtime' -Pass $failureClassificationMatrixPass -Reason $failureClassificationMatrixReason))
+
 # New start files and missing/invalid reset modes must converge on event-only.
 $eventOnlyCreateDefault = $createStartFileText.Contains("[string]`$Mode = 'event-only'")
 $eventOnlyCreateUsesPolicyCompiler = $createStartFileText.Contains(". (Join-Path `$PSScriptRoot 'chat_dispatch_policy_compiler.ps1')") -and $createStartFileText.Contains('Get-ChatDispatchPolicyPlan -Settings $Values')
@@ -595,8 +715,8 @@ $promptRejectsSplitCloseout = $promptDocText.Contains('其职责已由 recovery_
 $dispatchRequiresMachineFacts = $dispatchText.Contains('当前 brief 提供 recovery_transaction_command') -and $dispatchText.Contains('this brief provides recovery_transaction_command') -and $dispatchText.Contains('本地验证通过后不得停下') -and $dispatchText.Contains('do not stop at local validation') -and $dispatchText.Contains('pre_restart_launch_ready_command') -and $dispatchText.Contains('最终聊天回复必须以独立末行 `handled_at: YYYY-MM-DD HH:mm:ss` 结束') -and $dispatchText.Contains('final chat reply must end with a standalone line `handled_at: YYYY-MM-DD HH:mm:ss`') -and $dispatchText.Contains('同时缺少 recovery_transaction_command 与 atomic_closeout_command') -and $dispatchText.Contains('both recovery_transaction_command and atomic_closeout_command are missing') -and $dispatchText.Contains('success=true、processed=true、ledger_status=done、receipt_valid=true、closure_pass=true') -and $dispatchText.Contains("if (`$eventNormalized -ne 'running-status-report')")
 $dispatchRoutesDiscoveredScriptFault = $dispatchText.Contains('若处理本代码修复票时发现脚本故障，必须停止代码修复流程并按脚本策略重新分类') -and $dispatchText.Contains('If a true script fault is discovered while handling this code-fix ticket, stop the code-fix flow') -and $dispatchText.Contains('structured child result or exit_code exists')
 $dispatchRecognizesCompileOrTestFailure = $dispatchText.Contains("'compile-or-test-failure'") -and $dispatchText.Contains("'compile-or-test'")
-$guardClassifiesStructuredValidationBeforeScriptStack = $sessionGuardText.Contains('$markerRegistry = [ordered]@{') -and $sessionGuardText.Contains('StructuredCodeValidation') -and $sessionGuardText.Contains('StructuredChildExit') -and $sessionGuardText.Contains('WrapperStack') -and $sessionGuardText.Contains('PREFLIGHT|CHECK|GOLDEN|SELFTEST|MATRIX|VERIFY|SMOKE|PRECLASS') -and $sessionGuardText.Contains("if (-not [string]::IsNullOrWhiteSpace(`$structuredCodeEvidence))") -and $sessionGuardText.Contains("`$result.Evidence = ('validation={0}' -f `$structuredCodeEvidence)") -and -not $sessionGuardText.Contains("`$scriptFaultRegex = '(?im)(parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|参数类型不匹配|is not recognized as the name of a cmdlet|cannot find path\s+.*\.ps1|所在位置")
-$guardScriptFaultRequiresStrongMarkerOrNoStructuredExit = $sessionGuardText.Contains("`$scriptMarker.Success -or (`$scriptStackMarker.Success -and -not `$structuredChildExitMarker.Success)") -and $sessionGuardText.Contains('[AB-UNATTENDED-RESULT\][^\r\n]*exit_code=\d+') -and $sessionGuardText.Contains('oneclick_end exit_code=\d+')
+$guardClassifiesStructuredValidationBeforeScriptStack = $sessionGuardText.Contains(". (Join-Path `$PSScriptRoot 'unattended_failure_log_classifier.ps1')") -and $sessionGuardText.Contains('Get-UnattendedFailureLogClassification -LogCandidates') -and $failureClassifierText.Contains('RequiredNetworkFailure') -and $failureClassifierText.Contains('required_fails=[1-9]') -and $failureClassifierText.Contains('Test-UnattendedFailureLogClassificationAuthoritative') -and $failureClassificationMatrixPass
+$guardScriptFaultRequiresStrongMarkerOrNoStructuredExit = $failureClassifierText.Contains('parsererror|unexpectedtoken|propertynotfoundexception|argumentexception|ioexception') -and $failureClassifierText.Contains('WrapperStack.Success -and -not $scanFindings.StructuredChildExit.Success') -and $failureClassifierText.IndexOf('$null -ne $evidence.SourceCode') -lt $failureClassifierText.IndexOf('$null -ne $evidence.Script') -and $failureClassificationMatrixPass
 $guardDelegatesCodeFaultRecovery = $sessionGuardText.Contains("`$failureCategory -in @('noncode-transient', 'monitor-chain', 'environment', 'infra-transient')") -and $sessionGuardText.Contains('if ($autoFixCompileEnabled -and $guardRestartAllowedForFailure') -and $sessionGuardText.Contains('function Get-NormalizedStageRestartResult')
 $copilotForbidsInlineEditing = $copilotInstructionsText.Contains('**Agent 工具与机器回执门禁（硬规则）**') -and $copilotInstructionsText.Contains('禁止使用终端内联 Python') -and $copilotInstructionsText.Contains('事件票若提供 brief 的 `recovery_transaction_command`，必须优先执行该事务命令')
 $atomicCloseoutContractChecks = [ordered]@{
@@ -1325,7 +1445,6 @@ $pollNoticeTicket = [ordered]@{
     budget_exhausted = $true
 }
 Set-Content -LiteralPath $pollNoticeQueue -Encoding utf8 -Value (($pollNoticeTicket | ConvertTo-Json -Compress -Depth 10))
-New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollNoticeTicket.ticket_id) -EventName ([string]$pollNoticeTicket.event)
 
 $pollNoticeRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollNoticeQueue -StatePath $pollNoticeState -LedgerPath $pollNoticeLedger -Last 20 -AsJson | Out-String
 $pollNoticeJson = $null
@@ -1375,7 +1494,6 @@ $pollManualTicket = [ordered]@{
     non_recoverable_env = $false
 }
 Set-Content -LiteralPath $pollManualQueue -Encoding utf8 -Value (($pollManualTicket | ConvertTo-Json -Compress -Depth 10))
-New-SyntheticDispatchEvidence -StartFilePath $pollRuntimeStartFile -TicketId ([string]$pollManualTicket.ticket_id) -EventName ([string]$pollManualTicket.event)
 
 $pollManualRaw = & $pollPath -StartFile $pollRuntimeStartFile -QueuePath $pollManualQueue -StatePath $pollManualState -LedgerPath $pollManualLedger -Last 20 -AsJson | Out-String
 $pollManualJson = $null
