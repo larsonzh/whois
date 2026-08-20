@@ -560,11 +560,93 @@ static int selftest_preclass_phasec_policy(void)
     return failed;
 }
 
+static int selftest_preclass_consistency(void)
+{
+    if (wc_preclass_verify_hardcoded_consistency() != 0) {
+        fprintf(stderr, "[SELFTEST] preclass-consistency: FAIL\n");
+        return 1;
+    }
+    fprintf(stderr, "[SELFTEST] preclass-consistency: PASS\n");
+    return 0;
+}
+
+static int selftest_preclass_single_pass(void)
+{
+    int failed = 0;
+    const char* ips[] = {
+        "10.0.0.1", "127.0.0.1", "169.254.10.20", "172.16.0.1",
+        "192.168.0.1", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+        "0.0.0.1", "::1", "fc00::1", "fe80::1", "ff00::1",
+        "2001:db8::1", "2001:db9::1", "8.8.8.8", "203.0.113.1", NULL
+    };
+    size_t i;
+
+    for (i = 0; ips[i]; ++i) {
+        const char* family = NULL;
+        const char* cls = NULL;
+        const char* rir = NULL;
+        const char* reason = NULL;
+        const char* confidence = NULL;
+        wc_preclass_result_t result;
+
+        wc_preclass_classify_ip(ips[i], &family, &cls, &rir,
+            &reason, &confidence);
+        if (!wc_preclass_classify_query(ips[i], &result) ||
+            !result.family || strcmp(result.family, family) != 0 ||
+            !result.cls || strcmp(result.cls, cls) != 0 ||
+            !result.rir || strcmp(result.rir, rir) != 0 ||
+            !result.reason || strcmp(result.reason, reason) != 0 ||
+            !result.confidence || strcmp(result.confidence, confidence) != 0) {
+            fprintf(stderr, "[SELFTEST] preclass-single-pass: FAIL (%s)\n", ips[i]);
+            failed = 1;
+        }
+    }
+
+    {
+        wc_preclass_result_t cidr_result;
+        if (!wc_preclass_classify_query("203.0.113.0/24", &cidr_result) ||
+            strcmp(cidr_result.cls, "special") != 0 ||
+            strcmp(cidr_result.rir, "none") != 0 ||
+            strcmp(cidr_result.covering_rir, "apnic") != 0) {
+            fprintf(stderr, "[SELFTEST] preclass-single-pass-cidr: FAIL\n");
+            failed = 1;
+        }
+    }
+
+    {
+        wc_preclass_result_t c1;
+        wc_preclass_result_t c2;
+        unsigned long after_first = 0;
+        if (!wc_preclass_classify_query("1.1.1.1", &c1))
+            failed = 1;
+        after_first = wc_preclass_get_lookup_count();
+        if (!wc_preclass_classify_query("1.1.1.1", &c2) ||
+            c1.family != c2.family || c1.cls != c2.cls ||
+            c1.rir != c2.rir || c1.reason != c2.reason ||
+            c1.confidence != c2.confidence ||
+            (wc_preclass_get_lookup_count() - after_first) != 0) {
+            fprintf(stderr, "[SELFTEST] preclass-cache-single-scan: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] preclass-cache-single-scan: PASS\n");
+        }
+    }
+    if (failed == 0)
+        fprintf(stderr, "[SELFTEST] preclass-single-pass: PASS\n");
+    return failed;
+}
+
 int wc_selftest_run(void) {
     int failed = 0;
 
+    int consistency = selftest_preclass_consistency();
+    if (consistency != 0) failed = 1;
+
     int phasec = selftest_preclass_phasec_policy();
     if (phasec != 0) failed = 1;
+
+    int singlepass = selftest_preclass_single_pass();
+    if (singlepass != 0) failed = 1;
 
     int crlf = selftest_crlf_normalization();
     if (crlf != 0) failed = 1;

@@ -23,6 +23,7 @@
 #include "wc/wc_util.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_net.h"
+#include "wc/wc_preclass.h"
 #include "wc/wc_selftest.h"
 
 // Forward declaration to inject Config into signal module once available.
@@ -427,6 +428,8 @@ void wc_runtime_init_resources(const Config* config) {
 			atexit(wc_runtime_emit_cache_stats_once);
 		}
 	}
+	if (config && (config->debug || config->retry_metrics))
+		wc_preclass_metrics_enable();
 	if (config && config->debug)
 		printf("[DEBUG] Runtime resources initialized successfully\n");
 	g_runtime_resources_initialized = 1;
@@ -454,6 +457,8 @@ void wc_runtime_exit_flush(void)
 	wc_runtime_emit_dns_cache_summary_internal();
 	// Flush any registered net contexts (idempotent, guarded internally).
 	wc_net_flush_registered_contexts();
+	// Emit preclass hit counters once when --retry-metrics/--debug enabled.
+	wc_preclass_metrics_flush();
 	// Keep legacy cleanup side effects (active connection closure, neg stats).
 	wc_signal_atexit_cleanup();
 }

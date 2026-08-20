@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(_MSC_VER)
@@ -835,8 +836,27 @@ static int wc_preclass_lookup_row_v6(uint64_t hi,
 	return 0;
 }
 
+#define WC_PRECLASS_CACHE_SLOTS 16
+#define WC_PRECLASS_CACHE_KEY_MAX 128
+
+typedef struct wc_preclass_query_cache_entry {
+	char key[WC_PRECLASS_CACHE_KEY_MAX];
+	wc_preclass_result_t result;
+	unsigned int used;
+} wc_preclass_query_cache_entry;
+
+static wc_preclass_query_cache_entry g_wc_preclass_query_cache[WC_PRECLASS_CACHE_SLOTS];
+static unsigned int g_wc_preclass_query_cache_next = 0;
+static unsigned long g_wc_preclass_lookup_row_text_count = 0;
+
+unsigned long wc_preclass_get_lookup_count(void)
+{
+	return g_wc_preclass_lookup_row_text_count;
+}
+
 static const wc_preclass_table_row_t* wc_preclass_lookup_row_text(const char* normalized)
 {
+	++g_wc_preclass_lookup_row_text_count;
 	struct in_addr addr4;
 	struct in6_addr addr6;
 	const wc_preclass_table_row_t* row = NULL;
@@ -1033,7 +1053,8 @@ static const char* wc_preclass_v6_multicast_reason_literal(void)
 	return "V6_MULTICAST_FF00_8";
 }
 
-void wc_preclass_classify_ip(const char* normalized,
+static void wc_preclass_classify_ip_with_row(const char* normalized,
+		const wc_preclass_table_row_t* row,
 		const char** family,
 		const char** cls,
 		const char** rir,
@@ -1049,12 +1070,20 @@ void wc_preclass_classify_ip(const char* normalized,
 	*reason = wc_preclass_reason_non_ip_input_literal();
 	*confidence = wc_preclass_confidence_low_literal();
 
-	(void)wc_preclass_lookup_table(normalized,
-		family,
-		cls,
-		rir,
-		reason,
-		confidence);
+	if (row) {
+		*family = (row->family == 4u) ? "v4" : "v6";
+		*cls = wc_preclass_class_name(row->class_id);
+		*rir = wc_preclass_rir_name(row->rir_id);
+		*reason = wc_preclass_reason_name(row->reason_id);
+		*confidence = wc_preclass_confidence_name(row->confidence_id);
+	} else {
+		(void)wc_preclass_lookup_table(normalized,
+			family,
+			cls,
+			rir,
+			reason,
+			confidence);
+	}
 
 	struct in_addr addr4;
 	if (inet_pton(AF_INET, normalized, &addr4) == 1) {
@@ -1156,6 +1185,21 @@ void wc_preclass_classify_ip(const char* normalized,
 	}
 }
 
+void wc_preclass_classify_ip(const char* normalized,
+		const char** family,
+		const char** cls,
+		const char** rir,
+		const char** reason,
+		const char** confidence)
+{
+	wc_preclass_classify_ip_with_row(normalized, NULL,
+		family,
+		cls,
+		rir,
+		reason,
+		confidence);
+}
+
 int wc_preclass_classify_query(const char* query,
 		wc_preclass_result_t* out_result)
 {
@@ -1167,6 +1211,25 @@ int wc_preclass_classify_query(const char* query,
 	if (!query || !*query || !out_result)
 		return 0;
 	memset(out_result, 0, sizeof(*out_result));
+	{
+		unsigned int h = 2166136261u;
+		const unsigned char* kp = (const unsigned char*)query;
+		unsigned int start;
+		unsigned int ci;
+		while (*kp) {
+			h ^= (unsigned int)*kp++;
+			h *= 16777619u;
+		}
+		start = h % WC_PRECLASS_CACHE_SLOTS;
+		for (ci = 0; ci < WC_PRECLASS_CACHE_SLOTS; ++ci) {
+			unsigned int idx = (start + ci) % WC_PRECLASS_CACHE_SLOTS;
+			wc_preclass_query_cache_entry* e = &g_wc_preclass_query_cache[idx];
+			if (e->used && strcmp(e->key, query) == 0) {
+				*out_result = e->result;
+				return 1;
+			}
+		}
+	}
 	slash = strchr(query, '/');
 	normalized_len = slash ? (size_t)(slash - query) : strlen(query);
 	if (normalized_len == 0 || normalized_len >= sizeof(normalized))
@@ -1177,7 +1240,7 @@ int wc_preclass_classify_query(const char* query,
 	if (!row)
 		return 0;
 
-	wc_preclass_classify_ip(normalized,
+	wc_preclass_classify_ip_with_row(normalized, row,
 		&out_result->family,
 		&out_result->cls,
 		&out_result->rir,
@@ -1188,5 +1251,203 @@ int wc_preclass_classify_query(const char* query,
 	out_result->purpose = row->purpose ? row->purpose : "none";
 	out_result->globally_reachable = wc_preclass_tristate_name(row->globally_reachable);
 	out_result->reserved_by_protocol = wc_preclass_tristate_name(row->reserved_by_protocol);
+	{
+		unsigned int slot = g_wc_preclass_query_cache_next;
+		wc_preclass_query_cache_entry* e = &g_wc_preclass_query_cache[slot];
+		if (strlen(query) < WC_PRECLASS_CACHE_KEY_MAX) {
+			memcpy(e->key, query, strlen(query) + 1);
+			e->result = *out_result;
+			e->used = 1;
+			g_wc_preclass_query_cache_next =
+				(g_wc_preclass_query_cache_next + 1) % WC_PRECLASS_CACHE_SLOTS;
+		}
+	}
 	return 1;
+}
+
+static int wc_preclass_consistency_check(const char* ip,
+		const char* field,
+		const char* expected,
+		const char* actual)
+{
+	if (!expected || !actual || strcmp(expected, actual) != 0) {
+		fprintf(stderr,
+			"[PRECLASS-CONSISTENCY] ip=%s field=%s expected=%s actual=%s\n",
+			ip,
+			field,
+			expected ? expected : "null",
+			actual ? actual : "null");
+		return 1;
+	}
+	return 0;
+}
+
+typedef struct wc_preclass_consistency_expect {
+	const char* ip;
+	const char* expect_family;
+	const char* expect_cls;
+	const char* expect_rir;
+	const char* expect_reason;
+	const char* expect_confidence;
+	const char* table_cls;
+	const char* table_rir;
+	const char* table_reason;
+	const char* table_confidence;
+} wc_preclass_consistency_expect_t;
+
+static const wc_preclass_consistency_expect_t wc_preclass_consistency_expects[] = {
+	/* IPv4 hardcoded fast-path segments */
+	{"255.255.255.255", "v4", "special", "none", "V4_LIMITED_BROADCAST_255_255_255_255", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"240.0.0.1", "v4", "reserved", "none", "special", "high", "reserved", "none", "V4_RESERVED_REGISTRY", "high"},
+	{"0.0.0.1", "v4", "special", "none", "V4_THIS_NETWORK_0_8", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"10.0.0.1", "v4", "special", "none", "V4_PRIVATE_10_8", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"127.0.0.1", "v4", "special", "none", "V4_LOOPBACK_127_8", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"169.254.10.20", "v4", "special", "none", "V4_LINK_LOCAL_169_254_16", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"172.16.0.1", "v4", "special", "none", "V4_PRIVATE_172_16_12", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"172.31.255.254", "v4", "special", "none", "V4_PRIVATE_172_16_12", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"192.168.0.1", "v4", "special", "none", "V4_PRIVATE_192_168_16", "high", "special", "none", "V4_SPECIAL_PURPOSE", "high"},
+	{"224.0.0.1", "v4", "special", "none", "V4_MULTICAST_224_4", "high", "reserved", "none", "V4_RESERVED_REGISTRY", "high"},
+	{"239.255.255.254", "v4", "special", "none", "V4_MULTICAST_224_4", "high", "reserved", "none", "V4_RESERVED_REGISTRY", "high"},
+	/* IPv6 hardcoded fast-path segments */
+	{"::1", "v6", "special", "none", "V6_LOOPBACK_1", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
+	{"fc00::1", "v6", "special", "none", "V6_UNIQUE_LOCAL_FC00_7", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
+	{"fd00::1", "v6", "special", "none", "V6_UNIQUE_LOCAL_FC00_7", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
+	{"fe80::1", "v6", "special", "none", "V6_LINK_LOCAL_FE80_10", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
+	{"ff00::1", "v6", "special", "none", "V6_MULTICAST_FF00_8", "high", "special", "none", "V6_MULTICAST", "high"},
+	{"2001:db8::1", "v6", "special", "none", "V6_DOCUMENTATION_2001_DB8_32", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
+	{"2001:db9::1", "v6", "allocated", "unknown", "V6_GLOBAL_UNICAST_2000_3", "low", "allocated", "unknown", "V6_GLOBAL_UNICAST", "medium"}
+};
+
+int wc_preclass_verify_hardcoded_consistency(void)
+{
+	size_t i;
+	int failures = 0;
+
+	for (i = 0; i < sizeof(wc_preclass_consistency_expects) /
+			sizeof(wc_preclass_consistency_expects[0]); ++i) {
+		const wc_preclass_consistency_expect_t* exp =
+			&wc_preclass_consistency_expects[i];
+		const char* family = NULL;
+		const char* cls = NULL;
+		const char* rir = NULL;
+		const char* reason = NULL;
+		const char* confidence = NULL;
+		const char* t_family = NULL;
+		const char* t_cls = NULL;
+		const char* t_rir = NULL;
+		const char* t_reason = NULL;
+		const char* t_confidence = NULL;
+		struct in_addr a4;
+		struct in6_addr a6;
+
+		wc_preclass_classify_ip(exp->ip,
+			&family, &cls, &rir, &reason, &confidence);
+
+		if (inet_pton(AF_INET, exp->ip, &a4) == 1) {
+			wc_preclass_lookup_row_and_assign_v4(a4,
+				&t_family, &t_cls, &t_rir, &t_reason, &t_confidence);
+		} else if (inet_pton(AF_INET6, exp->ip, &a6) == 1) {
+			wc_preclass_lookup_row_and_assign_v6(a6,
+				&t_family, &t_cls, &t_rir, &t_reason, &t_confidence);
+		}
+
+		failures += wc_preclass_consistency_check(exp->ip,
+			"family", exp->expect_family, family);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"cls", exp->expect_cls, cls);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"rir", exp->expect_rir, rir);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"reason", exp->expect_reason, reason);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"confidence", exp->expect_confidence, confidence);
+
+		failures += wc_preclass_consistency_check(exp->ip,
+			"table-family", exp->expect_family, t_family);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"table-cls", exp->table_cls, t_cls);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"table-rir", exp->table_rir, t_rir);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"table-reason", exp->table_reason, t_reason);
+		failures += wc_preclass_consistency_check(exp->ip,
+			"table-confidence", exp->table_confidence, t_confidence);
+	}
+
+	return failures;
+}
+
+static unsigned long g_wc_preclass_metrics_total = 0;
+static unsigned long g_wc_preclass_metrics_v4 = 0;
+static unsigned long g_wc_preclass_metrics_v6 = 0;
+static unsigned long g_wc_preclass_metrics_class_special = 0;
+static unsigned long g_wc_preclass_metrics_class_reserved = 0;
+static unsigned long g_wc_preclass_metrics_class_allocated = 0;
+static unsigned long g_wc_preclass_metrics_class_legacy = 0;
+static unsigned long g_wc_preclass_metrics_class_unknown = 0;
+static unsigned long g_wc_preclass_metrics_class_unallocated = 0;
+static unsigned long g_wc_preclass_metrics_conf_high = 0;
+static unsigned long g_wc_preclass_metrics_conf_medium = 0;
+static unsigned long g_wc_preclass_metrics_conf_low = 0;
+static int g_wc_preclass_metrics_enabled = 0;
+static int g_wc_preclass_metrics_emitted = 0;
+
+void wc_preclass_metrics_enable(void)
+{
+	g_wc_preclass_metrics_enabled = 1;
+}
+
+void wc_preclass_metrics_record(const char* family,
+		const char* cls,
+		const char* confidence)
+{
+	if (!family || !cls || !confidence)
+		return;
+	g_wc_preclass_metrics_enabled = 1;
+	++g_wc_preclass_metrics_total;
+	if (strcmp(family, "v4") == 0)
+		++g_wc_preclass_metrics_v4;
+	else if (strcmp(family, "v6") == 0)
+		++g_wc_preclass_metrics_v6;
+	if (strcmp(cls, "special") == 0)
+		++g_wc_preclass_metrics_class_special;
+	else if (strcmp(cls, "reserved") == 0)
+		++g_wc_preclass_metrics_class_reserved;
+	else if (strcmp(cls, "allocated") == 0)
+		++g_wc_preclass_metrics_class_allocated;
+	else if (strcmp(cls, "legacy") == 0)
+		++g_wc_preclass_metrics_class_legacy;
+	else if (strcmp(cls, "unknown") == 0)
+		++g_wc_preclass_metrics_class_unknown;
+	else if (strcmp(cls, "unallocated") == 0)
+		++g_wc_preclass_metrics_class_unallocated;
+	if (strcmp(confidence, "high") == 0)
+		++g_wc_preclass_metrics_conf_high;
+	else if (strcmp(confidence, "medium") == 0)
+		++g_wc_preclass_metrics_conf_medium;
+	else if (strcmp(confidence, "low") == 0)
+		++g_wc_preclass_metrics_conf_low;
+}
+
+void wc_preclass_metrics_flush(void)
+{
+	if (g_wc_preclass_metrics_emitted)
+		return;
+	if (!g_wc_preclass_metrics_enabled)
+		return;
+	g_wc_preclass_metrics_emitted = 1;
+	fprintf(stderr,
+		"[PRECLASS-METRICS] total=%lu v4=%lu v6=%lu class_special=%lu class_reserved=%lu class_allocated=%lu class_legacy=%lu class_unknown=%lu class_unallocated=%lu conf_high=%lu conf_medium=%lu conf_low=%lu\n",
+		g_wc_preclass_metrics_total,
+		g_wc_preclass_metrics_v4,
+		g_wc_preclass_metrics_v6,
+		g_wc_preclass_metrics_class_special,
+		g_wc_preclass_metrics_class_reserved,
+		g_wc_preclass_metrics_class_allocated,
+		g_wc_preclass_metrics_class_legacy,
+		g_wc_preclass_metrics_class_unknown,
+		g_wc_preclass_metrics_class_unallocated,
+		g_wc_preclass_metrics_conf_high,
+		g_wc_preclass_metrics_conf_medium,
+		g_wc_preclass_metrics_conf_low);
 }

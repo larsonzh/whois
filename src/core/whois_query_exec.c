@@ -429,6 +429,7 @@ void wc_preclass_emit_observation(const Config* config,
 		&reason_key,
 		&confidence_code,
 		&confidence_rank);
+	wc_preclass_metrics_record(family, cls, confidence);
 
 	fprintf(stderr,
 		"[PRECLASS] query=%s input=%s family=%s class=%s rir=%s covering_rir=%s registry=%s purpose=%s globally_reachable=%s reserved_by_protocol=%s reason=%s reason_code=%s reason_key=%s confidence=%s confidence_code=%s confidence_rank=%d dict_version=%s host_mode=%s action=%s action_src=%s route_change=%d match_layer=%s fallback=%s\n",

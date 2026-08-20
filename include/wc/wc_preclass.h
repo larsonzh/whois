@@ -34,6 +34,8 @@ typedef struct wc_preclass_result {
 
 // Classifies an IP or CIDR query. CIDR inputs are classified by their base
 // address. Returns 1 for valid IP/CIDR input and 0 for non-IP input.
+// Cache single-scan observability for the built-in selftest.
+unsigned long wc_preclass_get_lookup_count(void);
 int wc_preclass_classify_query(const char* query,
                                                            wc_preclass_result_t* out_result);
 
@@ -81,6 +83,23 @@ int wc_preclass_classification_should_early_converge(const char* cls,
 // hint); otherwise returns NULL and callers keep the legacy startup strategy.
 const char* wc_preclass_classification_first_hop_host(const char* cls,
         const char* rir);
+
+// Verifies that every hardcoded fast-path segment in wc_preclass_classify_ip
+// still agrees with the generated IANA snapshot table (longest-prefix match)
+// on the frozen cls/rir/reason/confidence contract. Returns the number of
+// failed consistency checks (0 = all consistent).
+int wc_preclass_verify_hardcoded_consistency(void);
+
+// Enables the one-shot [PRECLASS-METRICS] exit summary (idempotent).
+void wc_preclass_metrics_enable(void);
+
+// Records one classified-query observation (family/class/confidence).
+void wc_preclass_metrics_record(const char* family,
+        const char* cls,
+        const char* confidence);
+
+// Prints [PRECLASS-METRICS] once at process exit when enabled (--retry-metrics/--debug); zero counts allowed.
+void wc_preclass_metrics_flush(void);
 
 // Resolves trial/action decision fields into a stable, log-ready view.
 void wc_preclass_resolve_decision_fields(const char* query,

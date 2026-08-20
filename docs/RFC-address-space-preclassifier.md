@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-20：串行第 51/52 份“无人值守超高密度 A/B”已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-05-13 ~ 2027-05-26`，A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260819-131334`，B run=`out/artifacts/dev_verify_multiround/20260820-083409`）；B 首跑 D4 失败（Step47 预检 `status_ticket_mini_regression.ps1` 写 live log 触发 `IOException`，旧分类误判 code-or-unknown），根因消除 + 故障分类链加固（提交 `99c26d56`）后 B 重启续跑收敛；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260820-150254`，253s）（详见 24.24~24.26 执行回填）。
 - 2026-08-19：新增串行第 51/52 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-05-13 ~ 2027-05-26`，依据 24.23 后续优化清单；A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270513_20270519.json`、`testdata/autopilot_code_step_tasks_20270520_20270526.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与统一 launch-ready 检查均通过（详见 24.24~24.26）；2026-08-19 审计修订（240.0.0.1 表侧 reason 修正、metrics 补 class_unallocated、B/52 追加 query-keyed 缓存与缓存去重断言、文案对齐已批准差异）已完成并全部复验；24.23.3/24.23.4/24.23.7 不在本轮范围（脚本目标 / 独立评审 / 低优先随功能顺带）。
 - 2026-08-18：提交 `22e0247f` 后的四轮 Golden + 12x6 复核全部 PASS（Strict `20260817-090311`/`091109`，批量 `091732/092237/092812/093454`，自检 `094804/095342/095957/100557`，矩阵 `100855`）。审计发现 raw 自检单条路径下 `--selftest-force-private 10.0.0.8` 仍被 early-converge 绕过（golden 靠启动 marker 通过），批量循环已修而单条路径遗漏；已在 `client_flow.c` 单条 preclass 决策前按 `net_ctx->injection` 优先、全局 view 回退检查 `wc_query_exec_is_forced_private`，Phase C review 新增 `single-force-private` 案例后 `26/26 PASS`（详见 24.22）。
 - 2026-08-17：四轮 Golden 与 12x6 复核发现并修复 Phase C 批量路径早收敛遗漏。raw 自检 golden 报告实际 `[golden-selftest] FAIL`（`batch_raw/20260817-051757`）：Phase C 翻转后单条查询对 `10.0.0.8` 早收敛 `unknown @ unknown`，而批量流程因 `wc_handle_private_ip` 先短路仍输出私网提示，且任务预填 `-ErrorPatterns 'private IP address'` 无法匹配早收敛形态；suite 的 `cmd | tee` 管道无 pipefail 又把真实退出码掩盖为 PASS。修复：批量循环对隐式 early-converge 候选跳过私网提示（`client_flow.c`），`selftest_golden_suite.ps1` 加 `set -o pipefail`，`tasks.json` ErrorPatterns 改为 `Suspicious query detected;Private query denied`。快速构建 `out/artifacts/20260817-072058` 验证：隐式批量 `10.0.0.8` 早收敛、显式 `-h` 保持私网提示、本地 selftest golden 新期望 PASS（详见 24.22）。
@@ -4314,7 +4315,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：对每个硬编码段前缀分别冻结“全路径分类”与“生成表最长前缀视图”两套期望并逐项断言（family/cls/rir/reason/confidence）；两侧允许的差异必须显式列出（已批准差异：224/4 全路径 cls=special 而表为 reserved、2000::/3 全路径 confidence=low 而表为 medium、reason 两侧粒度不同），其余字段两侧一致；断言范围必须覆盖 IPv4 与 IPv6 **全部**硬编码段，IPv6 段用代表性 IP 逐一断言（`::1`、`fc00::1`、`fe80::1`、`ff00::1`、`2001:db8::1`、`2001:db9::1` 等）；不一致时 fail-close（自检 FAIL 或生成器报错），不得静默降级。
 - 验收门禁：C 内置 selftest 新标签 PASS（含上述 IPv6 代表性 IP 断言）；Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6、Strict 多架构全 PASS。
 - 边界：只加防护断言，不改分类语义；不得用更新黄金期望掩盖漂移。
-- 状态：已由串行第 51 份（24.24，A/51）覆盖编制（2026-08-19，含 240.0.0.1 表侧 reason 审计修订与新增冻结断言），待开跑。
+- 状态：已完成执行回填（2026-08-20，A/51 8/8 通过，`wc_preclass_verify_hardcoded_consistency()` 与 `[PRECLASS-CONSISTENCY]` fail-close 断言随任务落地，见 24.24 执行回填）。
 
 ##### 24.23.2 决策链单次分类复用（性能，低风险）
 
@@ -4323,7 +4324,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：`classify_query` 复用已找到的 row 填充结果，消除内部双扫描；决策链“一次分类、结果在调用间传递”（复用 `wc_preclass_result_t`，或按 query 哈希新增内部小缓存）。
 - 验收门禁：行为零变化——Phase C `26/26`、P0/P1、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致（`--require-line` 断言保持）。
 - 边界：性能收益为微秒级（单条），批量海量场景才显著；不得改变分类结果、reason/confidence 或任何输出契约。
-- 状态：已由串行第 52 份（24.25，B/52）覆盖编制（2026-08-19，含 16 槽 query-keyed 缓存与缓存去重断言审计修订），待开跑。
+- 状态：已完成执行回填（2026-08-20，B/52 8/8 通过，`wc_preclass_classify_ip_with_row()` 行复用、16 槽 query-keyed 缓存与 `preclass-single-pass` 去重断言随任务落地，见 24.25 执行回填）。
 
 ##### 24.23.3 表数据更新流程自动化（运维）
 
@@ -4350,7 +4351,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：`--retry-metrics` 下进程退出时输出一行分类命中统计（按 family/class/confidence 计数，如 `[PRECLASS-METRICS] ...`，写 stderr，标签风格与既有 `[RETRY-METRICS*]` 一致）。
 - 验收门禁：新标签仅在 `--retry-metrics`/`--debug` 下出现；进程退出时输出；远程冒烟 grep 新标签 PASS。
 - 边界：不得改变 stdout 业务输出；不得改变既有标签名称。
-- 状态：已由串行第 51 份（24.24，A/51）覆盖编制（2026-08-19，含 class_unallocated 计数与“零计数也输出”文案修订），待开跑。
+- 状态：已完成执行回填（2026-08-20，A/51 8/8 通过，`[PRECLASS-METRICS]` 退出单行统计（含 class_unallocated，零计数也输出）随任务落地，见 24.24 执行回填）。
 
 ##### 24.23.6 IPv6 覆盖策略文档化（纯文档，可直接编辑；已完成 2026-08-18）
 
@@ -4378,13 +4379,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **八轮约束与开发目标**：
 
-1. [ ] A 使用 `restore-source` 串行完成 D1~D4 + V1~V4，运行期间禁止提交与推送。
-2. [ ] D1：`wc_preclass.h` 声明 `wc_preclass_verify_hardcoded_consistency()`；`preclass.c` 补 `stdio.h` 并在文件末尾追加冻结期望表（IPv4/IPv6 全部硬编码段代表 IP）与校验函数（全路径 + 表最长前缀双侧断言）。
-3. [ ] D2：`selftest.c` 新增 `selftest_preclass_consistency()`（fail-close），并接入 `wc_selftest_run()` 头部。
-4. [ ] D3：`wc_preclass.h` 声明 `wc_preclass_metrics_enable/record/flush`；`preclass.c` 末尾追加计数器（含 class_unallocated）与幂等 flush 打印（进程退出时一行，零计数也输出）。
-5. [ ] D4：`whois_query_exec.c` 的 `wc_preclass_emit_observation` 在非禁用分支记录一次观测（自带 `--debug`/`--retry-metrics` 门禁）；`runtime.c` 引入头文件、初始化启用、`wc_runtime_exit_flush()` 内 flush。
-6. [ ] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
-7. [ ] 专项验证（任务结束后单独执行并记录证据）：`--retry-metrics` 冒烟 grep `[PRECLASS-METRICS]` 新标签；C 内置 selftest 新标签 PASS。
+1. [x] A 使用 `restore-source` 串行完成 D1~D4 + V1~V4，运行期间禁止提交与推送。
+2. [x] D1：`wc_preclass.h` 声明 `wc_preclass_verify_hardcoded_consistency()`；`preclass.c` 补 `stdio.h` 并在文件末尾追加冻结期望表（IPv4/IPv6 全部硬编码段代表 IP）与校验函数（全路径 + 表最长前缀双侧断言）。
+3. [x] D2：`selftest.c` 新增 `selftest_preclass_consistency()`（fail-close），并接入 `wc_selftest_run()` 头部。
+4. [x] D3：`wc_preclass.h` 声明 `wc_preclass_metrics_enable/record/flush`；`preclass.c` 末尾追加计数器（含 class_unallocated）与幂等 flush 打印（进程退出时一行，零计数也输出）。
+5. [x] D4：`whois_query_exec.c` 的 `wc_preclass_emit_observation` 在非禁用分支记录一次观测（自带 `--debug`/`--retry-metrics` 门禁）；`runtime.c` 引入头文件、初始化启用、`wc_runtime_exit_flush()` 内 flush。
+6. [x] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
+7. [x] 专项验证（任务结束后单独执行并记录证据）：`--retry-metrics` 冒烟 grep `[PRECLASS-METRICS]` 新标签；C 内置 selftest 新标签 PASS。
 
 **目标注册表**：
 
@@ -4406,6 +4407,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - [x] Vx 专项安全回归（`task_definition_safety_regression.ps1`）：`result=pass`。
 - [x] 审计修订（2026-08-19）：240.0.0.1 表侧期望修正为 `V4_RESERVED_REGISTRY` 并新增冻结断言；metrics 补齐 `class_unallocated`；flush/描述文案对齐“零计数也输出”；已批准差异（224/4 class、2000::/3 confidence、reason 粒度）写入设计说明。修订后重跑：A 全定义 `errors=0 warnings=0 infos=17`、Vx 安全回归 `result=pass`。
 
+**执行回填（2026-08-20）**：A/51 8/8 通过（run=`out/artifacts/dev_verify_multiround/20260819-131334`）；`wc_preclass_verify_hardcoded_consistency()` 双侧冻结断言（含 240.0.0.1 表侧 `V4_RESERVED_REGISTRY`）与 `[PRECLASS-CONSISTENCY]` fail-close 诊断、`[PRECLASS-METRICS]` 退出单行统计（含 class_unallocated）随任务落地；C 内置 selftest 新标签 PASS。B 首跑 D4 曾因 Step47 预检脚本写 live log 触发 `IOException` 失败，修复（`99c26d56`）并重启续跑后 A/B 收敛全 PASS；最终 Strict `lto-auto` 冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260820-150254`，253s）。
+
 #### 24.25 下次开工清单（Vx 多文件：决策链单次分类复用，2027-05-20 ~ 2027-05-26，串行第 52 份，Checklist B，草案）
 
 > 对应任务定义：`testdata/autopilot_code_step_tasks_20270520_20270526.json`（`schemaVersion=vx-draft`）。
@@ -4414,13 +4417,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **八轮约束与开发目标**：
 
-1. [ ] B 在 A PASS snapshot 完整后以 `state-only` 承接启动；A 失败阻断 B。
-2. [ ] D1：`preclass.c` 引入 `wc_preclass_classify_ip_with_row()`（row 复用分支 + 无 row 回退全查），公共 `wc_preclass_classify_ip()` 转为薄包装，`classify_query` 传入已找到的 row；并追加 16 槽轮转 query-keyed 缓存（FNV-1a 探测 + `wc_preclass_get_lookup_count()` 查找计数），`wc_preclass.h` 声明计数 API。
-3. [ ] D2：`client_flow.c` 前向声明与定义同步新签名；`wc_client_resolve_preclass_decision` 计算一次共享分类并传给 first-hop/Phase C 候选；批量候选与单查询派发两个 first-hop 调用点、批量循环 Phase C 门禁接入共享结果。
-4. [ ] D3：Step47 early-unknown 与 P1 controlled-unknown 候选改为接收共享结果（纯 IP 才读取分类），最终接线 `resolve_preclass_decision`。
-5. [ ] D4：`selftest.c` 新增 `selftest_preclass_single_pass()` 并接入 `wc_selftest_run()`；内含缓存去重断言（第二次分类同一查询不再发生新的生成表查找，对任意缓存预热状态稳健）。
-6. [ ] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
-7. [ ] 行为零变化门禁：Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致（`--require-line` 断言保持）。
+1. [x] B 在 A PASS snapshot 完整后以 `state-only` 承接启动；A 失败阻断 B。
+2. [x] D1：`preclass.c` 引入 `wc_preclass_classify_ip_with_row()`（row 复用分支 + 无 row 回退全查），公共 `wc_preclass_classify_ip()` 转为薄包装，`classify_query` 传入已找到的 row；并追加 16 槽轮转 query-keyed 缓存（FNV-1a 探测 + `wc_preclass_get_lookup_count()` 查找计数），`wc_preclass.h` 声明计数 API。
+3. [x] D2：`client_flow.c` 前向声明与定义同步新签名；`wc_client_resolve_preclass_decision` 计算一次共享分类并传给 first-hop/Phase C 候选；批量候选与单查询派发两个 first-hop 调用点、批量循环 Phase C 门禁接入共享结果。
+4. [x] D3：Step47 early-unknown 与 P1 controlled-unknown 候选改为接收共享结果（纯 IP 才读取分类），最终接线 `resolve_preclass_decision`。
+5. [x] D4：`selftest.c` 新增 `selftest_preclass_single_pass()` 并接入 `wc_selftest_run()`；内含缓存去重断言（第二次分类同一查询不再发生新的生成表查找，对任意缓存预热状态稳健）。
+6. [x] V1~V4：完成基线、噪声、混合样本与最终 8/8 收口复检。
+7. [x] 行为零变化门禁：Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致（`--require-line` 断言保持）。
 
 **目标注册表**：
 
@@ -4444,10 +4447,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - [x] Vx 专项安全回归：`result=pass`。
 - [x] 审计修订（2026-08-19）：D1 追加 query-keyed 缓存（16 槽 FNV-1a 探测 + `wc_preclass_get_lookup_count()`）与头部计数 API 声明；D4 追加缓存去重断言（对任意缓存预热状态稳健）；缓存代码 clang `-Wall -Wextra` 零告警复验。修订后重跑：链式 `errors=0 warnings=0 infos=46`、ChainRounds 通过、Vx 安全回归 `result=pass`。
 
+**执行回填（2026-08-20）**：B/52 8/8 通过（run=`out/artifacts/dev_verify_multiround/20260820-083409`）；`wc_preclass_classify_ip_with_row()` 行复用、公共 `wc_preclass_classify_ip()` 薄包装、16 槽轮转 query-keyed 缓存与 `wc_preclass_get_lookup_count()`、`preclass-single-pass` 缓存去重 selftest 随任务落地；B 承接 A snapshot（state-only）续跑 D4 收敛；最终 Strict `lto-auto` 冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260820-150254`，253s）。
+
 #### 24.26 对应任务启动文件（2026-08-19，准备完成，待用户确认）
 
 - 启动文件：`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`。
 - 绑定 A/51 与 B/52，`WINDOW=2027-05-13 ~ 2027-05-26`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
 - 预检状态（2026-08-19 重置）：start-file 已重新创建为初始状态（`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`）；字段同步契约检查 `result=pass`；启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填预检结果。
-- 状态：准备完成，待用户确认；仅用户明确下达启动命令后才可开跑。
+- 状态：已完成执行回填（2026-08-20，A/B 全 PASS，见 24.24/24.25 执行回填）。
 

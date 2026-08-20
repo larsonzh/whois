@@ -68,17 +68,25 @@ static int wc_client_is_batch_strategy_enabled(void)
 
 static const char* wc_client_guess_query_rir_host(const char* query);
 static const char* wc_client_preclass_first_hop_hint(const Config* config,
-    const char* query);
+    const char* query,
+    int classified,
+    const wc_preclass_result_t* result);
 static int wc_client_is_step47_trial_candidate(const Config* config,
     const char* query);
 static int wc_client_is_step47_early_unknown_candidate(const Config* config,
-    const char* query);
+    const char* query,
+    int plain_ip_classified,
+    const wc_preclass_result_t* result);
 static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
-    const char* query);
+    const char* query,
+    int plain_ip_classified,
+    const wc_preclass_result_t* result);
 static int wc_client_is_p1_tier_candidate(const Config* config,
     const char* query);
 static int wc_client_is_phasec_early_converge_candidate(const Config* config,
-    const char* query);
+    const char* query,
+    int classified,
+    const wc_preclass_result_t* result);
 static int wc_client_init_unknown_result(struct wc_result* res,
     const char* via_host);
 
@@ -194,7 +202,11 @@ static size_t wc_client_collect_batch_start_candidates(const Config* config,
         wc_dns_normalize_batch_host(server_host) : NULL;
     if (normalized_server && *normalized_server && count < capacity)
         out[count++] = normalized_server;
-    const char* guessed = wc_client_preclass_first_hop_hint(config, query);
+    wc_preclass_result_t preclass_result;
+    int preclass_classified =
+        wc_preclass_classify_query(query, &preclass_result);
+    const char* guessed = wc_client_preclass_first_hop_hint(config, query,
+        preclass_classified, &preclass_result);
     if (!guessed)
         guessed = wc_client_guess_query_rir_host(query);
     if (guessed && *guessed &&
@@ -306,36 +318,36 @@ static const char* wc_client_guess_query_rir_host(const char* query)
 }
 
 static const char* wc_client_preclass_first_hop_hint(const Config* config,
-    const char* query)
+    const char* query,
+    int classified,
+    const wc_preclass_result_t* result)
 {
-    wc_preclass_result_t result;
-
     if (!config || !query || !*query)
         return NULL;
     if (!config->preclass_first_hop_enable)
         return NULL;
     if (config->disable_address_preclass)
         return NULL;
-    if (!wc_preclass_classify_query(query, &result))
+    if (!classified || !result)
         return NULL;
-    return wc_preclass_classification_first_hop_host(result.cls, result.rir);
+    return wc_preclass_classification_first_hop_host(result->cls, result->rir);
 }
 
 static int wc_client_is_phasec_early_converge_candidate(const Config* config,
-    const char* query)
+    const char* query,
+    int classified,
+    const wc_preclass_result_t* result)
 {
-    wc_preclass_result_t result;
-
     if (!config || !query || !*query)
         return 0;
     if (!config->preclass_early_converge_enable)
         return 0;
     if (config->disable_address_preclass)
         return 0;
-    if (!wc_preclass_classify_query(query, &result))
+    if (!classified || !result)
         return 0;
     return wc_preclass_classification_should_early_converge(
-        result.cls, result.rir, result.confidence);
+        result->cls, result->rir, result->confidence);
 }
 
 static int wc_client_is_step47_trial_candidate(const Config* config,
@@ -367,7 +379,9 @@ static int wc_client_is_step47_trial_candidate(const Config* config,
 }
 
 static int wc_client_is_step47_early_unknown_candidate(const Config* config,
-    const char* query)
+    const char* query,
+    int plain_ip_classified,
+    const wc_preclass_result_t* result)
 {
     const char* csv;
     int listed;
@@ -387,29 +401,18 @@ static int wc_client_is_step47_early_unknown_candidate(const Config* config,
     if (!listed)
         return 0;
 
-    {
-        const char* family = NULL;
-        const char* cls = NULL;
-        const char* rir = NULL;
-        const char* reason = NULL;
-        const char* confidence = NULL;
-        wc_preclass_classify_ip(query, &family, &cls, &rir,
-            &reason, &confidence);
-        if (wc_preclass_classification_is_allocated_control(cls, rir))
-            return 0;
-    }
+    if (plain_ip_classified && result &&
+        wc_preclass_classification_is_allocated_control(
+            result->cls, result->rir))
+        return 0;
     return 1;
 }
 
 static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
-    const char* query)
+    const char* query,
+    int plain_ip_classified,
+    const wc_preclass_result_t* result)
 {
-    const char* pfamily = NULL;
-    const char* pcls = NULL;
-    const char* prir = NULL;
-    const char* preason = NULL;
-    const char* pconfidence = NULL;
-
     if (!config || !config->preclass_action_enable)
         return 0;
     if (!config->step47_trial_enable)
@@ -421,9 +424,9 @@ static int wc_client_is_p1_controlled_unknown_candidate(const Config* config,
     if (!wc_client_is_step47_trial_candidate(config, query))
         return 0;
 
-    wc_preclass_classify_ip(query, &pfamily, &pcls, &prir,
-        &preason, &pconfidence);
-    if (wc_preclass_classification_is_allocated_control(pcls, prir))
+    if (plain_ip_classified && result &&
+        wc_preclass_classification_is_allocated_control(
+            result->cls, result->rir))
         return 0;
     return 1;
 }
@@ -459,8 +462,18 @@ static void wc_client_resolve_preclass_decision(const Config* config,
         !config->disable_address_preclass;
     const int hint_applied = start_host && *start_host &&
         strcasecmp(start_host, wc_server_default_batch_host()) != 0;
+    wc_preclass_result_t preclass_result;
+    int preclass_classified = 0;
+    int preclass_plain_ip = 0;
+    if (preclass_enabled) {
+        preclass_classified =
+            wc_preclass_classify_query(query, &preclass_result);
+        preclass_plain_ip = preclass_classified &&
+            (strchr(query, '/') == NULL);
+    }
     const char* classifier_hint =
-        wc_client_preclass_first_hop_hint(config, query);
+        wc_client_preclass_first_hop_hint(config, query,
+            preclass_classified, &preclass_result);
     const int classifier_hint_applied =
         (classifier_hint && start_host &&
             strcasecmp(classifier_hint, start_host) == 0) ? 1 : 0;
@@ -469,11 +482,14 @@ static void wc_client_resolve_preclass_decision(const Config* config,
         hint_applied,
         classifier_hint_applied,
         preclass_enabled &&
-            wc_client_is_phasec_early_converge_candidate(config, query),
+            wc_client_is_phasec_early_converge_candidate(config, query,
+                preclass_classified, &preclass_result),
         preclass_enabled &&
-            wc_client_is_step47_early_unknown_candidate(config, query),
+            wc_client_is_step47_early_unknown_candidate(config, query,
+                preclass_plain_ip, &preclass_result),
         preclass_enabled &&
-            wc_client_is_p1_controlled_unknown_candidate(config, query),
+            wc_client_is_p1_controlled_unknown_candidate(config, query,
+                preclass_plain_ip, &preclass_result),
         preclass_enabled && config->step47_trial_enable &&
             wc_client_is_step47_trial_candidate(config, query),
         out);
@@ -752,7 +768,11 @@ static int wc_client_dispatch_queries(const Config* config,
         const char* hinted = NULL;
         if ((!server_host || !*server_host) && config &&
             !config->disable_address_preclass) {
-            hinted = wc_client_preclass_first_hop_hint(config, single_query);
+            wc_preclass_result_t preclass_result;
+            int preclass_classified =
+                wc_preclass_classify_query(single_query, &preclass_result);
+            hinted = wc_client_preclass_first_hop_hint(config, single_query,
+                preclass_classified, &preclass_result);
             if (!hinted)
                 hinted = wc_client_guess_query_rir_host(single_query);
         }
@@ -833,11 +853,17 @@ int wc_client_run_batch_stdin(const Config* config,
             continue;
           /* Let normal implicit special-purpose queries reach Phase C while
               preserving explicit hosts and force-private selftest coverage. */
-          if (wc_query_exec_is_forced_private(injection, query) ||
+        {
+            wc_preclass_result_t phasec_result;
+            int phasec_classified =
+                wc_preclass_classify_query(query, &phasec_result);
+            if (wc_query_exec_is_forced_private(injection, query) ||
                 (server_host && *server_host) ||
-            !wc_client_is_phasec_early_converge_candidate(cfg, query)) {
-            if (wc_handle_private_ip(cfg, query, query, 1, injection))
-                continue;
+                !wc_client_is_phasec_early_converge_candidate(cfg, query,
+                    phasec_classified, &phasec_result)) {
+                if (wc_handle_private_ip(cfg, query, query, 1, injection))
+                    continue;
+            }
         }
 
         if (!batch_strategy_ready) {
