@@ -1126,9 +1126,9 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
     ./tools/dev/register_golden_alias.ps1 -AliasName golden-suite
     ```
 
-    #### Selftest golden suite (raw / health-first / plan-a / plan-b)
+    #### Selftest golden suite (core / raw / health-first / plan-a / plan-b)
 
-    Use `tools/test/selftest_golden_suite.ps1` when you need to prove that a forced selftest hook short-circuits the query _before_ the usual header/referral/tail contract. The wrapper first runs `remote_batch_strategy_suite.ps1` (unless `-SkipRemote` is supplied), then executes `tools/test/golden_check_selftest.sh` for each freshly fetched log.
+    `tools/test/selftest_golden_suite.ps1` validates both the built-in preclass core selftest and forced query hooks. The wrapper first runs `remote_batch_strategy_suite.ps1` (unless `-SkipRemote` is supplied), then runs `whois-win64.exe --selftest` separately from the raw artifacts. The core gate requires PASS for `preclass-consistency`, `preclass-single-pass`, and `preclass-cache-single-scan`, and rejects their FAIL forms plus any `[PRECLASS-CONSISTENCY]` diagnostic. It then checks the raw / health-first / plan-a / plan-b hook logs. Other legacy selftests may still make the complete `--selftest` process exit nonzero; that exit is reported for diagnosis but does not widen this scoped preclass gate.
 
     1. Full example (remote fetch + `[SELFTEST] action=*` assertions):
       ```powershell
@@ -1144,6 +1144,7 @@ whois-x86_64 -h afrinic 2001:dd8:8:701::2 --debug --retry-metrics --dns-cache-st
       - The three VS Code Selftest Golden tasks use `SelftestExpectations` as the authoritative action list and set `SelftestActions=NONE`. Their default tags require both `SELFTEST:action=force-(suspicious|private)` and `WORKBUF:action=summary result=PASS`.
       - Missing strategy logs, malformed TagExpectations, and nonzero checkers fail closed. Checkers use `set -o pipefail` and `2>&1 | tee`, preserving both exit status and stderr diagnostics.
       - `-SkipRemote` allows a “golden only” pass that simply picks the newest timestamped logs under `out/artifacts/batch_{raw,health,plan,planb}`.
+      - `-CoreBinaryPath <path>` selects a binary for a focused core selftest rerun. When omitted, the suite uses `whois-win64.exe` from the newest raw artifacts.
       - `-NoGolden` forwards to `remote_batch_strategy_suite.ps1` so the upstream batch runs skip `golden_check.sh` (no `[golden][ERROR]` noise when a forced selftest short-circuits the query). Use this whenever only the selftest assertions matter.
     1.1 Recommended expectation bundle (force-suspicious + force-private):
       ```bash

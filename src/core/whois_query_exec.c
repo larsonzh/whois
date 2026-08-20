@@ -400,13 +400,6 @@ void wc_preclass_emit_observation(const Config* config,
 			rir = "none";
 			reason = "ZERO_ROOT";
 			confidence = "high";
-		} else if (wc_client_is_private_ip(normalized)) {
-			wc_preclass_classify_ip(normalized,
-				&family,
-				&cls,
-				&rir,
-				&reason,
-				&confidence);
 		} else {
 			wc_preclass_classify_ip(normalized,
 				&family,

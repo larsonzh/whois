@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-21：24.23.7 代码清理（交互式，切片 A/B/C）已完成执行回填：切片 A 消除 `emit_observation` 冗余分支（`whois_query_exec.c`）；切片 B 删除 `client_flow.c` 重复 `wc_client_csv_is_default_marker`、两处调用点改用公共 `wc_preclass_csv_is_default_marker`；切片 C 在 `preclass.c` 抽取 `wc_preclass_ipv4_to_u32`/`wc_preclass_ipv6_to_u64` 字节组装 static helper（只抽字节转换，不改查表算法）。另修复内置一致性 selftest 两条表侧冻结期望（`ff00::1` 表侧 `V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`2001:db9::1` 表侧 `V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`，与生成器/`reason_code_map.json`/`wc_preclass_reason_name()` 对齐）；Selftest Golden 新增独立 core `--selftest` 门禁（`golden_check_selftest.sh` 新增 `--forbid-line`，断言 preclass 三条 PASS、禁止对应 FAIL 与 `[PRECLASS-CONSISTENCY]` 诊断）；`prune_artifacts_all.ps1` 纳入 `out/artifacts/core_selftest`（保留 8 份）。全门禁 PASS：编码门禁（0 违规）、Fast 构建（`out/artifacts/20260820-192402`）、一键全门禁 8 项（`update_and_verify_preclass_table.ps1 -GateProfile all -GatesOnNoChange`，`gates_pass=True`；CIDR `4/4+9/9` `cidr_bundle_summary_20260820-220634.txt`、12x6 authority 空表 `redirect_matrix_10x6/20260820-223125`）、Selftest Golden（core/raw/health/plan-a/plan-b 全 `[golden-selftest] PASS`，`20260821-005539` 等）、Batch Golden 四策略全 `[golden] PASS`（`20260821-002656/003213/003910/004515`）、Strict 多架构默认+debug 两轮无告警（`20260821-001350` 289s、`20260821-002054` 296s，Local hash/Golden/referral 全 PASS，release 已同步，内置 selftest 三条 preclass PASS）、12x6 复核 `20260821-013117` authority 空表 + `(no errors found)`（详见 24.27 执行回填）。
 - 2026-08-20：24.23.7 代码清理开发方式确定为**传统交互式**（不占 A/B 窗口，见 24.23.8/24.27），编制切片 A/B/C 下次开工清单（详见 24.27）：切片 A（`whois_query_exec.c` observation 冗余分支）→ 切片 B（`client_flow.c` 重复 default-marker helper 复用公共版）→ 切片 C（`preclass.c` IPv4/IPv6 字节组装 static helper 抽取），每片独立验证后走最终验收；literal 收敛审计（约 66 helper / 约 180 引用、无 selftest/防内联依赖）判定高改动低收益，本次不实施并记录为延迟项。
 - 2026-08-20：串行第 51/52 份“无人值守超高密度 A/B”已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；窗口 `2027-05-13 ~ 2027-05-26`，A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260819-131334`，B run=`out/artifacts/dev_verify_multiround/20260820-083409`）；B 首跑 D4 失败（Step47 预检 `status_ticket_mini_regression.ps1` 写 live log 触发 `IOException`，旧分类误判 code-or-unknown），根因消除 + 故障分类链加固（提交 `99c26d56`）后 B 重启续跑收敛；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260820-150254`，253s）（详见 24.24~24.26 执行回填）。
 - 2026-08-19：新增串行第 51/52 份“无人值守超高密度 A/B 下次开工清单（草案）”（窗口 `2027-05-13 ~ 2027-05-26`，依据 24.23 后续优化清单；A/51=24.23.1 分类器一致性防护 + 24.23.5 可观测性增强合并切片 / B/52=24.23.2 决策链单次分类复用），并同步起草配套 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270513_20270519.json`、`testdata/autopilot_code_step_tasks_20270520_20270526.json`）与 active 启动文件（`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`）；A 全定义静态验收、B 以 A 为前置的链式静态验收、链式轮次检查、Vx 专项安全回归与统一 launch-ready 检查均通过（详见 24.24~24.26）；2026-08-19 审计修订（240.0.0.1 表侧 reason 修正、metrics 补 class_unallocated、B/52 追加 query-keyed 缓存与缓存去重断言、文案对齐已批准差异）已完成并全部复验；24.23.3/24.23.4/24.23.7 不在本轮范围（脚本目标 / 独立评审 / 低优先随功能顺带）。
@@ -4370,7 +4371,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容（2026-08-20 审计定稿）：切片 A 消除 `emit_observation` 冗余分支；切片 B 删除 `client_flow.c` 重复 helper、改用公共 `wc_preclass_csv_is_default_marker`（公共 API 已确认，`client_flow.c` 已 include 头文件，仅 3 处引用）；切片 C 抽取 IPv4/IPv6 字节组装 static helper（只抽字节转换，不改查表算法与函数边界）；literal 收敛经审计（无 selftest 直接符号依赖、无 `noinline`/`used` 属性、无指针地址比较，但约 180 引用点、收益近零）评估为高改动低收益，本次不实施，记录为延迟项。
 - 验收门禁：行为零变化，全门禁 PASS；编码门禁通过。
 - 边界：如 literal 函数被 selftest 符号或防优化需求依赖，不得盲目合并（本次已排除）。
-- 状态（2026-08-20）：开发方式确定为**交互式**（见 24.23.8），按切片 A → B → C 顺序实施、每片独立验证后走最终验收；literal 收敛延迟。
+- 状态：✅ **已完成（2026-08-21，交互式开发）**，见 24.27 执行回填：切片 A/B/C 全部落地并行为零变化；另修复内置一致性 selftest 两条表侧冻结期望（`V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`）、Selftest Golden 新增独立 core `--selftest` 门禁、`prune_artifacts_all.ps1` 纳入 `out/artifacts/core_selftest` 清理；全门禁（编码/Fast/一键 8 项/Selftest+Batch Golden/Strict 多架构/12x6）PASS，release 已同步；literal 收敛延迟。
 
 ##### 24.23.8 后续工作安排与开发方式（2026-08-20 更新）
 
@@ -4381,14 +4382,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - ✅ 24.23.4 受控开关放量与契约同步（Phase B/Phase C 默认翻转完成，2026-08-19）
 - ✅ 24.23.5 可观测性增强（A/51 落地，见 24.24 执行回填）
 - ✅ 24.23.6 IPv6 覆盖策略文档化（2026-08-18）
+- ✅ 24.23.7 代码清理（2026-08-21 交互式完成，见 24.27 执行回填）
 
-**待办（按开发方式划分）**：
+**待办（按开发方式划分，2026-08-21 全部完成）**：
 
 | 分项 | 内容 | 开发方式 | 说明 |
 |---|---|---|---|
-| 24.23.7 代码清理 | 切片 A 冗余分支消除、切片 B 重复 helper 复用公共版、切片 C 字节组装抽取；literal 收敛延迟 | **交互式（2026-08-20 确定）** | 源码目标（`preclass.c`/`client_flow.c`/`whois_query_exec.c`），行为零变化 + 全门禁；不占 A/B 窗口，每片独立验证；literal 收敛高改动低收益，本次不实施 |
+| 24.23.7 代码清理 | 切片 A 冗余分支消除、切片 B 重复 helper 复用公共版、切片 C 字节组装抽取；literal 收敛延迟 | ✅ **已完成（2026-08-21，交互式）** | 源码目标（`preclass.c`/`client_flow.c`/`whois_query_exec.c`），行为零变化 + 全门禁；不占 A/B 窗口，每片独立验证；另修复一致性 selftest 表侧冻结值与自检黄金 core 门禁；literal 收敛高改动低收益，本次不实施 |
 
-**执行顺序建议（2026-08-20 更新）**：
+**执行顺序建议（2026-08-20 更新；24.23.7 已于 2026-08-21 全部执行完成，见 24.27 执行回填）**：
 1. **24.23.7（交互式）**：不占 A/B 窗口，按切片 A → B → C 顺序实施；每片完成后立即跑该片专项验证，通过后再进入下一片；全部通过后走最终验收（编码门禁 + Fast 构建 + 一键全门禁 + Selftest/Batch Golden + Strict 多架构）。literal 收敛本次不实施，记录为延迟项。
 2. **切片 A（observation 冗余分支，低风险）**：`whois_query_exec.c` if/else 两分支相同的 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
 3. **切片 B（重复 helper，低风险）**：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API 已确认），step47 early-unknown 与 p1 tier 两处调用点改用 `wc_preclass_csv_is_default_marker`。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
@@ -4473,35 +4475,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 
 **执行回填（2026-08-20）**：B/52 8/8 通过（run=`out/artifacts/dev_verify_multiround/20260820-083409`）；`wc_preclass_classify_ip_with_row()` 行复用、公共 `wc_preclass_classify_ip()` 薄包装、16 槽轮转 query-keyed 缓存与 `wc_preclass_get_lookup_count()`、`preclass-single-pass` 缓存去重 selftest 随任务落地；B 承接 A snapshot（state-only）续跑 D4 收敛；最终 Strict `lto-auto` 冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260820-150254`，253s）。
 
-#### 24.26 对应任务启动文件（2026-08-19，准备完成，待用户确认）
+#### 24.26 对应任务启动文件（2026-08-19，已完成回填）
 
 - 启动文件：`testdata/unattended_start/active/unattended_ab_start_20270513-20270526.md`。
 - 绑定 A/51 与 B/52，`WINDOW=2027-05-13 ~ 2027-05-26`、`RESET_POLICY_A=restore-source`、`RESET_POLICY_B=state-only`、`AI_CHAT_POLICY_WORK_MODE=event-only`、`ENTRY_MODE=single-param-fastmode`、`A_FAILURE_BLOCKS_B=true`、`B_START_REQUIRES_A_PASS_WITH_SNAPSHOT=true`。
 - 预检状态（2026-08-19 重置）：start-file 已重新创建为初始状态（`PRECHECK_STATUS=NOT_RUN`、`PRECHECK_START_GATE=NOT_RUN`）；字段同步契约检查 `result=pass`；启动前由 `check_unattended_ab_launch_ready.ps1` 统一回填预检结果。
 - 状态：已完成执行回填（2026-08-20，A/B 全 PASS，见 24.24/24.25 执行回填）。
 
-#### 24.27 下次开工清单（交互式：24.23.7 代码清理，2026-08-20，切片 A/B/C，待开工）
+#### 24.27 下次开工清单（交互式：24.23.7 代码清理，2026-08-20，切片 A/B/C，已完成回填 2026-08-21）
 
 > 开发方式：传统交互式（2026-08-20 确定，见 24.23.8），不占 A/B 窗口；依据 24.23.7 审计定稿与 24.23 前言“最小缺陷、不做无论证改动”原则。
 > 目标闭包：`src/core/whois_query_exec.c`（切片 A）、`src/core/client_flow.c`（切片 B）、`src/core/preclass.c`（切片 C）；literal 收敛本次不实施（约 66 helper / 约 180 引用、无 selftest/防内联依赖，高改动低收益，记录为延迟项）。
 
 **切片与每片验证（顺序执行，前片通过才进入下一片）**：
 
-1. [ ] 切片 A（低风险）：`whois_query_exec.c` 的 `emit_observation` if/else 两分支相同 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
-2. [ ] 切片 B（低风险）：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API `wc_preclass_csv_is_default_marker` 已确认、`client_flow.c` 已 include 头文件，仅 3 处引用），step47 early-unknown 与 p1 tier 两处调用点改用公共版。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
-3. [ ] 切片 C（中风险）：`preclass.c` 内新增 static helper 收敛 `lookup_row_text` 与 `lookup_row_and_assign_v4/v6` 的 IPv4 字节→u32、IPv6 字节→hi/lo 组装；只抽取字节转换，不改查表算法与函数边界。验证：`[SELFTEST] preclass-consistency`/`preclass-single-pass` + table guard + P0/P1/special 17/17 + 高位首字节用例（`240.*`/`255.*`/`fc00::`/`fe80::`/`ff00::`）+ 多架构构建（端序）。
+1. [x] 切片 A（低风险）：`whois_query_exec.c` 的 `emit_observation` if/else 两分支相同 `classify_ip` 调用合并为一个。验证：快速编译 + P0 12/12 + private/public/CIDR 的 `[PRECLASS]` 输出对比。
+2. [x] 切片 B（低风险）：删除 `client_flow.c` 的 `wc_client_csv_is_default_marker`（公共 API `wc_preclass_csv_is_default_marker` 已确认、`client_flow.c` 已 include 头文件，仅 3 处引用），step47 early-unknown 与 p1 tier 两处调用点改用公共版。验证：P1 232/232 + Phase C 26/26 + marker 专项（default/` default `/多 token/空值/自定义列表）+ 显式 `-h` 与 `--disable-address-preclass` 行为不变。
+3. [x] 切片 C（中风险）：`preclass.c` 内新增 static helper 收敛 `lookup_row_text` 与 `lookup_row_and_assign_v4/v6` 的 IPv4 字节→u32、IPv6 字节→hi/lo 组装；只抽取字节转换，不改查表算法与函数边界。验证：`[SELFTEST] preclass-consistency`/`preclass-single-pass` + table guard + P0/P1/special 17/17 + 高位首字节用例（`240.*`/`255.*`/`fc00::`/`fe80::`/`ff00::`）+ 多架构构建（端序）。
 
 **停止条件**：
 - 每片专项验证失败即停止，仅修本片问题并复验，通过后再前进。
 - 12x6 仅 RIR 限流可保存证据后单例复测；分类/authority/输出差异一律不放行。
 - 完成后确认生成表文件无意外 diff。
 
-**最终验收矩阵（三片全部通过后）**：
-1. `Test: Text Encoding Gate (tracked, check)`。
-2. `Remote: Build (Fast x86_64+win64)`。
-3. 一键全门禁（无快照下载、强制跑门禁）：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1 -SkipUpdate -GateProfile all -GatesOnNoChange -BinaryPath release/lzispro/whois/whois-win64.exe`（覆盖 table guard、P0 12/12、P1 232/232、special 17/17、Phase C 26/26、CIDR 4/4+9/9、Step47、12x6 authority 空表）。
-4. `Selftest Golden Suite` + `Golden Check: Batch Suite`。
-5. `Remote: Build (Strict Version)`（全架构真实 LTO、零编译/LTO warning、Local hash/Golden/referral 全 PASS）。
+**最终验收矩阵（三片全部通过后，2026-08-20~21 全部完成）**：
+1. [x] `Test: Text Encoding Gate (tracked, check)`：PASS（`enforce_utf8_bom_lf` 0 违规）。
+2. [x] `Remote: Build (Fast x86_64+win64)`：`out/artifacts/20260820-192402`，Local hash/smoke/Golden PASS。
+3. [x] 一键全门禁：`update_and_verify_preclass_table.ps1 -SkipUpdate -GateProfile all -GatesOnNoChange`，`result=pass gates_pass=True`（table guard、P0 `12/12`、P1 `232/232`、special `10/10`、Phase C `26/26`、CIDR `4/4+9/9`（`cidr_bundle_summary_20260820-220634.txt`）、Step47、12x6 authority 空表（`redirect_matrix_10x6/20260820-223125`）全 PASS）。
+4. [x] `Selftest Golden Suite`（含 core `--selftest` 门禁）`20260821-005539` 等 core/raw/health/plan-a/plan-b 全 `[golden-selftest] PASS`；`Golden Check: Batch Suite` 四策略 `20260821-002656/003213/003910/004515` 全 `[golden] PASS`。
+5. [x] `Remote: Build (Strict Version)`：默认 `20260821-001350`（289s）与 debug/metrics `20260821-002054`（296s）两轮 9 架构无编译/LTO 告警，Local hash/Golden/referral 全 PASS；12x6 复核 `20260821-013117` authority 空表 + `(no errors found)`；release 已同步，内置 selftest 三条 preclass PASS。
+
+**执行回填（2026-08-21）**：切片 A/B/C 代码改动（`whois_query_exec.c`/`client_flow.c`/`preclass.c`）与冻结值修复、自检黄金 core 门禁、`prune_artifacts_all.ps1` 清理规则均已完成并全门禁通过；生成表文件无意外 diff（一键门禁 `generated_stable=True`）；literal 收敛延迟不实施。文档同步：OPERATIONS_CN/EN 更新自检黄金 core 门禁说明；RFC-whois-client-split.md 与 RELEASE_NOTES.md 已回填。
 
 **提交与文档**：按仓库规则等待用户同轮授权后 `git add <具体文件>` + commit/push（仅 origin，不推 gitee）；变更输出契约/DNS 策略/自测流程时同步 `docs/USAGE_CN.md`/`docs/USAGE_EN.md`/`RELEASE_NOTES.md` 与相关 RFC/黄金脚本说明。
 

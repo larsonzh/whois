@@ -1076,9 +1076,9 @@ golden-suite `
 
 如需自动生效，可把 `register_golden_alias.ps1` 加入 PowerShell Profile，在 VS Code 打开终端时即完成别名注册。
 
-#### 自测黄金套件（raw / health-first / plan-a / plan-b）
+#### 自测黄金套件（core / raw / health-first / plan-a / plan-b）
 
-`tools/test/selftest_golden_suite.ps1` 用于验证 `--selftest-force-*` 钩子会在查询进入常规流水线前就短路输出。脚本先调用 `remote_batch_strategy_suite.ps1`（若带 `-SkipRemote` 则跳过）生成最新 batch 日志，再对 raw / health-first / plan-a / plan-b 四份 `smoke_test.log` 逐个执行 `tools/test/golden_check_selftest.sh`。
+`tools/test/selftest_golden_suite.ps1` 同时验证内置 preclass core selftest 与 `--selftest-force-*` 查询钩子。脚本先调用 `remote_batch_strategy_suite.ps1`（若带 `-SkipRemote` 则跳过）生成最新 batch 产物，随后从 raw 产物单独运行 `whois-win64.exe --selftest`，要求 `preclass-consistency`、`preclass-single-pass`、`preclass-cache-single-scan` 三条 PASS，且禁止对应 FAIL 与任意 `[PRECLASS-CONSISTENCY]` 诊断；最后再检查 raw / health-first / plan-a / plan-b 四份查询钩子日志。完整 `--selftest` 仍可能因其他历史自测返回非零，该退出码会记录为诊断，但不扩大本专项 preclass 门禁的范围。
 
 1. 完整示例（远端抓取 + `[SELFTEST] action=*` 断言）：
    ```powershell
@@ -1094,6 +1094,7 @@ golden-suite `
   - 三个 VS Code Selftest Golden 任务以 `SelftestExpectations` 为权威动作清单并设置 `SelftestActions=NONE`；默认标签同时要求 `SELFTEST:action=force-(suspicious|private)` 与 `WORKBUF:action=summary result=PASS`，避免启用 workbuf 却未断言。
   - 任一策略日志缺失、TagExpectations 格式非法或 checker 非零都会 fail-close；checker 使用 `set -o pipefail` 与 `2>&1 | tee`，同时保留退出码和 stderr 报告。
   - `-SkipRemote` 仅做黄金复核，直接抓取 `out/artifacts/batch_{raw,health,plan,planb}` 下最新时间戳的日志。
+  - `-CoreBinaryPath <path>` 可为专项复核指定 core selftest 二进制；未指定时默认使用最新 raw 产物中的 `whois-win64.exe`。
   - `-NoGolden` 会在远端四策略执行时跳过 `golden_check.sh`（即 `remote_batch_strategy_suite.ps1` 的 `-NoGolden`），当自测钩子会让 header/referral/tail 合约必然失败时，可用来消除 `[golden][ERROR]` 噪声，只保留 `[golden-selftest]` 结果。
    推荐预设（同时断言 force-suspicious 与 force-private）：
    ```bash

@@ -14,6 +14,7 @@
     [string]$LinePatterns = "10\.0\.0\.8 is a private IP address",
     [string]$TagExpectations = "SELFTEST:action=force-(suspicious|private);WORKBUF:action=summary result=PASS",
     [string]$PlanBTagExpectations = "DNS-BATCH:action=plan-b-hit;DNS-BATCH:action=plan-b-stale;DNS-BATCH:action=plan-b-empty;DNS-BATCH:action=plan-b-fallback;DNS-BATCH:action=plan-b-force-start",
+    [string]$CoreBinaryPath = "",
     [switch]$SkipRemote,
     [switch]$QuietRemote,
     [switch]$NoGolden,
@@ -240,6 +241,59 @@ $repoMsys = Convert-ToMsysPath -Path $repoRoot
 $repoQuoted = Convert-ToBashLiteral -Text $repoMsys
 
 $results = @()
+
+$coreBinary = $CoreBinaryPath
+if ([string]::IsNullOrWhiteSpace($coreBinary)) {
+    $coreSmokeLog = Get-LatestLogPath -Subdir 'out/artifacts/batch_raw'
+    $coreBuildOut = Split-Path -Path $coreSmokeLog -Parent
+    $coreBinary = Join-Path $coreBuildOut 'whois-win64.exe'
+}
+else {
+    $coreBinary = (Resolve-Path -LiteralPath $coreBinary).ProviderPath
+    $coreBuildOut = Split-Path -Path $coreBinary -Parent
+}
+if (-not (Test-Path -LiteralPath $coreBinary)) {
+    throw "[suite-selftest] core selftest binary missing: $coreBinary"
+}
+$coreStdout = Join-Path $coreBuildOut 'core_selftest.stdout.log'
+$coreStderr = Join-Path $coreBuildOut 'core_selftest.stderr.log'
+$coreLog = Join-Path $coreBuildOut 'core_selftest.log'
+$coreReport = Join-Path $coreBuildOut 'golden_core_selftest_report.txt'
+Remove-Item -LiteralPath $coreStdout, $coreStderr, $coreLog, $coreReport -Force -ErrorAction SilentlyContinue
+
+Write-Output "[suite-selftest] Run standalone core --selftest: $coreBinary"
+$coreProcess = Start-Process -FilePath $coreBinary -ArgumentList '--selftest' -NoNewWindow -Wait -PassThru `
+    -RedirectStandardOutput $coreStdout -RedirectStandardError $coreStderr
+$coreOutput = if (Test-Path -LiteralPath $coreStdout) {
+    [System.IO.File]::ReadAllText($coreStdout)
+} else { '' }
+$coreError = if (Test-Path -LiteralPath $coreStderr) {
+    [System.IO.File]::ReadAllText($coreStderr)
+} else { '' }
+[System.IO.File]::WriteAllText($coreLog, $coreOutput + $coreError)
+
+$coreLogMsys = Convert-ToMsysPath -Path $coreLog
+$coreReportMsys = Convert-ToMsysPath -Path $coreReport
+$coreArgs = "./tools/test/golden_check_selftest.sh -l " + (Convert-ToBashLiteral -Text $coreLogMsys)
+$coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-consistency: PASS')
+$coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-single-pass: PASS')
+$coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-cache-single-scan: PASS')
+$coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-(consistency|single-pass|cache-single-scan): FAIL.*')
+$coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[PRECLASS-CONSISTENCY\].*')
+$coreCmd = "cd $repoQuoted && set -o pipefail && $coreArgs 2>&1 | tee " + (Convert-ToBashLiteral -Text $coreReportMsys)
+Write-Output "[suite-selftest] [core] golden: $coreCmd"
+& $bashExe -lc $coreCmd
+$coreGoldenRc = $LASTEXITCODE
+if ($coreProcess.ExitCode -ne 0) {
+    Write-Output "[suite-selftest] [core] standalone --selftest exit=$($coreProcess.ExitCode); scoped preclass assertions determine this gate"
+}
+$results += [pscustomobject]@{
+    Strategy = 'core'
+    Log = $coreLog
+    Report = $coreReport
+    ExitCode = $coreGoldenRc
+}
+
 foreach ($entry in $artifactMap.GetEnumerator()) {
     try {
         $logPath = Get-LatestLogPath -Subdir $entry.Value

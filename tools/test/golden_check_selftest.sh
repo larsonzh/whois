@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: golden_check_selftest.sh -l <smoke_log> [--expect action=force-suspicious,query=8.8.8.8] \
-  [--require-error <regex>] [--require-line <regex>] [--require-tag <component> <regex>]
+  [--require-error <regex>] [--require-line <regex>] [--forbid-line <regex>] \
+  [--require-tag <component> <regex>]
 
 Options:
   -l, --log PATH              Path to smoke_test.log (default: ./out/build_out/smoke_test.log)
@@ -16,6 +17,7 @@ Options:
           Repeat --expect for multiple actions (e.g., force-suspicious + force-private).
   --require-error REGEX       Require an Error line matching REGEX (can be repeated)
   --require-line REGEX        Require a complete output line matching REGEX (can be repeated)
+  --forbid-line REGEX         Reject a complete output line matching REGEX (can be repeated)
   --require-tag COMPONENT REGEX
                               Require a tagged line like [COMPONENT] ... matching REGEX
   -h, --help                  Show this help
@@ -28,6 +30,7 @@ LOG="./out/build_out/smoke_test.log"
 EXPECTS=()
 ERROR_REGEXES=()
 LINE_REGEXES=()
+FORBID_LINE_REGEXES=()
 TAG_EXPECTS=()
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +43,8 @@ while [[ $# -gt 0 ]]; do
       ERROR_REGEXES+=("$2"); shift 2 ;;
     --require-line)
       LINE_REGEXES+=("$2"); shift 2 ;;
+    --forbid-line)
+      FORBID_LINE_REGEXES+=("$2"); shift 2 ;;
     --require-tag)
       if [[ $# -lt 3 ]]; then
         echo "[golden-selftest][ERROR] --require-tag needs COMPONENT and REGEX" >&2
@@ -120,6 +125,15 @@ for re in "${LINE_REGEXES[@]}"; do
     log_match_success "output line matched: $re"
   else
     log_match_error "missing output line: $re"
+  fi
+done
+
+for re in "${FORBID_LINE_REGEXES[@]}"; do
+  [[ -z "$re" ]] && continue
+  if sed 's/\r$//' "$LOG" | grep -E "^(${re})$" >/dev/null; then
+    log_match_error "forbidden output line matched: $re"
+  else
+    log_match_success "forbidden output line absent: $re"
   fi
 done
 

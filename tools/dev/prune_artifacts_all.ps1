@@ -446,6 +446,7 @@ $directoryPlans = @(
     @{ Keep = 8; RelativePath = "out/artifacts/batch_health" },
     @{ Keep = 8; RelativePath = "out/artifacts/batch_plan" },
     @{ Keep = 8; RelativePath = "out/artifacts/batch_planb" },
+    @{ Keep = 8; RelativePath = "out/artifacts/core_selftest" },
     @{ Keep = 8; RelativePath = "out/artifacts/autopilot_dev_recheck_8round" },
     @{ Keep = 8; RelativePath = "out/artifacts/autopilot_four_round" },
     @{ Keep = 8; RelativePath = "out/artifacts/redirect_matrix_10x6" },

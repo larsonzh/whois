@@ -854,6 +854,30 @@ unsigned long wc_preclass_get_lookup_count(void)
 	return g_wc_preclass_lookup_row_text_count;
 }
 
+static uint32_t wc_preclass_ipv4_to_u32(const struct in_addr* addr4)
+{
+	const unsigned char* b = (const unsigned char*)addr4;
+	return (((uint32_t)b[0]) << 24) |
+		(((uint32_t)b[1]) << 16) |
+		(((uint32_t)b[2]) << 8) |
+		((uint32_t)b[3]);
+}
+
+static void wc_preclass_ipv6_to_u64(const struct in6_addr* addr6,
+		uint64_t* out_hi,
+		uint64_t* out_lo)
+{
+	const unsigned char* b = addr6->s6_addr;
+	*out_hi = (((uint64_t)b[0]) << 56) | (((uint64_t)b[1]) << 48) |
+		(((uint64_t)b[2]) << 40) | (((uint64_t)b[3]) << 32) |
+		(((uint64_t)b[4]) << 24) | (((uint64_t)b[5]) << 16) |
+		(((uint64_t)b[6]) << 8) | ((uint64_t)b[7]);
+	*out_lo = (((uint64_t)b[8]) << 56) | (((uint64_t)b[9]) << 48) |
+		(((uint64_t)b[10]) << 40) | (((uint64_t)b[11]) << 32) |
+		(((uint64_t)b[12]) << 24) | (((uint64_t)b[13]) << 16) |
+		(((uint64_t)b[14]) << 8) | ((uint64_t)b[15]);
+}
+
 static const wc_preclass_table_row_t* wc_preclass_lookup_row_text(const char* normalized)
 {
 	++g_wc_preclass_lookup_row_text_count;
@@ -864,23 +888,12 @@ static const wc_preclass_table_row_t* wc_preclass_lookup_row_text(const char* no
 	if (!normalized)
 		return NULL;
 	if (inet_pton(AF_INET, normalized, &addr4) == 1) {
-		const unsigned char* b = (const unsigned char*)&addr4;
-		uint32_t ip = (((uint32_t)b[0]) << 24) |
-			(((uint32_t)b[1]) << 16) |
-			(((uint32_t)b[2]) << 8) |
-			((uint32_t)b[3]);
-		return wc_preclass_lookup_row_v4(ip, &row) ? row : NULL;
+		return wc_preclass_lookup_row_v4(wc_preclass_ipv4_to_u32(&addr4), &row) ? row : NULL;
 	}
 	if (inet_pton(AF_INET6, normalized, &addr6) == 1) {
-		const unsigned char* b = addr6.s6_addr;
-		uint64_t hi = (((uint64_t)b[0]) << 56) | (((uint64_t)b[1]) << 48) |
-			(((uint64_t)b[2]) << 40) | (((uint64_t)b[3]) << 32) |
-			(((uint64_t)b[4]) << 24) | (((uint64_t)b[5]) << 16) |
-			(((uint64_t)b[6]) << 8) | ((uint64_t)b[7]);
-		uint64_t lo = (((uint64_t)b[8]) << 56) | (((uint64_t)b[9]) << 48) |
-			(((uint64_t)b[10]) << 40) | (((uint64_t)b[11]) << 32) |
-			(((uint64_t)b[12]) << 24) | (((uint64_t)b[13]) << 16) |
-			(((uint64_t)b[14]) << 8) | ((uint64_t)b[15]);
+		uint64_t hi;
+		uint64_t lo;
+		wc_preclass_ipv6_to_u64(&addr6, &hi, &lo);
 		return wc_preclass_lookup_row_v6(hi, lo, &row) ? row : NULL;
 	}
 	return NULL;
@@ -912,13 +925,7 @@ static int wc_preclass_lookup_row_and_assign_v4(struct in_addr addr4,
 		const char** confidence)
 {
 	const wc_preclass_table_row_t* row;
-	unsigned char b[4];
-	uint32_t ip;
-	memcpy(b, &addr4, sizeof(b));
-	ip = (((uint32_t)b[0]) << 24) |
-		(((uint32_t)b[1]) << 16) |
-		(((uint32_t)b[2]) << 8) |
-		((uint32_t)b[3]);
+	uint32_t ip = wc_preclass_ipv4_to_u32(&addr4);
 	if (!wc_preclass_lookup_row_v4(ip, &row))
 		return 0;
 	*family = "v4";
@@ -937,23 +944,9 @@ static int wc_preclass_lookup_row_and_assign_v6(struct in6_addr addr6,
 		const char** confidence)
 {
 	const wc_preclass_table_row_t* row;
-	const unsigned char* b = addr6.s6_addr;
-	uint64_t hi = (((uint64_t)b[0]) << 56) |
-		(((uint64_t)b[1]) << 48) |
-		(((uint64_t)b[2]) << 40) |
-		(((uint64_t)b[3]) << 32) |
-		(((uint64_t)b[4]) << 24) |
-		(((uint64_t)b[5]) << 16) |
-		(((uint64_t)b[6]) << 8) |
-		((uint64_t)b[7]);
-	uint64_t lo = (((uint64_t)b[8]) << 56) |
-		(((uint64_t)b[9]) << 48) |
-		(((uint64_t)b[10]) << 40) |
-		(((uint64_t)b[11]) << 32) |
-		(((uint64_t)b[12]) << 24) |
-		(((uint64_t)b[13]) << 16) |
-		(((uint64_t)b[14]) << 8) |
-		((uint64_t)b[15]);
+	uint64_t hi;
+	uint64_t lo;
+	wc_preclass_ipv6_to_u64(&addr6, &hi, &lo);
 	if (!wc_preclass_lookup_row_v6(hi, lo, &row))
 		return 0;
 	*family = "v6";
@@ -1313,9 +1306,9 @@ static const wc_preclass_consistency_expect_t wc_preclass_consistency_expects[] 
 	{"fc00::1", "v6", "special", "none", "V6_UNIQUE_LOCAL_FC00_7", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
 	{"fd00::1", "v6", "special", "none", "V6_UNIQUE_LOCAL_FC00_7", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
 	{"fe80::1", "v6", "special", "none", "V6_LINK_LOCAL_FE80_10", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
-	{"ff00::1", "v6", "special", "none", "V6_MULTICAST_FF00_8", "high", "special", "none", "V6_MULTICAST", "high"},
+	{"ff00::1", "v6", "special", "none", "V6_MULTICAST_FF00_8", "high", "special", "none", "V6_MULTICAST_FF00_8", "high"},
 	{"2001:db8::1", "v6", "special", "none", "V6_DOCUMENTATION_2001_DB8_32", "high", "special", "none", "V6_SPECIAL_PURPOSE", "high"},
-	{"2001:db9::1", "v6", "allocated", "unknown", "V6_GLOBAL_UNICAST_2000_3", "low", "allocated", "unknown", "V6_GLOBAL_UNICAST", "medium"}
+	{"2001:db9::1", "v6", "allocated", "unknown", "V6_GLOBAL_UNICAST_2000_3", "low", "allocated", "unknown", "V6_GLOBAL_UNICAST_2000_3", "medium"}
 };
 
 int wc_preclass_verify_hardcoded_consistency(void)
