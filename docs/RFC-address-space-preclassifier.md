@@ -4296,7 +4296,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - LTO 审计更正：命令行 `-O lto-auto|lto-serial` 原先在 `getopts` 后未重新归一化，实际未进入 Makefile `lto` 分支；历史同名轮次的业务、hash、Golden/referral 证据仍有效，但“LTO 无告警”证据无效。修复后 x86_64 判别轮 `out/artifacts/20260818-064740` 明确使用 `-flto=auto`；最终全架构 `out/artifacts/20260818-065540` 的 9 架构编译/链接均含 `-flto=auto`，Local hash、Golden、三条 referral PASS，release 已同步（455s）。
 - 2026-08-18 提交 `7e1f2fa7` 后四轮复核：Strict lto-auto 默认/debug 两轮无编译与 LTO 告警，Local hash、Golden、referral 全 PASS（`out/artifacts/20260818-071217`，224s；`20260818-072952`，255s）；默认轮 9 架构 POSIX 哈希与真实 LTO 基准轮 `065540` 完全一致（Windows PE 因时间戳不同除外），确认 LTO 真实启用且构建确定性同源。Batch 四策略（`073512/073943/074445/075120`，1185.080s）与 Selftest 四策略（`080108/080605/081113/081614`，1201.862s）黄金全 PASS；自检报告均含 `output line matched: 10\.0\.0\.8 is a private IP address`，`--require-line` 真实业务输出断言已生效，阻断 marker-only 假通过。12x6 矩阵 authority 表空（`out/artifacts/redirect_matrix_10x6/20260818-083320`）；唯一 `afrinic_45.113.52.0_22` error 为 LACNIC 站点限流（`whois.lacnic.net`，hop 4/5 连续 give-up），复测 `--prefer-ipv4 --rir-ip-pref arin=ipv6 "45.113.52.0/22" -h afrinic` 收敛 APNIC 正确，与历史同段限流模式一致，属外部瞬态，非代码或脚本回归。
 
-#### 24.23 前置分类器后续优化清单（2026-08-18，执行中：24.23.1/24.23.2/24.23.5 已由串行第 51/52 份覆盖编制）
+#### 24.23 前置分类器后续优化清单（2026-08-18 建立；2026-08-20 执行状态：24.23.1/24.23.2/24.23.5 已完成执行回填，24.23.3/24.23.4/24.23.6 已完成；剩余 24.23.7 未排期，开发方式与顺序见 24.23.8）
 
 > 依据：Phase C 默认翻转与正式收尾（24.21）后代码审计确认功能与结构已成熟、无需功能性改动；但存在以下非功能性优化空间。每项均记录目标闭包、问题证据、改动内容、验收门禁与边界，可作为独立 A/B Vx 任务切片直接编制引用。任何涉及 `src/core/preclass.c` / `src/core/client_flow.c` 的改动必须走完整 D 轮任务定义 + Step47/Phase C/P0/P1/CIDR/12x6/Strict 全门禁，且不应与功能收尾混在同一批次。
 
@@ -4315,7 +4315,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：对每个硬编码段前缀分别冻结“全路径分类”与“生成表最长前缀视图”两套期望并逐项断言（family/cls/rir/reason/confidence）；两侧允许的差异必须显式列出（已批准差异：224/4 全路径 cls=special 而表为 reserved、2000::/3 全路径 confidence=low 而表为 medium、reason 两侧粒度不同），其余字段两侧一致；断言范围必须覆盖 IPv4 与 IPv6 **全部**硬编码段，IPv6 段用代表性 IP 逐一断言（`::1`、`fc00::1`、`fe80::1`、`ff00::1`、`2001:db8::1`、`2001:db9::1` 等）；不一致时 fail-close（自检 FAIL 或生成器报错），不得静默降级。
 - 验收门禁：C 内置 selftest 新标签 PASS（含上述 IPv6 代表性 IP 断言）；Phase C `26/26`、special `17/17`、P0 `12/12`、P1 `232/232`、CIDR `4/4 + 9/9`、Step47、12x6、Strict 多架构全 PASS。
 - 边界：只加防护断言，不改分类语义；不得用更新黄金期望掩盖漂移。
-- 状态：已完成执行回填（2026-08-20，A/51 8/8 通过，`wc_preclass_verify_hardcoded_consistency()` 与 `[PRECLASS-CONSISTENCY]` fail-close 断言随任务落地，见 24.24 执行回填）。
+- 状态：✅ 已完成执行回填（2026-08-20，A/51 8/8 通过，`wc_preclass_verify_hardcoded_consistency()` 与 `[PRECLASS-CONSISTENCY]` fail-close 断言随任务落地，见 24.24 执行回填）。
 
 ##### 24.23.2 决策链单次分类复用（性能，低风险）
 
@@ -4324,7 +4324,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：`classify_query` 复用已找到的 row 填充结果，消除内部双扫描；决策链“一次分类、结果在调用间传递”（复用 `wc_preclass_result_t`，或按 query 哈希新增内部小缓存）。
 - 验收门禁：行为零变化——Phase C `26/26`、P0/P1、Step47、12x6 authority 空表、Golden/referral 全 PASS；批量与单条输出契约一致（`--require-line` 断言保持）。
 - 边界：性能收益为微秒级（单条），批量海量场景才显著；不得改变分类结果、reason/confidence 或任何输出契约。
-- 状态：已完成执行回填（2026-08-20，B/52 8/8 通过，`wc_preclass_classify_ip_with_row()` 行复用、16 槽 query-keyed 缓存与 `preclass-single-pass` 去重断言随任务落地，见 24.25 执行回填）。
+- 状态：✅ 已完成执行回填（2026-08-20，B/52 8/8 通过，`wc_preclass_classify_ip_with_row()` 行复用、16 槽 query-keyed 缓存与 `preclass-single-pass` 去重断言随任务落地，见 24.25 执行回填）。
 
 ##### 24.23.3 表数据更新流程自动化（运维）
 
@@ -4333,7 +4333,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：新增一键流程（或扩展既有脚本）在快照更新后依次执行：表重新生成 → 生成器哈希一致 → schema/table guard → P0/P1/Phase C/CIDR/Step47/12x6 → 输出 diff 摘要；表变更时强制 diff 评审记录。
 - 验收门禁：模拟快照变更的 dry-run PASS；无变更时全门禁 PASS 且生成器输出哈希不变。
 - 边界：不改变既有快照固化与运行时离线静态表契约。
-- 状态：未排期；属脚本目标（`tools/preclass/*` 与生成器），A/B 任务定义不适用于脚本，后续走传统交互式开发。
+- 状态：✅ 已完成（2026-08-20，交互式开发）——新增一键编排脚本 `tools/preclass/update_and_verify_preclass_table.ps1`：快照更新 → 表重生成 → 变更检测（生成器哈希一致性） → schema/table guard → 门禁（P0/P1/Phase C/special/CIDR/Step47/12x6，`-GateProfile`/`-Gates` 可调） → 表变更时输出 diff 摘要并强制评审记录（`out/artifacts/preclass_table_review/`）；`-DryRun` 支持无变更幂等验证（生成器输出哈希不变）。
 
 ##### 24.23.4 受控开关放量与契约同步（随放量推进）
 
@@ -4342,7 +4342,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：放量时以独立任务翻转开关默认值，并同步更新帮助文本、文档与黄金基线（不得顺带重设计语义）。
 - 验收门禁：与 24.21 同等全门禁；显式 `-h` 旁路与 `--disable-address-preclass` 全量回退保持。
 - 边界：默认翻转必须独立评审、独立记录，不得与其它功能改动混批。
-- 状态（2026-08-19 更新）：已完成——开关默认值均已翻转（Phase B 首跳由 49/50 D4 翻转：`preclass_first_hop_enable=1`；Phase C 由 24.21 翻转收尾：`preclass_early_converge_enable=1`），帮助文本、双语使用文档、发布说明与黄金基线均已同步；显式 `-h` 旁路与 `--disable-address-preclass` 全量回退保持。若后续出现新的放量（如 R0→R1 扩大），仍须独立任务 + 独立评审。
+- 状态（2026-08-19 更新）：✅ 已完成——开关默认值均已翻转（Phase B 首跳由 49/50 D4 翻转：`preclass_first_hop_enable=1`；Phase C 由 24.21 翻转收尾：`preclass_early_converge_enable=1`），帮助文本、双语使用文档、发布说明与黄金基线均已同步；显式 `-h` 旁路与 `--disable-address-preclass` 全量回退保持。若后续出现新的放量（如 R0→R1 扩大），仍须独立任务 + 独立评审。
 
 ##### 24.23.5 可观测性增强（可选）
 
@@ -4351,7 +4351,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：`--retry-metrics` 下进程退出时输出一行分类命中统计（按 family/class/confidence 计数，如 `[PRECLASS-METRICS] ...`，写 stderr，标签风格与既有 `[RETRY-METRICS*]` 一致）。
 - 验收门禁：新标签仅在 `--retry-metrics`/`--debug` 下出现；进程退出时输出；远程冒烟 grep 新标签 PASS。
 - 边界：不得改变 stdout 业务输出；不得改变既有标签名称。
-- 状态：已完成执行回填（2026-08-20，A/51 8/8 通过，`[PRECLASS-METRICS]` 退出单行统计（含 class_unallocated，零计数也输出）随任务落地，见 24.24 执行回填）。
+- 状态：✅ 已完成执行回填（2026-08-20，A/51 8/8 通过，`[PRECLASS-METRICS]` 退出单行统计（含 class_unallocated，零计数也输出）随任务落地，见 24.24 执行回填）。
 
 ##### 24.23.6 IPv6 覆盖策略文档化（纯文档，可直接编辑；已完成 2026-08-18）
 
@@ -4369,7 +4369,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_defini
 - 改动内容：literal 函数收敛（先确认是否为 selftest/防内联刻意设计，必要时保留）；重复 helper 复用公共版；消除冗余分支。
 - 验收门禁：行为零变化，全门禁 PASS；编码门禁通过。
 - 边界：如 literal 函数被 selftest 符号或防优化需求依赖，不得盲目合并。
-- 状态：未排期，作未来 A/B Vx 切片候选（约 1 次 A/B 共 8 轮，或按合并策略并入后续批次；literal 函数收敛前需先确认是否为 selftest/防内联刻意设计）。
+- 状态：⏳ 未排期，作未来 A/B Vx 切片候选（约 1 次 A/B 共 8 轮，或按合并策略并入后续批次；literal 函数收敛前需先确认是否为 selftest/防内联刻意设计；开发方式见 24.23.8）。
+
+##### 24.23.8 后续工作安排与开发方式（2026-08-20 更新）
+
+**已完成（截至 2026-08-20）**：
+- ✅ 24.23.1 分类器一致性防护（A/51 落地，见 24.24 执行回填）
+- ✅ 24.23.2 决策链单次分类复用（B/52 落地，见 24.25 执行回填）
+- ✅ 24.23.3 表数据更新流程自动化（2026-08-20，一键编排脚本 `update_and_verify_preclass_table.ps1` 落地，交互式开发）
+- ✅ 24.23.4 受控开关放量与契约同步（Phase B/Phase C 默认翻转完成，2026-08-19）
+- ✅ 24.23.5 可观测性增强（A/51 落地，见 24.24 执行回填）
+- ✅ 24.23.6 IPv6 覆盖策略文档化（2026-08-18）
+
+**待办（按开发方式划分）**：
+
+| 分项 | 内容 | 开发方式 | 说明 |
+|---|---|---|---|
+| 24.23.7 代码清理 | literal 函数收敛、重复 helper 复用公共版、消除冗余分支 | **无人值守 A/B Vx 切片** | 源码目标（`preclass.c`/`client_flow.c`/`whois_query_exec.c`），行为零变化 + 全门禁；约 1 次 A/B 共 8 轮，或按 24.23 前言合并策略与其它独立小切片合并 |
+
+**执行顺序建议**：
+1. **24.23.7（无人值守）**：作为下一次 A/B Vx 任务候选——行为零变化、门禁完整，适合无人值守；若切片代码量小，按合并策略与其它独立小切片合并编排，或评估直接采用交互式开发。
+2. 24.23.7 开工前先按边界条款确认 literal 函数是否为 selftest/防内联刻意设计，必要时保留。
+3. **24.23.3 已完成**：表更新一键流程已落地（`update_and_verify_preclass_table.ps1`），后续快照更新直接走该脚本（交互式，不占 A/B 窗口）。
 
 #### 24.24 下次开工清单（Vx 多文件：一致性防护 + 可观测性合并切片，2027-05-13 ~ 2027-05-19，串行第 51 份，Checklist A，草案）
 

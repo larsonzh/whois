@@ -33,6 +33,27 @@ The updater validates all four CSV schemas before replacing any existing files a
 `docs/registry-snapshots/manifest.json` with source and stored SHA-256 values. Runtime code
 must not access IANA over the network; generated C tables consume these pinned snapshots.
 
+## One-click update-and-verify pipeline (24.23.3)
+
+Orchestrates the full snapshot refresh -> table regeneration -> consistency gates flow:
+
+```powershell
+# Live: refresh snapshots, regenerate table, run schema/table guard + gates, emit review record on change
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1
+
+# Dry-run (no download/generate/gates executed, only validates orchestration)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/preclass/update_and_verify_preclass_table.ps1 -DryRun -SimulateNoChange
+```
+
+Key behavior:
+- `-DryRun -SimulateNoChange` proves the no-change branch keeps generated output hashes stable.
+- On a detected change the pipeline runs `preclass_table_guard.ps1` plus the selected gates
+  (`-GateProfile all|core|minimal|none` or `-Gates guard,p0,p1,...`) and writes a mandatory
+  diff/review record under `out/artifacts/preclass_table_review/` (override with `-ReviewRecordPath`).
+- No-change runs skip the full gates by default (`-GatesOnNoChange` forces them) and preserve
+  deterministic generator output.
+
 ## Notes
 
 - Schema v2 merges base address-space rows with longest-prefix special-purpose overlays.
