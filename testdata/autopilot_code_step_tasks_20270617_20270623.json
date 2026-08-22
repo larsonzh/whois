@@ -1,0 +1,616 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx56-preclass-literal-inline-15-d1-d4-20270617-20270623",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the six single-use early literal helpers (reason_non_ip_input/confidence_code_c0-c3/observe_reason_prefix) at their unique call sites in wc_preclass_observe_reason_key(), wc_preclass_observe_confidence_code(), wc_preclass_observation_codes() and wc_preclass_classify_ip_with_row(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "const char* prefix = \"PRECLASS_REASON_\";",
+          "return \"NON_IP_INPUT\";",
+          "return \"C3\";",
+          "return \"C2\";",
+          "return \"C1\";",
+          "return \"C0\";",
+          "*reason_code = (!reason || !*reason) ? \"NON_IP_INPUT\" : reason;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_reason_non_ip_input_literal\\(void\\)\n\\{\n\treturn \"NON_IP_INPUT\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_code_c0_literal\\(void\\)\n\\{\n\treturn \"C0\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_code_c1_literal\\(void\\)\n\\{\n\treturn \"C1\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_code_c2_literal\\(void\\)\n\\{\n\treturn \"C2\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_code_c3_literal\\(void\\)\n\\{\n\treturn \"C3\";\n\\}\n\nstatic const char\\* wc_preclass_observe_reason_prefix_literal\\(void\\)\n\\{\n\treturn \"PRECLASS_REASON_\";\n\\}\n\nstatic const char\\* wc_preclass_observe_reason_key\\(const char\\* reason\\)",
+          "replacement": "static const char* wc_preclass_observe_reason_key(const char* reason)",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_reason_key(const char* reason)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "const char\\* prefix = wc_preclass_observe_reason_prefix_literal\\(\\);",
+          "replacement": "const char* prefix = \"PRECLASS_REASON_\";",
+          "idempotentContains": [
+            "const char* prefix = \"PRECLASS_REASON_\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "return wc_preclass_reason_non_ip_input_literal\\(\\);",
+          "replacement": "return \"NON_IP_INPUT\";",
+          "idempotentContains": [
+            "return \"NON_IP_INPUT\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "return wc_preclass_confidence_code_c3_literal\\(\\);",
+          "replacement": "return \"C3\";",
+          "idempotentContains": [
+            "return \"C3\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "return wc_preclass_confidence_code_c2_literal\\(\\);",
+          "replacement": "return \"C2\";",
+          "idempotentContains": [
+            "return \"C2\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "return wc_preclass_confidence_code_c1_literal\\(\\);",
+          "replacement": "return \"C1\";",
+          "idempotentContains": [
+            "return \"C1\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "return wc_preclass_confidence_code_c0_literal\\(\\);",
+          "replacement": "return \"C0\";",
+          "idempotentContains": [
+            "return \"C0\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason_code = \\(!reason \\|\\| !\\*reason\\) \\? wc_preclass_reason_non_ip_input_literal\\(\\) : reason;",
+          "replacement": "*reason_code = (!reason || !*reason) ? \"NON_IP_INPUT\" : reason;",
+          "idempotentContains": [
+            "*reason_code = (!reason || !*reason) ? \"NON_IP_INPUT\" : reason;"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_non_ip_input_literal\\(\\);",
+          "replacement": "*reason = \"NON_IP_INPUT\";",
+          "idempotentContains": [
+            "*reason = \"NON_IP_INPUT\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "reason-non-ip-prefix-inlined",
+          "target": "preclass_source",
+          "pattern": "const char\\* prefix = \\\"PRECLASS_REASON_\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-non-ip-return-inlined",
+          "target": "preclass_source",
+          "pattern": "return \\\"NON_IP_INPUT\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-c3-inlined",
+          "target": "preclass_source",
+          "pattern": "return \\\"C3\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-c2-inlined",
+          "target": "preclass_source",
+          "pattern": "return \\\"C2\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-c1-inlined",
+          "target": "preclass_source",
+          "pattern": "return \\\"C1\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-c0-inlined",
+          "target": "preclass_source",
+          "pattern": "return \\\"C0\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-non-ip-reasoncode-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*reason_code = \\(!reason \\|\\| !\\*reason\\) \\? \\\"NON_IP_INPUT\\\" : reason;",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-non-ip-classify-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*reason = \\\"NON_IP_INPUT\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "early-literal-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(reason_non_ip_input|confidence_code_c[0-3]|observe_reason_prefix)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline the two single-use class literal helpers (class_allocated/class_reserved) at their unique call sites in wc_preclass_set_allocated_hint(), wc_preclass_class_name() and wc_preclass_classify_ip_with_row(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "*cls = \"allocated\";",
+          "case WC_PRECLASS_CLASS_ID_ALLOCATED: return \"allocated\";",
+          "case WC_PRECLASS_CLASS_ID_RESERVED: return \"reserved\";",
+          "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, \"reserved\", wc_preclass_class_special_literal());"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_class_unknown_literal\\(void\\)\n\\{\n\treturn \"unknown\";\n\\}\n\nstatic const char\\* wc_preclass_class_allocated_literal\\(void\\)\n\\{\n\treturn \"allocated\";\n\\}\n\nstatic const char\\* wc_preclass_class_reserved_literal\\(void\\)\n\\{\n\treturn \"reserved\";\n\\}\n\nstatic const char\\* wc_preclass_class_special_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_class_unknown_literal(void)\n{\n\treturn \"unknown\";\n}\n\nstatic const char* wc_preclass_class_special_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_class_special_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*cls = wc_preclass_class_allocated_literal\\(\\);\n\t\t\\*rir = guessed_rir;",
+          "replacement": "*cls = \"allocated\";\n\t\t*rir = guessed_rir;",
+          "idempotentContains": [
+            "*cls = \"allocated\";\n\t\t*rir = guessed_rir;"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*cls = wc_preclass_class_allocated_literal\\(\\);\n\t\t\\*reason = reason_value;",
+          "replacement": "*cls = \"allocated\";\n\t\t*reason = reason_value;",
+          "idempotentContains": [
+            "*cls = \"allocated\";\n\t\t*reason = reason_value;"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_ALLOCATED: return wc_preclass_class_allocated_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CLASS_ID_ALLOCATED: return \"allocated\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CLASS_ID_ALLOCATED: return \"allocated\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_RESERVED: return wc_preclass_class_reserved_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CLASS_ID_RESERVED: return \"reserved\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CLASS_ID_RESERVED: return \"reserved\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, wc_preclass_class_reserved_literal\\(\\), wc_preclass_class_special_literal\\(\\\u0029\\);",
+          "replacement": "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, \"reserved\", wc_preclass_class_special_literal());",
+          "idempotentContains": [
+            "wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, \"reserved\", wc_preclass_class_special_literal());"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "class-allocated-hint-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*cls = \\\"allocated\\\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "class-allocated-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_ALLOCATED: return \\\"allocated\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "class-reserved-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CLASS_ID_RESERVED: return \\\"reserved\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "class-reserved-tuple-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_apply_none_confidence_tuple\\(cls, rir, reason, confidence, \\\"reserved\\\", wc_preclass_class_special_literal\\(\\)\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "class-literal-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_class_(allocated|reserved)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the three single-use literal helpers (rir_none/confidence_low/confidence_medium) at their unique call sites in wc_preclass_confidence_token_level(), wc_preclass_apply_none_confidence_tuple(), wc_preclass_set_allocated_hint(), wc_preclass_rir_name(), wc_preclass_confidence_name() and wc_preclass_classify_ip_with_row(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "*rir = \"none\";",
+          "case WC_PRECLASS_RIR_ID_NONE: return \"none\";",
+          "strcmp(confidence, \"low\") == 0",
+          "*confidence = \"low\";",
+          "case WC_PRECLASS_CONFIDENCE_ID_LOW: return \"low\";",
+          "default: return \"low\";",
+          "strcmp(confidence, \"medium\") == 0",
+          "*confidence = \"medium\";",
+          "case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return \"medium\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_rir_unknown_literal\\(void\\)\n\\{\n\treturn \"unknown\";\n\\}\n\nstatic const char\\* wc_preclass_rir_none_literal\\(void\\)\n\\{\n\treturn \"none\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_low_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_rir_unknown_literal(void)\n{\n\treturn \"unknown\";\n}\n\nstatic const char* wc_preclass_confidence_low_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_low_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_confidence_low_literal\\(void\\)\n\\{\n\treturn \"low\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_medium_literal\\(void\\)\n\\{\n\treturn \"medium\";\n\\}\n\nstatic const char\\* wc_preclass_confidence_high_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_confidence_high_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_confidence_high_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*rir = wc_preclass_rir_none_literal\\(\\);",
+          "replacement": "*rir = \"none\";",
+          "idempotentContains": [
+            "*rir = \"none\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_NONE: return wc_preclass_rir_none_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_RIR_ID_NONE: return \"none\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_RIR_ID_NONE: return \"none\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, wc_preclass_confidence_low_literal\\(\\)\\) == 0",
+          "replacement": "strcmp(confidence, \"low\") == 0",
+          "idempotentContains": [
+            "strcmp(confidence, \"low\") == 0"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\n\t\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t*confidence = \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = reason_value;\n\t\t\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "*reason = reason_value;\n\t\t\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = reason_value;\n\t\t\t*confidence = \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_LOW: return wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CONFIDENCE_ID_LOW: return \"low\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CONFIDENCE_ID_LOW: return \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "default: return wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "default: return \"low\";",
+          "idempotentContains": [
+            "default: return \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, wc_preclass_confidence_medium_literal\\(\\)\\) == 0",
+          "replacement": "strcmp(confidence, \"medium\") == 0",
+          "idempotentContains": [
+            "strcmp(confidence, \"medium\") == 0"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_rir_hint_literal\\(\\);\n\t\t\\*confidence = wc_preclass_confidence_medium_literal\\(\\);",
+          "replacement": "*reason = wc_preclass_reason_rir_hint_literal();\n\t\t*confidence = \"medium\";",
+          "idempotentContains": [
+            "*reason = wc_preclass_reason_rir_hint_literal();\n\t\t*confidence = \"medium\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = reason_value;\n\t\t\t\\*confidence = wc_preclass_confidence_medium_literal\\(\\);",
+          "replacement": "*reason = reason_value;\n\t\t\t*confidence = \"medium\";",
+          "idempotentContains": [
+            "*reason = reason_value;\n\t\t\t*confidence = \"medium\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return wc_preclass_confidence_medium_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return \"medium\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return \"medium\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\n\t\t\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = wc_preclass_reason_no_rir_hint_literal();\n\t\t\t*confidence = \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = \"NON_IP_INPUT\";\n\t\\*confidence = wc_preclass_confidence_low_literal\\(\\);",
+          "replacement": "*reason = \"NON_IP_INPUT\";\n\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = \"NON_IP_INPUT\";\n\t*confidence = \"low\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "rir-none-tuple-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*rir = \\\"none\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "rir-none-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_RIR_ID_NONE: return \\\"none\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-low-token-inlined",
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, \\\"low\\\"\\) == 0",
+          "expectedCount": 2
+        },
+        {
+          "name": "confidence-low-set-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*confidence = \\\"low\\\";",
+          "expectedCount": 4
+        },
+        {
+          "name": "confidence-low-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_LOW: return \\\"low\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-low-default-inlined",
+          "target": "preclass_source",
+          "pattern": "default: return \\\"low\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-medium-token-inlined",
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, \\\"medium\\\"\\) == 0",
+          "expectedCount": 2
+        },
+        {
+          "name": "confidence-medium-set-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*confidence = \\\"medium\\\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "confidence-medium-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_MEDIUM: return \\\"medium\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "conf-rir-literal-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(rir_none|confidence_low|confidence_medium)_literal\\(void\\)\n\\{",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the four single-use literal helpers (confidence_high/reason_rir_hint/reason_no_rir_hint/v6_global_unicast_reason) at their unique call sites in wc_preclass_confidence_token_level(), wc_preclass_apply_none_confidence_tuple(), wc_preclass_set_allocated_hint(), wc_preclass_confidence_name(), wc_preclass_reason_name() and wc_preclass_classify_ip_with_row(), then delete their single-line definitions and the early confidence forward declarations. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "strcmp(confidence, \"high\") == 0",
+          "*confidence = \"high\";",
+          "case WC_PRECLASS_CONFIDENCE_ID_HIGH: return \"high\";",
+          "*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";",
+          "*reason = \"NO_RIR_HINT\";",
+          "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";",
+          "const char* reason_value = \"V6_GLOBAL_UNICAST_2000_3\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_confidence_high_literal\\(void\\)\n\\{\n\treturn \"high\";\n\\}\n\nstatic const char\\* wc_preclass_reason_rir_hint_literal\\(void\\)\n\\{\n\treturn \"RIR_HINT_FROM_EXISTING_GUESS\";\n\\}\n\nstatic const char\\* wc_preclass_reason_no_rir_hint_literal\\(void\\)\n\\{\n\treturn \"NO_RIR_HINT\";\n\\}\n\nstatic const char\\* wc_preclass_v6_global_unicast_reason_literal\\(void\\)\n\\{\n\treturn \"V6_GLOBAL_UNICAST_2000_3\";\n\\}\n\nstatic void wc_preclass_apply_none_confidence_tuple\\(const char\\*\\* cls,",
+          "replacement": "static void wc_preclass_apply_none_confidence_tuple(const char** cls,",
+          "idempotentContains": [
+            "static void wc_preclass_apply_none_confidence_tuple(const char** cls,"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_confidence_low_literal\\(void\\);\nstatic const char\\* wc_preclass_confidence_medium_literal\\(void\\);\nstatic const char\\* wc_preclass_confidence_high_literal\\(void\\);\n\nstatic int wc_preclass_confidence_token_level\\(const char\\* confidence\\)",
+          "replacement": "static int wc_preclass_confidence_token_level(const char* confidence)",
+          "idempotentContains": [
+            "static int wc_preclass_confidence_token_level(const char* confidence)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, wc_preclass_confidence_high_literal\\(\\)\\) == 0",
+          "replacement": "strcmp(confidence, \"high\") == 0",
+          "idempotentContains": [
+            "strcmp(confidence, \"high\") == 0"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*confidence = wc_preclass_confidence_high_literal\\(\\);",
+          "replacement": "*confidence = \"high\";",
+          "idempotentContains": [
+            "*confidence = \"high\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_HIGH: return wc_preclass_confidence_high_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_CONFIDENCE_ID_HIGH: return \"high\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_CONFIDENCE_ID_HIGH: return \"high\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_rir_hint_literal\\(\\);",
+          "replacement": "*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";",
+          "idempotentContains": [
+            "*reason = \"RIR_HINT_FROM_EXISTING_GUESS\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\n\t\t\\*confidence = \"low\";",
+          "replacement": "*reason = \"NO_RIR_HINT\";\n\t\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = \"NO_RIR_HINT\";\n\t\t*confidence = \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\*reason = wc_preclass_reason_no_rir_hint_literal\\(\\);\n\t\t\t\\*confidence = \"low\";",
+          "replacement": "*reason = \"NO_RIR_HINT\";\n\t\t\t*confidence = \"low\";",
+          "idempotentContains": [
+            "*reason = \"NO_RIR_HINT\";\n\t\t\t*confidence = \"low\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal\\(\\);",
+          "replacement": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";",
+          "idempotentContains": [
+            "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \"V6_GLOBAL_UNICAST_2000_3\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "const char\\* reason_value = wc_preclass_v6_global_unicast_reason_literal\\(\\);",
+          "replacement": "const char* reason_value = \"V6_GLOBAL_UNICAST_2000_3\";",
+          "idempotentContains": [
+            "const char* reason_value = \"V6_GLOBAL_UNICAST_2000_3\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "confidence-high-token-inlined",
+          "target": "preclass_source",
+          "pattern": "strcmp\\(confidence, \\\"high\\\"\\) == 0",
+          "expectedCount": 3
+        },
+        {
+          "name": "confidence-high-tuple-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*confidence = \\\"high\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "confidence-high-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_CONFIDENCE_ID_HIGH: return \\\"high\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-rir-hint-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*reason = \\\"RIR_HINT_FROM_EXISTING_GUESS\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "reason-no-rir-hint-inlined",
+          "target": "preclass_source",
+          "pattern": "\\*reason = \\\"NO_RIR_HINT\\\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "v6-global-unicast-switch-inlined",
+          "target": "preclass_source",
+          "pattern": "case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return \\\"V6_GLOBAL_UNICAST_2000_3\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "v6-global-unicast-classify-inlined",
+          "target": "preclass_source",
+          "pattern": "const char\\* reason_value = \\\"V6_GLOBAL_UNICAST_2000_3\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "late-literal-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(confidence_high|reason_rir_hint|reason_no_rir_hint|v6_global_unicast_reason)_literal\\(void\\)",
+          "expectedCount": 0
+        },
+        {
+          "name": "confidence-prototypes-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_confidence_(low|medium|high)_literal\\(void\\);",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}

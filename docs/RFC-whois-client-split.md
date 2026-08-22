@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-22：新增串行第 55/56 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-06-10 ~ 2027-06-23`，literal 收敛磨刀石第 3 批，A=vx55 action/decision 域 15 helper / B=vx56 早段 6 + class/rir/conf/reason 9，详见 `docs/RFC-address-space-preclassifier.md` 24.29）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270610_20270616.json`、`testdata/autopilot_code_step_tasks_20270617_20270623.json`）：A 全定义静态检查 `errors=0 warnings=0`（26 ops 全 `pattern_match=1`）、链式 `-RoundTag D1 -ChainRounds` 通过、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）、Vx 专项安全回归 `status=PASS`、A/B 有效源码（`tmp/vx55_validated`/`tmp/vx56_validated`，15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`；start-file 待用户确认任务基线后生成。
 - 2026-08-22：串行第 53/54 份“无人值守 A/B”（literal 收敛磨刀石，窗口 `2027-05-27 ~ 2027-06-09`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260821-051747`，B run=`out/artifacts/dev_verify_multiround/20260821-121221`，A/B 合计 `0d 14:33:38`）；A/B 各 8/8 轮一次通过、无事故/自愈/重启，各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 36 个历史人为膨胀 helper 后续窗口续编；最终 Strict 远程冒烟同步 + 黄金校验（`lto-auto`）无告警 PASS（`out/artifacts/20260822-135204`，255s）（详见 `docs/RFC-address-space-preclassifier.md` 24.28 执行回填）。
 - 2026-08-21：新增串行第 53/54 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-05-27 ~ 2027-06-09`，literal 收敛磨刀石，A=vx53 第 1 批 15 helper / B=vx54 第 2 批 15 helper，详见 `docs/RFC-address-space-preclassifier.md` 24.28）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270527_20270602.json`、`testdata/autopilot_code_step_tasks_20270603_20270609.json`）：A 全定义静态检查 `errors=0 warnings=0`、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`、跨轮链式 `-RoundTag D1 -ChainRounds` 通过、Vx 专项安全回归 `status=PASS`、A/B 有效源码（15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`。
 - 2026-08-21：24.23.7 代码清理（交互式，切片 A/B/C）已完成回填：切片 A/B/C 落地（`whois_query_exec.c`/`client_flow.c`/`preclass.c`）+ 内置一致性 selftest 表侧冻结值修复（`V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`）+ Selftest Golden 独立 core `--selftest` 门禁（`golden_check_selftest.sh --forbid-line`）+ `prune_artifacts_all.ps1` 纳入 `core_selftest`。全门禁 PASS：编码/Fast（`20260820-192402`）/一键 8 项（CIDR `20260820-220634`、12x6 `20260820-223125`）/Selftest+Batch Golden（`20260821`）/Strict 默认+debug（`20260821-001350`/`002054`）/12x6 复核（`20260821-013117`）；release 已同步（详见 `docs/RFC-address-space-preclassifier.md` 24.27 执行回填）。
@@ -9720,4 +9721,178 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - 全程无事故、无自愈、无阶段重启；事件票 `a-pass-conclusion-b-started`、`chat-session-final-status` 均按 event-review 闭环。
 - 剩余 36 个单次使用 literal helper 为历史人为膨胀（上个月无人值守测试代理为凑轮次制造），本窗口收敛 30 个，剩余 36 个后续窗口续编收尾。
 - **最终远程编译冒烟同步 + 黄金校验（Strict Version，`lto-auto` 默认）**：`out/artifacts/20260822-135204`，255s；无告警 + lto 无告警 + `Local hash verify: PASS` + `Golden PASS` + `referral check: PASS`；release 已同步。
+
+#### 24.29 下次开工清单（无人值守 A/B，2027-06-10 ~ 2027-06-23，草案，串行第 55/56 份）
+
+> 任务性质：literal 收敛磨刀石（管道验证）第 3 批。依据 24.23.7 审计定稿，将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），延续 24.28（vx53/54 第 1/2 批各 15）的收敛节奏；本窗口后剩余 6 个多调用/带 prototype helper 供后续窗口。
+> 目标闭包：仅 `preclass_source`（`src/core/preclass.c`），单目标 Vx。helper 均为 static 单行返回字符串字面量，内联后行为零变化（stdout/stderr 契约、分类语义、生成表均不动）。
+
+#### 共享身份与串行约束
+
+| 字段 | 值 |
+|---|---|
+| 清单状态 | 草案（编制期验收完成 2026-08-22；start-file 待用户确认后生成） |
+| 运行窗口 | `2027-06-10 ~ 2027-06-23`（A：2027-06-10 ~ 2027-06-16；B：2027-06-17 ~ 2027-06-23） |
+| 运行模式 | code-change |
+| 质量策略 | enforce（`qualityPolicy.operationSafetyPolicy=enforce`） |
+| Checklist A 任务定义 | `testdata/autopilot_code_step_tasks_20270610_20270616.json` |
+| Checklist B 任务定义 | `testdata/autopilot_code_step_tasks_20270617_20270623.json` |
+| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270610-20270623.md`（待生成） |
+| A schema | `vx-draft` |
+| B schema | `vx-draft` |
+| A target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
+| B target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
+| 主归属文档 | `docs/RFC-address-space-preclassifier.md` |
+| 协同文档 | `docs/RFC-whois-client-split.md` |
+| 用户启动授权 | 未授权（等待用户确认任务基线后授权启动） |
+
+**权威文档落点**
+
+| 角色 | 文档路径 | 章节号或稳定标题 | 纳入原因 |
+|---|---|---|---|
+| 主归属 | `docs/RFC-address-space-preclassifier.md` | 24.29 | 直接拥有 literal 收敛（24.23.7 延迟项）第 3 批设计与执行 |
+| 协同 | `docs/RFC-whois-client-split.md` | 快速索引 / 24.29 落点 | 客户端拆分架构与整体进度记录 |
+
+- [x] A/B 严格串行，不并发运行。
+- [x] B 仅在 A 最终 PASS、A 成功快照完整性通过且 B 启动门禁通过后启动。
+- [x] A FAIL、BLOCKED、快照缺失或快照不一致时，B 保持 `blocked-by-a`。
+- [x] 启动前不执行 `git commit`、`git push`，也不预填运行结果。
+- [x] 权威文档集合已按需求归属冻结，且集合内各落点的共享身份字段与证据路径已逐项核对一致。
+
+#### Checklist A：literal 收敛第 3 批 15 helper（vx55，action/decision 域）
+
+**目标与边界**
+
+- 目标：内联 15 个单次使用 literal helper 并在其唯一调用点替换为字符串字面量，随后删除对应单行定义。
+  - D1：`action_source_decision_value`/`action_hint_applied`/`action_classifier_rir_hint`/`action_early_converge`/`action_preclass_short_circuit`（`wc_preclass_resolve_route_decision()`/`wc_preclass_apply_route_change_finalize()` 5 处）。
+  - D2：`action_step47_short_circuit`/`route_change_normalized`/`fallback_none_value`/`action_source_default`（`apply_route_change_finalize`/`resolve_route_decision`/`set_decision_defaults` 4 处）。
+  - D3：`observe_only_action`/`hint_disabled_action_value`/`policy_action_source`（`set_decision_defaults`/`resolve_route_decision`/`apply_disabled_decision_fields` 3 处，含 prototype 处理）。
+  - D4：`non_ip`/`match_layer_cidr_compare`/`match_layer_ip_compare`（`resolve_route_decision`/`set_decision_defaults` 3 处）。
+- 非目标：剩余 21 个 helper（B/56 处理 15、后续窗口 6）；任何行为/输出契约/分类语义/生成表变更。
+- 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）；`docs/USAGE_CN.md`/`docs/USAGE_EN.md`。
+- 任务定义：`testdata/autopilot_code_step_tasks_20270610_20270616.json`
+- schema：`vx-draft`
+- 轮次范围：`D1-D4 + V1-V4`
+- 前置条件：无（直接基于当前 `src/core/preclass.c`）。
+- 完成后交付给 B：A 成功快照、final result、运行目录与绑定证据。
+
+**目标注册表**
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `preclass_source` | `src/core/preclass.c` | c-source | existing | D1、D2、D3、D4 |
+
+- `defaultTarget`: `preclass_source`
+- `target_set_sha256`: `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166`
+
+**推荐命令**
+
+```powershell
+# SyntaxOnly 装载检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270610_20270616.json -Policy enforce -SyntaxOnly
+
+# A 编制期全定义严格检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270610_20270616.json -Policy enforce -FailOnWarnings
+
+# A 有效源码编译（D4 后）与内联结果核对
+# clang -std=c11 -fsyntax-only -Wall -Wextra -I include <effective preclass.c>
+
+# 经用户授权后使用 stage window 启动 A
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage A -StartFile "testdata/unattended_start/active/unattended_ab_start_20270610-20270623.md" -StartMonitors
+```
+
+**预期验证范围**
+
+- [x] D1-D4 各轮目标、operation 顺序、marker 与 assertions 已明确。
+- [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
+- [x] TODO-free、`operationSafetyPolicy=enforce`、完整编译及适用专项回归通过。
+- [x] 预期 stdout/stderr 契约与禁止变更项已记录：title/尾行/折叠行、`[PRECLASS]` 分类输出、`[DNS-*]`/`[RETRY-METRICS*]`/`[SELFTEST]` 标签与 Step47 矩阵均不得因内联改变。
+- [ ] A PASS 后生成并验证覆盖完整 A target set 的成功快照。
+
+**编制期验收证据（2026-08-22 填写）**
+
+| 门禁 | 状态 | 证据或摘要 |
+|---|---|---|
+| TODO-free / 编码 | PASS | TODO-free OK；JSON 解析通过；UTF-8 BOM+LF 检查 non_compliant=0 |
+| SyntaxOnly | PASS | `status=PASS schema=vx-draft targets=1 target_set_sha256=93485c16...` |
+| A 全定义静态检查 | PASS | `-Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=32`；D1-D4 26 ops 全 `pattern_match=1`，各轮 clang syntax gate pass |
+| 链式轮次检查 | PASS | `-RoundTag D1 -ChainRounds`：`errors=0 warnings=0` |
+| Vx 专项安全回归 | PASS | `task_definition_safety_regression.ps1` `result=pass`（含 prerequisite 链式用例） |
+| 完整编译 | PASS | A 有效源码（`tmp/vx55_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
+| 黄金 / Step47 | PENDING | 运行时执行 |
+| launch-ready | PENDING | start-file 未生成 |
+
+#### Checklist B：literal 收敛第 3 批 15 helper（vx56，早段 6 + class/rir/conf/reason 9）
+
+> 硬门禁：仅在 Checklist A 最终 PASS、A 成功快照完整性通过且 B 启动门禁通过后启动；否则保持 `blocked-by-a`。
+
+**目标与边界**
+
+- 目标：内联 15 个单次使用 literal helper 并在其唯一调用点替换为字符串字面量，随后删除对应单行定义。
+  - D1：`reason_non_ip_input`/`confidence_code_c0-c3`/`observe_reason_prefix`（`observe_reason_key`/`observe_confidence_code`/`observation_codes`/`classify_ip_with_row` 6 处）。
+  - D2：`class_allocated`/`class_reserved`（`set_allocated_hint`/`class_name`/`classify_ip_with_row` 2 处，多调用点上下文区分）。
+  - D3：`rir_none`/`confidence_low`/`confidence_medium`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`rir_name`/`confidence_name`/`classify_ip_with_row` 3 处，多调用点上下文区分）。
+  - D4：`confidence_high`/`reason_rir_hint`/`reason_no_rir_hint`/`v6_global_unicast_reason`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`confidence_name`/`reason_name`/`classify_ip_with_row` 4 处，含早段 confidence prototype 清理）。
+- 非目标：剩余 6 个 helper（后续窗口）；任何行为/输出契约/分类语义/生成表变更。
+- 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）。
+- 任务定义：`testdata/autopilot_code_step_tasks_20270617_20270623.json`
+- schema：`vx-draft`
+- 轮次范围：`D1-D4 + V1-V4`
+- 设计期前置：Checklist A 全定义有效结果。
+- 运行期前置：Checklist A 成功快照及其完整性门禁。
+
+**目标注册表**
+
+| target id | file | kind | lifecycle | 计划涉及轮次 |
+|---|---|---|---|---|
+| `preclass_source` | `src/core/preclass.c` | c-source | existing | D1、D2、D3、D4 |
+
+- `defaultTarget`: `preclass_source`
+- `target_set_sha256`: `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166`
+- 与 A 的 target set 关系：相同（单目标 `preclass_source`）。
+
+**推荐命令**
+
+```powershell
+# SyntaxOnly 装载检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270617_20270623.json -Policy enforce -SyntaxOnly
+
+# B 以 A 为 prerequisite 的编制期链式全定义检查
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/autopilot_code_step_tasks_20270617_20270623.json -PrerequisiteTaskDefinitionFiles testdata/autopilot_code_step_tasks_20270610_20270616.json -Policy enforce -FailOnWarnings
+
+# A+B effective target set 的有效源码编译与内联结果核对
+# clang -std=c11 -fsyntax-only -Wall -Wextra -I include <A+B effective preclass.c>
+
+# 经用户授权且 A PASS 后启动 B
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "testdata/unattended_start/active/unattended_ab_start_20270610-20270623.md" -StartMonitors
+```
+
+**预期验证范围**
+
+- [x] D1-D4 各轮目标、operation 顺序、marker 与 assertions 已明确。
+- [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
+- [x] B 使用 A 作为 prerequisite 的链式全定义检查通过。
+- [x] A+B effective target set 的完整编译及适用专项回归通过。
+- [ ] B 启动前重新核对 A snapshot、target set 交集与 B baseline。
+- [x] 预期 stdout/stderr 契约与禁止变更项已记录：与 A 相同，分类/输出/标签/Step47 矩阵均不得因内联改变。
+
+**编制期验收证据（2026-08-22 填写）**
+
+| 门禁 | 状态 | 证据或摘要 |
+|---|---|---|
+| TODO-free / 编码 | PASS | TODO-free OK；JSON 解析通过；UTF-8 BOM+LF 检查 non_compliant=0 |
+| SyntaxOnly | PASS | `status=PASS schema=vx-draft targets=1 target_set_sha256=93485c16...` |
+| B 使用 A prerequisite 的链式全定义检查 | PASS | `-PrerequisiteTaskDefinitionFiles A -Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=79`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）；`-RoundTag D1 -ChainRounds` `errors=0 warnings=0` |
+| Vx 专项安全回归 | PASS | 仓库级回归（与 A 共用）均 `status=PASS` |
+| A+B effective target set 完整编译 | PASS | B 有效源码（`tmp/vx56_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
+| 黄金 / Step47 | PENDING | 运行时执行 |
+| launch-ready | PENDING | start-file 未生成 |
+
+#### 启动前联合确认（24.29）
+
+- [x] 两份任务定义均已通过初始编制完整验收，且没有残留占位符或 TODO。
+- [ ] active start-file 已生成并通过字段同步、编码和 launch-ready 检查（DryRun，未写回 `PRECHECK_*`，保持初始 NOT_RUN）。
+- [x] 权威文档集合内每份文档均已包含本组 Checklist A/B，身份字段和证据一致。
+- [ ] 用户已检查任务定义、权威文档集合中的清单和 start-file，并确认任务基线。
+- [ ] 用户已明确发出启动命令，A/B 开始执行。
 

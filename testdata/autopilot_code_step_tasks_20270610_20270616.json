@@ -1,0 +1,445 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "vx55-preclass-literal-inline-15-d1-d4-20270610-20270616",
+  "targetFile": "src/core/preclass.c",
+  "targetFiles": [
+    {
+      "id": "preclass_source",
+      "file": "src/core/preclass.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "preclass_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Inline the five single-use action/decision literal helpers (action_source_decision_value/action_hint_applied/action_classifier_rir_hint/action_early_converge/action_preclass_short_circuit) at their unique call sites in wc_preclass_resolve_route_decision() and wc_preclass_apply_route_change_finalize(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "out_fields->action_source = \"decision\";",
+          "wc_preclass_token_equals(out_fields->action, \"hint-applied\")",
+          "wc_preclass_token_equals(out_fields->action, \"classifier-rir-hint\")",
+          "wc_preclass_token_equals(out_fields->action, \"preclass-early-converge-unknown\")",
+          "wc_preclass_token_equals(out_fields->action, \"preclass-short-circuit-unknown\")"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_source_decision_value_literal\\(void\\)\n\\{\n\treturn \"decision\";\n\\}\n\nstatic const char\\* wc_preclass_action_hint_applied_literal\\(void\\)\n\\{\n\treturn \"hint-applied\";\n\\}\n\nstatic const char\\* wc_preclass_action_classifier_rir_hint_literal\\(void\\)\n\\{\n\treturn \"classifier-rir-hint\";\n\\}\n\nstatic const char\\* wc_preclass_action_early_converge_literal\\(void\\)\n\\{\n\treturn \"preclass-early-converge-unknown\";\n\\}\n\nstatic const char\\* wc_preclass_action_preclass_short_circuit_literal\\(void\\)\n\\{\n\treturn \"preclass-short-circuit-unknown\";\n\\}\n\nstatic const char\\* wc_preclass_action_step47_short_circuit_literal\\(void\\)",
+          "replacement": "static const char* wc_preclass_action_step47_short_circuit_literal(void)",
+          "idempotentContains": [
+            "static const char* wc_preclass_action_step47_short_circuit_literal(void)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = wc_preclass_action_source_decision_value_literal\\(\\);",
+          "replacement": "out_fields->action_source = \"decision\";",
+          "idempotentContains": [
+            "out_fields->action_source = \"decision\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_hint_applied_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->action, \"hint-applied\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->action, \"hint-applied\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_classifier_rir_hint_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->action, \"classifier-rir-hint\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->action, \"classifier-rir-hint\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_early_converge_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->action, \"preclass-early-converge-unknown\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->action, \"preclass-early-converge-unknown\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_preclass_short_circuit_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->action, \"preclass-short-circuit-unknown\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->action, \"preclass-short-circuit-unknown\")"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "action-source-decision-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = \"decision\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-hint-applied-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, \"hint-applied\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-classifier-rir-hint-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, \"classifier-rir-hint\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-early-converge-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, \"preclass-early-converge-unknown\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-preclass-short-circuit-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, \"preclass-short-circuit-unknown\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-decision-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_action_(source_decision_value|hint_applied|classifier_rir_hint|early_converge|preclass_short_circuit)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Inline the four single-use literal helpers (action_step47_short_circuit/route_change_normalized/fallback_none_value/action_source_default) at their unique call sites in wc_preclass_apply_route_change_finalize(), wc_preclass_resolve_route_decision() and wc_preclass_set_decision_defaults(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "wc_preclass_token_equals(out_fields->action, \"step47-short-circuit-unknown\")",
+          "? \"route-change-normalized\" : out_fields->fallback_reason;",
+          "out_fields->fallback_reason = \"none\";",
+          "out_fields->action_source = \"default\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_step47_short_circuit_literal\\(void\\)\\n\\{\\n\\treturn \\\"step47-short-circuit-unknown\\\";\\n\\}\\n\\nstatic const char\\* wc_preclass_route_change_normalized_literal\\(void\\)\\n\\{\\n\\treturn \\\"route-change-normalized\\\";\\n\\}\\n\\nstatic const char\\* wc_preclass_observe_only_action_literal\\(void\\);",
+          "replacement": "static const char* wc_preclass_observe_only_action_literal(void);",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_only_action_literal(void);"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_action_source_default_literal\\(void\\)\\n\\{\\n\\treturn \\\"default\\\";\\n\\}\\n\\nstatic const char\\* wc_preclass_fallback_none_value_literal\\(void\\)\\n\\{\\n\\treturn \\\"none\\\";\\n\\}\\n\\nstatic const char\\* wc_preclass_observe_only_action_literal\\(void\\)\\n\\{\\n\\treturn \\\"observe-only\\\";\\n\\}",
+          "replacement": "static const char* wc_preclass_observe_only_action_literal(void)\n{\n\treturn \"observe-only\";\n}",
+          "idempotentContains": [
+            "static const char* wc_preclass_observe_only_action_literal(void)\n{\n\treturn \"observe-only\";\n}"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, wc_preclass_action_step47_short_circuit_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->action, \"step47-short-circuit-unknown\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->action, \"step47-short-circuit-unknown\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "strcmp\\(out_fields->fallback_reason, wc_preclass_fallback_none_value_literal\\(\\)\\) == 0",
+          "replacement": "strcmp(out_fields->fallback_reason, \"none\") == 0",
+          "idempotentContains": [
+            "strcmp(out_fields->fallback_reason, \"none\") == 0"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\? wc_preclass_route_change_normalized_literal\\(\\) : out_fields->fallback_reason;",
+          "replacement": "? \"route-change-normalized\" : out_fields->fallback_reason;",
+          "idempotentContains": [
+            "? \"route-change-normalized\" : out_fields->fallback_reason;"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = wc_preclass_fallback_none_value_literal\\(\\);",
+          "replacement": "out_fields->fallback_reason = \"none\";",
+          "idempotentContains": [
+            "out_fields->fallback_reason = \"none\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = wc_preclass_action_source_default_literal\\(\\);",
+          "replacement": "out_fields->action_source = \"default\";",
+          "idempotentContains": [
+            "out_fields->action_source = \"default\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "step47-short-circuit-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->action, \\\"step47-short-circuit-unknown\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "route-change-normalized-inlined",
+          "target": "preclass_source",
+          "pattern": "\\? \\\"route-change-normalized\\\" : out_fields->fallback_reason;",
+          "expectedCount": 1
+        },
+        {
+          "name": "fallback-none-strcmp-inlined",
+          "target": "preclass_source",
+          "pattern": "strcmp\\(out_fields->fallback_reason, \\\"none\\\"\\) == 0",
+          "expectedCount": 1
+        },
+        {
+          "name": "fallback-none-assign-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = \\\"none\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-source-default-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = \\\"default\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "action-default-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_action_(step47_short_circuit|route_change_normalized|fallback_none_value|action_source_default)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Inline the three remaining single-use decision literal helpers (observe_only_action/hint_disabled_action_value/policy_action_source) at their unique call sites in wc_preclass_set_decision_defaults(), wc_preclass_resolve_route_decision() and wc_preclass_apply_disabled_decision_fields(), then delete their single-line definitions (including the observe_only_action prototype). Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "out_fields->action = \"observe-only\";",
+          "? \"observe-only\" : decision_action;",
+          "out_fields->action = \"hint-disabled\";",
+          "out_fields->action_source = \"policy\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_observe_only_action_literal\\(void\\);\n\nstatic const char\\* wc_preclass_observe_only_action_literal\\(void\\)\n\\{\n\treturn \"observe-only\";\n\\}\n\nstatic const char\\* wc_preclass_hint_disabled_action_value_literal\\(void\\)\n\\{\n\treturn \"hint-disabled\";\n\\}\n\nstatic const char\\* wc_preclass_policy_action_source_literal\\(void\\)\n\\{\n\treturn \"policy\";\n\\}\n\nstatic void wc_preclass_apply_disabled_decision_fields\\(wc_preclass_decision_fields_t\\* out_fields\\)",
+          "replacement": "static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)",
+          "idempotentContains": [
+            "static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->action = wc_preclass_observe_only_action_literal\\(\\);",
+          "replacement": "out_fields->action = \"observe-only\";",
+          "idempotentContains": [
+            "out_fields->action = \"observe-only\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "\\? wc_preclass_observe_only_action_literal\\(\\) : decision_action;",
+          "replacement": "? \"observe-only\" : decision_action;",
+          "idempotentContains": [
+            "? \"observe-only\" : decision_action;"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->action = wc_preclass_hint_disabled_action_value_literal\\(\\);",
+          "replacement": "out_fields->action = \"hint-disabled\";",
+          "idempotentContains": [
+            "out_fields->action = \"hint-disabled\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = wc_preclass_policy_action_source_literal\\(\\);",
+          "replacement": "out_fields->action_source = \"policy\";",
+          "idempotentContains": [
+            "out_fields->action_source = \"policy\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "observe-only-assign-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->action = \"observe-only\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "observe-only-ternary-inlined",
+          "target": "preclass_source",
+          "pattern": "\\? \"observe-only\" : decision_action;",
+          "expectedCount": 1
+        },
+        {
+          "name": "hint-disabled-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->action = \"hint-disabled\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "policy-action-source-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->action_source = \"policy\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "observe-disabled-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(observe_only_action|hint_disabled_action_value|policy_action_source)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Inline the three remaining single-use match-layer literal helpers (non_ip/match_layer_cidr_compare/match_layer_ip_compare) at their unique call sites in wc_preclass_resolve_route_decision() and wc_preclass_set_decision_defaults(), then delete their single-line definitions. Behavior is unchanged because each helper only returns a string literal.",
+      "idempotentContainsByTarget": {
+        "preclass_source": [
+          "out_fields->match_layer = query_is_cidr ? \"cidr\" : \"ip\";",
+          "wc_preclass_token_equals(out_fields->match_layer, \"cidr\")",
+          "out_fields->input_label = \"cidr\";",
+          "wc_preclass_token_equals(out_fields->match_layer, \"ip\")",
+          "out_fields->input_label = \"ip\";",
+          "out_fields->match_layer = \"non-ip\";",
+          "out_fields->input_label = \"non-ip\";"
+        ]
+      },
+      "operations": [
+        {
+          "target": "preclass_source",
+          "pattern": "static const char\\* wc_preclass_non_ip_literal\\(void\\)\n\\{\n\treturn \"non-ip\";\n\\}\n\nstatic const char\\* wc_preclass_match_layer_cidr_compare_literal\\(void\\)\n\\{\n\treturn \"cidr\";\n\\}\n\nstatic const char\\* wc_preclass_match_layer_ip_compare_literal\\(void\\)\n\\{\n\treturn \"ip\";\n\\}\n\nstatic int wc_preclass_has_text_value\\(const char\\* value\\)",
+          "replacement": "static int wc_preclass_has_text_value(const char* value)",
+          "idempotentContains": [
+            "static int wc_preclass_has_text_value(const char* value)"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->match_layer = query_is_cidr \\? wc_preclass_match_layer_cidr_compare_literal\\(\\) : wc_preclass_match_layer_ip_compare_literal\\(\\);",
+          "replacement": "out_fields->match_layer = query_is_cidr ? \"cidr\" : \"ip\";",
+          "idempotentContains": [
+            "out_fields->match_layer = query_is_cidr ? \"cidr\" : \"ip\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->match_layer, wc_preclass_match_layer_cidr_compare_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->match_layer, \"cidr\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->match_layer, \"cidr\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->input_label = wc_preclass_match_layer_cidr_compare_literal\\(\\);",
+          "replacement": "out_fields->input_label = \"cidr\";",
+          "idempotentContains": [
+            "out_fields->input_label = \"cidr\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->match_layer, wc_preclass_match_layer_ip_compare_literal\\(\\)\\)",
+          "replacement": "wc_preclass_token_equals(out_fields->match_layer, \"ip\")",
+          "idempotentContains": [
+            "wc_preclass_token_equals(out_fields->match_layer, \"ip\")"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->input_label = wc_preclass_match_layer_ip_compare_literal\\(\\);",
+          "replacement": "out_fields->input_label = \"ip\";",
+          "idempotentContains": [
+            "out_fields->input_label = \"ip\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->match_layer = wc_preclass_non_ip_literal\\(\\);",
+          "replacement": "out_fields->match_layer = \"non-ip\";",
+          "idempotentContains": [
+            "out_fields->match_layer = \"non-ip\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "else\n\t\tout_fields->input_label = wc_preclass_non_ip_literal\\(\\);",
+          "replacement": "else\n\t\tout_fields->input_label = \"non-ip\";",
+          "idempotentContains": [
+            "else\n\t\tout_fields->input_label = \"non-ip\";"
+          ]
+        },
+        {
+          "target": "preclass_source",
+          "pattern": "out_fields->fallback_reason = \"no-decision-action\";\n\tout_fields->input_label = wc_preclass_non_ip_literal\\(\\);",
+          "replacement": "out_fields->fallback_reason = \"no-decision-action\";\n\tout_fields->input_label = \"non-ip\";",
+          "idempotentContains": [
+            "out_fields->fallback_reason = \"no-decision-action\";\n\tout_fields->input_label = \"non-ip\";"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "match-layer-cidr-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->match_layer = query_is_cidr \\? \\\"cidr\\\" : \\\"ip\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "match-layer-cidr-token-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->match_layer, \\\"cidr\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "match-layer-ip-token-inlined",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_token_equals\\(out_fields->match_layer, \\\"ip\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "non-ip-match-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->match_layer = \\\"non-ip\\\";",
+          "expectedCount": 1
+        },
+        {
+          "name": "non-ip-inputlabel-inlined",
+          "target": "preclass_source",
+          "pattern": "out_fields->input_label = \\\"non-ip\\\";",
+          "expectedCount": 2
+        },
+        {
+          "name": "match-layer-defs-removed",
+          "target": "preclass_source",
+          "pattern": "wc_preclass_(non_ip|match_layer_cidr_compare|match_layer_ip_compare)_literal\\(void\\)",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}
