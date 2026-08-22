@@ -278,21 +278,11 @@ static const char* wc_preclass_policy_action_source_literal(void)
 	return "policy";
 }
 
-static const char* wc_preclass_disabled_fallback_reason_literal(void)
-{
-	return "preclass-disabled";
-}
-
-static const char* wc_preclass_default_fallback_reason_literal(void)
-{
-	return "no-decision-action";
-}
-
 static void wc_preclass_apply_disabled_decision_fields(wc_preclass_decision_fields_t* out_fields)
 {
 	out_fields->action = wc_preclass_hint_disabled_action_value_literal();
 	out_fields->action_source = wc_preclass_policy_action_source_literal();
-	out_fields->fallback_reason = wc_preclass_disabled_fallback_reason_literal();
+	out_fields->fallback_reason = "preclass-disabled";
 	out_fields->route_change = 0;
 }
 
@@ -301,7 +291,7 @@ static void wc_preclass_set_decision_defaults(wc_preclass_decision_fields_t* out
 	out_fields->action = wc_preclass_observe_only_action_literal();
 	out_fields->action_source = wc_preclass_action_source_default_literal();
 	out_fields->match_layer = wc_preclass_non_ip_literal();
-	out_fields->fallback_reason = wc_preclass_default_fallback_reason_literal();
+	out_fields->fallback_reason = "no-decision-action";
 	out_fields->input_label = wc_preclass_non_ip_literal();
 	out_fields->route_change = 0;
 }
@@ -465,11 +455,6 @@ static const char* wc_preclass_class_allocated_literal(void)
 	return "allocated";
 }
 
-static const char* wc_preclass_class_legacy_literal(void)
-{
-	return "legacy";
-}
-
 static const char* wc_preclass_class_reserved_literal(void)
 {
 	return "reserved";
@@ -480,11 +465,6 @@ static const char* wc_preclass_class_special_literal(void)
 	return "special";
 }
 
-static const char* wc_preclass_class_unallocated_literal(void)
-{
-	return "unallocated";
-}
-
 static const char* wc_preclass_rir_unknown_literal(void)
 {
 	return "unknown";
@@ -493,31 +473,6 @@ static const char* wc_preclass_rir_unknown_literal(void)
 static const char* wc_preclass_rir_none_literal(void)
 {
 	return "none";
-}
-
-static const char* wc_preclass_rir_apnic_literal(void)
-{
-	return "apnic";
-}
-
-static const char* wc_preclass_rir_arin_literal(void)
-{
-	return "arin";
-}
-
-static const char* wc_preclass_rir_ripe_literal(void)
-{
-	return "ripe";
-}
-
-static const char* wc_preclass_rir_afrinic_literal(void)
-{
-	return "afrinic";
-}
-
-static const char* wc_preclass_rir_lacnic_literal(void)
-{
-	return "lacnic";
 }
 
 static const char* wc_preclass_confidence_low_literal(void)
@@ -543,11 +498,6 @@ static const char* wc_preclass_reason_rir_hint_literal(void)
 static const char* wc_preclass_reason_no_rir_hint_literal(void)
 {
 	return "NO_RIR_HINT";
-}
-
-static const char* wc_preclass_reason_unknown_literal(void)
-{
-	return "PRECLASS_REASON_UNKNOWN";
 }
 
 static const char* wc_preclass_v6_global_unicast_reason_literal(void)
@@ -602,10 +552,10 @@ static const char* wc_preclass_class_name(uint8_t class_id)
 	switch (class_id) {
 		case WC_PRECLASS_CLASS_ID_UNKNOWN: return wc_preclass_class_unknown_literal();
 		case WC_PRECLASS_CLASS_ID_ALLOCATED: return wc_preclass_class_allocated_literal();
-		case WC_PRECLASS_CLASS_ID_LEGACY: return wc_preclass_class_legacy_literal();
+		case WC_PRECLASS_CLASS_ID_LEGACY: return "legacy";
 		case WC_PRECLASS_CLASS_ID_RESERVED: return wc_preclass_class_reserved_literal();
 		case WC_PRECLASS_CLASS_ID_SPECIAL: return wc_preclass_class_special_literal();
-		case WC_PRECLASS_CLASS_ID_UNALLOCATED: return wc_preclass_class_unallocated_literal();
+		case WC_PRECLASS_CLASS_ID_UNALLOCATED: return "unallocated";
 		default: return wc_preclass_class_unknown_literal();
 	}
 }
@@ -625,11 +575,11 @@ static const char* wc_preclass_rir_name(uint8_t rir_id)
 	switch (rir_id) {
 		case WC_PRECLASS_RIR_ID_UNKNOWN: return wc_preclass_rir_unknown_literal();
 		case WC_PRECLASS_RIR_ID_NONE: return wc_preclass_rir_none_literal();
-		case WC_PRECLASS_RIR_ID_APNIC: return wc_preclass_rir_apnic_literal();
-		case WC_PRECLASS_RIR_ID_ARIN: return wc_preclass_rir_arin_literal();
-		case WC_PRECLASS_RIR_ID_RIPE: return wc_preclass_rir_ripe_literal();
-		case WC_PRECLASS_RIR_ID_AFRINIC: return wc_preclass_rir_afrinic_literal();
-		case WC_PRECLASS_RIR_ID_LACNIC: return wc_preclass_rir_lacnic_literal();
+		case WC_PRECLASS_RIR_ID_APNIC: return "apnic";
+		case WC_PRECLASS_RIR_ID_ARIN: return "arin";
+		case WC_PRECLASS_RIR_ID_RIPE: return "ripe";
+		case WC_PRECLASS_RIR_ID_AFRINIC: return "afrinic";
+		case WC_PRECLASS_RIR_ID_LACNIC: return "lacnic";
 		default: return wc_preclass_rir_unknown_literal();
 	}
 }
@@ -667,56 +617,6 @@ enum {
 	WC_PRECLASS_REASON_ID_V6_UNKNOWN = 2099u
 };
 
-static const char* wc_preclass_reason_v4_allocated_registry_literal(void)
-{
-	return "V4_ALLOCATED_REGISTRY";
-}
-
-static const char* wc_preclass_reason_v4_legacy_registry_literal(void)
-{
-	return "V4_LEGACY_REGISTRY";
-}
-
-static const char* wc_preclass_reason_v4_reserved_registry_literal(void)
-{
-	return "V4_RESERVED_REGISTRY";
-}
-
-static const char* wc_preclass_reason_v4_unknown_registry_literal(void)
-{
-	return "V4_UNKNOWN_REGISTRY";
-}
-
-static const char* wc_preclass_reason_v4_special_purpose_literal(void)
-{
-	return "V4_SPECIAL_PURPOSE";
-}
-
-static const char* wc_preclass_reason_v4_reserved_special_literal(void)
-{
-	return "V4_RESERVED_SPECIAL";
-}
-
-static const char* wc_preclass_reason_v6_reserved_ietf_literal(void)
-{
-	return "V6_RESERVED_IETF";
-}
-
-static const char* wc_preclass_reason_v6_unknown_registry_literal(void)
-{
-	return "V6_UNKNOWN_REGISTRY";
-}
-
-static const char* wc_preclass_reason_v6_special_purpose_literal(void)
-{
-	return "V6_SPECIAL_PURPOSE";
-}
-
-static const char* wc_preclass_reason_v6_reserved_special_literal(void)
-{
-	return "V6_RESERVED_SPECIAL";
-}
-
 static const char* wc_preclass_v6_unique_local_reason_literal(void);
 static const char* wc_preclass_v6_link_local_reason_literal(void);
 static const char* wc_preclass_v6_multicast_reason_literal(void);
@@ -724,21 +624,21 @@ static const char* wc_preclass_v6_multicast_reason_literal(void);
 static const char* wc_preclass_reason_name(uint16_t reason_id)
 {
 	switch (reason_id) {
-		case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return wc_preclass_reason_v4_allocated_registry_literal();
-		case WC_PRECLASS_REASON_ID_V4_LEGACY: return wc_preclass_reason_v4_legacy_registry_literal();
-		case WC_PRECLASS_REASON_ID_V4_RESERVED: return wc_preclass_reason_v4_reserved_registry_literal();
-		case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return wc_preclass_reason_v4_special_purpose_literal();
-		case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return wc_preclass_reason_v4_reserved_special_literal();
-		case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return wc_preclass_reason_v4_unknown_registry_literal();
+		case WC_PRECLASS_REASON_ID_V4_ALLOCATED: return "V4_ALLOCATED_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_LEGACY: return "V4_LEGACY_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_RESERVED: return "V4_RESERVED_REGISTRY";
+		case WC_PRECLASS_REASON_ID_V4_SPECIAL_PURPOSE: return "V4_SPECIAL_PURPOSE";
+		case WC_PRECLASS_REASON_ID_V4_RESERVED_SPECIAL: return "V4_RESERVED_SPECIAL";
+		case WC_PRECLASS_REASON_ID_V4_UNKNOWN: return "V4_UNKNOWN_REGISTRY";
 		case WC_PRECLASS_REASON_ID_V6_GLOBAL_UNICAST: return wc_preclass_v6_global_unicast_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_UNIQUE_LOCAL: return wc_preclass_v6_unique_local_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_LINK_LOCAL: return wc_preclass_v6_link_local_reason_literal();
 		case WC_PRECLASS_REASON_ID_V6_MULTICAST: return wc_preclass_v6_multicast_reason_literal();
-		case WC_PRECLASS_REASON_ID_V6_RESERVED: return wc_preclass_reason_v6_reserved_ietf_literal();
-		case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return wc_preclass_reason_v6_special_purpose_literal();
-		case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return wc_preclass_reason_v6_reserved_special_literal();
-		case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return wc_preclass_reason_v6_unknown_registry_literal();
-		default: return wc_preclass_reason_unknown_literal();
+		case WC_PRECLASS_REASON_ID_V6_RESERVED: return "V6_RESERVED_IETF";
+		case WC_PRECLASS_REASON_ID_V6_SPECIAL_PURPOSE: return "V6_SPECIAL_PURPOSE";
+		case WC_PRECLASS_REASON_ID_V6_RESERVED_SPECIAL: return "V6_RESERVED_SPECIAL";
+		case WC_PRECLASS_REASON_ID_V6_UNKNOWN: return "V6_UNKNOWN_REGISTRY";
+		default: return "PRECLASS_REASON_UNKNOWN";
 	}
 }
 
@@ -981,64 +881,14 @@ static int wc_preclass_lookup_table(const char* normalized,
 	return 0;
 }
 
-static const char* wc_preclass_v4_limited_broadcast_reason_literal(void)
-{
-	return "V4_LIMITED_BROADCAST_255_255_255_255";
-}
-
-static const char* wc_preclass_v4_this_network_reason_literal(void)
-{
-	return "V4_THIS_NETWORK_0_8";
-}
-
-static const char* wc_preclass_v4_link_local_reason_literal(void)
-{
-	return "V4_LINK_LOCAL_169_254_16";
-}
-
-static const char* wc_preclass_v6_loopback_reason_literal(void)
-{
-	return "V6_LOOPBACK_1";
-}
-
-static const char* wc_preclass_v4_private_10_reason_literal(void)
-{
-	return "V4_PRIVATE_10_8";
-}
-
-static const char* wc_preclass_v4_loopback_reason_literal(void)
-{
-	return "V4_LOOPBACK_127_8";
-}
-
 static const char* wc_preclass_v6_unique_local_reason_literal(void)
 {
 	return "V6_UNIQUE_LOCAL_FC00_7";
 }
 
-static const char* wc_preclass_v6_documentation_reason_literal(void)
-{
-	return "V6_DOCUMENTATION_2001_DB8_32";
-}
-
-static const char* wc_preclass_v4_private_172_reason_literal(void)
-{
-	return "V4_PRIVATE_172_16_12";
-}
-
-static const char* wc_preclass_v4_private_192_reason_literal(void)
-{
-	return "V4_PRIVATE_192_168_16";
-}
-
 static const char* wc_preclass_v6_link_local_reason_literal(void)
 {
 	return "V6_LINK_LOCAL_FE80_10";
-}
-
-static const char* wc_preclass_v4_multicast_reason_literal(void)
-{
-	return "V4_MULTICAST_224_4";
 }
 
 static const char* wc_preclass_v6_multicast_reason_literal(void)
@@ -1085,7 +935,7 @@ static void wc_preclass_classify_ip_with_row(const char* normalized,
 		*family = "v4";
 
 		if (b[0] == 255 && b[1] == 255 && b[2] == 255 && b[3] == 255) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_limited_broadcast_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_LIMITED_BROADCAST_255_255_255_255");
 			return;
 		}
 		if (b[0] >= 240) {
@@ -1093,31 +943,31 @@ static void wc_preclass_classify_ip_with_row(const char* normalized,
 			return;
 		}
 		if (b[0] == 0) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_this_network_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_THIS_NETWORK_0_8");
 			return;
 		}
 		if (b[0] == 10) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_10_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_PRIVATE_10_8");
 			return;
 		}
 		if (b[0] == 127) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_loopback_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_LOOPBACK_127_8");
 			return;
 		}
 		if (b[0] == 169 && b[1] == 254) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_link_local_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_LINK_LOCAL_169_254_16");
 			return;
 		}
 		if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_172_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_PRIVATE_172_16_12");
 			return;
 		}
 		if (b[0] == 192 && b[1] == 168) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_private_192_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_PRIVATE_192_168_16");
 			return;
 		}
 		if (b[0] >= 224 && b[0] <= 239) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v4_multicast_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V4_MULTICAST_224_4");
 			return;
 		}
 
@@ -1132,7 +982,7 @@ static void wc_preclass_classify_ip_with_row(const char* normalized,
 		*family = "v6";
 
 		if (b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0 && b[4] == 0 && b[5] == 0 && b[6] == 0 && b[7] == 0 && b[8] == 0 && b[9] == 0 && b[10] == 0 && b[11] == 0 && b[12] == 0 && b[13] == 0 && b[14] == 0 && b[15] == 1) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_loopback_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V6_LOOPBACK_1");
 			return;
 		}
 		if ((b[0] & 0xFE) == 0xFC) {
@@ -1148,7 +998,7 @@ static void wc_preclass_classify_ip_with_row(const char* normalized,
 			return;
 		}
 		if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) {
-			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), wc_preclass_v6_documentation_reason_literal());
+			wc_preclass_apply_none_confidence_tuple(cls, rir, reason, confidence, wc_preclass_class_special_literal(), "V6_DOCUMENTATION_2001_DB8_32");
 			return;
 		}
 		if ((b[0] & 0xE0) == 0x20) {

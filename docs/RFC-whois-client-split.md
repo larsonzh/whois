@@ -8,6 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-22：串行第 53/54 份“无人值守 A/B”（literal 收敛磨刀石，窗口 `2027-05-27 ~ 2027-06-09`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260821-051747`，B run=`out/artifacts/dev_verify_multiround/20260821-121221`，A/B 合计 `0d 14:33:38`）；A/B 各 8/8 轮一次通过、无事故/自愈/重启，各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 36 个历史人为膨胀 helper 后续窗口续编；最终 Strict 远程冒烟同步 + 黄金校验（`lto-auto`）无告警 PASS（`out/artifacts/20260822-135204`，255s）（详见 `docs/RFC-address-space-preclassifier.md` 24.28 执行回填）。
 - 2026-08-21：新增串行第 53/54 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-05-27 ~ 2027-06-09`，literal 收敛磨刀石，A=vx53 第 1 批 15 helper / B=vx54 第 2 批 15 helper，详见 `docs/RFC-address-space-preclassifier.md` 24.28）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270527_20270602.json`、`testdata/autopilot_code_step_tasks_20270603_20270609.json`）：A 全定义静态检查 `errors=0 warnings=0`、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`、跨轮链式 `-RoundTag D1 -ChainRounds` 通过、Vx 专项安全回归 `status=PASS`、A/B 有效源码（15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`。
 - 2026-08-21：24.23.7 代码清理（交互式，切片 A/B/C）已完成回填：切片 A/B/C 落地（`whois_query_exec.c`/`client_flow.c`/`preclass.c`）+ 内置一致性 selftest 表侧冻结值修复（`V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`）+ Selftest Golden 独立 core `--selftest` 门禁（`golden_check_selftest.sh --forbid-line`）+ `prune_artifacts_all.ps1` 纳入 `core_selftest`。全门禁 PASS：编码/Fast（`20260820-192402`）/一键 8 项（CIDR `20260820-220634`、12x6 `20260820-223125`）/Selftest+Batch Golden（`20260821`）/Strict 默认+debug（`20260821-001350`/`002054`）/12x6 复核（`20260821-013117`）；release 已同步（详见 `docs/RFC-address-space-preclassifier.md` 24.27 执行回填）。
 - 2026-08-20：24.23.7 代码清理开发方式确定为**传统交互式**（不占 A/B 窗口，见 `docs/RFC-address-space-preclassifier.md` 24.23.8/24.27）：切片 A（observation 冗余分支）→ B（重复 default-marker helper）→ C（IPv4/IPv6 字节组装抽取）顺序实施、每片独立验证；literal 收敛审计（约 66 helper / 约 180 引用、无 selftest/防内联依赖）判定高改动低收益，本次不实施并记录为延迟项（详见文内“24.23.7 代码清理交互式开工清单”段）。
@@ -9529,20 +9530,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/start_dev_verify_
 
 | 字段 | 值 |
 |---|---|
-| 清单状态 | 草案（编制期验收已完成；start-file 已重新生成并保持初始 NOT_RUN，待用户确认） |
+| 清单状态 | 已回填（2026-08-22：A/B 各 8/8 PASS，最终 Strict 冒烟 PASS） |
 | 运行窗口 | `2027-05-27 ~ 2027-06-09`（A：2027-05-27 ~ 2027-06-02；B：2027-06-03 ~ 2027-06-09） |
 | 运行模式 | code-change |
 | 质量策略 | enforce（`qualityPolicy.operationSafetyPolicy=enforce`） |
 | Checklist A 任务定义 | `testdata/autopilot_code_step_tasks_20270527_20270602.json` |
 | Checklist B 任务定义 | `testdata/autopilot_code_step_tasks_20270603_20270609.json` |
-| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270527-20270609.md`（已生成，初始 NOT_RUN，待用户确认） |
+| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270527-20270609.md`（已投入运行并完成，A/B 全 PASS） |
 | A schema | `vx-draft` |
 | B schema | `vx-draft` |
 | A target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
 | B target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
 | 主归属文档 | `docs/RFC-address-space-preclassifier.md` |
 | 协同文档 | `docs/RFC-whois-client-split.md` |
-| 用户启动授权 | pending |
+| 用户启动授权 | 已授权（2026-08-21，A/B 启动） |
 
 **权威文档落点**
 
@@ -9690,26 +9691,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - [x] 两份任务定义均已通过初始编制完整验收，且没有残留占位符或 TODO。
 - [x] active start-file 已生成并通过字段同步、编码和 launch-ready 检查（DryRun，未写回 `PRECHECK_*`，保持初始 NOT_RUN）。
 - [x] 权威文档集合内每份文档均已包含本组 Checklist A/B，身份字段和证据一致。
-- [ ] 用户已检查任务定义、权威文档集合中的清单和 start-file。
-- [ ] 当前状态为“准备完成，待启动授权”；未获得明确授权前不启动 A。
+- [x] 用户已检查任务定义、权威文档集合中的清单和 start-file（2026-08-21 确认并提交推送任务基线 `21a7d5ad`）。
+- [x] 用户已明确发出启动命令（2026-08-21），A/B 已执行完成。
 
-#### 执行回填（运行后填写，起草时不得预填 PASS）
+#### 执行回填（2026-08-21~22 完成）
 
-**Checklist A 回填**
-
-| 字段 | 实际值 |
-|---|---|
-| final status | `<PASS/FAIL/BLOCKED>` |
-| started_at / completed_at / elapsed | `<TIMESTAMPS>` |
-| run_dir | `<A_RUN_DIR>` |
-| final result / summary | `<A_RESULT_PATHS>` |
-
-**Checklist B 回填**
+**Checklist A 回填（vx53，第 1 批 15 helper）**
 
 | 字段 | 实际值 |
 |---|---|
-| final status | `<PASS/FAIL/BLOCKED>` |
-| started_at / completed_at / elapsed | `<TIMESTAMPS>` |
-| run_dir | `<B_RUN_DIR>` |
-| final result / summary | `<B_RESULT_PATHS>` |
+| final status | PASS |
+| started_at / completed_at / elapsed | 2026-08-21 05:17:11 → 2026-08-21 12:12:34（A elapsed=0d 06:55:23，含 launcher/preflight） |
+| run_dir | `out/artifacts/dev_verify_multiround/20260821-051747` |
+| final result / summary | `final_status.json` `Result=pass`、8/8 轮、`FailedRoundTags=[]`；15 个单次使用 literal helper 内联为字符串字面量并删除定义；成功快照交 B 承接 |
+
+**Checklist B 回填（vx54，第 2 批 15 helper）**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | PASS |
+| started_at / completed_at / elapsed | 2026-08-21 12:11:47 → 2026-08-21 19:50:49（B elapsed=0d 07:39:02） |
+| run_dir | `out/artifacts/dev_verify_multiround/20260821-121221` |
+| final result / summary | `final_status.json` `Result=pass`、8/8 轮、`FailedRoundTags=[]`；以 A 成功快照为基线承接，15 个单次使用 literal helper 内联并删除定义 |
+
+**会话收尾与最终验证（2026-08-22）**
+
+- `SESSION=PASS`（A=PASS、B=PASS，各 8/8 轮）；A/B 合计 `0d 14:33:38`（session start=2026-08-21 05:17:11）。
+- 全程无事故、无自愈、无阶段重启；事件票 `a-pass-conclusion-b-started`、`chat-session-final-status` 均按 event-review 闭环。
+- 剩余 36 个单次使用 literal helper 为历史人为膨胀（上个月无人值守测试代理为凑轮次制造），本窗口收敛 30 个，剩余 36 个后续窗口续编收尾。
+- **最终远程编译冒烟同步 + 黄金校验（Strict Version，`lto-auto` 默认）**：`out/artifacts/20260822-135204`，255s；无告警 + lto 无告警 + `Local hash verify: PASS` + `Golden PASS` + `referral check: PASS`；release 已同步。
 
