@@ -19,6 +19,7 @@
 #include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_title.h"
+#include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
 
@@ -693,6 +694,26 @@ int wc_selftest_run(void) {
     if (!is_authoritative_response(auth_sample)) { fprintf(stderr, "[SELFTEST] auth-indicators: FAIL\n"); failed = 1; }
     else fprintf(stderr, "[SELFTEST] auth-indicators: PASS\n");
 
+    {
+        const char* semantic_empty_body =
+            "% This is a WHOIS service banner.\n"
+            "# Terms of use apply.\n";
+        const char* non_authoritative_body =
+            "% No match found for 203.0.113.1\n";
+        const char* authoritative_body =
+            "inetnum: 203.0.113.0 - 203.0.113.255\n";
+        if (!wc_lookup_body_is_semantically_empty(semantic_empty_body) ||
+            wc_lookup_body_is_semantically_empty(non_authoritative_body) ||
+            !needs_redirect(non_authoritative_body) ||
+            wc_lookup_body_is_semantically_empty(authoritative_body) ||
+            !is_authoritative_response(authoritative_body)) {
+            fprintf(stderr, "[SELFTEST] redirect-semantic-empty-priority: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] redirect-semantic-empty-priority: PASS\n");
+        }
+    }
+
     // Redirect: extract_refer_server basic
     const char* ex1 = "ReferralServer: whois://whois.ripe.net\n";
     char* rs = extract_refer_server(ex1);
@@ -785,6 +806,100 @@ int wc_selftest_run(void) {
             fprintf(stderr, "[SELFTEST] redirect-invalid-key-priority: PASS\n");
         }
         if (ref) free(ref);
+    }
+
+    {
+        const struct {
+            const char* label;
+            const char* marker;
+            int access_denied;
+            int rate_limited;
+            const char* status;
+            const char* desc;
+        } failure_cases[] = {
+            {"denied", "Access denied", 1, 0, "denied", "access-denied"},
+            {"rate-limit", "Query rate limit exceeded", 0, 1, "rate-limit", "rate-limit-exceeded"}
+        };
+        for (size_t case_index = 0;
+             case_index < sizeof(failure_cases) / sizeof(failure_cases[0]);
+             ++case_index) {
+            char frozen_response[160];
+            char header_hint_host[128] = {0};
+            char last_failure_host[128] = {0};
+            char last_failure_rir[32] = {0};
+            char* visited_hosts[4] = {NULL, NULL, NULL, NULL};
+            snprintf(frozen_response,
+                     sizeof(frozen_response),
+                     "inetnum: 203.0.113.0 - 203.0.113.255\n%s\n",
+                     failure_cases[case_index].marker);
+            visited_hosts[0] = (char*)malloc(strlen("whois.arin.net") + 1);
+            int visited_allocated = visited_hosts[0] ? 1 : 0;
+            if (visited_hosts[0]) {
+                memcpy(visited_hosts[0], "whois.arin.net", strlen("whois.arin.net") + 1);
+            }
+            int auth = 1;
+            int need_redir_eval = 0;
+            int force_rir_cycle = 0;
+            int header_non_authoritative = 0;
+            int saw_rate_limit_or_denied = 0;
+            int visited_count = visited_allocated;
+            const char* last_failure_status = NULL;
+            const char* last_failure_desc = NULL;
+            struct wc_lookup_exec_redirect_ctx redirect_ctx = {
+                .body = frozen_response,
+                .auth = &auth,
+                .current_host = "whois.arin.net",
+                .current_rir_guess = "arin",
+                .hops = 0,
+                .current_port = 43,
+                .access_denied = failure_cases[case_index].access_denied,
+                .rate_limited = failure_cases[case_index].rate_limited,
+                .need_redir_eval = &need_redir_eval,
+                .force_rir_cycle = &force_rir_cycle,
+                .header_hint_host = header_hint_host,
+                .header_hint_host_len = sizeof(header_hint_host),
+                .header_non_authoritative = &header_non_authoritative,
+                .saw_rate_limit_or_denied = &saw_rate_limit_or_denied,
+                .last_failure_host = last_failure_host,
+                .last_failure_host_len = sizeof(last_failure_host),
+                .last_failure_rir = last_failure_rir,
+                .last_failure_rir_len = sizeof(last_failure_rir),
+                .last_failure_status = &last_failure_status,
+                .last_failure_desc = &last_failure_desc,
+                .visited = visited_hosts,
+                .visited_count = &visited_count
+            };
+            wc_lookup_exec_eval_redirect(&redirect_ctx);
+            if (!visited_allocated || auth != 0 || need_redir_eval != 1 || force_rir_cycle != 1 ||
+                header_non_authoritative != 1 || saw_rate_limit_or_denied != 1 ||
+                visited_count != 0 || strcmp(last_failure_host, "whois.arin.net") != 0 ||
+                strcmp(last_failure_rir, "arin") != 0 || !last_failure_status ||
+                strcmp(last_failure_status, failure_cases[case_index].status) != 0 ||
+                !last_failure_desc || strcmp(last_failure_desc, failure_cases[case_index].desc) != 0) {
+                fprintf(stderr,
+                        "[SELFTEST] redirect-%s-priority: FAIL (allocated=%d auth=%d redir=%d cycle=%d nonauth=%d saw=%d visited=%d host=%s rir=%s status=%s desc=%s)\n",
+                        failure_cases[case_index].label,
+                        visited_allocated,
+                        auth,
+                        need_redir_eval,
+                        force_rir_cycle,
+                        header_non_authoritative,
+                        saw_rate_limit_or_denied,
+                        visited_count,
+                        last_failure_host,
+                        last_failure_rir,
+                        last_failure_status ? last_failure_status : "null",
+                        last_failure_desc ? last_failure_desc : "null");
+                failed = 1;
+            } else {
+                fprintf(stderr,
+                        "[SELFTEST] redirect-%s-priority: PASS\n",
+                        failure_cases[case_index].label);
+            }
+            for (int i = 0; i < visited_count; ++i) {
+                free(visited_hosts[i]);
+            }
+        }
     }
 
     {
