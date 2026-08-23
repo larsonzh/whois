@@ -8,7 +8,7 @@
 **当前状态（截至 2025-11-20）**：
 
 **快速索引（轻整理，摘要版）**：
-- 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 6 个 helper 后续窗口续编收尾；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 `docs/RFC-address-space-preclassifier.md` 24.29 执行回填）。
+- 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper——**literal 收敛项目完结**（累计收敛 60 个）；剩余 6 个多调用/带 prototype helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 `docs/RFC-address-space-preclassifier.md` 24.29 执行回填）。
 - 2026-08-22：新增串行第 55/56 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-06-10 ~ 2027-06-23`，literal 收敛磨刀石第 3 批，A=vx55 action/decision 域 15 helper / B=vx56 早段 6 + class/rir/conf/reason 9，详见 `docs/RFC-address-space-preclassifier.md` 24.29）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270610_20270616.json`、`testdata/autopilot_code_step_tasks_20270617_20270623.json`）：A 全定义静态检查 `errors=0 warnings=0`（26 ops 全 `pattern_match=1`）、链式 `-RoundTag D1 -ChainRounds` 通过、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）、Vx 专项安全回归 `status=PASS`、A/B 有效源码（`tmp/vx55_validated`/`tmp/vx56_validated`，15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`；start-file 待用户确认任务基线后生成。
 - 2026-08-22：串行第 53/54 份“无人值守 A/B”（literal 收敛磨刀石，窗口 `2027-05-27 ~ 2027-06-09`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260821-051747`，B run=`out/artifacts/dev_verify_multiround/20260821-121221`，A/B 合计 `0d 14:33:38`）；A/B 各 8/8 轮一次通过、无事故/自愈/重启，各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 36 个历史人为膨胀 helper 后续窗口续编；最终 Strict 远程冒烟同步 + 黄金校验（`lto-auto`）无告警 PASS（`out/artifacts/20260822-135204`，255s）（详见 `docs/RFC-address-space-preclassifier.md` 24.28 执行回填）。
 - 2026-08-21：新增串行第 53/54 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-05-27 ~ 2027-06-09`，literal 收敛磨刀石，A=vx53 第 1 批 15 helper / B=vx54 第 2 批 15 helper，详见 `docs/RFC-address-space-preclassifier.md` 24.28）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270527_20270602.json`、`testdata/autopilot_code_step_tasks_20270603_20270609.json`）：A 全定义静态检查 `errors=0 warnings=0`、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`、跨轮链式 `-RoundTag D1 -ChainRounds` 通过、Vx 专项安全回归 `status=PASS`、A/B 有效源码（15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`。
@@ -9725,7 +9725,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 #### 24.29 下次开工清单（无人值守 A/B，2027-06-10 ~ 2027-06-23，草案，串行第 55/56 份）
 
-> 任务性质：literal 收敛磨刀石（管道验证）第 3 批。依据 24.23.7 审计定稿，将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），延续 24.28（vx53/54 第 1/2 批各 15）的收敛节奏；本窗口后剩余 6 个多调用/带 prototype helper 供后续窗口。
+> 任务性质：literal 收敛磨刀石（管道验证）第 3 批。依据 24.23.7 审计定稿，将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），延续 24.28（vx53/54 第 1/2 批各 15）的收敛节奏；本窗口后剩余 6 个多调用/带 prototype helper 作为命名常量**有意保留**（收敛完结，不再续编）。
 > 目标闭包：仅 `preclass_source`（`src/core/preclass.c`），单目标 Vx。helper 均为 static 单行返回字符串字面量，内联后行为零变化（stdout/stderr 契约、分类语义、生成表均不动）。
 
 #### 共享身份与串行约束
@@ -9769,7 +9769,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
   - D2：`action_step47_short_circuit`/`route_change_normalized`/`fallback_none_value`/`action_source_default`（`apply_route_change_finalize`/`resolve_route_decision`/`set_decision_defaults` 4 处）。
   - D3：`observe_only_action`/`hint_disabled_action_value`/`policy_action_source`（`set_decision_defaults`/`resolve_route_decision`/`apply_disabled_decision_fields` 3 处，含 prototype 处理）。
   - D4：`non_ip`/`match_layer_cidr_compare`/`match_layer_ip_compare`（`resolve_route_decision`/`set_decision_defaults` 3 处）。
-- 非目标：剩余 21 个 helper（B/56 处理 15、后续窗口 6）；任何行为/输出契约/分类语义/生成表变更。
+- 非目标：剩余 21 个 helper（B/56 处理 15、余下 6 个有意保留）；任何行为/输出契约/分类语义/生成表变更。
 - 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）；`docs/USAGE_CN.md`/`docs/USAGE_EN.md`。
 - 任务定义：`testdata/autopilot_code_step_tasks_20270610_20270616.json`
 - schema：`vx-draft`
@@ -9834,7 +9834,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
   - D2：`class_allocated`/`class_reserved`（`set_allocated_hint`/`class_name`/`classify_ip_with_row` 2 处，多调用点上下文区分）。
   - D3：`rir_none`/`confidence_low`/`confidence_medium`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`rir_name`/`confidence_name`/`classify_ip_with_row` 3 处，多调用点上下文区分）。
   - D4：`confidence_high`/`reason_rir_hint`/`reason_no_rir_hint`/`v6_global_unicast_reason`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`confidence_name`/`reason_name`/`classify_ip_with_row` 4 处，含早段 confidence prototype 清理）。
-- 非目标：剩余 6 个 helper（后续窗口）；任何行为/输出契约/分类语义/生成表变更。
+- 非目标：剩余 6 个 helper（有意保留）；任何行为/输出契约/分类语义/生成表变更。
 - 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）。
 - 任务定义：`testdata/autopilot_code_step_tasks_20270617_20270623.json`
 - schema：`vx-draft`
@@ -9921,7 +9921,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 - `SESSION=PASS`（A=PASS、B=PASS）；A/B 合计 `0d 15:13:58`（session start=2026-08-22 16:01:23，会话结束 2026-08-23 07:15:20）。
 - 全程无事故、无自愈、无阶段重启；事件票 `a-pass-conclusion-b-started`（T20260822-235732716-1004ba18）与最终状态票 `chat-session-final-status`（chat-final-20260823-071520）均按 event-review 与 atomic closeout 闭环。
-- 剩余 6 个单次使用 literal helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）留待后续窗口续编收尾。
+- **literal 收敛项目完结**（累计收敛 60 个：24.28 批 30 + 24.29 批 30）；剩余 6 个多调用/带 prototype literal helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编。
 
 **最终四轮黄金校验 + 重定向矩阵（2026-08-23，全部 PASS）**
 

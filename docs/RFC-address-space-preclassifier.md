@@ -4,7 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
-- 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 6 个 helper 后续窗口续编收尾；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 24.29 执行回填）。
+- 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper——**literal 收敛项目完结**（累计收敛 60 个）；剩余 6 个多调用/带 prototype helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 24.29 执行回填）。
 - 2026-08-22：新增串行第 55/56 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-06-10 ~ 2027-06-23`，literal 收敛磨刀石第 3 批，A=vx55 action/decision 域 15 helper / B=vx56 早段 6 + class/rir/conf/reason 9，详见 24.29）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270610_20270616.json`、`testdata/autopilot_code_step_tasks_20270617_20270623.json`）：A 全定义静态检查 `errors=0 warnings=0`（26 ops 全 `pattern_match=1`）、链式 `-RoundTag D1 -ChainRounds` 通过、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）、Vx 专项安全回归 `status=PASS`、A/B 有效源码（`tmp/vx55_validated`/`tmp/vx56_validated`，15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`；start-file 待用户确认任务基线后生成。
 - 2026-08-22：串行第 53/54 份“无人值守 A/B”（literal 收敛磨刀石，窗口 `2027-05-27 ~ 2027-06-09`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A/B 各 8/8 轮一次通过（A run=`out/artifacts/dev_verify_multiround/20260821-051747`，B run=`out/artifacts/dev_verify_multiround/20260821-121221`，A/B 合计 `0d 14:33:38`），全程无事故、自愈或阶段重启。A/B 分别内联删除 15 个（共 30 个）单次使用 literal helper——这些 helper 为上个月无人值守测试代理为凑轮次人为制造的膨胀（约 66 个），本窗口以磨刀石方式收敛 30 个，剩余 36 个后续窗口续编收尾；分类语义/输出契约/生成表零变化。最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260822-135204`，255s，Local hash verify/Golden/referral 全 PASS，release 已同步）（详见 24.28 执行回填）。
 - 2026-08-21：24.23.7 代码清理（交互式，切片 A/B/C）已完成执行回填：切片 A 消除 `emit_observation` 冗余分支（`whois_query_exec.c`）；切片 B 删除 `client_flow.c` 重复 `wc_client_csv_is_default_marker`、两处调用点改用公共 `wc_preclass_csv_is_default_marker`；切片 C 在 `preclass.c` 抽取 `wc_preclass_ipv4_to_u32`/`wc_preclass_ipv6_to_u64` 字节组装 static helper（只抽字节转换，不改查表算法）。另修复内置一致性 selftest 两条表侧冻结期望（`ff00::1` 表侧 `V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`2001:db9::1` 表侧 `V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`，与生成器/`reason_code_map.json`/`wc_preclass_reason_name()` 对齐）；Selftest Golden 新增独立 core `--selftest` 门禁（`golden_check_selftest.sh` 新增 `--forbid-line`，断言 preclass 三条 PASS、禁止对应 FAIL 与 `[PRECLASS-CONSISTENCY]` 诊断）；`prune_artifacts_all.ps1` 纳入 `out/artifacts/core_selftest`（保留 8 份）。全门禁 PASS：编码门禁（0 违规）、Fast 构建（`out/artifacts/20260820-192402`）、一键全门禁 8 项（`update_and_verify_preclass_table.ps1 -GateProfile all -GatesOnNoChange`，`gates_pass=True`；CIDR `4/4+9/9` `cidr_bundle_summary_20260820-220634.txt`、12x6 authority 空表 `redirect_matrix_10x6/20260820-223125`）、Selftest Golden（core/raw/health/plan-a/plan-b 全 `[golden-selftest] PASS`，`20260821-005539` 等）、Batch Golden 四策略全 `[golden] PASS`（`20260821-002656/003213/003910/004515`）、Strict 多架构默认+debug 两轮无告警（`20260821-001350` 289s、`20260821-002054` 296s，Local hash/Golden/referral 全 PASS，release 已同步，内置 selftest 三条 preclass PASS）、12x6 复核 `20260821-013117` authority 空表 + `(no errors found)`（详见 24.27 执行回填）。
@@ -4714,7 +4714,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 #### 24.29 下次开工清单（无人值守 A/B，2027-06-10 ~ 2027-06-23，草案，串行第 55/56 份）
 
-> 任务性质：literal 收敛磨刀石（管道验证）第 3 批。依据 24.23.7 审计定稿，将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），延续 24.28（vx53/54 第 1/2 批各 15）的收敛节奏；本窗口后剩余 6 个多调用/带 prototype helper 供后续窗口。
+> 任务性质：literal 收敛磨刀石（管道验证）第 3 批。依据 24.23.7 审计定稿，将单行 `*_literal(void)` helper 内联为字符串字面量并删除其定义。本窗口 A/B 各收敛 15 个 helper（共 30 个），延续 24.28（vx53/54 第 1/2 批各 15）的收敛节奏；本窗口后剩余 6 个多调用/带 prototype helper 作为命名常量**有意保留**（收敛完结，不再续编）。
 > 目标闭包：仅 `preclass_source`（`src/core/preclass.c`），单目标 Vx。helper 均为 static 单行返回字符串字面量，内联后行为零变化（stdout/stderr 契约、分类语义、生成表均不动）。
 
 #### 共享身份与串行约束
@@ -4758,7 +4758,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
   - D2：`action_step47_short_circuit`/`route_change_normalized`/`fallback_none_value`/`action_source_default`（`apply_route_change_finalize`/`resolve_route_decision`/`set_decision_defaults` 4 处）。
   - D3：`observe_only_action`/`hint_disabled_action_value`/`policy_action_source`（`set_decision_defaults`/`resolve_route_decision`/`apply_disabled_decision_fields` 3 处，含 prototype 处理）。
   - D4：`non_ip`/`match_layer_cidr_compare`/`match_layer_ip_compare`（`resolve_route_decision`/`set_decision_defaults` 3 处）。
-- 非目标：剩余 21 个 helper（B/56 处理 15、后续窗口 6）；任何行为/输出契约/分类语义/生成表变更。
+- 非目标：剩余 21 个 helper（B/56 处理 15、余下 6 个有意保留）；任何行为/输出契约/分类语义/生成表变更。
 - 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）；`docs/USAGE_CN.md`/`docs/USAGE_EN.md`。
 - 任务定义：`testdata/autopilot_code_step_tasks_20270610_20270616.json`
 - schema：`vx-draft`
@@ -4823,7 +4823,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
   - D2：`class_allocated`/`class_reserved`（`set_allocated_hint`/`class_name`/`classify_ip_with_row` 2 处，多调用点上下文区分）。
   - D3：`rir_none`/`confidence_low`/`confidence_medium`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`rir_name`/`confidence_name`/`classify_ip_with_row` 3 处，多调用点上下文区分）。
   - D4：`confidence_high`/`reason_rir_hint`/`reason_no_rir_hint`/`v6_global_unicast_reason`（`confidence_token_level`/`apply_none_confidence_tuple`/`set_allocated_hint`/`confidence_name`/`reason_name`/`classify_ip_with_row` 4 处，含早段 confidence prototype 清理）。
-- 非目标：剩余 6 个 helper（后续窗口）；任何行为/输出契约/分类语义/生成表变更。
+- 非目标：剩余 6 个 helper（有意保留）；任何行为/输出契约/分类语义/生成表变更。
 - 设计依据：24.23.7 审计定稿；`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`（输出契约）。
 - 任务定义：`testdata/autopilot_code_step_tasks_20270617_20270623.json`
 - schema：`vx-draft`
@@ -4910,7 +4910,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 - `SESSION=PASS`（A=PASS、B=PASS）；A/B 合计 `0d 15:13:58`（session start=2026-08-22 16:01:23，会话结束 2026-08-23 07:15:20）。
 - 全程无事故、无自愈、无阶段重启；事件票 `a-pass-conclusion-b-started`（T20260822-235732716-1004ba18）与最终状态票 `chat-session-final-status`（chat-final-20260823-071520）均按 event-review 与 atomic closeout 闭环。
-- 剩余 6 个单次使用 literal helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）留待后续窗口续编收尾。
+- **literal 收敛项目完结**（累计收敛 60 个：24.28 批 30 + 24.29 批 30）；剩余 6 个多调用/带 prototype literal helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编。
 
 **最终四轮黄金校验 + 重定向矩阵（2026-08-23，全部 PASS）**
 
