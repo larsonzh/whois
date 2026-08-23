@@ -147,30 +147,30 @@ if ($rbSyncDirList.Count -eq 1 -and ($rbSyncDirList[0] -eq '/' -or $rbSyncDirLis
 $syncDirArg = ($rbSyncDirList -join ';')
 Write-Host ("one-click debug: sync_dirs={0}" -f $syncDirArg)
 
-# 1) Create and push tag (if not skipped)
-if (-not $skipTagEffective) {
-  try {
-    & "$repoRoot\tools\dev\tag_release.ps1" -Tag $tag -Message "whois $tag" -PushGitee:$PushGiteeTag
-  } catch {
-    if ($_.Exception.Message -match 'Tag already exists') {
-      Write-Warning ("one-click warn: tag {0} already exists. continuing." -f $tag)
-    } else { throw }
-  }
-}
-else {
-  $dryRunGuardSkipTag = $true
-}
-
 # Helper: run a command in Git Bash with repo root as CWD
 function Invoke-GitBash {
-  param([string]$Command)
+  param(
+    [string]$Command,
+    [hashtable]$Environment = @{}
+  )
   $cdPath = ($repoRoot -replace '\\','/')
   # Build the bash command by joining segments to avoid parser confusion with inline special chars
   $segments = @("cd '$cdPath'", 'pwd', 'ls -la', $Command)
   $bashCmd = [string]::Join('; ', $segments)
   Write-Host ('one-click debug: bash -lc: ' + $bashCmd)
-  & $GitBashPath -lc $bashCmd
-  if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
+  $savedEnvironment = @{}
+  try {
+    foreach ($name in $Environment.Keys) {
+      $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+      [Environment]::SetEnvironmentVariable($name, [string]$Environment[$name], 'Process')
+    }
+    & $GitBashPath -lc $bashCmd
+    if ($LASTEXITCODE -ne 0) { throw "Git Bash command failed: $Command" }
+  } finally {
+    foreach ($name in $Environment.Keys) {
+      [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+    }
+  }
 }
 
 # 0) Optional remote build + smoke + sync statics, then commit & push (default ON)
@@ -187,7 +187,13 @@ if ($doBuild) {
     $argTableGuardScript = ''
     if ($RbPreclassTableGuardScript -and $RbPreclassTableGuardScript.Trim() -ne '') { $argTableGuardScript = "-B '$RbPreclassTableGuardScript'" }
     $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$syncDirArg' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard -Y $rbQuiet $argTableGuardScript"
-    Invoke-GitBash $rbCmd
+    $buildEnvironment = @{}
+    git rev-parse --verify --quiet "refs/tags/$tag" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      $buildEnvironment['WHOIS_FORCE_VERSION'] = $tag
+      Write-Host ("one-click info: forcing remote build version to {0}." -f $tag) -ForegroundColor Yellow
+    }
+    Invoke-GitBash $rbCmd -Environment $buildEnvironment
 
     # Stage and commit synced statics if changed
     $staticsPath = Join-Path $repoRoot 'release\lzispro\whois'
@@ -215,6 +221,24 @@ if ($doBuild) {
   }
 }
 
+# 1) Create and push tag after the final statics commit (if not skipped).
+if (-not $skipTagEffective) {
+  git rev-parse --verify --quiet "refs/tags/$tag" 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    $tagCommit = (git rev-list -n 1 $tag).Trim()
+    $headCommit = (git rev-parse HEAD).Trim()
+    if ($tagCommit -ne $headCommit) {
+      throw "Existing tag $tag points to $tagCommit, not final statics commit $headCommit"
+    }
+    Write-Warning ("one-click warn: tag {0} already points to the final statics commit. continuing." -f $tag)
+  } else {
+    & "$repoRoot\tools\dev\tag_release.ps1" -Tag $tag -Message "whois $tag" -PushGitee:$PushGiteeTag
+  }
+}
+else {
+  $dryRunGuardSkipTag = $true
+}
+
 # 2) Update GitHub Release (retry until the release appears)
 $ghToken = $env:GH_TOKEN
 if (-not $ghToken) { $ghToken = $env:GITHUB_TOKEN }
@@ -228,11 +252,8 @@ else {
   $ok = $false
   while ($attempt -lt $GithubRetry -and -not $ok) {
     try {
-      $ghFmt = @'
-GH_TOKEN='{0}' ./tools/release/update_release_body.sh {1} {2} {3} {4} '{5}'
-'@
-      $ghCmd = ($ghFmt -f $ghToken, $Owner, $Repo, $tag, $bodyRel, $GithubName)
-      Invoke-GitBash $ghCmd
+      $ghCmd = "./tools/release/update_release_body.sh $Owner $Repo $tag $bodyRel '$GithubName'"
+      Invoke-GitBash $ghCmd -Environment @{ GH_TOKEN = $ghToken }
       $ok = $true
     } catch {
       $attempt++
@@ -253,11 +274,8 @@ if ($dryRunEffective) {
 }
 elseif (-not $giteeToken) { Write-Warning 'one-click warn: GITEE_TOKEN not set; skipping Gitee release update.' }
 else {
-  $geFmt = @'
-GITEE_TOKEN='{0}' ./tools/release/update_gitee_release_body.sh {1} {2} {3} ./{4} '{5}'
-'@
-  $geCmd = ($geFmt -f $giteeToken, $Owner, $Repo, $tag, $bodyRel, $GiteeName)
-  Invoke-GitBash $geCmd
+  $geCmd = "./tools/release/update_gitee_release_body.sh $Owner $Repo $tag ./$bodyRel '$GiteeName'"
+  Invoke-GitBash $geCmd -Environment @{ GITEE_TOKEN = $giteeToken }
 }
 
 if ($dryRunEffective) {

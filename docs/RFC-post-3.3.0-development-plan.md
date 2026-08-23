@@ -219,7 +219,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 
 | 工作包 | 状态 | 阶段 | 内容 | 备注 |
 |---|---|---|---|---|
-| WP-01 | proposed | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 可拆为文档审计、脚本修改和演练；原发版顺序修复须有真实发布演练证据 |
+| WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
 | WP-02 | proposed | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 基准脚本、报告与可选 C 可观测性可分别实施 |
 | WP-03 | proposed | Phase 3 | RFC 定版 + `--no-body` | 文档前置完成后实施最小功能切片 |
 | WP-04 | proposed | Phase 3 | `--print-meta` | 依赖 WP-03 的 RFC 定版，不要求与 WP-03 使用相同执行方式 |
@@ -345,11 +345,23 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 决策/回退：<如有>
 ```
 
+### WP-01/发布脚本与 dry-run 防回归（2026-08-24）
+- 状态：active
+- 类型：TEST/TOOL
+- 执行方式：传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：v3.3.0；无前置工作包
+- 结果：本地 dry-run PASS；远程 build+sync、最终 tag 指向与真实发布演练待预发布窗口完成
+- run：`out/artifacts/oneclick_dryrun_guard/20260824-071904`
+- 门禁：专项 dry-run=PASS；其余发布侧门禁待本工作包后续实施项完成后执行
+- 变更：构建/同步/静态产物提交前移到 tag 创建之前；目标 tag 不存在时以进程环境注入 `WHOIS_FORCE_VERSION`；现有 tag 不指向最终提交时 fail-close；GitHub/Gitee token 不再进入 Bash 命令文本；smoke 新增顺序、强制版本、token 内联与九架构加 checksum 集合断言
+- 决策/回退：保留 opt-in 发布行为与默认远程构建入口；真实演练前不关闭 WP-01，`injection-view-fallback` 仍作为独立实施项处理
+
 ### 起步检查单
 
-- [ ] WP-01：一键发布顺序与版本注入
-- [ ] WP-01：令牌脱敏 + 静态自检
-- [ ] WP-01：dry-run 防回归断言
+- [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
+- [x] WP-01：令牌脱敏 + 静态自检
+- [x] WP-01：dry-run 防回归断言（本地无构建路径；远程 build+sync 路径待办）
 - [ ] WP-01：`injection-view-fallback` 定性/修复
 - [ ] WP-02：离线基准脚本与 v3.3.0 基线报告
 - [ ] WP-03：条件输出 RFC 定版 + `--no-body`
