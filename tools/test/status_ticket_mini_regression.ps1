@@ -150,6 +150,7 @@ if ($ContractGateOnly.IsPresent) {
         $failureClassifierPath,
         $atomicCloseoutPath,
         $recoveryTransactionPath,
+        (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1'),
         (Resolve-RepoPath -Path 'tools/test/task_definition_repair_transaction.ps1'),
         (Resolve-RepoPath -Path 'tools/test/check_task_definition_static.ps1')
     )
@@ -380,6 +381,37 @@ if ($ContractGateOnly.IsPresent) {
     $recoveryExactlyOncePass = $recoveryHasDurableStepJournal -and $recoveryHasTicketMutex -and $recoveryFailureCreatesFailedAudit -and $recoveryFailurePreservesBusinessStatus -and $pollUnlocksOnlyLegacyRecoveryFailures -and $childPowerShellIsResolved
     $recoveryExactlyOnceReason = if ($recoveryExactlyOncePass) { 'recovery-exactly-once-and-ledger-isolation-present' } else { 'missing-recovery-exactly-once-or-ledger-isolation-contract' }
     [void]$results.Add((Get-CaseResult -Name 'recovery-exactly-once-ledger-isolation' -Pass $recoveryExactlyOncePass -Reason $recoveryExactlyOnceReason))
+
+    $checkpointPolicyPass = $false
+    $checkpointPolicyReason = 'round-checkpoint-policy-probe-failed'
+    try {
+        $checkpointPolicyRaw = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -DescribeCheckpointPolicy 2>&1)
+        $checkpointPolicyExit = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        $checkpointPolicy = (($checkpointPolicyRaw | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json -ErrorAction Stop
+        $checkpointPolicyPass = (
+            $checkpointPolicyExit -eq 0 -and
+            [string]$checkpointPolicy.schema -eq 'AB_ROUND_CHECKPOINT_POLICY_V1' -and
+            [string]$checkpointPolicy.recovery_mode -eq 'fast-pass' -and
+            [string]$checkpointPolicy.reset_policy -eq 'stage-default' -and
+            [string]$checkpointPolicy.source_mutation_policy -eq 'task-definition-only' -and
+            [string]$checkpointPolicy.stage_a.launcher -eq 'open_unattended_ab_resume_window.ps1' -and
+            [string]$checkpointPolicy.stage_b.launcher -eq 'open_unattended_ab_stage_window.ps1' -and
+            $multiRoundText.StartsWith('[CmdletBinding()]') -and
+            $multiRoundText.Contains("schema = 'AB_ROUND_CHECKPOINT_V1'") -and
+            $multiRoundText.Contains('Write-RoundCheckpointMetadata') -and
+            $multiRoundText.Contains('recommended_recovery_mode') -and
+            $multiRoundText.Contains('recommended_reset_policy') -and
+            $multiRoundText.Contains('source_mutation_policy') -and
+            -not $multiRoundText.Contains('CheckpointStartRound') -and
+            -not $multiRoundText.Contains('CheckpointResume') -and
+            -not $stageWindowText.Contains('AUTO_CHECKPOINT_RESUME')
+        )
+        $checkpointPolicyReason = if ($checkpointPolicyPass) { 'round-checkpoint-phase1-contract-present' } else { 'round-checkpoint-phase1-contract-regressed' }
+    }
+    catch {
+        $checkpointPolicyReason = 'round-checkpoint-policy-probe-failed:{0}' -f (Convert-ToSingleLineText -Text $_.Exception.Message)
+    }
+    [void]$results.Add((Get-CaseResult -Name 'round-checkpoint-phase1' -Pass $checkpointPolicyPass -Reason $checkpointPolicyReason))
 
     $contractFailedCases = @($results | Where-Object { -not [bool]$_.pass })
     $contractPass = ($contractFailedCases.Count -eq 0)
@@ -987,6 +1019,33 @@ if ([string]::Join(',', $d1RuntimeGateEligibility) -ne 'False,True,True,True') {
 $fastPassPolicyPass = ($fastPassHasExactTerminalDevPolicy -and $fastPassUsesExactRuntimeGatePolicy -and $fastPassUsesPreResumeOnly -and $fastPassRuntimeMatrixPass)
 $fastPassPolicyReason = if ($fastPassPolicyPass) { 'fast-pass-resume-matrix-is-exact' } else { 'fast-pass-resume-matrix-regressed' }
 [void]$results.Add((Get-CaseResult -Name 'fast-pass-resume-matrix' -Pass $fastPassPolicyPass -Reason $fastPassPolicyReason))
+
+$checkpointPolicyRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -DescribeCheckpointPolicy | Out-String
+$checkpointPolicy = $checkpointPolicyRaw | ConvertFrom-Json -ErrorAction Stop
+$checkpointDirectResumeAbsent = (
+    -not $multiRoundText.Contains('CheckpointStartRound') -and
+    -not $multiRoundText.Contains('CheckpointResume') -and
+    -not $stageWindowText.Contains('AUTO_CHECKPOINT_RESUME') -and
+    -not $fastModeBText.Contains('checkpoint-preserve-source')
+)
+$checkpointPolicyChecks = [ordered]@{
+    schema = ([string]$checkpointPolicy.schema -eq 'AB_ROUND_CHECKPOINT_POLICY_V1')
+    recovery_mode = ([string]$checkpointPolicy.recovery_mode -eq 'fast-pass')
+    reset_policy = ([string]$checkpointPolicy.reset_policy -eq 'stage-default')
+    source_mutation_policy = ([string]$checkpointPolicy.source_mutation_policy -eq 'task-definition-only')
+    stage_a_launcher = ([string]$checkpointPolicy.stage_a.launcher -eq 'open_unattended_ab_resume_window.ps1')
+    stage_a_round = ([int]$checkpointPolicy.stage_a.recommended_start_round -eq 3)
+    stage_b_launcher = ([string]$checkpointPolicy.stage_b.launcher -eq 'open_unattended_ab_stage_window.ps1')
+    stage_b_round = ([int]$checkpointPolicy.stage_b.recommended_start_round -eq 6)
+    metadata_schema = $multiRoundText.Contains("schema = 'AB_ROUND_CHECKPOINT_V1'")
+    advanced_binding = $multiRoundText.StartsWith('[CmdletBinding()]')
+    metadata_writer = ($multiRoundText.Contains('round_checkpoints') -and $multiRoundText.Contains('recommended_recovery_mode') -and $multiRoundText.Contains('recommended_reset_policy') -and $multiRoundText.Contains('source_mutation_policy') -and $multiRoundText.Contains('Write-RoundCheckpointMetadata'))
+    stage_a_default = $fastModeAText.Contains('reset_policy=restore-source restart_baseline=repo-baseline')
+    direct_resume_absent = $checkpointDirectResumeAbsent
+}
+$checkpointPolicyPass = (@($checkpointPolicyChecks.Values | Where-Object { -not [bool]$_ }).Count -eq 0)
+$checkpointPolicyReason = if ($checkpointPolicyPass) { 'round-checkpoint-phase1-contract-present' } else { 'round-checkpoint-phase1-contract-regressed checks=' + ($checkpointPolicyChecks | ConvertTo-Json -Compress) }
+[void]$results.Add((Get-CaseResult -Name 'round-checkpoint-phase1' -Pass $checkpointPolicyPass -Reason $checkpointPolicyReason))
 
 $wrapperPolicyRaw = & powershell -NoProfile -ExecutionPolicy Bypass -File $codeChangeWrapperPath -EnableGateOnlySourceDrivenSkip true -EnableFastV2Skip false -EnableGuardedFastMode 1 -DescribeInvocationPolicy | Out-String
 $wrapperPolicy = $wrapperPolicyRaw | ConvertFrom-Json -ErrorAction Stop

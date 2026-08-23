@@ -418,9 +418,10 @@ return authoritative(first_erx_marker)
   - 路径：同一 CIDR 输入分别从 `apnic/ripe/arin` 起跳，若可达性一致且均满足“第 5 步命中（或均未命中）”条件。
   - 结果：终态应一致（均 `unknown` 或均回落首标记 RIR），不得因先后顺序漂移。
 
-治理建议：
+现行治理契约：
 
-- 建议逐步淘汰 `--no-cidr-erx-recheck`（先标记 deprecated，再在下个主版本移除），避免“一条开关绕过核心收敛机制”。
+- `--no-cidr-erx-recheck` 已在 next-major 开发阶段移除；传入该参数必须按无效参数处理。
+- CIDR 路径始终执行 ERX/IANA 基准复查，不再提供绕过该核心收敛机制的运行时开关。
 
 ---
 
@@ -480,7 +481,7 @@ return authoritative(first_erx_marker)
 
 1. **阶段 A（规则抽取）**：把“响应分类 + 非权威标记”抽为表驱动模块，不改行为。
 2. **阶段 B（状态机收敛）**：统一 hop 状态转移和 next-hop 选择，减少互相覆盖的条件分支。
-3. **阶段 C（开关收敛）**：将 `--no-cidr-erx-recheck` 标记 deprecated，并在完成回归后移除。
+3. **阶段 C（开关收敛，已完成）**：`--no-cidr-erx-recheck` 已移除，CIDR 基准复查固定启用。
 4. **阶段 D（IANA 优化接入）**：仅接入首跳优化，不触碰最终裁决语义。
 
 每阶段闸门建议：
@@ -504,7 +505,7 @@ return authoritative(first_erx_marker)
 | 第 6.2 CIDR 闭环 | `src/core/lookup_exec_loop.c`、`src/core/lookup_policy.c`、`src/core/opts.c` | 固化“原始查询 + 单次首标记RIR基准回查 + 后续跳基准查询 + 单次一致性验证 + 前置候选RIR有限回查（≤3）”流程 | `ERX/IANA` 场景下不再依赖特例硬编码；同一 CIDR 在 `apnic/ripe/arin` 起点下终态应无顺序漂移 |
 | 第 7 章 IANA 地址空间优化 | `src/core/server.c`、`src/core/dns.c`（必要时新增轻量映射模块） | 仅做首跳候选优化，不介入最终权威裁决 | `8.8.0.0/16` 等样例减少无效跳转且结论不漂移 |
 | 第 8 章 输出契约 | `src/cond/title.c`、`src/cond/fold.c`、`src/core/pipeline.c` | 规则重构时锁定 stdout/stderr 边界不变 | 头行/尾行/fold 与现黄金格式一致 |
-| 开关治理（`--no-cidr-erx-recheck`） | `src/core/opts.c`、`src/core/meta.c`、文档 | 先 deprecated，再移除；保留过渡期提示 | 回归通过后再执行破坏性下线 |
+| CIDR 基准复查固定契约 | `src/core/opts.c`、`src/core/meta.c`、文档 | 已移除 `--no-cidr-erx-recheck`；保持该参数无效且基准复查固定启用 | CLI 无效参数检查 + CIDR/重定向矩阵 |
 
 推荐落地顺序（与第 9 章阶段对应）：
 

@@ -97,29 +97,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_unattended_
 - 日常只看最后一行 `AB_LAUNCH_READY_RESULT=PASS|FAIL`。
 - 只有当统一检查脚本返回 `AB_LAUNCH_READY_RESULT=PASS` 后，AI/操作员才应向用户提一次“启动 A（带 `-StartMonitors`）”授权。
 
-## 轮次检查点方案（规划记录，尚未启用）
+## 轮次检查点方案（Phase 1 仅观测）
 
 目标：减少“某轮失败后必须从 D1 复跑”的时间浪费，在不破坏当前 A->B 契约的前提下，逐步引入“每轮成功后可恢复检查点”。
 
 当前生效状态：
-- 本节仅用于实施记录与口径统一，当前仓库默认流程仍按既有策略运行。
-- 尚未引入自动“每轮快照回滚 + 自动续跑”。
+- `start_dev_verify_8round_multiround.ps1` 每轮结束后原子写入 `out/artifacts/dev_verify_multiround/<RUN>/round_checkpoints/<round>.json`。
+- PASS 文件记录轮次完成状态、下一轮编号、源码状态摘要与关键产物路径；FAIL 文件额外提供失败轮、`recommended_recovery_mode=fast-pass`、`recommended_reset_policy=stage-default`、launcher 与 `recommended_command`。
+- 元数据只提供观测和原有入口提示，不授权直接跳轮，不自动改源码、回滚或重启。A 仍使用 resume window，B 仍使用标准 stage window，恢复继续执行既有 fast-pass。
+- `source_mutation_policy=task-definition-only` 是硬规则：checkpoint 的源码摘要只用于发现漂移；失败后至重启前，人员或代理不得直接编辑业务源码。所有代码修复必须先进入任务定义（运行期走 candidate 事务），再由 code-step/fast-pass 重放。
+- 主脚本采用 advanced parameter binding，未知参数立即失败，不再静默按默认值启动完整 8 轮。
 
-Phase 1（先实施，低风险）：
-- 计划开工时间：2026-04-24（本地时区）。
-- 目标范围：只增加“每轮成功检查点元数据”与“失败后续跑建议”，不自动改源码。
+Phase 1（已实现，低风险）：
+- 目标范围：只增加逐轮观测元数据，不改变经过长期验证的失败恢复执行路径。
 - 交付要点：
-   - 在 `out/artifacts/dev_verify_multiround/<RUN>/` 生成轮次检查点清单（例如 `round_checkpoints/`）。
+   - 在 `out/artifacts/dev_verify_multiround/<RUN>/round_checkpoints/` 生成逐轮 JSON。
    - 每轮 PASS 记录：`round_tag`、时间戳、源码状态摘要、关键产物路径（`summary_partial.csv`、`final_status.json` 等）。
-   - 某轮 FAIL 时给出标准化续跑建议（`StartRound/EndRound` + `state-only`），用于“就地继续”而非强制回到 D1。
+   - 某轮 FAIL 时记录失败轮和标准入口，但 `recommended_start_round` 仅为诊断信息，不改变实际 fast-pass 轮次策略。
+   - 不增加 `CheckpointResume`、`CheckpointStartRound` 或 checkpoint 环境分支；A repo baseline、B A-snapshot 与 fast-pass 行为保持原样。
+   - 若发现任务定义之外的源码改动，停止重启并先恢复合规基线；不得把未知手工改动作为 checkpoint 续跑输入。
 - 明确不做：
    - 不做自动 git 回滚。
    - 不改 authority 判定、重定向语义与现有输出契约。
    - 不改变 A 失败阻断 B 的主策略。
 
-后续阶段（待 Phase 1 稳定后）：
-- Phase 2：增加“显式恢复到上一轮 PASS 检查点”的手动恢复入口。
-- Phase 3：在预算与熔断保护下，评估自动回滚并自动续跑。
+后续阶段：
+- Phase 2/3 已关闭：不实施历史 PASS 源码快照、direct resume、失败后自动恢复或自动续跑。
+- 未来只有 fast-pass 出现可量化且不可接受的瓶颈，并完成独立状态一致性证明、风险评审和完整回归设计后，才允许按全新提案重新立项；不得沿用 Phase 2/3 名义直接续作。
 
 若本轮要求“主运行终端 / guard 终端在结束后保留窗口，便于人工查看结束前状态”，或已观察到 VS Code 集成终端整批消失，建议优先使用外部 `NoExit` 窗口启动：
 ```powershell

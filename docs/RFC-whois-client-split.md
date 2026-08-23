@@ -5,7 +5,21 @@
 > - 明确“已完成的历史拆分”和“后续阶段待做事项”，便于长期维护和断点续作；
 > - 保证在任何时刻，都能回答：当前 master 上 `whois_client.c` 的形态与目标状态之间还差多少。
 
-**当前状态（截至 2025-11-20）**：
+**当前状态（截至 2026-08-23）**：
+
+- `whois_client.c` 已收敛为参数入口与前端调度薄层；客户端拆分主线完成，不再以文件行数、helper 数量或 A/B 轮次作为继续拆分依据。
+- Address-Space 前置分类器的功能开发、默认放量、回退路径、契约验证与 literal 收敛均已完成；剩余 6 个多调用或带 prototype 的 literal helper 作为命名常量有意保留。
+- 后续代码治理仅由可复现缺陷、明确复杂度风险、注册表更新或可量化性能证据驱动，并须先有行为测试保护。
+- 本文中的旧“下一步”“下次开工”和未勾选模板均为历史过程记录；除下方“当前开放事项”明确列出的条目外，不代表当前待办。
+
+**当前开放事项（唯一状态入口）**：
+
+| 优先级 | 事项 | 当前决定 |
+|---|---|---|
+| P0 | RFC 状态治理 | 本轮收口顶部状态、最新 A/B 回填和已移除选项口径；历史执行段保留原貌并按历史记录解释 |
+| P1 | A/B 单阶段轮次检查点 Phase 1 | 收缩为“每轮观测元数据落盘”；失败恢复继续使用长期验证的 fast-pass，direct resume 不启用，Phase 2/3 已关闭 |
+| P1 | 确定性行为回归 | 后续新增状态机或权威判定变更前，优先补冻结响应驱动的离线测试；在线 12x6 保持集成门禁 |
+| P2 | 核心模块局部治理与性能优化 | 无主动重构排期；仅在测试覆盖和可复现实测基线证明收益后启动 |
 
 **快速索引（轻整理，摘要版）**：
 - 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper——**literal 收敛项目完结**（累计收敛 60 个）；剩余 6 个多调用/带 prototype helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 `docs/RFC-address-space-preclassifier.md` 24.29 执行回填）。
@@ -297,31 +311,40 @@
 - 下一次开工清单（2026-01-28，文内清单段）
 - 年终总结与开工计划（2025-12-31，文内计划段）
 
-**当前主线（2026-02-14）**：
-- 继续推进“启动成本优化与基准记录”，完成后回到更早的 DNS/backoff 收敛，最终形成 v3.3.0 黄金基线。
+**当前主线（2026-08-23）**：
+- 拆分与前置器功能主线已完成，当前进入契约冻结和按证据维护阶段。
+- A/B 检查点 Phase 1 已收缩为观测元数据；失败恢复继续使用长期验证的 fast-pass，不启用 direct resume，Phase 2/3 已关闭。
+- 启动成本、DNS/backoff 和核心模块重构不设常驻任务，仅由可复现指标或缺陷触发。
 
-### A/B 轮次检查点与就地恢复计划（2026-04-23）
+### A/B 轮次观测元数据与 fast-pass 恢复决策（2026-04-23，2026-08-23 收口）
 
-背景：
-- 当前主流程已具备 `StartRound/EndRound` 与 `state-only` 续跑能力，但“每轮 PASS 的可恢复检查点”仍缺统一落盘与统一调度口径。
-- 现有 A->B 快照可用于跨阶段恢复，但不足以覆盖“单阶段内部某轮失败后的最短恢复路径”。
+> 状态复核（2026-08-23）：Phase 1 收缩为观测能力，每轮在 `round_checkpoints/<round>.json` 原子记录 PASS/FAIL、源码状态摘要和关键产物路径；FAIL 记录失败轮并给出 A/B 标准入口命令，`recommended_recovery_mode=fast-pass`、`recommended_reset_policy=stage-default`。不新增 direct-resume 参数，不绕过前置轮次；恢复仍由已长期验证的 fast-pass 重建状态。实现不复制源码、不自动回滚或重启。原 Phase 2/3 路线已关闭，不再作为后续开发计划。
+
+源码基线硬规则：checkpoint 的源码状态摘要只用于发现漂移，不授权保留任意手工改动后续跑。A/B 失败后至重启前，任何业务源码修复必须先写入正式任务定义（运行期遵守 candidate `Prepare -> Inspect -> Validate -> Promote` 事务及轮次/op 边界），再由 code-step/fast-pass 按定义重放；禁止人员或代理直接编辑业务源码改变基线。checkpoint 元数据以 `source_mutation_policy=task-definition-only` 固化该约束。
+
+决策背景：
+- 主流程虽具备 `StartRound/EndRound` 与 `state-only` 能力，但 direct resume 会引入当前源码、code-step 状态与 A/B 快照之间的新组合状态。
+- fast-pass 已长期验证并能以较低成本重建前置轮状态；其可靠性收益高于继续压缩前置轮耗时。
 
 实施目标：
-- 在不改变 authority/redirect 输出契约前提下，减少“失败后回到 D1 全量重跑”的不必要开销。
+- 仅补充逐轮可观测性和失败定位信息，不改变 fast-pass 恢复语义、源码基线或 authority/redirect 输出契约。
 
-Phase 1（低风险，先做）：
-- 计划时间：2026-04-24 开工，预计当日形成首版可用补丁。
+Phase 1（低风险，2026-08-23 已实现）：
+- `start_dev_verify_8round_multiround.ps1` 已增加 `[CmdletBinding()]`，未知参数立即非零退出，避免策略探测拼写错误意外启动默认 8 轮。
 - 范围：
-  - `start_dev_verify_8round_multiround.ps1` 增加“每轮 PASS 检查点元数据”落盘（建议目录：`out/artifacts/dev_verify_multiround/<RUN>/round_checkpoints/`）。
-  - FAIL 时输出标准化“续跑建议”信息（建议含 `recommended_start_round`、`recommended_reset_policy=state-only`、`recommended_command`）。
-  - `open_unattended_ab_resume_window.ps1` 与模板文档同步补充“按建议续跑”的入口示例。
+  - `start_dev_verify_8round_multiround.ps1` 在每轮结果确定后写入 `out/artifacts/dev_verify_multiround/<RUN>/round_checkpoints/<round>.json`。
+  - PASS 记录可恢复检查点、下一轮编号、源码状态摘要和 `summary_partial.csv`/`final_status.json` 路径；终轮 PASS 的 `recommended_start_round=0`。
+  - FAIL 记录当前失败轮，并输出 `recommended_start_round`、`recommended_end_round`、`recommended_recovery_mode=fast-pass`、`recommended_reset_policy=stage-default`、launcher 与 `recommended_command`；轮次字段仅供诊断，不表示可跳过前置轮次。
+  - A 使用现有 `open_unattended_ab_resume_window.ps1`，B 使用标准 `open_unattended_ab_stage_window.ps1 -Stage B`；不引入 checkpoint direct-resume 参数或第二套 B 恢复入口。
+  - 恢复执行完全沿用原 fast-pass、A repo baseline 与 B A-snapshot 策略，避免当前源码、code-step 状态和跨阶段快照产生新的组合状态。
+  - checkpoint 源码摘要仅作漂移证据；所有代码改动必须进入任务定义并由 code-step 执行，禁止重启前直接手改业务源码。
 - 不纳入：自动 git 回滚、自动替换源码、自动跨阶段重启决策。
+- 当前验证：策略描述 JSON、未知参数 fail-fast、PASS/FAIL 检查点原子落盘探测、PowerShell AST 与 `ContractGateOnly` 16/16 均通过；fast-pass 矩阵保持原契约。完整 status-ticket 回归待执行；本次不要求用真实 A/B 验证未启用的 direct resume。
 
-Phase 2（中风险，待 Phase 1 稳定）：
-- 在检查点元数据稳定后，新增“显式恢复到指定 PASS 轮次检查点”的手动恢复脚本/开关。
-
-Phase 3（高风险，可后置）：
-- 在预算、熔断与可观测性完善后，再评估“失败后自动恢复 + 自动续跑”。
+Phase 2/3（2026-08-23 已关闭）：
+- 不实施历史 PASS 源码快照、direct resume、失败后自动恢复或自动续跑。
+- 关闭原因：收益仅是进一步压缩已被 fast-pass 大幅降低的前置轮耗时，却扩大源码基线、code-step 状态和跨阶段快照的一致性风险。
+- 本路线不再保留“待稳定后继续”的隐含承诺。未来仅当 fast-pass 出现可量化且不可接受的瓶颈，并有独立的状态一致性证明、风险评审和完整回归设计时，才以全新提案重新立项；不得视为 Phase 2/3 的自然续作。
 
 门禁与退出条件：
 - 每轮改动后必须通过：`Remote: Build (Strict Version)`、`Test: Redirect Matrix (10x6)`、`Test: CIDR Contract Bundle (prefilled)`。
@@ -9608,7 +9631,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
 - [x] TODO-free、`operationSafetyPolicy=enforce`、完整编译及适用专项回归通过。
 - [x] 预期 stdout/stderr 契约与禁止变更项已记录：title/尾行/折叠行、`[PRECLASS]` 分类输出、`[DNS-*]`/`[RETRY-METRICS*]`/`[SELFTEST]` 标签与 Step47 矩阵均不得因内联改变。
-- [ ] A PASS 后生成并验证覆盖完整 A target set 的成功快照。
+- [x] A PASS 后已生成并验证覆盖完整 A target set 的成功快照（B 已据此承接并完成）。
 
 **编制期验收证据（2026-08-21 填写）**
 
@@ -9619,8 +9642,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 | A 全定义静态检查 | PASS | `-Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=26`；D1-D4 21 ops 全 `pattern_match=1`，各轮 clang syntax gate pass |
 | Vx 专项安全回归 | PASS | `task_definition_safety_regression.ps1` `result=pass`；`task_definition_vx_checker_regression.ps1`/`autopilot_code_step_vx_regression.ps1`/`task_definition_repair_transaction_vx_regression.ps1` 均 `status=PASS` |
 | 完整编译 | PASS | A 有效源码（`tmp/vx53_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
-| 黄金 / Step47 | PENDING | 运行时执行 |
-| launch-ready | PENDING | start-file 未生成 |
+| 黄金 / Step47 | PASS | 运行时与最终 Strict 黄金校验通过 |
+| launch-ready | PASS | start-file 已生成、投入运行并完成 |
 
 #### Checklist B：literal 收敛第 2 批 15 helper（vx54）
 
@@ -9673,7 +9696,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
 - [x] B 使用 A 作为 prerequisite 的链式全定义检查通过。
 - [x] A+B effective target set 的完整编译及适用专项回归通过。
-- [ ] B 启动前重新核对 A snapshot、target set 交集与 B baseline。
+- [x] B 启动前已核对 A snapshot、target set 交集与 B baseline。
 - [x] 预期 stdout/stderr 契约与禁止变更项已记录：与 A 相同，分类/输出/标签/Step47 矩阵均不得因内联改变。
 
 **编制期验收证据（2026-08-21 填写）**
@@ -9685,8 +9708,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 | B 使用 A prerequisite 的链式全定义检查 | PASS | `-PrerequisiteTaskDefinitionFiles A -Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=55`（A 前置 21 ops + B 23 ops 全 `pattern_match=1`）；`-RoundTag D1 -ChainRounds` `errors=0 warnings=0` |
 | Vx 专项安全回归 | PASS | 仓库级回归（与 A 共用）均 `status=PASS` |
 | A+B effective target set 完整编译 | PASS | B 有效源码（`tmp/vx54_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
-| 黄金 / Step47 | PENDING | 运行时执行 |
-| launch-ready | PENDING | start-file 未生成 |
+| 黄金 / Step47 | PASS | 运行时与最终 Strict 黄金校验通过 |
+| launch-ready | PASS | start-file 已生成、投入运行并完成 |
 
 #### 启动前联合确认
 
@@ -9808,7 +9831,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
 - [x] TODO-free、`operationSafetyPolicy=enforce`、完整编译及适用专项回归通过。
 - [x] 预期 stdout/stderr 契约与禁止变更项已记录：title/尾行/折叠行、`[PRECLASS]` 分类输出、`[DNS-*]`/`[RETRY-METRICS*]`/`[SELFTEST]` 标签与 Step47 矩阵均不得因内联改变。
-- [ ] A PASS 后生成并验证覆盖完整 A target set 的成功快照。
+- [x] A PASS 后已生成并验证覆盖完整 A target set 的成功快照（B 已据此承接并完成）。
 
 **编制期验收证据（2026-08-22 填写）**
 
@@ -9820,8 +9843,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 | 链式轮次检查 | PASS | `-RoundTag D1 -ChainRounds`：`errors=0 warnings=0` |
 | Vx 专项安全回归 | PASS | `task_definition_safety_regression.ps1` `result=pass`（含 prerequisite 链式用例） |
 | 完整编译 | PASS | A 有效源码（`tmp/vx55_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
-| 黄金 / Step47 | PENDING | 运行时执行 |
-| launch-ready | PENDING | start-file 未生成 |
+| 黄金 / Step47 | PASS | 运行时及最终四轮黄金校验与 12x6 矩阵通过 |
+| launch-ready | PASS | start-file 已生成、投入运行并完成 |
 
 #### Checklist B：literal 收敛第 3 批 15 helper（vx56，早段 6 + class/rir/conf/reason 9）
 
@@ -9874,7 +9897,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 - [x] V1-V4 的编译、黄金、Step47 或业务验证范围已明确（运行时执行）。
 - [x] B 使用 A 作为 prerequisite 的链式全定义检查通过。
 - [x] A+B effective target set 的完整编译及适用专项回归通过。
-- [ ] B 启动前重新核对 A snapshot、target set 交集与 B baseline。
+- [x] B 启动前已核对 A snapshot、target set 交集与 B baseline。
 - [x] 预期 stdout/stderr 契约与禁止变更项已记录：与 A 相同，分类/输出/标签/Step47 矩阵均不得因内联改变。
 
 **编制期验收证据（2026-08-22 填写）**
@@ -9886,8 +9909,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 | B 使用 A prerequisite 的链式全定义检查 | PASS | `-PrerequisiteTaskDefinitionFiles A -Policy enforce -FailOnWarnings`：`errors=0 warnings=0 infos=79`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）；`-RoundTag D1 -ChainRounds` `errors=0 warnings=0` |
 | Vx 专项安全回归 | PASS | 仓库级回归（与 A 共用）均 `status=PASS` |
 | A+B effective target set 完整编译 | PASS | B 有效源码（`tmp/vx56_validated`）15 helper 引用=0；clang `-fsyntax-only -Wall -Wextra` exit=0 |
-| 黄金 / Step47 | PENDING | 运行时执行 |
-| launch-ready | PENDING | start-file 未生成 |
+| 黄金 / Step47 | PASS | 运行时及最终四轮黄金校验与 12x6 矩阵通过 |
+| launch-ready | PASS | start-file 已生成、投入运行并完成 |
 
 #### 启动前联合确认（24.29）
 

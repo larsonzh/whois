@@ -1,4 +1,5 @@
-﻿param(
+﻿[CmdletBinding()]
+param(
     [ValidateSet("A", "B")][string]$Stage = "A",
     [string]$GitBashPath = "C:\Program Files\Git\bin\bash.exe",
     [string]$Version = "3.2.12",
@@ -60,7 +61,8 @@
     [AllowNull()][object]$RoundRuntimeGateCheckProcessConflict = $true,
     [switch]$DisableUnknownNoOpBudgetGate,
     [switch]$DisableSourceDrivenSkip,
-    [switch]$DescribeResumePolicy
+    [switch]$DescribeResumePolicy,
+    [switch]$DescribeCheckpointPolicy
 )
 
 $ErrorActionPreference = "Stop"
@@ -252,6 +254,26 @@ if ($DescribeResumePolicy.IsPresent) {
         start_round = $StartRound
         cases = @($policyCases.ToArray())
     } | ConvertTo-Json -Depth 8
+    return
+}
+
+if ($DescribeCheckpointPolicy.IsPresent) {
+    [ordered]@{
+        schema = 'AB_ROUND_CHECKPOINT_POLICY_V1'
+        recovery_mode = 'fast-pass'
+        reset_policy = 'stage-default'
+        source_mutation_policy = 'task-definition-only'
+        stage_a = [ordered]@{
+            launcher = 'open_unattended_ab_resume_window.ps1'
+            recommended_start_round = 3
+            example_failed_round = 'D3'
+        }
+        stage_b = [ordered]@{
+            launcher = 'open_unattended_ab_stage_window.ps1'
+            recommended_start_round = 6
+            example_failed_round = 'V2'
+        }
+    } | ConvertTo-Json -Depth 5
     return
 }
 
@@ -1240,6 +1262,80 @@ function Write-Utf8NoBomTextFileAtomically {
             [System.IO.File]::Delete($backupPath)
         }
     }
+}
+
+function Get-RoundNumberFromTag {
+    param([string]$RoundTag)
+
+    if ($RoundTag -match '^D([1-4])$') {
+        return [int]$Matches[1]
+    }
+    if ($RoundTag -match '^V([1-4])$') {
+        return 4 + [int]$Matches[1]
+    }
+
+    throw "Unsupported round tag for checkpoint metadata: $RoundTag"
+}
+
+function Write-RoundCheckpointMetadata {
+    param(
+        [ValidateSet('A', 'B')][string]$Stage,
+        [string]$SessionOutDir,
+        [object]$RoundRow,
+        [ValidateRange(1, 8)][int]$EndRound,
+        [AllowEmptyString()][string]$StartFilePath
+    )
+
+    $checkpointDirectory = Join-Path $SessionOutDir 'round_checkpoints'
+    if (-not (Test-Path -LiteralPath $checkpointDirectory)) {
+        New-Item -ItemType Directory -Path $checkpointDirectory -Force | Out-Null
+    }
+
+    $roundNumber = Get-RoundNumberFromTag -RoundTag ([string]$RoundRow.RoundTag)
+    $roundPass = [bool]$RoundRow.RoundPass
+    $recommendedStartRound = if ($roundPass) {
+        if ($roundNumber -lt $EndRound) { $roundNumber + 1 } else { 0 }
+    }
+    else {
+        $roundNumber
+    }
+    $startFileArgument = if ([string]::IsNullOrWhiteSpace($StartFilePath)) { '<start-file>' } else { $StartFilePath }
+    $launcher = if ($Stage -eq 'A') { 'open_unattended_ab_resume_window.ps1' } else { 'open_unattended_ab_stage_window.ps1' }
+    $recommendedCommand = ''
+    if (-not $roundPass) {
+        if ($Stage -eq 'A') {
+            $recommendedCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_resume_window.ps1 -StartFile "{0}" -StartMonitors' -f $startFileArgument
+        }
+        else {
+            $recommendedCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_ab_stage_window.ps1 -Stage B -StartFile "{0}" -StartMonitors' -f $startFileArgument
+        }
+    }
+
+    $metadata = [ordered]@{
+        schema = 'AB_ROUND_CHECKPOINT_V1'
+        stage = $Stage
+        round_tag = [string]$RoundRow.RoundTag
+        round_number = $roundNumber
+        status = if ($roundPass) { 'pass' } else { 'fail' }
+        is_recovery_checkpoint = $roundPass
+        generated_at = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        source_status_summary = [string]$RoundRow.AfterSourceDiffNames
+        round_log = [string]$RoundRow.LogFile
+        summary_partial = (Join-Path $SessionOutDir 'summary_partial.csv')
+        final_status = (Join-Path $SessionOutDir 'final_status.json')
+        recommended_start_round = $recommendedStartRound
+        recommended_end_round = $EndRound
+        recommended_recovery_mode = 'fast-pass'
+        recommended_reset_policy = 'stage-default'
+        source_mutation_policy = 'task-definition-only'
+        recommended_launcher = $launcher
+        recommended_command = $recommendedCommand
+    }
+
+    $checkpointPath = Join-Path $checkpointDirectory ('{0}.json' -f [string]$RoundRow.RoundTag)
+    $checkpointText = ($metadata | ConvertTo-Json -Depth 5) + "`n"
+    Write-Utf8NoBomTextFileAtomically -Path $checkpointPath -Text $checkpointText
+    return $checkpointPath
 }
 
 function Wait-MonitorBootstrapGateIfNeeded {
@@ -2435,7 +2531,7 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         $checklistComment = "autopilot run not executed"
     }
 
-    $rows += [pscustomobject]@{
+    $roundRow = [pscustomobject]@{
         Round = $round
         Phase = $phase
         RoundTag = $roundTag
@@ -2506,15 +2602,19 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
         TaskDefinitionFile = if ($resolvedTaskDefinitionFile) { $resolvedTaskDefinitionFile } else { "(default-in-code-step)" }
         LogFile = $roundLog
     }
+    $rows += $roundRow
 
     $partialCsv = Join-Path $sessionOutDir "summary_partial.csv"
     $rows | Export-Csv -Path $partialCsv -NoTypeInformation -Encoding UTF8
+
+    $startFilePathForResume = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
+    $checkpointPath = Write-RoundCheckpointMetadata -Stage $Stage -SessionOutDir $sessionOutDir -RoundRow $roundRow -EndRound $EndRound -StartFilePath $startFilePathForResume
+    Write-Output ("[DEV-VERIFY-MULTI] round_checkpoint={0} status={1} path={2}" -f $roundTag, $(if ($roundPass) { 'PASS' } else { 'FAIL' }), $checkpointPath)
 
     if (-not $roundPass) {
         Write-Output ("[DEV-VERIFY-MULTI] round_fail={0}" -f $roundTag)
         # Write RESUME_FAILED_ROUND to start file so that subsequent resume
         # triggers the correct fast-pass flow for the failed round.
-        $startFilePathForResume = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
         if (-not [string]::IsNullOrWhiteSpace($startFilePathForResume)) {
             Set-StartFileResumeFailedRound -StartFilePath $startFilePathForResume -RoundTag $roundTag
         }
@@ -2525,7 +2625,6 @@ for ($round = $StartRound; $round -le $EndRound; $round++) {
 
     # When the previously-failed round (RESUME_FAILED_ROUND) passes successfully,
     # clear it to prevent incorrect fast-pass carry-over to B stage.
-    $startFilePathForResume = Get-EnvRawValue -Name 'AUTO_START_FILE_PATH'
     if (-not [string]::IsNullOrWhiteSpace($startFilePathForResume) -and -not [string]::IsNullOrWhiteSpace($ResumeFailedRound)) {
         if ($roundTag -eq $ResumeFailedRound) {
             Set-StartFileResumeFailedRound -StartFilePath $startFilePathForResume -RoundTag ''
