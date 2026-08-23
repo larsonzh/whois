@@ -4,6 +4,7 @@
 
 ## 0. 运行摘要索引（轻整理，摘要版）
 
+- 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper，剩余 6 个 helper 后续窗口续编收尾；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 24.29 执行回填）。
 - 2026-08-22：新增串行第 55/56 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-06-10 ~ 2027-06-23`，literal 收敛磨刀石第 3 批，A=vx55 action/decision 域 15 helper / B=vx56 早段 6 + class/rir/conf/reason 9，详见 24.29）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270610_20270616.json`、`testdata/autopilot_code_step_tasks_20270617_20270623.json`）：A 全定义静态检查 `errors=0 warnings=0`（26 ops 全 `pattern_match=1`）、链式 `-RoundTag D1 -ChainRounds` 通过、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）、Vx 专项安全回归 `status=PASS`、A/B 有效源码（`tmp/vx55_validated`/`tmp/vx56_validated`，15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`；start-file 待用户确认任务基线后生成。
 - 2026-08-22：串行第 53/54 份“无人值守 A/B”（literal 收敛磨刀石，窗口 `2027-05-27 ~ 2027-06-09`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A/B 各 8/8 轮一次通过（A run=`out/artifacts/dev_verify_multiround/20260821-051747`，B run=`out/artifacts/dev_verify_multiround/20260821-121221`，A/B 合计 `0d 14:33:38`），全程无事故、自愈或阶段重启。A/B 分别内联删除 15 个（共 30 个）单次使用 literal helper——这些 helper 为上个月无人值守测试代理为凑轮次人为制造的膨胀（约 66 个），本窗口以磨刀石方式收敛 30 个，剩余 36 个后续窗口续编收尾；分类语义/输出契约/生成表零变化。最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260822-135204`，255s，Local hash verify/Golden/referral 全 PASS，release 已同步）（详见 24.28 执行回填）。
 - 2026-08-21：24.23.7 代码清理（交互式，切片 A/B/C）已完成执行回填：切片 A 消除 `emit_observation` 冗余分支（`whois_query_exec.c`）；切片 B 删除 `client_flow.c` 重复 `wc_client_csv_is_default_marker`、两处调用点改用公共 `wc_preclass_csv_is_default_marker`；切片 C 在 `preclass.c` 抽取 `wc_preclass_ipv4_to_u32`/`wc_preclass_ipv6_to_u64` 字节组装 static helper（只抽字节转换，不改查表算法）。另修复内置一致性 selftest 两条表侧冻结期望（`ff00::1` 表侧 `V6_MULTICAST`→`V6_MULTICAST_FF00_8`、`2001:db9::1` 表侧 `V6_GLOBAL_UNICAST`→`V6_GLOBAL_UNICAST_2000_3`，与生成器/`reason_code_map.json`/`wc_preclass_reason_name()` 对齐）；Selftest Golden 新增独立 core `--selftest` 门禁（`golden_check_selftest.sh` 新增 `--forbid-line`，断言 preclass 三条 PASS、禁止对应 FAIL 与 `[PRECLASS-CONSISTENCY]` 诊断）；`prune_artifacts_all.ps1` 纳入 `out/artifacts/core_selftest`（保留 8 份）。全门禁 PASS：编码门禁（0 违规）、Fast 构建（`out/artifacts/20260820-192402`）、一键全门禁 8 项（`update_and_verify_preclass_table.ps1 -GateProfile all -GatesOnNoChange`，`gates_pass=True`；CIDR `4/4+9/9` `cidr_bundle_summary_20260820-220634.txt`、12x6 authority 空表 `redirect_matrix_10x6/20260820-223125`）、Selftest Golden（core/raw/health/plan-a/plan-b 全 `[golden-selftest] PASS`，`20260821-005539` 等）、Batch Golden 四策略全 `[golden] PASS`（`20260821-002656/003213/003910/004515`）、Strict 多架构默认+debug 两轮无告警（`20260821-001350` 289s、`20260821-002054` 296s，Local hash/Golden/referral 全 PASS，release 已同步，内置 selftest 三条 preclass PASS）、12x6 复核 `20260821-013117` authority 空表 + `(no errors found)`（详见 24.27 执行回填）。
@@ -4720,20 +4721,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 
 | 字段 | 值 |
 |---|---|
-| 清单状态 | 草案（编制期验收完成 2026-08-22；start-file 待用户确认后生成） |
+| 清单状态 | 已回填（2026-08-23：A/B 全 PASS，最终 Strict/批量/自检黄金 + 12x6 矩阵全 PASS） |
 | 运行窗口 | `2027-06-10 ~ 2027-06-23`（A：2027-06-10 ~ 2027-06-16；B：2027-06-17 ~ 2027-06-23） |
 | 运行模式 | code-change |
 | 质量策略 | enforce（`qualityPolicy.operationSafetyPolicy=enforce`） |
 | Checklist A 任务定义 | `testdata/autopilot_code_step_tasks_20270610_20270616.json` |
 | Checklist B 任务定义 | `testdata/autopilot_code_step_tasks_20270617_20270623.json` |
-| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270610-20270623.md`（待生成） |
+| active start-file | `testdata/unattended_start/active/unattended_ab_start_20270610-20270623.md`（已投入运行并完成，A/B 全 PASS） |
 | A schema | `vx-draft` |
 | B schema | `vx-draft` |
 | A target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
 | B target set SHA-256 | `93485c168fb16f47dfcf09ca531686e30d4631a083e52e2194574f9a832cf166` |
 | 主归属文档 | `docs/RFC-address-space-preclassifier.md` |
 | 协同文档 | `docs/RFC-whois-client-split.md` |
-| 用户启动授权 | 未授权（等待用户确认任务基线后授权启动） |
+| 用户启动授权 | 已授权（2026-08-22，A/B 启动） |
 
 **权威文档落点**
 
@@ -4880,8 +4881,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/open_unattended_a
 #### 启动前联合确认（24.29）
 
 - [x] 两份任务定义均已通过初始编制完整验收，且没有残留占位符或 TODO。
-- [ ] active start-file 已生成并通过字段同步、编码和 launch-ready 检查（DryRun，未写回 `PRECHECK_*`，保持初始 NOT_RUN）。
+- [x] active start-file 已生成并通过字段同步、编码和 launch-ready 检查（DryRun，未写回 `PRECHECK_*`，保持初始 NOT_RUN）。
 - [x] 权威文档集合内每份文档均已包含本组 Checklist A/B，身份字段和证据一致。
-- [ ] 用户已检查任务定义、权威文档集合中的清单和 start-file，并确认任务基线。
-- [ ] 用户已明确发出启动命令，A/B 开始执行。
+- [x] 用户已检查任务定义、权威文档集合中的清单和 start-file，并确认任务基线（提交推送 `e00080f4`）。
+- [x] 用户已明确发出启动命令，A/B 已执行完成。
+
+#### 执行回填（2026-08-22~23 完成）
+
+**Checklist A 回填（vx55，第 3 批 15 helper，action/decision 域）**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | PASS |
+| started_at / completed_at / elapsed | 2026-08-22 16:01:23 → 2026-08-22 23:57:32（A elapsed=0d 07:56:10） |
+| run_dir | `out/artifacts/dev_verify_multiround/20260822-160200` |
+| final result / summary | A PASS；15 个单次使用 literal helper 内联为字符串字面量并删除定义；成功快照交 B 承接 |
+
+**Checklist B 回填（vx56，第 3 批 15 helper，早段 6 + class/rir/conf/reason 9）**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | PASS（exit=0） |
+| started_at / completed_at / elapsed | 2026-08-22 23:56:47 → 2026-08-23 07:15:20（B elapsed=0d 07:18:34） |
+| run_dir | `out/artifacts/dev_verify_multiround/20260822-235721` |
+| final result / summary | B PASS；以 A 成功快照为基线承接，15 个单次使用 literal helper 内联并删除定义；`main_round=D4` 收敛 |
+
+**会话收尾与最终验证（2026-08-23）**
+
+- `SESSION=PASS`（A=PASS、B=PASS）；A/B 合计 `0d 15:13:58`（session start=2026-08-22 16:01:23，会话结束 2026-08-23 07:15:20）。
+- 全程无事故、无自愈、无阶段重启；事件票 `a-pass-conclusion-b-started`（T20260822-235732716-1004ba18）与最终状态票 `chat-session-final-status`（chat-final-20260823-071520）均按 event-review 与 atomic closeout 闭环。
+- 剩余 6 个单次使用 literal helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）留待后续窗口续编收尾。
+
+**最终四轮黄金校验 + 重定向矩阵（2026-08-23，全部 PASS）**
+
+| 轮次 | 参数 | 用时 | 结果/产物 |
+|---|---|---|---|
+| 1. 远程编译冒烟同步 + 黄金校验（Strict） | `lto-auto` 默认 | 268s | 无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS；`out/artifacts/20260823-090004` |
+| 2. 远程编译冒烟同步 + 黄金校验（Strict） | `lto-auto` + `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` | 259s | 无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS；`out/artifacts/20260823-090701` |
+| 3. 批量策略黄金（raw/health-first/plan-a/plan-b） | `lto-auto` | 1,198.287s | 四策略全 `[golden] PASS`（`batch_raw/20260823-091349`、`batch_health/20260823-091840`、`batch_plan/20260823-092356`、`batch_planb/20260823-092948`） |
+| 4. 自检黄金（raw/health-first/plan-a/plan-b） | `lto-auto` + `--selftest-force-suspicious 8.8.8.8` | 1,222.364s | 四策略全 `[golden-selftest] PASS`（`batch_raw/20260823-093542`、`batch_health/20260823-094029`、`batch_plan/20260823-094550`、`batch_planb/20260823-095134`） |
+| 5. 重定向矩阵（IP x RIR：12 x 6） | — | — | Authority mismatches 空、`(no errors found)`；`out/artifacts/redirect_matrix_10x6/20260823-100221` |
+
+- 审计复核：抽样核验 `golden_report.txt`/`golden_report_*` 均 `[golden] PASS`、`golden_selftest_report.txt` 均 `[golden-selftest] PASS`、冒烟日志 warning 计数=0、矩阵 `errors_20260823-100221.txt` 仅 `(no errors found)`。
+- 分类语义/输出契约/生成表零变化；release 二进制与 `SHA256SUMS-static.txt` 已同步（工作区含运行产物，待用户授权提交推送）。
 
