@@ -14,13 +14,11 @@
 
 **当前开放事项（唯一状态入口）**：
 
-| 优先级 | 事项 | 当前决定 |
-|---|---|---|
-| P0 | RFC 状态治理 | 本轮收口顶部状态、最新 A/B 回填和已移除选项口径；历史执行段保留原貌并按历史记录解释 |
-| P1 | A/B 单阶段轮次检查点 Phase 1 | 收缩为“每轮观测元数据落盘”；失败恢复继续使用长期验证的 fast-pass，direct resume 不启用，Phase 2/3 已关闭 |
-| P2 | 核心模块局部治理与性能优化 | 无主动重构排期；仅在测试覆盖和可复现实测基线证明收益后启动 |
+- 当前无主动开发事项。RFC 状态治理与 A/B 单阶段轮次检查点 Phase 1 已于 2026-08-23 收口。
+- 核心模块局部治理与性能优化不设常驻优先级或排期；仅在测试覆盖和可复现实测基线证明收益后，以新事项启动。
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-23：RFC 状态治理与 A/B 检查点 Phase 1 收口完成：完整 `status_ticket_mini_regression.ps1` 实跑 `72/72 PASS`（`failed_cases=0`），其中 `round-checkpoint-phase1`、`fast-pass-resume-matrix` 均 PASS；证据 `out/artifacts/status_ticket_mini_regression/20260823-144058`。顶部唯一状态入口不再保留已完成的 P0/P1；Phase 1 固定为观测元数据，恢复继续使用 fast-pass，direct resume 不启用，Phase 2/3 保持关闭。
 - 2026-08-23：确定性响应分类回归完成：新增 `redirect-invalid-key-priority`、`redirect-denied-priority`、`redirect-rate-limit-priority`、`redirect-semantic-empty-priority` 四条离线冻结响应 selftest，覆盖 `Failure > Non-Authoritative > Semantic Empty > Authoritative` 的关键冲突边界；core selftest golden 对每项要求 PASS 且禁止 FAIL。Linux、win32、win64 三架构构建/自测、Local hash 与 referral 全 PASS（最终证据 `out/artifacts/core_selftest/20260823-142050`）；invalid-search-key 首轮发现并修复统一写回前的状态覆盖缺陷，其余生产行为已符合契约。
 - 2026-08-23：串行第 55/56 份“无人值守 A/B”（literal 收敛磨刀石第 3 批，窗口 `2027-06-10 ~ 2027-06-23`）已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260822-160200`，B run=`out/artifacts/dev_verify_multiround/20260822-235721`，A/B 合计 `0d 15:13:58`，session start=2026-08-22 16:01:23）；全程无事故/自愈/重启，A/B 各内联删除 15 个（共 30 个）单次使用 literal helper——**literal 收敛项目完结**（累计收敛 60 个）；剩余 6 个多调用/带 prototype helper（`class_unknown`/`class_special`/`rir_unknown`/`v6_unique_local_reason`/`v6_link_local_reason`/`v6_multicast_reason`）作为命名常量**有意保留**，不再续编；最终四轮黄金校验 + 12x6 重定向矩阵全部 PASS（Strict 冒烟 2 轮、批量/自检黄金各四策略、`(no errors found)`，详见 `docs/RFC-address-space-preclassifier.md` 24.29 执行回填）。
 - 2026-08-22：新增串行第 55/56 份“无人值守 A/B 下次开工清单（草案）”（窗口 `2027-06-10 ~ 2027-06-23`，literal 收敛磨刀石第 3 批，A=vx55 action/decision 域 15 helper / B=vx56 早段 6 + class/rir/conf/reason 9，详见 `docs/RFC-address-space-preclassifier.md` 24.29）。脚本必须 A/B 成对运行、不支持单 A，故同步编制并验收两份 Vx 任务定义（`testdata/autopilot_code_step_tasks_20270610_20270616.json`、`testdata/autopilot_code_step_tasks_20270617_20270623.json`）：A 全定义静态检查 `errors=0 warnings=0`（26 ops 全 `pattern_match=1`）、链式 `-RoundTag D1 -ChainRounds` 通过、B 以 A 为 prerequisite 的链式全定义检查 `errors=0 warnings=0`（A 前置 26 ops + B 40 ops 全 `pattern_match=1`）、Vx 专项安全回归 `status=PASS`、A/B 有效源码（`tmp/vx55_validated`/`tmp/vx56_validated`，15+15 helper 引用=0）clang `-fsyntax-only -Wall -Wextra` exit=0；target set 仅 `preclass_source`（`src/core/preclass.c`），`target_set_sha256=93485c16...`；start-file 待用户确认任务基线后生成。
@@ -339,7 +337,7 @@ Phase 1（低风险，2026-08-23 已实现）：
   - 恢复执行完全沿用原 fast-pass、A repo baseline 与 B A-snapshot 策略，避免当前源码、code-step 状态和跨阶段快照产生新的组合状态。
   - checkpoint 源码摘要仅作漂移证据；所有代码改动必须进入任务定义并由 code-step 执行，禁止重启前直接手改业务源码。
 - 不纳入：自动 git 回滚、自动替换源码、自动跨阶段重启决策。
-- 当前验证：策略描述 JSON、未知参数 fail-fast、PASS/FAIL 检查点原子落盘探测、PowerShell AST 与 `ContractGateOnly` 16/16 均通过；fast-pass 矩阵保持原契约。完整 status-ticket 回归待执行；本次不要求用真实 A/B 验证未启用的 direct resume。
+- 当前验证：策略描述 JSON、未知参数 fail-fast、PASS/FAIL 检查点原子落盘探测、PowerShell AST 与 `ContractGateOnly` 16/16 均通过；完整 `status_ticket_mini_regression.ps1` 于 2026-08-23 实跑 `72/72 PASS`（`failed_cases=0`），其中 `round-checkpoint-phase1` 与 `fast-pass-resume-matrix` 均 PASS，证据 `out/artifacts/status_ticket_mini_regression/20260823-144058`。不要求用真实 A/B 验证未启用的 direct resume。
 
 Phase 2/3（2026-08-23 已关闭）：
 - 不实施历史 PASS 源码快照、direct resume、失败后自动恢复或自动续跑。
