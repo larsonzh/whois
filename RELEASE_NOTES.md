@@ -3,7 +3,7 @@
 发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
 Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_CN.md`
 
-## Unreleased
+## 3.3.0
 
 中文摘要 / Chinese summary
 - 发布候选完整复核（2026-08-23）：响应分类修复后的 Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`，292s；`20260823-152347`，281s）；Batch 四策略全 `[golden] PASS`（`152928/153443/154054/154744`，1,356.781s）；Selftest 四策略与独立 core golden 全 PASS（`155355/155909/160500/161048`，1,298.199s），四条新增分类优先级断言均命中 PASS 且对应 FAIL 均被禁止。12x6 authority mismatch 空表、无 errors（`redirect_matrix_10x6/20260823-161855`）；CIDR body `4/4`、draft matrix `9/9`、bundle exit 0（`cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍保留既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不计入 golden 全绿且不是本轮回归。本轮无需代码修复；后续冻结语义，仅进行版本号、release body、tag 与 GitHub Release 收口。

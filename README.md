@@ -1,4 +1,4 @@
-﻿# whois (v3.2.12)
+﻿# whois (v3.3.0)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -33,6 +33,17 @@
 	- Title projection (`-g`, case-insensitive prefix) → POSIX ERE filters (`--grep/--grep-cs`, line/block, optional continuation expansion) → folded summarization (`--fold`).
 	- 标题投影（`-g`，不区分大小写前缀）→ 正则筛查（`--grep/--grep-cs`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
 
+### AI-assisted unattended engineering / AI 辅助无人值守工程
+
+- 本仓库建立了一套面向真实代码变更的 AI 辅助 A/B 无人值守开发工具链：用户保留最高授权，脚本是唯一正式执行层，AI 负责协助编制任务定义、读取事件工单、解释机器状态并按预授权流程处置故障。
+	- This repository includes an AI-assisted unattended A/B engineering toolchain for real code changes: the user remains the highest authority, scripts are the sole execution layer, and AI assists with task definitions, event tickets, machine-state interpretation, and pre-authorized recovery actions.
+- 每轮改动由可重放任务定义驱动，并经过 target-bound 静态检查、幂等/断言门禁、原子写入与回滚、编译、Golden、CIDR、Step47 和重定向矩阵验证；聊天结论不能覆盖落盘产物，任何证据不完整均 fail closed。
+	- Every change is driven by a replayable task definition and gated by target-bound static checks, idempotency/assertions, atomic write and rollback, compilation, Golden, CIDR, Step47, and redirect-matrix validation. Chat conclusions never override persisted machine evidence, and incomplete evidence fails closed.
+- 该体系已在本项目连续完成 56 份串行 A/B 任务，用于地址空间前置分类器、默认放量、契约冻结、可观测性增强和代码收敛；最近的第 55/56 份会话 A/B 均 PASS。它属于开发与质量保障设施，发布的 C 客户端仍保持零 AI、零外部运行时依赖。
+	- The system has completed 56 serial A/B tasks in this project, covering the address-space preclassifier, default rollout, contract freezing, observability, and code convergence; the latest 55/56 session passed both stages. This is development and quality infrastructure only: shipped C binaries retain zero AI and zero external runtime dependencies.
+
+流程与边界 / Workflow and boundaries: [A/B 无人值守完整操作流](docs/UNATTENDED_AB_OPERATION_FLOW_CN.md) · [模型分层与使用边界](docs/RFC-unattended-model-tiering.md) · [聊天分发策略](docs/RFC-unattended-chat-dispatch-policy-v1.md)
+
 Tiny pipeline sketch / 处理流程一图流：
 
 `query → resolve server → follow referrals → title projection (-g) → regex filter (--grep*) → fold (--fold)`
@@ -61,6 +72,7 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 - 使用说明 / Usage: `docs/USAGE_CN.md` | `docs/USAGE_EN.md`
 - 重定向矩阵测试 / Redirect matrix test: [docs/USAGE_CN.md](docs/USAGE_CN.md#重定向矩阵测试ipv4) | [docs/USAGE_EN.md](docs/USAGE_EN.md#redirect-matrix-test-ipv4)
 - 操作与发布 / Operations: `docs/OPERATIONS_CN.md` | `docs/OPERATIONS_EN.md`
+- AI 辅助无人值守开发 / AI-assisted unattended engineering: [操作流程 / Workflow](docs/UNATTENDED_AB_OPERATION_FLOW_CN.md) | [模型边界 / Model boundaries](docs/RFC-unattended-model-tiering.md)
 - VS Code 一键任务 / VS Code one-click tasks（含 CIDR 草案矩阵）: `Test: Redirect Matrix (CIDR Draft TSV)` / `Test: Redirect Matrix (CIDR Draft TSV, prefilled)` / `Test: CIDR Contract Bundle` / `Test: CIDR Contract Bundle (prefilled)`（详见 `docs/OPERATIONS_CN.md` / `docs/OPERATIONS_EN.md`）
 - 发布流程 / Release Flow: `docs/RELEASE_FLOW_CN.md` | `docs/RELEASE_FLOW_EN.md`
  - 链接风格转换 / Link style conversion: `docs/RELEASE_LINK_STYLE.md`
@@ -87,6 +99,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.3.0：发布说明 `RELEASE_NOTES.md#330` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0 | Gitee Releases（查找 v3.3.0）: https://gitee.com/larsonzh/whois/releases
+		- v3.3.0: Release notes `RELEASE_NOTES.md#330` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0 | Gitee Releases (find v3.3.0): https://gitee.com/larsonzh/whois/releases
 	- v3.2.12：发布说明 `RELEASE_NOTES.md#3212` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12 | Gitee Releases（查找 v3.2.12）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.12: Release notes `RELEASE_NOTES.md#3212` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12 | Gitee Releases (find v3.2.12): https://gitee.com/larsonzh/whois/releases
 	- v3.2.11：发布说明 `RELEASE_NOTES.md#3211` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.11 | Gitee Releases（查找 v3.2.11）: https://gitee.com/larsonzh/whois/releases
@@ -108,6 +122,23 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.3.0 速览 / What's new <a id="330"></a>
+
+- 地址空间前置分类器正式收口：Phase B 首跳与 Phase C reserved/special 早收敛默认启用，显式 `-h` 和 `--disable-address-preclass` 保持兼容回退。
+	- Address-space preclassifier closure: Phase B first-hop routing and Phase C reserved/special early convergence are enabled by default, while explicit `-h` and `--disable-address-preclass` preserve compatibility paths.
+- WHOIS 裁决契约增强：冻结 `Failure > Non-Authoritative > Semantic Empty > Authoritative` 优先级，补齐失败债务、末端失败节点重查及 invalid-search-key 首跳终止回归。
+	- WHOIS decision-contract hardening: freezes `Failure > Non-Authoritative > Semantic Empty > Authoritative`, with failure debt, terminal failed-node retries, and invalid-search-key first-hop termination regressions.
+- AI 辅助无人值守工程：可审计 A/B 任务定义、事件工单、原子写入/回滚与 fail-close 门禁已在本项目连续完成 56 份串行任务；发布客户端不依赖 AI。
+	- AI-assisted unattended engineering: auditable A/B task definitions, event tickets, atomic write/rollback, and fail-closed gates have completed 56 serial tasks in this project; shipped clients do not depend on AI.
+- 发布候选验证（2026-08-23）：Strict 双轮、Batch/Selftest 四策略、独立 core golden、12x6 重定向矩阵与 CIDR `4/4 + 9/9` 全部通过。
+	- Release-candidate verification (2026-08-23): two Strict rounds, four Batch/Selftest strategies, standalone core golden, the 12x6 redirect matrix, and CIDR `4/4 + 9/9` all pass.
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#330`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.3.0）
 
 ## v3.2.12 速览 / What's new <a id="3212"></a>
 
