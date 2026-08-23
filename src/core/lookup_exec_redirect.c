@@ -154,6 +154,7 @@ static void wc_lookup_exec_run_eval(
                 free(st->io.ref);
                 st->io.ref = NULL;
             }
+            goto finalize;
         }
 
         banner_only = wc_lookup_exec_rule_is_empty_or_banner_only(st->io.auth, st->io.body);
@@ -1308,6 +1309,7 @@ static void wc_lookup_exec_run_eval(
         }
     }
 
+finalize:
     {
         int need_redir =
             (ctx->zopts && !ctx->zopts->no_redirect) ? st->io.need_redir_eval : 0;

@@ -19,6 +19,7 @@
 #include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_title.h"
+#include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
 
 Config wc_selftest_config_snapshot(void)
@@ -742,6 +743,48 @@ int wc_selftest_run(void) {
         failed = 1;
     } else {
         fprintf(stderr, "[SELFTEST] redirect-inet6num-guard: PASS\n");
+    }
+
+    {
+        char frozen_response[] =
+            "%ERROR:115: invalid search key\n"
+            "ReferralServer: whois://whois.ripe.net\n";
+        char header_hint_host[128] = {0};
+        int auth = 1;
+        int need_redir_eval = 1;
+        int force_stop_authoritative = 0;
+        char* ref = (char*)malloc(strlen("whois://whois.ripe.net") + 1);
+        int ref_allocated = ref ? 1 : 0;
+        if (ref) {
+            memcpy(ref, "whois://whois.ripe.net", strlen("whois://whois.ripe.net") + 1);
+        }
+        struct wc_lookup_exec_redirect_ctx redirect_ctx = {
+            .body = frozen_response,
+            .auth = &auth,
+            .current_host = "whois.arin.net",
+            .current_rir_guess = "arin",
+            .current_port = 43,
+            .need_redir_eval = &need_redir_eval,
+            .header_hint_host = header_hint_host,
+            .header_hint_host_len = sizeof(header_hint_host),
+            .force_stop_authoritative = &force_stop_authoritative,
+            .ref = &ref
+        };
+        wc_lookup_exec_eval_redirect(&redirect_ctx);
+        if (!ref_allocated || auth != 0 || need_redir_eval != 0 ||
+            force_stop_authoritative != 1 || ref != NULL) {
+            fprintf(stderr,
+                "[SELFTEST] redirect-invalid-key-priority: FAIL (allocated=%d auth=%d redir=%d stop=%d ref=%s)\n",
+                ref_allocated,
+                    auth,
+                    need_redir_eval,
+                    force_stop_authoritative,
+                    ref ? ref : "null");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] redirect-invalid-key-priority: PASS\n");
+        }
+        if (ref) free(ref);
     }
 
     {

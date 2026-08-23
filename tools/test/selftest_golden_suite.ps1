@@ -278,7 +278,9 @@ $coreArgs = "./tools/test/golden_check_selftest.sh -l " + (Convert-ToBashLiteral
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-consistency: PASS')
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-single-pass: PASS')
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-cache-single-scan: PASS')
+$coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-invalid-key-priority: PASS')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-(consistency|single-pass|cache-single-scan): FAIL.*')
+$coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-invalid-key-priority: FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[PRECLASS-CONSISTENCY\].*')
 $coreCmd = "cd $repoQuoted && set -o pipefail && $coreArgs 2>&1 | tee " + (Convert-ToBashLiteral -Text $coreReportMsys)
 Write-Output "[suite-selftest] [core] golden: $coreCmd"
