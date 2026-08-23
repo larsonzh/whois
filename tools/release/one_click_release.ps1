@@ -192,8 +192,8 @@ if ($doBuild) {
     # Stage and commit synced statics if changed
     $staticsPath = Join-Path $repoRoot 'release\lzispro\whois'
     if (Test-Path $staticsPath) {
-      git add "$staticsPath\whois-*" | Out-Null
-      $changes = git status --porcelain
+      git add -- "$staticsPath\whois-*" "$staticsPath\SHA256SUMS-static.txt" | Out-Null
+      $changes = git diff --cached --name-only -- $staticsPath
       if ($changes) {
         $dryRunGuardStaticsDetected = $true
         if ($dryRunEffective) {
