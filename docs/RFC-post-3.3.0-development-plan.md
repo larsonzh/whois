@@ -2,7 +2,7 @@
 
 > 状态：已批准（2026-08-24 总体评审通过）
 > 基线：`v3.3.0`（2026-08-24 正式发布）
-> 评审结论：范围、工作包治理、依赖、门禁与估算可作为后续实施依据；WP-01–WP-06 仍保持 `proposed`，须分别满足 `ready` 条件后开工。
+> 评审结论：范围、工作包治理、依赖、门禁与估算可作为后续实施依据；WP-01–WP-06 已进入各自执行状态，WP-07 按 WP-02 热点证据登记并实施。
 > 关联：
 > - 条件输出现状与历史设计：`docs/RFC-conditional-output-CN.md`
 > - 发布流程：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md`
@@ -46,7 +46,7 @@ v3.3.0 已作为新黄金基线发布，产品语义冻结（响应分类契约�
 | token 传递 | 当前 Bash 命令串内联 token，且 `Invoke-GitBash` 会回显完整命令 | WP-01 改为不进入命令文本和日志的传递方式并加泄漏断言 |
 | `injection-view-fallback` | standalone selftest 已知 FAIL，未完成正式定性 | WP-01 独立实施项修复或结构化 known-issue |
 | workbuf 统计 | 已有 `WC_WORKBUF_ENABLE_STATS`、查询级和 selftest `[WORKBUF-STATS]` | WP-02 复用并冻结现有字段，不新造平行统计协议 |
-| 条件输出新 CLI | `--no-body`、`--print-meta`、`--print-chain`、`--pick` 已实现；`--stats` 待实现 | WP-05 已完成；继续按 WP-06 契约与门禁实施 |
+| 条件输出新 CLI | `--no-body`、`--print-meta`、`--print-chain`、`--pick`、`--stats` 已实现 | WP-03–WP-06 已完成；后续仅按独立登记工作包实施有基准证据的优化 |
 
 ## 2. 原则与红线
 
@@ -246,7 +246,8 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 18/18 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
 | WP-05 | completed | Phase 3 | WP-05A `--print-chain` + WP-05B `--pick` | 两个切片及专项合同完成；九架构 Strict/Golden/referral/双目录 sync 最终复核 PASS（`20260824-170256`） |
 | WP-06 | completed | Phase 3 | `--stats` | 协议、实现、真实联网成功计数修复、专项合同与最终 Strict 九架构/Golden/referral/release sync 全部完成（`20260824-185823`） |
-| 后续编号 | 未登记 | 待定 | 按基准结果单独立项的性能优化 | 每项建立独立工作包，使用登记时下一个未占用的 `WP-xx` 编号 |
+| WP-07 | done | Phase 2 follow-up | fold token 容量预留优化 | 三架构冻结基准、sanitizer 与重建 Strict 九架构/Golden/referral/双目录 sync 全部完成（`20260824-205103`） |
+| 后续编号 | 未登记 | 待定 | 按基准结果单独立项的其他性能优化 | 每项建立独立工作包，使用登记时下一个未占用的 `WP-xx` 编号 |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
 
@@ -412,6 +413,18 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：`--print-meta` 贯穿 opts/config/render 路径；`wc_result_meta` 新增 `duration_ms`/`attempts`（`wc_lookup_execute` 生命周期采样）；`wc_pipeline_render_meta` 在尾行/折叠行后输出元信息，失败报告路径同步挂载；新增 parser selftest、合同 smoke 与双语 USAGE/Release Notes；修复 `wc_workbuf_reserve` 同缓冲覆盖与失败路径缺元信息两处缺陷
 - 决策：选项名固定 `--print-meta`；元信息行位于记录末尾（尾行或折叠行之后）；观测选项不改变退出码、权威判定与诊断标签；数值字段不可测量输出 0
 
+### WP-07/fold token 容量预留优化（2026-08-24）
+- 状态：done
+- 类型：PRODUCT
+- 执行方式：传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：commit=`40565aaa`；WP-02=done；linux x86_64 基线=`out/artifacts/bench/wp02-linux-x86_64/20260824-092208`
+- 结果：将 `append_token_with_format` 的逐字节 `wc_workbuf_reserve` 合并为每个 token 一次最坏情况容量预留；linux x86_64、linux aarch64 QEMU 与 win64 各 46/46 冻结 stdout SHA 场景 PASS。x86_64 `fold/stress-crlf` median/p95 从 `31.027/33.256 ms` 降至 `13.924/14.974 ms`，`fold-unique/stress-crlf` 从 `32.779/37.418 ms` 降至 `15.957/18.787 ms`；aarch64 QEMU 两场景分别从 `220.282/234.764 ms` 降至 `129.867/141.111 ms`、从 `276.801/301.222 ms` 降至 `128.857/145.508 ms`；win64 稳定复跑分别从 `93.026/100.760 ms` 降至 `89.364/97.868 ms`、从 `93.898/100.974 ms` 降至 `82.023/85.876 ms`。reserve 在三架构均从 `1,417,000/1,420,000` 降至 `26,000/29,000`；grow、max cap 与 stdout SHA 不变
+- run：聚焦生产 x86_64 build/hash=`out/artifacts/wp07-focused-build/20260824-191734`；x86_64=`out/artifacts/bench/wp07-fold-reserve/20260824-191832`；aarch64 QEMU=`out/artifacts/bench/wp07-fold-reserve-aarch64/20260824-193742`；win64 稳定复跑=`out/artifacts/bench/wp07-fold-reserve-win64/20260824-194059`；最终 Strict 重建=`out/artifacts/20260824-205103`
+- 门禁：严格 GCC/MinGW harness（`-Wall -Wextra -Werror`）=PASS；ASan/UBSan stress fold 与 fold-unique 各 1000 iterations=PASS；三架构冻结矩阵各 `46/46` PASS；最终 Strict `lto-auto` 重建无编译/LTO 告警，九架构 hash、Golden、三起点 referral PASS（311s）；Linux/QEMU、win32、win64 smoke=`18/3/3` 且首尾对应、alerts=0；IANA/ARIN/AFRINIC 三起点均收敛至 AFRINIC；artifact、仓库 release 与外部 release 均 `9/9` SHA 一致；编码诊断与 `git diff --check`=PASS
+- 变更：仅修改 `src/cond/fold.c` 的 token 输出容量检查频率；不改变扫描、空白折叠、大小写、CR/LF 截断、分隔符、去重或输出协议
+- 决策/回退：预留上界为当前长度 + 可选分隔符长度 + 原 token 长度，格式化输出不会超过该上界；若跨架构基准退化或 sanitizer/冻结 SHA 失败，回退本工作包单一源码改动
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
@@ -423,4 +436,5 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-04：`--print-meta`
 - [x] WP-05：`--print-chain` + `--pick`
 - [x] WP-06：`--stats`
-- [ ] 后续：性能热点优化（按证据逐项登记新的 `WP-xx`）
+- [x] WP-07：按 WP-02 证据登记 fold token 容量预留优化
+- [x] WP-07：ASan/UBSan、win64、aarch64 QEMU 与最终发布门禁

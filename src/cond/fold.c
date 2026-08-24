@@ -61,9 +61,10 @@ static void append_token_with_format(char** out, size_t* cap, size_t* len,
                                      wc_workbuf_t* wb) {
     if (!sep) sep = " ";
     size_t seplen = strlen(sep);
+    size_t reserve_len = *len + n + ((*len > 0) ? seplen : 0);
+    wc_workbuf_reserve(wb, reserve_len, "wc_fold_append_token");
+    *out = wb->data; *cap = wb->cap;
     if (*len > 0) {
-        wc_workbuf_reserve(wb, *len + seplen, "wc_fold_append_token");
-        *out = wb->data; *cap = wb->cap;
         memcpy((*out)+(*len), sep, seplen);
         *len += seplen;
     }
@@ -73,14 +74,10 @@ static void append_token_with_format(char** out, size_t* cap, size_t* len,
         if (c == '\r' || c == '\n') break;
         if (c == ' ' || c == '\t') { in_space = 1; continue; }
         if (in_space) {
-            wc_workbuf_reserve(wb, *len + 1, "wc_fold_append_token");
-            *out = wb->data; *cap = wb->cap;
             (*out)[(*len)++] = ' ';
             in_space = 0;
         }
         char ch = upper ? (char)toupper(c) : (char)c;
-        wc_workbuf_reserve(wb, *len + 1, "wc_fold_append_token");
-        *out = wb->data; *cap = wb->cap;
         (*out)[(*len)++] = ch;
     }
 }
