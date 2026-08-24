@@ -334,10 +334,12 @@ foreach ($entry in $artifactMap.GetEnumerator()) {
             $cmdArgs += " --require-error " + (Convert-ToBashLiteral -Text $trimRegex)
         }
     }
-    foreach ($regex in $lineList) {
-        $trimRegex = $regex.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($trimRegex)) {
-            $cmdArgs += " --require-line " + (Convert-ToBashLiteral -Text $trimRegex)
+    if ($entry.Key -ne 'raw') {
+        foreach ($regex in $lineList) {
+            $trimRegex = $regex.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimRegex)) {
+                $cmdArgs += " --require-line " + (Convert-ToBashLiteral -Text $trimRegex)
+            }
         }
     }
     $tagsForRun = @()

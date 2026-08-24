@@ -163,6 +163,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - Linux wine 冒烟：`env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8`（32 位对应 `wine`），可复用同一冒烟参数。
 
 提示：
+- `--no-body` 抑制最终 WHOIS 正文，但保留查询首行、适用时的 `Address Status:` 和权威尾行；DNS、连接、重试、重定向、权威判定及 `-g/--grep*` 过滤仍完整执行。
+- `--no-body` 可与 `-g`、`--grep*`、正文选择器及批量模式组合；与 `--plain`、`--fold`、`--fold-sep`、`--fold-unique` 或 `--no-fold-upper` 组合会在查询前报错退出。
+- WP-03 最终制品验证（2026-08-24）：Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-115609`，248s）；Linux/QEMU、win32、win64 smoke=`18/3/3` 且首尾一一对应、零告警，两个 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品合同 smoke=`13/13`（`out/artifacts/no_body_contract/20260824-120031`）。
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
 - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
 - `--no-fold-upper` 保留原大小写（默认会转为大写）
@@ -735,6 +738,7 @@ whois-x86_64 -g 'netname|mnt-|e-mail' --grep 'CNC|UNICOM' --grep-line --fold 1.2
   - 默认“块模式”：对“标题块”（标题+续行）整体命中与否；
   - `--grep-line` 行模式：仅匹配的行被选中（可用 `--keep-continuation-lines` 将命中行扩展成其所在“标题块”）。
 - `--fold` 使用当前选区（应用 `-g/--grep*` 后的结果）折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`。
+- `--no-body` 仍执行上述投影和筛选，但跳过最终正文写入；例如 `whois-x86_64 --no-body --grep 'NetName' 8.8.8.8` 只保留查询首行和权威尾行。批量模式下每个输入项各保留一组稳定边界。
 
 推荐策略 A（稳定、易控）：
 

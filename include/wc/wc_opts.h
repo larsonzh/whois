@@ -27,6 +27,7 @@ typedef struct wc_opts_s {
     int no_redirect;             // -Q disable referral following
     int max_hops;                // -R max referral hops (redirect limit)
     int plain_mode;              // -P suppress query headers
+    int no_body;                 // --no-body suppress final response body rendering
     int show_non_auth_body;       // --show-non-auth-body (include non-authoritative bodies)
     int show_post_marker_body;    // --show-post-marker-body (keep bodies after ERX/IANA marker)
     int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)
@@ -65,6 +66,7 @@ typedef struct wc_opts_s {
     const char* fold_sep;        // --fold-sep (allocated)
     int fold_upper;              // default 1; --no-fold-upper sets 0
     int fold_unique;             // --fold-unique (remove duplicate tokens)
+    int fold_modifier_seen;      // Explicit fold modifier supplied
 
     // Diagnostics / security
     int security_log;            // --security-log

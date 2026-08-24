@@ -373,6 +373,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->step47_early_unknown_enable = 0;
     o->step47_early_unknown_list = NULL;
     o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
+    o->no_body = 0;
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
     o->hide_failure_body = 0;
@@ -403,6 +404,7 @@ static struct option wc_long_options[] = {
     {"enable-preclass-first-hop", no_argument, 0, 1320},
     {"enable-preclass-early-converge", no_argument, 0, 1321},
     {"fold-unique", no_argument, 0, 1012},
+    {"no-body", no_argument, 0, 1322},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
     {"timeout", required_argument, 0, 't'},
@@ -524,6 +526,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1005: wc_grep_set_keep_continuation(0); o->keep_continuation = 0; break;
             case 1006: o->fold = 1; break;
             case 1007: {
+                o->fold_modifier_seen = 1;
                 if (o->fold_sep) { free((char*)o->fold_sep); o->fold_sep=NULL; }
                 if (optarg && strcmp(optarg, "\\t") == 0) o->fold_sep = strdup("\t");
                 else if (optarg && strcmp(optarg, "\\n") == 0) o->fold_sep = strdup("\n");
@@ -532,7 +535,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 else o->fold_sep = strdup(optarg ? optarg : " ");
                 if (!o->fold_sep) { fprintf(stderr,"Error: OOM parsing --fold-sep\n"); return 7; }
             } break;
-            case 1008: o->fold_upper = 0; break;
+            case 1008: o->fold_modifier_seen = 1; o->fold_upper = 0; break;
             case 1009: o->security_log = 1; break;
             case 1312: o->disable_address_preclass = 1; break;
             case 1317: o->preclass_action_enable = 1; break;
@@ -576,7 +579,8 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
                 break;
             case 1320: o->preclass_first_hop_enable = 1; break;
             case 1321: o->preclass_early_converge_enable = 1; break;
-            case 1012: o->fold_unique = 1; break;
+            case 1012: o->fold_modifier_seen = 1; o->fold_unique = 1; break;
+            case 1322: o->no_body = 1; break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
@@ -797,6 +801,15 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
 
     // Allow -P/--plain placed after the query (common when users append flags).
     wc_opts_apply_late_plain(o, argc, argv, optind + 1);
+
+    if (o->no_body && o->plain_mode) {
+        fprintf(stderr, "Error: --no-body cannot be combined with --plain\n");
+        return 35;
+    }
+    if (o->no_body && (o->fold || o->fold_modifier_seen)) {
+        fprintf(stderr, "Error: --no-body cannot be combined with fold options\n");
+        return 35;
+    }
 
     // Auto batch mode if stdin is not a TTY and -B not explicitly supplied
     if (explicit_batch_flag || !isatty(fileno(stdin))) {

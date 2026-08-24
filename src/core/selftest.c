@@ -526,9 +526,11 @@ static int selftest_preclass_phasec_policy(void)
         wc_opts_t short_opts;
         wc_opts_t long_opts;
         wc_opts_t permuted_opts;
+        wc_opts_t no_body_opts;
         char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
         char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
         char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
+        char* no_body_argv[] = { "whois", "--no-body", "8.8.8.8", NULL };
         optind = 1;
         if (wc_opts_parse(5, short_argv, &short_opts) != 0 || !short_opts.debug || !short_opts.plain_mode ||
             !short_opts.host || strcmp(short_opts.host, "whois.arin.net") != 0 ||
@@ -558,6 +560,14 @@ static int selftest_preclass_phasec_policy(void)
             fprintf(stderr, "[SELFTEST] opts-permuted-parser: PASS\n");
         }
         wc_opts_free(&permuted_opts);
+        optind = 1;
+        if (wc_opts_parse(3, no_body_argv, &no_body_opts) != 0 || !no_body_opts.no_body) {
+            fprintf(stderr, "[SELFTEST] opts-no-body-parser: FAIL\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] opts-no-body-parser: PASS\n");
+        }
+        wc_opts_free(&no_body_opts);
     }
     return failed;
 }

@@ -42,6 +42,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->max_redirects = opts->max_hops;
 	cfg->no_redirect = opts->no_redirect;
 	cfg->plain_mode = opts->plain_mode;
+	cfg->no_body = opts->no_body;
 	cfg->show_non_auth_body = opts->show_non_auth_body;
 	cfg->show_post_marker_body = opts->show_post_marker_body;
 	cfg->hide_failure_body = opts->hide_failure_body;

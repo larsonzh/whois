@@ -233,7 +233,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 |---|---|---|---|---|
 | WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
 | WP-02 | done | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 46 场景三架构安全基线与冻结 SHA 已回填；发现并修复 fold UAF |
-| WP-03 | proposed | Phase 3 | RFC 定版 + `--no-body` | 文档前置完成后实施最小功能切片 |
+| WP-03 | done | Phase 3 | RFC 定版 + `--no-body` | 协议、产品实现、合同 smoke 与完整发布门禁均已完成 |
 | WP-04 | proposed | Phase 3 | `--print-meta` | 依赖 WP-03 的 RFC 定版，不要求与 WP-03 使用相同执行方式 |
 | WP-05 | proposed | Phase 3 | `--print-chain` + `--pick` | 依赖 WP-04 的元信息定义；合并实施须单独评审 |
 | WP-06 | proposed | Phase 3 | `--stats` | 输出位置与组合语义先评审，再决定执行方式 |
@@ -381,6 +381,18 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：新增固定 fixture/manifest/expected SHA、C harness、PowerShell 与 Python 驱动；报告记录 commit/version、工具链/CFLAGS、架构、OS/CPU、样本/runner/脚本 SHA、median/p95 与原始测量；修复 `wc_fold_build_line_wb` 扩容后从已失效 token 指针复制导致的 heap-use-after-free
 - 决策/回退：基准不暴露生产 CLI 文件注入；`[BENCH]` 仅由测试 harness 写 stderr，生产 `[WORKBUF-STATS]` 契约不变；aarch64 QEMU 仅作独立架构锚点；性能优化根据报告另立工作包
 
+### WP-03/`--no-body` 实现与验证（2026-08-24）
+- 状态：done
+- 类型：PRODUCT
+- 执行方式：文档评审/传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：v3.3.0 条件输出实现；WP-02=done
+- 结果：冻结并实现无参数 `--no-body` 的渲染边界、单条/批量记录、组合优先级、非法组合、退出码与资源规则；合同 smoke 13/13 PASS；默认输出、CIDR、权威判定与 Step47 契约无回归
+- run：合同 smoke=`out/artifacts/no_body_contract/20260824-102929`；首次九架构构建/冒烟=`out/artifacts/20260824-102905`；Batch Golden=`out/artifacts/batch_raw/20260824-103621`、`batch_health/20260824-104230`、`batch_plan/20260824-105010`、`batch_planb/20260824-105800`；CIDR bundle=`out/artifacts/cidr_bundle/cidr_bundle_summary_20260824-110410.txt`；12x6 matrix=`out/artifacts/redirect_matrix_10x6/20260824-110443`；Step47 preflight=`out/artifacts/step47_preclass_preflight/20260824-111043`；最终同步制品 Strict `lto-auto`=`out/artifacts/20260824-115609`；最终 win64 制品合同复核=`out/artifacts/no_body_contract/20260824-120031`
+- 门禁：standalone/core selftest PASS（含 `opts-no-body-parser`）；Batch Golden 4/4 PASS；Selftest Golden core+4 策略 PASS；CIDR body/draft=`4/4 + 9/9`；12x6 `authMismatchFiles=0 errorFiles=0`；Step47 preflight=`5/5`；最终 Strict 九架构 build/hash、Golden、三起点 referral PASS 且无编译/LTO 告警（248s）；Linux/QEMU、win32、win64 smoke=`18/3/3`，首尾一一对应且零告警；仓库内、外部 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品合同 smoke=`13/13`
+- 变更：`--no-body` 贯穿 opts/config/render 路径并覆盖成功、失败、私网、无效输入和 Phase C；新增 parser selftest 与合同 smoke；修正 Selftest Golden raw 策略在无 batch 输入时错误要求私网正文的编排断言；RFC/USAGE/Release Notes 双语回填
+- 决策/回退：`--no-body` 只抑制最终正文渲染，保留首行、Phase C Address Status（如适用）与尾行；不提前停止网络读取；与 `--plain` 或任一 fold 开关组合时 fail-fast
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
@@ -388,7 +400,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-01：dry-run 防回归断言（本地无构建路径；远程 build+sync 路径待办）
 - [x] WP-01：`injection-view-fallback` 定性/修复
 - [x] WP-02：离线基准脚本与 v3.3.0 安全基线报告
-- [ ] WP-03：条件输出 RFC 定版 + `--no-body`
+- [x] WP-03：条件输出 RFC 定版 + `--no-body`
 - [ ] WP-04：`--print-meta`
 - [ ] WP-05：`--print-chain` + `--pick`
 - [ ] WP-06：`--stats`

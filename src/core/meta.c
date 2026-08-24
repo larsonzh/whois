@@ -41,7 +41,8 @@ static const char* const k_conditional_output_lines[] = {
     "      --fold                Fold output: single line per query with selected fields",
     "      --fold-sep STR        Separator for folded output (default: space)",
     "      --no-fold-upper       Preserve original case in folded output (default: upper)",
-    "      --fold-unique         De-duplicate tokens in folded output"
+    "      --fold-unique         De-duplicate tokens in folded output",
+    "      --no-body             Suppress response body; keep query header, status, and authoritative tail"
 };
 
 static const char* const k_diagnostics_lines[] = {

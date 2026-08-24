@@ -481,6 +481,7 @@ static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 	fprintf(stderr, "Error: Invalid IP/CIDR query: %s\n", safe_query);
 	int fold_output = cfg && cfg->fold_output;
 	int plain_mode = cfg && cfg->plain_mode;
+	int no_body = cfg && cfg->no_body;
 	const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
 	int fold_upper = cfg ? cfg->fold_upper : 0;
 	if (fold_output) {
@@ -494,7 +495,8 @@ static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 		if (!plain_mode) {
 			wc_output_header_plain(safe_query);
 		}
-		printf("Invalid IP/CIDR query: %s\n", safe_query);
+		if (!no_body)
+			printf("Invalid IP/CIDR query: %s\n", safe_query);
 		if (!plain_mode) {
 			wc_output_tail_unknown_plain();
 		}
@@ -627,6 +629,7 @@ int wc_handle_private_ip(const Config* config,
 	const char* display_ip = (ip && *ip) ? ip : safe_query;
 	int fold_output = cfg && cfg->fold_output;
 	int plain_mode = cfg && cfg->plain_mode;
+	int no_body = cfg && cfg->no_body;
 	const char* fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
 	int fold_upper = cfg ? cfg->fold_upper : 0;
 	if (fold_output) {
@@ -640,7 +643,8 @@ int wc_handle_private_ip(const Config* config,
 		if (!plain_mode) {
 			wc_output_header_plain(safe_query);
 		}
-		printf("%s is a private IP address\n", display_ip);
+		if (!no_body)
+			printf("%s is a private IP address\n", display_ip);
 		if (!plain_mode) {
 			wc_output_tail_unknown_plain();
 		}
@@ -740,6 +744,7 @@ void wc_report_query_failure(const Config* config,
 
 	int fold_output = config && config->fold_output;
 	int plain_mode = config && config->plain_mode;
+	int no_body = config && config->no_body;
 	if (!fold_output && !plain_mode && res) {
 		int failure_has_error = (err != 0 || lerr != 0);
 		const char* via_host = res->meta.via_host[0]
@@ -750,7 +755,7 @@ void wc_report_query_failure(const Config* config,
 			wc_output_header_via_ip(query, via_host, via_ip);
 		else
 			wc_output_header_via_unknown(query, via_host);
-		if (res->body && res->body[0]) {
+		if (!no_body && res->body && res->body[0]) {
 			fputs(res->body, stdout);
 			if (res->body[strlen(res->body) - 1] != '\n')
 				putchar('\n');

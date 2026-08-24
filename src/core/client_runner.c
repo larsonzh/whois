@@ -40,6 +40,7 @@ static Config g_client_config = {
     .max_redirects = WC_DEFAULT_MAX_REDIRECTS,
     .no_redirect = 0,
     .plain_mode = 0,
+    .no_body = 0,
     .show_non_auth_body = 0,
     .show_post_marker_body = 0,
     .hide_failure_body = 0,

@@ -271,6 +271,7 @@ void wc_pipeline_render(const Config* cfg,
     }
     const int fold_output = render_opts ? render_opts->fold_output : 0;
     const int plain_mode = render_opts ? render_opts->plain_mode : 0;
+    const int no_body = render_opts ? render_opts->no_body : 0;
     wc_preclass_result_t address_status;
     const int has_address_status = cfg &&
         cfg->preclass_early_converge_enable &&
@@ -334,11 +335,13 @@ void wc_pipeline_render(const Config* cfg,
             filtered = wc_pipeline_strip_plain_hints_inplace(filtered);
         }
         filtered_view = filtered ? filtered : "";
-        printf("%s", filtered_view);
-        if (*filtered_view) {
-            size_t flen = strlen(filtered_view);
-            if (flen > 0 && filtered_view[flen - 1] != '\n') {
-                printf("\n");
+        if (!no_body) {
+            printf("%s", filtered_view);
+            if (*filtered_view) {
+                size_t flen = strlen(filtered_view);
+                if (flen > 0 && filtered_view[flen - 1] != '\n') {
+                    printf("\n");
+                }
             }
         }
         wc_pipeline_render_tail(render_opts, res, authoritative_display);

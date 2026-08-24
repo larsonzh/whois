@@ -1,5 +1,65 @@
 ﻿# RFC: whois 条件输出（Phase 2.5）
 
+> 状态：重定版契约生效（2026-08-24）；WP-03 `--no-body` 协议、产品实现与验证已完成。
+> 权威顺序：本节“2026 重定版”高于下方历史路线；历史示例仅保留设计演进背景，不得作为新实现依据。
+> 关联计划：`docs/RFC-post-3.3.0-development-plan.md`。
+
+## 2026 重定版：能力分栏
+
+| 分栏 | 能力 | 当前结论 |
+|---|---|---|
+| 已实现 | `-g`；`--grep/--grep-cs`；`--grep-line/--grep-block`；续行控制；`--fold`、`--fold-sep`、`--fold-unique`、`--no-fold-upper`；WP-03 `--no-body` | 保持现有 title -> grep -> fold -> body render control 顺序与输出契约 |
+| 待实现 | WP-04 `--print-meta`；WP-05 `--print-chain`、`--pick`；WP-06 `--stats` | 每个工作包先冻结协议，再修改产品源码 |
+| 废弃/冲突设计 | `--fold kv`、`--title-grep`、`--print chain`、`--fields server_chain` | 不实现；分别由现有 `--fold`、`-g` 及后续独立选项取代 |
+| 风险项（暂缓） | `--max-bytes`、网络读取早停/命中即停、并发批量、DNS/重试调整、JSON/CSV、`--normalize-keys` | 不属于 WP-03–WP-06；如需实施须另立工作包 |
+
+## WP-03：`--no-body` 冻结契约
+
+### 1. 作用域与数据流
+
+- `--no-body` 是无参数、默认关闭的最终渲染开关；不新增短选项。
+- 查询、DNS、连接、重试、完整响应读取、重定向、权威判定、title 投影和 grep 过滤全部照常执行。该选项不得提前停止网络读取，不得改变退出码、最终权威 RIR、诊断标签或 workbuf 统计。
+- 固定处理顺序为：title 投影 -> grep -> fold 判定 -> body 渲染控制。`--no-body` 仅跳过最终正文写入 stdout，不释放或绕过前置过滤所需输入。
+
+### 2. stdout/stderr 与记录边界
+
+- 单条成功或失败查询均保留且只保留现有查询首行和权威尾行：
+  - `=== Query: <item> === via <host-or-alias> @ <ip|unknown>`
+  - `=== Authoritative RIR: <rir-host> @ <ip|unknown> ===`
+- Phase C 早收敛产生的 `Address Status:` 是客户端生成的状态行，不属于原始 WHOIS 正文；若原路径会输出该行，`--no-body` 继续保留它，位置仍在首行与尾行之间。
+- 原始 WHOIS 正文、续行、过滤后的正文以及正文型失败说明均不写 stdout。尾行仍按既有结果输出 `error @ error` 或 `unknown @ unknown`，进程退出码保持现有查询结果语义。
+- 批量模式每个非空输入项独立形成上述记录，记录顺序与输入顺序一致；不得新增批次头、空分隔记录或汇总行。BusyBox 管道逐行输入语义不变。
+- stderr 仅保留现有诊断/指标。`--no-body` 成功启用时不新增提示行；非法组合按现有 usage-error 路径向 stderr 输出单行错误并非零退出。
+
+### 3. 组合与冲突
+
+| 组合 | 规则 |
+|---|---|
+| `--no-body` + `-g/--grep*` | 合法；过滤链仍完整执行，但过滤后的正文不渲染。首行、可适用的 Address Status、尾行保持不变 |
+| `--no-body` + `--show-non-auth-body/--show-post-marker-body/--hide-failure-body` | 合法；这些正文选择器先执行，最终正文仍由 `--no-body` 抑制 |
+| `--no-body` + `-B` 或 stdin 非 TTY | 合法；逐查询输出首行/状态行/尾行 |
+| `--no-body` + `--plain` | 非法；两者叠加会消除稳定记录边界，必须在查询开始前 fail-fast |
+| `--no-body` + `--fold` | 非法；fold 的唯一业务输出来自正文，必须在查询开始前 fail-fast |
+| `--no-body` + `--fold-sep/--fold-unique/--no-fold-upper` | 非法；不得静默接受无效 fold 配置 |
+
+重复指定 `--no-body` 幂等。选项先后顺序不改变上述判定。
+
+### 4. 转义、缺失值与资源上限
+
+- WP-03 不新增字段协议或用户值，因此不新增 TAB、`=`、反斜杠或不可打印字节转义规则；首尾行继续使用既有输出净化与 `unknown/error` 表示。
+- `--no-body` 不接受参数，不引入字段数、参数长度或累计输出长度上限。现有 query、grep、title、fold 和网络响应上限继续生效。
+- 不得以 `--no-body` 为理由新增正文读取上限；`--max-bytes` 仍为暂缓项。
+
+### 5. 验收矩阵
+
+- 默认未启用：与当前 golden 逐字节一致。
+- 单条：成功、`unknown`、`error` 各验证首尾行保留且正文为零；Phase C Address Status 路径验证状态行保留。
+- 批量：显式 `-B` 与 stdin 非 TTY 各验证至少两条输入的记录边界和顺序。
+- 组合：`-g`、`--grep`、正文选择器分别与 `--no-body` 组合；`--plain`、`--fold` 及所有 fold 修饰选项逐项验证 fail-fast。
+- BusyBox：`printf '8.8.8.8\n1.1.1.1\n' | whois-client --no-body` 可按 `=== Query:` 与 `=== Authoritative RIR:` 稳定分段。
+
+验收结果（2026-08-24）：独立合同 smoke `13/13` PASS；最终同步制品 Strict `lto-auto` 九架构 build/hash、Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-115609`，248s）。Linux/QEMU、win32、win64 smoke 分别为 `18/3/3`，首尾行一一对应且零告警；仓库内、外部 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品再次通过 `13/13` 合同 smoke（`out/artifacts/no_body_contract/20260824-120031`）。
+
 > 更新注记（2025-11-16）：本 RFC 聚焦“条件输出/筛选/折叠”等业务能力；3.2.2 的安全加固、3.2.7 的 CLI-only 节流迁移与 3.2.8 的三跳/重试指标增强均保持默认 stdout 契约不变，故仅在此补充里程碑：
 > - 已交付：`-g` 标题前缀筛选（Step 1）、`--grep/--grep-cs` + 行/块模式（Step 1.5）、`--fold` 单行折叠（3.2.1）、CLI-only 节流与重试指标（3.2.7）、三跳模拟与黑洞自测/指标基线（3.2.8）。
 > - 待办/评估：`--no-body`、链路/元信息打印、早停/最大字节优化、轻量字段抽取（Step 4）等仍按路线推进；安全与网络增强保持与本 RFC 正交。
@@ -43,7 +103,11 @@
 - 输出友好：以行式 k=v 对为主（以 TAB 分隔对，以 `=` 连接键与值），BusyBox 可直接使用 awk/cut/grep 处理；JSON/CSV 延后。
 - 性能优先：允许跳过大文本输出；提供早停匹配（可选）。
 
-## CLI 拟新增能力（Step-by-step，更新）
+## 历史路线（仅供追溯，不作为实现契约）
+
+以下内容保留 2025 年设计演进记录，其中 `--fold kv`、`--title-grep`、早停和 `--max-bytes` 等描述已被上方 2026 重定版取代或暂缓。
+
+### CLI 拟新增能力（Step-by-step，历史记录）
 
 第一步（Step 1：业务核心，建议 v3.2.0）：
 - 标题字段选择：

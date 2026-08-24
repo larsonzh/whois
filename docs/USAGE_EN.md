@@ -287,6 +287,7 @@ Runtime / query options:
       --ipv6-only            Force IPv6 only; disables forced-ipv4/known-ip fallbacks for strict IPv6 behavior
       --ipv4-only            Force IPv4 only (no IPv6 fallback involved)
   -P, --plain              Plain output (suppress header, RIR tail, and referral hint lines)
+      --no-body            Suppress the final WHOIS body; keep the query header, applicable Address Status, and authoritative tail
       --show-non-auth-body Keep non-authoritative bodies before the authoritative hop
       --show-post-marker-body Keep bodies after the authoritative hop (combine with --show-non-auth-body to keep all)
       (CIDR exception) Baseline recheck body is not rendered; after a subsequent baseline hit, rendered body follows the one-time original-query consistency validation response
@@ -776,6 +777,17 @@ Use `whois-x86_64` (or any built target) from the repo root when running the fol
    Canonical entries are still constructed, but `[DNS-FALLBACK]` now prints `forced-ipv4 fallback not selected` / `known-ip fallback not selected`. The counters stay at zero and `dns-fallback-disabled PASS` documents that the CLI toggles successfully silenced the retries.
 
 ### Folded output
+
+Use `--no-body` when only stable record boundaries are needed. It suppresses the final WHOIS body while preserving the query header, an applicable `Address Status:` line, and the authoritative tail. DNS, connection, retry, referral, authority resolution, and `-g`/`--grep*` processing still run normally.
+
+```sh
+whois-x86_64 --no-body --grep 'NetName' 8.8.8.8
+printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 --no-body
+```
+
+`--no-body` may be combined with title/grep filters, body selectors, and batch mode. It fails before lookup when combined with `--plain`, `--fold`, `--fold-sep`, `--fold-unique`, or `--no-fold-upper`.
+
+WP-03 final artifact verification (2026-08-24): the Strict `lto-auto` run passes all nine builds/hashes, Golden, and the three referral starts with no compile/LTO warnings (`out/artifacts/20260824-115609`, 248s). Linux/QEMU, win32, and win64 smoke counts are `18/3/3`, with matching query headers and authoritative tails and zero alerts; both lzispro sync directories match the artifact hashes `9/9`. The final win64 artifact also passes the dedicated contract smoke `13/13` (`out/artifacts/no_body_contract/20260824-120031`).
 
 - Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
   - Format: `<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`
