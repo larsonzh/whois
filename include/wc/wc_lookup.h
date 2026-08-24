@@ -16,6 +16,9 @@ struct wc_query {
 
 struct wc_net_context; // forward declaration to avoid heavy include
 
+#define WC_RESULT_CHAIN_MAX_HOPS 16
+#define WC_RESULT_CHAIN_HOST_SIZE 128
+
 // Lookup options (subset for phase B)
 struct Config; // forward declaration to avoid heavy include
 struct wc_lookup_opts {
@@ -38,6 +41,9 @@ struct wc_result_meta {
     int hops;                   // hop count (including initial)
     unsigned duration_ms;       // query lifecycle elapsed milliseconds (WP-04)
     unsigned attempts;          // connect attempts during this query lifecycle (WP-04)
+    char chain[WC_RESULT_CHAIN_MAX_HOPS][WC_RESULT_CHAIN_HOST_SIZE]; // ordered logical hops (WP-05A)
+    unsigned chain_count;        // populated entries in chain
+    int chain_truncated;         // more logical hops occurred than chain can hold
     unsigned int fallback_flags; // bitset (phase-in): 0x1 used_known_ip, 0x2 empty_retry, 0x4 forced_ipv4, 0x8 iana_pivot, 0x10 redirect_cap, 0x20 cidr_consistency_unknown
     int last_connect_errno;     // errno of last failed connect (0 if success)
     int failure_emitted;        // stderr error already emitted inside lookup

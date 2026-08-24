@@ -44,6 +44,9 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->plain_mode = opts->plain_mode;
 	cfg->no_body = opts->no_body;
 	cfg->print_meta = opts->print_meta;
+	cfg->print_chain = opts->print_chain;
+	cfg->pick_keys = opts->pick_keys;
+	cfg->pick_mode = opts->pick_mode;
 	cfg->show_non_auth_body = opts->show_non_auth_body;
 	cfg->show_post_marker_body = opts->show_post_marker_body;
 	cfg->hide_failure_body = opts->hide_failure_body;

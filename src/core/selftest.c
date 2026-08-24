@@ -19,6 +19,7 @@
 #include "wc/wc_workbuf.h"
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_title.h"
+#include "wc/wc_pick.h"
 #include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
@@ -529,6 +530,10 @@ static int selftest_preclass_phasec_policy(void)
         wc_opts_t no_body_opts;
         wc_opts_t print_meta_opts;
         wc_opts_t print_meta_conflict_opts;
+        wc_opts_t print_chain_opts;
+        wc_opts_t print_chain_conflict_opts;
+        wc_opts_t pick_opts;
+        wc_opts_t pick_conflict_opts;
         char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
         char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
         char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
@@ -592,6 +597,102 @@ static int selftest_preclass_phasec_policy(void)
                 fprintf(stderr, "[SELFTEST] opts-print-meta-plain-conflict: PASS\n");
             }
             wc_opts_free(&print_meta_conflict_opts);
+        }
+        optind = 1;
+        {
+            char* print_chain_argv[] = { "whois", "--print-chain", "8.8.8.8", NULL };
+            if (wc_opts_parse(3, print_chain_argv, &print_chain_opts) != 0 ||
+                !print_chain_opts.print_chain) {
+                fprintf(stderr, "[SELFTEST] opts-print-chain-parser: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-print-chain-parser: PASS\n");
+            }
+            wc_opts_free(&print_chain_opts);
+        }
+        optind = 1;
+        {
+            char* conflict_argv[] = { "whois", "--print-chain", "--plain", "8.8.8.8", NULL };
+            if (wc_opts_parse(4, conflict_argv, &print_chain_conflict_opts) == 0) {
+                fprintf(stderr, "[SELFTEST] opts-print-chain-plain-conflict: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-print-chain-plain-conflict: PASS\n");
+            }
+            wc_opts_free(&print_chain_conflict_opts);
+        }
+        optind = 1;
+        {
+            char* pick_argv[] = { "whois", "--pick", " Country,netname,COUNTRY ",
+                "--pick-mode", "join", "8.8.8.8", NULL };
+            if (wc_opts_parse(6, pick_argv, &pick_opts) != 0 ||
+                !pick_opts.pick_keys || strcmp(pick_opts.pick_keys, "country,netname") != 0 ||
+                pick_opts.pick_mode != WC_PICK_MODE_JOIN) {
+                fprintf(stderr, "[SELFTEST] opts-pick-parser: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-pick-parser: PASS\n");
+            }
+            wc_opts_free(&pick_opts);
+        }
+        optind = 1;
+        {
+            char* conflict_argv[] = { "whois", "--pick-mode", "first", "8.8.8.8", NULL };
+            if (wc_opts_parse(4, conflict_argv, &pick_conflict_opts) == 0) {
+                fprintf(stderr, "[SELFTEST] opts-pick-mode-without-pick: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-pick-mode-without-pick: PASS\n");
+            }
+            wc_opts_free(&pick_conflict_opts);
+        }
+        {
+            const char* response =
+                "Route6: must-not-match-route\n"
+                "NetName:  Alpha   Network \n"
+                "  continued value\n"
+                "Country:\n"
+                "country: US\n"
+                "descr: First\n"
+                "descr: Second\n";
+            char* first = wc_pick_build_line(response,
+                "route,netname,country,descr,origin", WC_PICK_MODE_FIRST);
+            char* joined = wc_pick_build_line(response,
+                "country,descr", WC_PICK_MODE_JOIN);
+            if (!first || strcmp(first,
+                    "route=\tnetname=Alpha Network; continued value\tcountry=\tdescr=First\torigin=\n") != 0 ||
+                !joined || strcmp(joined, "country=|US\tdescr=First|Second\n") != 0) {
+                fprintf(stderr, "[SELFTEST] pick-extract-first-join: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] pick-extract-first-join: PASS\n");
+            }
+            free(first);
+            free(joined);
+        }
+        {
+            size_t value_len = 65537;
+            char* response = (char*)malloc(value_len + 22);
+            char* picked = NULL;
+            if (response) {
+                memcpy(response, "descr: ", 7);
+                memset(response + 7, 'x', value_len);
+                memcpy(response + 7 + value_len, "\ncountry: US\n", 14);
+                response[7 + value_len + 14] = '\0';
+                picked = wc_pick_build_line(response,
+                    "descr,country", WC_PICK_MODE_FIRST);
+            }
+            size_t picked_len = picked ? strlen(picked) : 0;
+            if (!picked || picked_len < 16 ||
+                    strcmp(picked + picked_len - 15,
+                        "...\tcountry=US\n") != 0) {
+                fprintf(stderr, "[SELFTEST] pick-truncation-boundary: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] pick-truncation-boundary: PASS\n");
+            }
+            free(response);
+            free(picked);
         }
     }
     return failed;

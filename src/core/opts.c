@@ -169,6 +169,7 @@ static int wc_opts_getopt_long_shim(int argc,
 #include "wc/wc_seclog.h"
 #include "wc/wc_net.h"
 #include "wc/wc_selftest.h"
+#include "wc/wc_pick.h"
 
 static void wc_opts_set_dns_mode_slot(wc_dns_family_mode_t* slot,
     int* cur_priority,
@@ -375,6 +376,10 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->selftest_workbuf = 0; // Initialize new selftest_workbuf flag default
     o->no_body = 0;
     o->print_meta = 0;
+    o->print_chain = 0;
+    o->pick_keys = NULL;
+    o->pick_mode = WC_PICK_MODE_FIRST;
+    o->pick_mode_seen = 0;
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
     o->hide_failure_body = 0;
@@ -407,6 +412,9 @@ static struct option wc_long_options[] = {
     {"fold-unique", no_argument, 0, 1012},
     {"no-body", no_argument, 0, 1322},
     {"print-meta", no_argument, 0, 1323},
+    {"print-chain", no_argument, 0, 1324},
+    {"pick", required_argument, 0, 1325},
+    {"pick-mode", required_argument, 0, 1326},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
     {"timeout", required_argument, 0, 't'},
@@ -584,6 +592,25 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1012: o->fold_modifier_seen = 1; o->fold_unique = 1; break;
             case 1322: o->no_body = 1; break;
             case 1323: o->print_meta = 1; break;
+            case 1324: o->print_chain = 1; break;
+            case 1325: {
+                char* parsed = NULL;
+                if (wc_pick_parse_keys(optarg, &parsed) != 0)
+                    return 36;
+                free(o->pick_keys);
+                o->pick_keys = parsed;
+            } break;
+            case 1326:
+                o->pick_mode_seen = 1;
+                if (strcasecmp(optarg, "first") == 0)
+                    o->pick_mode = WC_PICK_MODE_FIRST;
+                else if (strcasecmp(optarg, "join") == 0)
+                    o->pick_mode = WC_PICK_MODE_JOIN;
+                else {
+                    fprintf(stderr, "Error: Invalid --pick-mode (expected first|join)\n");
+                    return 36;
+                }
+                break;
             case 'B': explicit_batch_flag = 1; break;
             case 'Q': o->no_redirect = 1; break;
             case 'R': o->max_hops = atoi(optarg); if (o->max_hops<0){ fprintf(stderr,"Error: Invalid max redirects\n"); return 8;} break;
@@ -809,6 +836,18 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         fprintf(stderr, "Error: --print-meta cannot be combined with --plain\n");
         return 35;
     }
+    if (o->print_chain && o->plain_mode) {
+        fprintf(stderr, "Error: --print-chain cannot be combined with --plain\n");
+        return 35;
+    }
+    if (o->pick_mode_seen && !o->pick_keys) {
+        fprintf(stderr, "Error: --pick-mode requires --pick\n");
+        return 35;
+    }
+    if (o->pick_keys && o->plain_mode) {
+        fprintf(stderr, "Error: --pick cannot be combined with --plain\n");
+        return 35;
+    }
     if (o->no_body && o->plain_mode) {
         fprintf(stderr, "Error: --no-body cannot be combined with --plain\n");
         return 35;
@@ -832,4 +871,5 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
 void wc_opts_free(wc_opts_t* o) {
     if (!o) return;
     if (o->fold_sep) { free((char*)o->fold_sep); o->fold_sep = NULL; }
+    free(o->pick_keys); o->pick_keys = NULL;
 }

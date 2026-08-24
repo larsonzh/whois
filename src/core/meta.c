@@ -43,7 +43,10 @@ static const char* const k_conditional_output_lines[] = {
     "      --no-fold-upper       Preserve original case in folded output (default: upper)",
     "      --fold-unique         De-duplicate tokens in folded output",
     "      --no-body             Suppress response body; keep query header, status, and authoritative tail",
-    "      --print-meta          Append a TAB-separated k=v metadata line per query"
+    "      --print-meta          Append a TAB-separated k=v metadata line per query",
+    "      --print-chain         Append the ordered logical WHOIS server chain per query",
+    "      --pick KEYS           Append selected WHOIS header values",
+    "      --pick-mode MODE      Select first or join duplicate header values"
 };
 
 static const char* const k_diagnostics_lines[] = {

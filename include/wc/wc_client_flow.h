@@ -13,6 +13,9 @@ typedef struct wc_client_render_opts {
     int plain_mode;
     int no_body;
     int print_meta;
+    int print_chain;
+    const char* pick_keys;
+    int pick_mode;
     const char* fold_sep;
     int fold_upper;
 } wc_client_render_opts_t;
@@ -26,6 +29,9 @@ static inline wc_client_render_opts_t wc_client_render_opts_init(
     opts.plain_mode = cfg && cfg->plain_mode;
     opts.no_body = cfg && cfg->no_body;
     opts.print_meta = cfg && cfg->print_meta;
+    opts.print_chain = cfg && cfg->print_chain;
+    opts.pick_keys = cfg ? cfg->pick_keys : NULL;
+    opts.pick_mode = cfg ? cfg->pick_mode : 0;
     opts.fold_sep = (cfg && cfg->fold_sep) ? cfg->fold_sep : " ";
     opts.fold_upper = cfg ? cfg->fold_upper : 0;
     return opts;

@@ -8,6 +8,7 @@
 #include "wc/wc_fold.h"
 #include "wc/wc_grep.h"
 #include "wc/wc_output.h"
+#include "wc/wc_pick.h"
 #include "wc/wc_preclass.h"
 #include "wc/wc_title.h"
 #include "wc/wc_util.h"
@@ -290,6 +291,39 @@ void wc_pipeline_render_meta(const wc_client_render_opts_t* render_opts,
         status, res->meta.duration_ms, res->meta.attempts, redirects);
 }
 
+void wc_pipeline_render_chain(const wc_client_render_opts_t* render_opts,
+        const struct wc_result* res)
+{
+    if (!render_opts || !render_opts->print_chain || render_opts->plain_mode)
+        return;
+    fputs("chain=", stdout);
+    if (!res || res->meta.chain_count == 0) {
+        fputs("unknown\n", stdout);
+        return;
+    }
+    for (unsigned i = 0; i < res->meta.chain_count; ++i) {
+        if (i > 0)
+            putchar('>');
+        wc_pipeline_print_meta_value(res->meta.chain[i]);
+    }
+    if (res->meta.chain_truncated)
+        fputs(">truncated", stdout);
+    putchar('\n');
+}
+
+void wc_pipeline_render_pick(const wc_client_render_opts_t* render_opts,
+        const char* filtered_view)
+{
+    if (!render_opts || !render_opts->pick_keys || render_opts->plain_mode)
+        return;
+    char* line = wc_pick_build_line(filtered_view, render_opts->pick_keys,
+        (enum wc_pick_mode)render_opts->pick_mode);
+    if (line) {
+        fputs(line, stdout);
+        free(line);
+    }
+}
+
 // Centralized render pipeline used by both batch and single-query paths.
 void wc_pipeline_render(const Config* cfg,
         const wc_client_render_opts_t* render_opts,
@@ -363,6 +397,10 @@ void wc_pipeline_render(const Config* cfg,
         cfg, res, &authoritative_display_owned);
 
     const char* filtered_view = filtered ? filtered : "";
+    char* pick_line = render_opts && render_opts->pick_keys
+        ? wc_pick_build_line(filtered_view, render_opts->pick_keys,
+            (enum wc_pick_mode)render_opts->pick_mode)
+        : NULL;
     if (fold_output) {
         const char* rirv =
             (authoritative_display && *authoritative_display)
@@ -374,6 +412,9 @@ void wc_pipeline_render(const Config* cfg,
             render_opts ? render_opts->fold_upper : 0,
             &filter_wb);
         printf("%s", folded);
+        if (pick_line)
+            fputs(pick_line, stdout);
+        wc_pipeline_render_chain(render_opts, res);
         wc_pipeline_render_meta(render_opts, query, res,
             authoritative_display);
     } else {
@@ -391,10 +432,14 @@ void wc_pipeline_render(const Config* cfg,
             }
         }
         wc_pipeline_render_tail(render_opts, res, authoritative_display);
+        if (pick_line)
+            fputs(pick_line, stdout);
+        wc_pipeline_render_chain(render_opts, res);
         wc_pipeline_render_meta(render_opts, query, res,
             authoritative_display);
     }
     if (authoritative_display_owned)
         free(authoritative_display_owned);
+    free(pick_line);
     wc_workbuf_free(&filter_wb);
 }

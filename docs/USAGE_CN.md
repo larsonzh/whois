@@ -172,6 +172,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - 未启用 `--print-meta` 时，`--fold` 的既有失败行为不变：lookup 失败只写 stderr，stdout 为空。
 - 元信息值会删除首尾空白，并把内部连续空白或控制字符折叠为单空格；反斜杠仍按字面输出。
 - WP-04 最终验证（2026-08-24）：扩展 smoke `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`），新增覆盖失败 fold、非法输入、显式私网、安全拒绝、值归一化、stdin 自动批量、grep 组合及未启用元信息时的 fold 失败兼容性；最终同步 win64 standalone selftest PASS。Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS（`out/artifacts/20260824-151759`，350s），两个同步目录与 artifact 的 SHA 均为 `9/9` 一致。
+- `--print-chain` 在每条查询记录末尾追加 `chain=server1>server2>...`，按实际逻辑 WHOIS hop 的时间顺序记录服务器；同一 hop 的 DNS 候选和重试不重复。未触网的 Phase C、非法 IP/CIDR、私网或安全拒绝输出 `chain=unknown`；最多保留 16 个 hop，溢出时追加 `>truncated`。
+- `--print-chain` 可与 `--no-body`、`--fold`、`--print-meta`、`-g`/`--grep*` 及批量模式组合；启用多个观测项时 chain 位于 meta 之前。与 `--plain` 组合会在查询前报错退出。fold 查询失败时先输出 `<query> ERROR`，再输出 chain。
+- WP-05A 聚焦验证（2026-08-24）：专项合同 `12/12` PASS（`out/artifacts/print_chain_contract/20260824-155911`）；x86_64/win32/win64 `lto-auto` build/hash/smoke 与三起点 referral PASS（`out/artifacts/20260824-155726`，294s），standalone parser/冲突自测 PASS。
+- `--pick <k1,k2,...>` 在每条记录末尾追加一行 TAB 分隔的所选 WHOIS 标题值；首版白名单为 `netname,country,inetnum,inet6num,origin,route,descr`。键名大小写不敏感但必须完整匹配，输出按首次请求顺序，缺失或空值保留为 `key=`。
+- `--pick-mode first|join` 默认 `first`；`join` 用 `|` 合并重复标题，标题续行先用 `; ` 合并。抽取顺序固定为 title -> grep -> pick -> fold/body；与 `--no-body`、`--fold`、chain/meta 和批量合法，与 `--plain` 查询前 fail-fast。每个字段最多 64 KiB，截断以 `...` 收尾且不影响后续键。
+- WP-05B 聚焦验证（2026-08-24）：专项合同 `12/12` PASS（`out/artifacts/pick_contract/20260824-164050`），最终 win64 standalone selftest 四项 pick 标签全 PASS。WP-05 最终重建复核 PASS（`out/artifacts/20260824-170256`，351s）：Strict 九架构 `lto-auto` 无编译/LTO 告警，artifact 与两个发布目录 SHA-256 均 `9/9` 一致；Linux/QEMU/native smoke=`18`、win32=`3`、win64=`3` 且零告警，Golden 与三起点 referral PASS。
+
+WP-05 常用命令：
+
+```sh
+# 只输出记录边界和逻辑 WHOIS 链
+./whois-x86_64 --no-body --print-chain 8.8.8.8
+
+# 抽取固定字段；缺失值保留为 key=
+./whois-x86_64 --no-body --pick netname,country,inetnum 8.8.8.8
+
+# 合并重复字段，并同时输出 pick、chain、meta
+./whois-x86_64 --no-body --pick descr,country --pick-mode join --print-chain --print-meta 1.1.1.1
+
+# title 投影后再抽取；未保留的 descr 输出空值
+./whois-x86_64 -g 'NetName|Country' --pick netname,country,descr 8.8.8.8
+
+# fold 后追加 pick 与 chain；不要同时使用 --no-body
+./whois-x86_64 -g 'NetName|Country' --fold --pick netname,country --print-chain 8.8.8.8
+
+# stdin 非 TTY 自动进入批量模式
+printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
+  ./whois-x86_64 --no-body --pick netname,country --print-chain
+```
+
+`--pick` 可与 `--fold` 组合，但 `--no-body` 与任何 fold 开关互斥；`--pick`/`--print-chain` 与 `--plain` 也互斥。
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
 - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
 - `--no-fold-upper` 保留原大小写（默认会转为大写）

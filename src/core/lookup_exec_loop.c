@@ -535,6 +535,13 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         // default last-hop markers for this iteration (helps error reporting on early failures)
         snprintf(out->meta.last_host, sizeof(out->meta.last_host), "%s", current_host);
         snprintf(out->meta.last_ip, sizeof(out->meta.last_ip), "%s", "unknown");
+        if (out->meta.chain_count < WC_RESULT_CHAIN_MAX_HOPS) {
+            snprintf(out->meta.chain[out->meta.chain_count],
+                     sizeof(out->meta.chain[out->meta.chain_count]), "%s", current_host);
+            out->meta.chain_count++;
+        } else {
+            out->meta.chain_truncated = 1;
+        }
         wc_lookup_exec_mark_visited(current_host, visited, &visited_count);
 
         int app_retry_attempt = 0;

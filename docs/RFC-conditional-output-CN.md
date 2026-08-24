@@ -1,6 +1,6 @@
 ﻿# RFC: whois 条件输出（Phase 2.5）
 
-> 状态：重定版契约生效（2026-08-24）；WP-03 `--no-body` 协议、产品实现与验证已完成。
+> 状态：重定版契约生效（2026-08-24）；WP-03 `--no-body`、WP-04 `--print-meta`、WP-05A `--print-chain` 与 WP-05B `--pick` 已实现；WP-05 整体完整门禁已通过。
 > 权威顺序：本节“2026 重定版”高于下方历史路线；历史示例仅保留设计演进背景，不得作为新实现依据。
 > 关联计划：`docs/RFC-post-3.3.0-development-plan.md`。
 
@@ -8,8 +8,8 @@
 
 | 分栏 | 能力 | 当前结论 |
 |---|---|---|
-| 已实现 | `-g`；`--grep/--grep-cs`；`--grep-line/--grep-block`；续行控制；`--fold`、`--fold-sep`、`--fold-unique`、`--no-fold-upper`；WP-03 `--no-body` | 保持现有 title -> grep -> fold -> body render control 顺序与输出契约 |
-| 待实现 | WP-04 `--print-meta`；WP-05 `--print-chain`、`--pick`；WP-06 `--stats` | 每个工作包先冻结协议，再修改产品源码 |
+| 已实现 | `-g`；`--grep/--grep-cs`；`--grep-line/--grep-block`；续行控制；`--fold`、`--fold-sep`、`--fold-unique`、`--no-fold-upper`；WP-03 `--no-body`；WP-04 `--print-meta`；WP-05A `--print-chain`；WP-05B `--pick` | 保持 title -> grep -> pick -> fold/body 顺序，并按启用项追加 pick/chain/meta 观测行 |
+| 待实现 | WP-06 `--stats` | 每个工作包先冻结协议，再修改产品源码 |
 | 废弃/冲突设计 | `--fold kv`、`--title-grep`、`--print chain`、`--fields server_chain` | 不实现；分别由现有 `--fold`、`-g` 及后续独立选项取代 |
 | 风险项（暂缓） | `--max-bytes`、网络读取早停/命中即停、并发批量、DNS/重试调整、JSON/CSV、`--normalize-keys` | 不属于 WP-03–WP-06；如需实施须另立工作包 |
 
@@ -130,6 +130,99 @@
 - 独立复核后的合同 smoke 扩展为 `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`）：在原 success/unknown/error/private、`--no-body`/`--fold`/显式批量、幂等与 `--plain` 基础上，新增 lookup 失败 + fold、非法 IP/CIDR（普通/fold）、显式私网、安全拒绝、前导/尾随空白归一化、stdin 自动批量、grep 组合及未启用 `--print-meta` 时 fold 失败 stdout 兼容性覆盖；最终同步 win64 制品 standalone selftest 及 parser/冲突断言继续 PASS。
 - 最终同步制品 Strict `lto-auto` 九架构 build/hash、Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-151759`，350s）；Linux/QEMU、win32、win64 smoke 首尾一一对应且零告警；两个 lzispro 同步目录与 artifact `9/9` SHA 一致。
 - 实现与独立复核共修复：共享 workbuf 覆盖导致 `query=unknown`、普通失败路径缺元信息、失败 + fold 与 lookup 前短路漏行、前导空白未去除，以及 attempts 错读 active context 而非本次 lookup override context。值归一化改为无堆分配流式输出，避免内存分配失败静默丢失整条元信息。
+
+## WP-05：链路输出与轻量字段抽取冻结契约
+
+WP-05 按风险和数据所有权拆成两个独立验收切片：WP-05A `--print-chain` 负责查询执行器中的有序链路观测；WP-05B `--pick`/`--pick-mode` 负责条件输出管道中的精确标题字段抽取。两者可组合，但不得因合并开发而共享隐式状态或放宽各自门禁。
+
+### 1. WP-05A `--print-chain`
+
+- `--print-chain` 是无参数、默认关闭的观测选项；不新增短选项，也不复用历史草案中的 `--print chain` 或 `--fields server_chain`。
+- 每条查询追加一行 `chain=<host1>><host2>>...`。键名固定为 `chain`；分隔符固定为 ASCII `>`；host 使用查询执行器实际选中的规范 server token，不附带 DNS IP、端口、重试次数或诊断原因。
+- 链路是按时间排序的逻辑 hop 序列：一个 server 进入本次 hop 执行时登记一次；同一 hop 内的 DNS 候选、连接重试和应用层重试不得重复登记。策略确实离开后又回访同一 server 时保留非相邻重复项，避免丢失审计事实。
+- 链路不得从现有 `visited[]` 反推。`visited[]` 是循环检测/轮询策略集合，会发生别名折叠、删除和重插入，不具备稳定的时间顺序；实现必须在 `wc_result_meta` 生命周期内单独保存有序链路。
+- 未进入网络 hop（Phase C 早收敛、非法 IP/CIDR、显式私网拒绝、安全规则拒绝）以及无法取得链路时固定输出 `chain=unknown`。首 hop DNS/连接失败但已进入执行器时仍输出该 server。
+- 最多登记 16 个 hop，与现有查询执行器的访问上限对齐；若未来内部上限扩大且实际链路超过 16，保留前 16 项并在末尾追加 `>truncated`。不得静默截断。
+
+### 2. WP-05B `--pick` 与 `--pick-mode`
+
+- `--pick <k1,k2,...>` 默认关闭，输出一行 TAB 分隔的 `k=v` 字段抽取结果；字段顺序严格保持用户首次指定顺序。重复键大小写不敏感地去重，不重复输出。
+- 首版键白名单冻结为：`netname`、`country`、`inetnum`、`inet6num`、`origin`、`route`、`descr`。键匹配大小写不敏感且必须精确匹配冒号前完整标题名；不得复用 `-g` 的前缀匹配语义，以免 `route` 意外匹配其他键。
+- 参数按逗号切分并删除键两侧 ASCII 空白；空项、白名单外键或最终无有效键均在查询开始前按 usage-error 失败。参数总长上限 4096 字节、字段数上限 64、单键上限 128 字节；这些通用解析上限与 `-g` 对齐，白名单会进一步限制实际唯一字段数。
+- `--pick-mode first|join` 控制同名标题的多次出现，默认 `first`。`first` 取过滤后视图中的首次出现（即使值为空）；`join` 按出现顺序用 ASCII `|` 连接各次值。单次标题的续行先按原顺序使用 `; ` 拼入该次值，再参与 first/join。
+- 仅显式提供 `--pick-mode` 而没有 `--pick` 属于 usage-error；重复 `--pick` 以最后一次参数为准，重复 `--pick-mode` 以最后一次合法值为准。
+- 每个请求字段恒输出。缺失标题或值为空时输出空值（例如 `country=`），不得省略键、输出 `unknown` 或借用其他 RIR 的同义键。首版不做跨 RIR 语义归一，`--normalize-keys` 继续暂缓。
+- 字段值沿用 WP-04 元信息归一化：删除首尾空白，把 TAB/LF/CR/NUL、其他控制字符和连续空白折叠为一个空格，反斜杠与 `=` 按字面输出。`join` 的 `|` 只表示展示层连接，消费者不得把它视为可逆转义格式。
+- 每个请求字段的累计值上限为 64 KiB；达到上限时该字段截断并以字面量 `...` 收尾，同时继续抽取并输出其余请求键。该限制只作用于抽取行，不得截断原始响应或改变权威判定。
+
+### 3. 固定处理顺序与记录排列
+
+- 数据处理顺序冻结为：title 投影（`-g`）→ grep → pick 抽取 → fold/body 渲染。`--pick` 从 grep 后、fold 前的过滤视图抽取，不修改该视图，也不隐式抑制正文。
+- 非 fold/plain 记录排列：`=== Query:` → `Address Status:`（如适用）→ 正文（`--no-body` 时省略）→ `=== Authoritative RIR:` → pick 行（如启用）→ chain 行（如启用）→ WP-04 meta 行（如启用）。
+- fold 记录排列：折叠业务行 → pick 行 → chain 行 → meta 行。lookup 失败时仍先沿用 WP-04 的 `<query> ERROR` 规则，再按相同顺序追加启用的观测行。
+- lookup 前本地短路沿用既有业务边界；启用的 pick 行仍输出全部空值，chain 行输出 `chain=unknown`，meta 行沿用 WP-04 状态。安全规则拒绝不新增查询首尾行。
+- 批量模式每个非空输入项独立输出其 pick/chain/meta 行，顺序与输入一致；不得新增批次汇总行。
+
+### 4. 组合、退出码与兼容性
+
+| 组合 | 规则 |
+|---|---|
+| `--print-chain` + `--print-meta`/`--pick` | 合法；固定按 pick → chain → meta 排列 |
+| `--print-chain` + `--no-body`/`--fold`/`-g`/`--grep*`/批量 | 合法；仅增加链路观测行 |
+| `--pick` + `-g`/`--grep*` | 合法；按固定过滤顺序，过滤掉的标题表现为缺失空值 |
+| `--pick` + `--no-body` | 合法；先完成抽取，再抑制正文 |
+| `--pick` + `--fold` | 合法；折叠业务行后追加 pick 行 |
+| `--print-chain` 或 `--pick` + `--plain` | 非法；缺少稳定记录边界，查询开始前 fail-fast |
+
+- 两个切片均为输出/观测能力：不得改变查询、DNS、连接、重试、重定向、权威判定、退出码、stderr 标签或默认未启用时的 stdout。
+- 字段名、行位置与语义冻结。后续增加链路属性或 pick 键须另行登记；不得改变 `chain` 分隔符、既有键顺序或缺失值表示。
+
+### 4.1 命令用例
+
+```sh
+# 只保留记录边界并观察逻辑 WHOIS hop
+./whois-x86_64 --no-body --print-chain 8.8.8.8
+
+# 按请求顺序抽取字段；缺失字段仍输出 key=
+./whois-x86_64 --no-body --pick netname,country,inetnum 8.8.8.8
+
+# title 投影先于 pick；未保留在投影视图中的字段输出空值
+./whois-x86_64 -g 'NetName|Country' --pick netname,country,descr 8.8.8.8
+
+# fold 业务行后依次追加 pick 与 chain；此组合不使用 --no-body
+./whois-x86_64 -g 'NetName|Country' --fold --pick netname,country --print-chain 8.8.8.8
+
+# 合并重复 descr，并按 pick -> chain -> meta 输出观测行
+./whois-x86_64 --no-body --pick descr,country --pick-mode join --print-chain --print-meta 1.1.1.1
+
+# stdin 非 TTY 自动批量；每个输入项独立输出 pick/chain 行
+printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
+  ./whois-x86_64 --no-body --pick netname,country --print-chain
+```
+
+`--pick` 与 `--fold` 可组合，但 `--no-body` 与任何 fold 开关互斥；`--pick` 或 `--print-chain` 与 `--plain` 也会在查询开始前按 usage-error 失败。
+
+### 5. 验收矩阵
+
+- WP-05A：单 hop、IANA→ARIN→AFRINIC 多 hop、`-Q`、首 hop DNS/连接失败、Phase C/非法/私网/安全短路、回访重复和截断 sentinel；验证 retries 不制造重复 hop。
+- WP-05B：白名单逐键、大小写精确匹配、缺失/空值、续行、重复标题的 first/join、重复请求键、非法键/空参数/超限，以及 `-g`/grep 后字段消失。
+- 组合：默认、`--no-body`、`--fold`、`--print-meta`、三者同时启用、显式/自动批量和 `--plain` fail-fast；逐项验证固定行排列与默认关闭逐字节兼容。
+- BusyBox：链路行可用 `cut -f1` 或 `sed 's/^chain=//'` 消费；pick 行可按 TAB 切分并以每项第一个 `=` 分离键值。
+
+### 6. WP-05A 聚焦验收（2026-08-24）
+
+- `--print-chain` 已完成 CLI/config/render 贯通，并在查询结果元数据中以独立固定容量数组记录有序逻辑 hop；登记点位于同 hop 重试入口之前，DNS 候选、连接重试和应用层重试不会重复登记，也未复用 `visited[]`。
+- 专项合同 smoke `12/12` PASS（`out/artifacts/print_chain_contract/20260824-155911`），覆盖单 hop、首 hop DNS 失败、Phase C/非法/私网/安全短路、fold 失败、chain/meta 顺序、显式/自动批量、重复选项与 plain fail-fast。
+- 聚焦 `lto-auto` 构建 x86_64/win32/win64、SHA、三平台 smoke 与 IANA/ARIN/AFRINIC referral 全 PASS（`out/artifacts/20260824-155726`，294s）；win64 standalone selftest 中 `opts-print-chain-parser` 与 `opts-print-chain-plain-conflict` 均 PASS且无 selftest FAIL。
+- 本节仅记录 WP-05A 聚焦切片证据；WP-05 整体最终验收见下一节。
+
+### 7. WP-05B 聚焦验收（2026-08-24）
+
+- `--pick`/`--pick-mode` 已完成 parser、配置传递、过滤后抽取、成功/失败/本地短路渲染及 pick -> chain -> meta 排列接线；默认关闭时不改变既有 stdout。
+- 独立合同 smoke `12/12` PASS（`out/artifacts/pick_contract/20260824-164050`），覆盖固定白名单空值、记录排列、大小写去重保序、重复 `--pick` 最后一次生效、显式/自动批量，以及非法键、空项、mode-without-pick、非法 mode 和 plain 冲突。
+- 最终 win64 standalone selftest 退出 0；`opts-pick-parser`、`opts-pick-mode-without-pick`、`pick-extract-first-join`、`pick-truncation-boundary` 全 PASS，覆盖精确标题匹配（`route` 不匹配 `route6`）、first/join、空首次值、续行归一化及逐字段 64 KiB 截断后继续输出后续键。
+- 三目标 build/hash 与三起点 referral PASS（`out/artifacts/20260824-164010`，233s）；该轮 win64 Wine 网络 smoke 对 `8.8.8.8` 返回环境性非零 WARN，前一轮同一产品修复的三目标 smoke 全 PASS（`out/artifacts/20260824-163234`，254s）。
+- WP-05 最终重建复核 PASS（`out/artifacts/20260824-170256`，351s）：Strict 版本九架构 `lto-auto` 构建无编译/LTO 告警，artifact 与两个发布目录的 SHA-256 均 `9/9` 一致；Linux/QEMU/native smoke=`18`、win32=`3`、win64=`3`，每条查询首尾对应且无告警；Golden PASS，IANA/ARIN/AFRINIC 三起点 referral 均收敛至 AFRINIC。发布产物已同步到仓库内与外部 lzispro 目录。
 
 > 更新注记（2025-11-16）：本 RFC 聚焦“条件输出/筛选/折叠”等业务能力；3.2.2 的安全加固、3.2.7 的 CLI-only 节流迁移与 3.2.8 的三跳/重试指标增强均保持默认 stdout 契约不变，故仅在此补充里程碑：
 > - 已交付：`-g` 标题前缀筛选（Step 1）、`--grep/--grep-cs` + 行/块模式（Step 1.5）、`--fold` 单行折叠（3.2.1）、CLI-only 节流与重试指标（3.2.7）、三跳模拟与黑洞自测/指标基线（3.2.8）。

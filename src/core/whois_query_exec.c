@@ -474,16 +474,19 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_disabled);
 }
 
-static void wc_query_exec_render_meta(const Config* config,
+static void wc_query_exec_render_observations(const Config* config,
 		const char* query,
 		const struct wc_result* result,
 		const char* authoritative_display)
 {
-	if (!config || !config->print_meta)
+	if (!config || (!config->pick_keys && !config->print_chain && !config->print_meta))
 		return;
 	struct wc_result empty_result = {0};
 	wc_client_render_opts_t meta_render_opts =
 		wc_client_render_opts_init(config);
+	wc_pipeline_render_pick(&meta_render_opts, "");
+	wc_pipeline_render_chain(&meta_render_opts,
+		result ? result : &empty_result);
 	wc_pipeline_render_meta(&meta_render_opts, query,
 		result ? result : &empty_result, authoritative_display);
 }
@@ -515,7 +518,7 @@ static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 			wc_output_tail_unknown_plain();
 		}
 	}
-	wc_query_exec_render_meta(cfg, safe_query, NULL, "unknown");
+	wc_query_exec_render_observations(cfg, safe_query, NULL, "unknown");
 	return 1;
 }
 
@@ -612,13 +615,13 @@ int wc_handle_suspicious_query(const Config* config, const char* query,
 		fprintf(stderr,
 			"Error: Suspicious query detected in batch mode: %s\n",
 			safe_query);
-		wc_query_exec_render_meta(config, safe_query, NULL, "error");
+		wc_query_exec_render_observations(config, safe_query, NULL, "error");
 		return 1;
 	}
 	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
 		"Blocked suspicious query: %s", safe_query);
 	fprintf(stderr, "Error: Suspicious query detected\n");
-	wc_query_exec_render_meta(config, safe_query, NULL, "error");
+	wc_query_exec_render_observations(config, safe_query, NULL, "error");
 	wc_cache_cleanup();
 	return 1;
 }
@@ -667,7 +670,7 @@ int wc_handle_private_ip(const Config* config,
 			wc_output_tail_unknown_plain();
 		}
 	}
-	wc_query_exec_render_meta(cfg, safe_query, NULL, "unknown");
+	wc_query_exec_render_observations(cfg, safe_query, NULL, "unknown");
 	return 1;
 }
 
@@ -781,7 +784,7 @@ void wc_report_query_failure(const Config* config,
 				? res->meta.authoritative_ip
 				: "unknown");
 		if (fold_output) {
-			if (config && config->print_meta) {
+			if (config && (config->pick_keys || config->print_meta || config->print_chain)) {
 				const char* fold_sep = config->fold_sep
 					? config->fold_sep : " ";
 				char* folded = wc_fold_build_line("", query, auth_host,
@@ -806,7 +809,7 @@ void wc_report_query_failure(const Config* config,
 				wc_output_tail_authoritative_ip(auth_host, auth_ip);
 			}
 		}
-		wc_query_exec_render_meta(config, query, res, auth_host);
+		wc_query_exec_render_observations(config, query, res, auth_host);
 	}
 }
 

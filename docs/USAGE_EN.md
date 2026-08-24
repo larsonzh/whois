@@ -795,6 +795,43 @@ With `--fold`, a lookup failure emits `<query> ERROR` followed by error metadata
 
 WP-04 final verification (2026-08-24): the expanded contract smoke passes `18/18` (`out/artifacts/print_meta_contract/20260824-151824`), adding lookup-failure fold, invalid input, explicit private, security rejection, value normalization, automatic stdin batch, grep-combination coverage, and compatibility for folded failures without metadata enabled; the final synchronized win64 artifact passes the standalone selftest. The Strict `lto-auto` run passes all nine builds/hashes, Golden, and three referral starts (`out/artifacts/20260824-151759`, 350s), and both sync directories match the artifact hashes `9/9`.
 
+`--print-chain` appends `chain=server1>server2>...` to each query record, preserving the chronological order of logical WHOIS hops. DNS candidates and retries within one hop do not create duplicates. Phase C convergence, invalid IP/CIDR, private-address rejection, and security rejection emit `chain=unknown` because no network hop was entered. At most 16 hops are retained; overflow appends `>truncated`.
+
+`--print-chain` combines with `--no-body`, `--fold`, `--print-meta`, `-g`/`--grep*`, and batch mode. When multiple observations are enabled, chain precedes metadata. Combining it with `--plain` fails before lookup. A folded lookup failure emits `<query> ERROR` before the chain line.
+
+WP-05A focused verification (2026-08-24): the dedicated contract smoke passes `12/12` (`out/artifacts/print_chain_contract/20260824-155911`); x86_64, win32, and win64 `lto-auto` builds, hashes, smoke tests, and all three referral starts pass (`out/artifacts/20260824-155726`, 294s), and the standalone parser/conflict selftests pass.
+
+`--pick <k1,k2,...>` appends one TAB-separated line of selected WHOIS header values to each record. The initial allowlist is `netname,country,inetnum,inet6num,origin,route,descr`. Header matching is case-insensitive but exact, output preserves first-request order, and missing or empty values remain present as `key=`.
+
+`--pick-mode first|join` defaults to `first`; `join` combines repeated headers with `|`, after continuation lines have been combined with `; `. Processing is fixed as title -> grep -> pick -> fold/body. Pick combines with `--no-body`, `--fold`, chain/meta observations, and batch mode; `--plain` fails before lookup. Each field is capped at 64 KiB, with truncation ending in `...` without suppressing later keys.
+
+WP-05B focused verification (2026-08-24): the dedicated contract smoke passes `12/12` (`out/artifacts/pick_contract/20260824-164050`), and all four pick labels pass in the final win64 standalone selftest. The final WP-05 rebuild passes (`out/artifacts/20260824-170256`, 351s): strict-version nine-architecture `lto-auto` builds have no compile/LTO warnings; artifact and both release directories match `9/9` SHA-256 hashes; Linux/QEMU/native smoke=`18`, win32=`3`, and win64=`3` with zero alerts; Golden and all three referral starts pass.
+
+Common WP-05 commands:
+
+```sh
+# Keep record boundaries and show only the logical WHOIS chain
+./whois-x86_64 --no-body --print-chain 8.8.8.8
+
+# Extract fixed fields; missing values remain present as key=
+./whois-x86_64 --no-body --pick netname,country,inetnum 8.8.8.8
+
+# Join repeated fields and emit pick, chain, and metadata observations
+./whois-x86_64 --no-body --pick descr,country --pick-mode join --print-chain --print-meta 1.1.1.1
+
+# Apply title projection before extraction; filtered-out descr is empty
+./whois-x86_64 -g 'NetName|Country' --pick netname,country,descr 8.8.8.8
+
+# Append pick and chain after the folded business line; do not add --no-body
+./whois-x86_64 -g 'NetName|Country' --fold --pick netname,country --print-chain 8.8.8.8
+
+# Non-TTY stdin enters batch mode automatically
+printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
+  ./whois-x86_64 --no-body --pick netname,country --print-chain
+```
+
+`--pick` can be combined with `--fold`, but `--no-body` conflicts with every fold option. `--pick` and `--print-chain` also conflict with `--plain`.
+
 - Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
   - Format: `<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`
   - Handy for BusyBox pipelines and simple classification

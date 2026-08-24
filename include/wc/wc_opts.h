@@ -29,6 +29,10 @@ typedef struct wc_opts_s {
     int plain_mode;              // -P suppress query headers
     int no_body;                 // --no-body suppress final response body rendering
     int print_meta;              // --print-meta append per-query k=v metadata line
+    int print_chain;             // --print-chain append ordered logical server hops
+    char* pick_keys;             // --pick canonical key list (allocated)
+    int pick_mode;               // --pick-mode: 0=first, 1=join
+    int pick_mode_seen;
     int show_non_auth_body;       // --show-non-auth-body (include non-authoritative bodies)
     int show_post_marker_body;    // --show-post-marker-body (keep bodies after ERX/IANA marker)
     int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)

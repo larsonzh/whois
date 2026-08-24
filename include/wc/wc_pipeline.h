@@ -38,6 +38,13 @@ void wc_pipeline_render_meta(const wc_client_render_opts_t* render_opts,
 							 const struct wc_result* res,
 							 const char* authoritative_display);
 
+// Append the WP-05A ordered logical server chain for the query record.
+void wc_pipeline_render_chain(const wc_client_render_opts_t* render_opts,
+							  const struct wc_result* res);
+
+void wc_pipeline_render_pick(const wc_client_render_opts_t* render_opts,
+							 const char* filtered_view);
+
 #ifdef __cplusplus
 }
 #endif

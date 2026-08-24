@@ -46,7 +46,7 @@ v3.3.0 已作为新黄金基线发布，产品语义冻结（响应分类契约�
 | token 传递 | 当前 Bash 命令串内联 token，且 `Invoke-GitBash` 会回显完整命令 | WP-01 改为不进入命令文本和日志的传递方式并加泄漏断言 |
 | `injection-view-fallback` | standalone selftest 已知 FAIL，未完成正式定性 | WP-01 独立实施项修复或结构化 known-issue |
 | workbuf 统计 | 已有 `WC_WORKBUF_ENABLE_STATS`、查询级和 selftest `[WORKBUF-STATS]` | WP-02 复用并冻结现有字段，不新造平行统计协议 |
-| 条件输出新 CLI | `--no-body`、`--print-meta`、`--print-chain`、`--pick`、`--stats` 尚未实现 | WP-03–WP-06 按契约定稿门禁依次实施 |
+| 条件输出新 CLI | `--no-body`、`--print-meta`、`--print-chain`、`--pick` 已实现；`--stats` 待实现 | WP-05 已完成；继续按 WP-06 契约与门禁实施 |
 
 ## 2. 原则与红线
 
@@ -193,11 +193,16 @@ build+verify → stage statics + checksum → commit+push → create tag → pub
 
 ### 5.3 WP-05：链路输出与轻量字段抽取
 
-- `--print-chain`：输出重定向链 `server1>server2>...>final`（stdout 元信息行，与业务行分隔约定记录在 RFC）。
-- `--pick <k1,k2,...>`：基于标题投影（复用 `-g` 前缀匹配能力）抽取字段；`--pick-mode first|join`；多行值折叠规则沿用既有续行归一。
+- 按数据所有权拆为两个独立验收切片：WP-05A `--print-chain`（查询执行器有序 hop 观测）与 WP-05B `--pick`/`--pick-mode`（条件输出管道精确标题抽取）；可在同一版本交付，但不得共享隐式状态或互相替代门禁。
+- `--print-chain`：输出 `chain=server1>server2>...`；必须单独捕获有序逻辑 hop，不得从会增删/别名折叠的 `visited[]` 推导。无网络 hop 固定 `chain=unknown`，上限 16，溢出追加 `>truncated`。
+- `--pick <k1,k2,...>`：大小写不敏感、完整标题名精确匹配；`--pick-mode first|join`；续行先以 `; ` 合并，同名多次出现的 join 再以 `|` 合并。抽取源固定为 title → grep 后、fold 前视图。
 - 字段白名单（尽力而为）：`netname`、`country`、`inetnum`、`inet6num`、`origin`、`route`、`descr`。
 - **不做**跨 RIR 语义归一（`--normalize-keys` 延后）。
-- 验收：`--pick` 与 `-g/--grep` 组合测试；BusyBox 管道示例；冲突字段（如大小写）示例记录。
+- 记录排列冻结为业务行 → pick → chain → WP-04 meta；与 `--no-body`/`--fold`/`-g`/`--grep*`/批量合法，与 `--plain` 查询前 fail-fast。完整缺失值、归一化、资源上限与验收矩阵见 `docs/RFC-conditional-output-CN.md` WP-05。
+- 实施顺序：先完成 WP-05A 数据模型/CLI/渲染及专项合同，再完成 WP-05B parser/抽取/组合合同；每个切片通过聚焦构建和专项 smoke 后再进入 PRODUCT/MIXED 完整门禁。
+- WP-05A 已完成实现与聚焦验收：专项合同 `12/12` PASS（`out/artifacts/print_chain_contract/20260824-155911`）；x86_64/win32/win64 `lto-auto` build/hash/smoke 与三起点 referral PASS（`out/artifacts/20260824-155726`，294s）；standalone parser/冲突自测 PASS。
+- WP-05B 已完成实现与聚焦验收：专项合同 `12/12` PASS（`out/artifacts/pick_contract/20260824-164050`）；最终 standalone selftest 含 parser、冲突、first/join/续行及逐字段 64 KiB 截断边界并全部 PASS；三目标 build/hash 与三起点 referral PASS（`out/artifacts/20260824-164010`，233s）。该轮 win64 Wine 网络 smoke 有一次环境性非零 WARN，前一轮三平台 smoke 已 PASS（`out/artifacts/20260824-163234`）。
+- WP-05 最终重建复核 PASS（`out/artifacts/20260824-170256`，351s）：Strict 版本九架构 `lto-auto` 无编译/LTO 告警，artifact 与两个发布目录 SHA-256 均 `9/9` 一致；Linux/QEMU/native smoke=`18`、win32=`3`、win64=`3` 且零告警，Golden 与三起点 referral PASS。
 
 ### 5.4 WP-06：`--stats`（独立工作包）
 
@@ -235,8 +240,8 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
 | WP-02 | done | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 46 场景三架构安全基线与冻结 SHA 已回填；发现并修复 fold UAF |
 | WP-03 | done | Phase 3 | RFC 定版 + `--no-body` | 协议、产品实现、合同 smoke 与完整发布门禁均已完成 |
-| WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 9/9 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
-| WP-05 | proposed | Phase 3 | `--print-chain` + `--pick` | 依赖 WP-04 的元信息定义；合并实施须单独评审 |
+| WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 18/18 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
+| WP-05 | completed | Phase 3 | WP-05A `--print-chain` + WP-05B `--pick` | 两个切片及专项合同完成；九架构 Strict/Golden/referral/双目录 sync 最终复核 PASS（`20260824-170256`） |
 | WP-06 | proposed | Phase 3 | `--stats` | 输出位置与组合语义先评审，再决定执行方式 |
 | 后续编号 | 未登记 | 待定 | 按基准结果单独立项的性能优化 | 每项建立独立工作包，使用登记时下一个未占用的 `WP-xx` 编号 |
 
@@ -413,6 +418,6 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-02：离线基准脚本与 v3.3.0 安全基线报告
 - [x] WP-03：条件输出 RFC 定版 + `--no-body`
 - [x] WP-04：`--print-meta`
-- [ ] WP-05：`--print-chain` + `--pick`
+- [x] WP-05：`--print-chain` + `--pick`
 - [ ] WP-06：`--stats`
 - [ ] 后续：性能热点优化（按证据逐项登记新的 `WP-xx`）
