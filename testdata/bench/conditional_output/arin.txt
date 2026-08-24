@@ -1,0 +1,8 @@
+NetRange: 192.0.2.0 - 192.0.2.255
+CIDR: 192.0.2.0/24
+NetName: TEST-NET-1
+OrgName: Example Research Network
+Country: US
+Comment: Documentation prefix
+    This continuation line is retained with its owning field.
+OrgAbuseEmail: abuse@example.test

@@ -1,0 +1,8 @@
+inet6num: 2001:db8::/32
+netname: TEST-NET-V6
+descr: Example RIPE documentation network
+country: NL
+org: ORG-TEST1-RIPE
+status: ALLOCATED-BY-RIR
+route6: 2001:db8::/32
+origin: AS64496

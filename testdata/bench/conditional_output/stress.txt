@@ -1,0 +1,21 @@
+NetName: STRESS-NET
+Descr: ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ
+Comment: dense-continuation-root
+    continuation-01 alpha alpha alpha alpha alpha alpha alpha alpha
+    continuation-02 beta beta beta beta beta beta beta beta
+    continuation-03 gamma gamma gamma gamma gamma gamma gamma gamma
+    continuation-04 delta delta delta delta delta delta delta delta
+    continuation-05 epsilon epsilon epsilon epsilon epsilon epsilon
+    continuation-06 zeta zeta zeta zeta zeta zeta zeta zeta
+    continuation-07 eta eta eta eta eta eta eta eta
+    continuation-08 theta theta theta theta theta theta theta theta
+    continuation-09 iota iota iota iota iota iota iota iota
+    continuation-10 kappa kappa kappa kappa kappa kappa kappa
+    continuation-11 lambda lambda lambda lambda lambda lambda lambda
+    continuation-12 mu mu mu mu mu mu mu mu mu mu mu mu
+    continuation-13 nu nu nu nu nu nu nu nu nu nu nu nu
+    continuation-14 xi xi xi xi xi xi xi xi xi xi xi xi
+    continuation-15 omicron omicron omicron omicron omicron omicron
+    continuation-16 pi pi pi pi pi pi pi pi pi pi pi pi
+Country: ZZ
+Origin: AS64500

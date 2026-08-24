@@ -1,0 +1,8 @@
+inet6num: 2001:db8:1::/48
+owner: Example LACNIC documentation network
+ownerid: TEST-LACNIC
+responsible: Example Operator
+country: BR
+status: allocated
+created: 20260824
+changed: 20260824

@@ -152,6 +152,18 @@ build+verify → stage statics + checksum → commit+push → create tag → pub
 - 至少保存一份 `v3.3.0` 基线报告作为对照锚点。
 - 默认输出零变化；统计编译启用时，既有 `[WORKBUF-STATS]` 标签仍仅写 stderr。
 
+### 4.6 基线回填（2026-08-24）
+
+- 样本与场景：9 份固定离线响应，覆盖 IANA、五个 RIR、CRLF/长行/高密度续行、banner 与零字节响应；`raw/title/grep/fold/fold-unique` 各 9 例，加 `batch/all`，共 46 例。
+- 执行参数：每例 warm-up 1 次、测量 5 次、每次进程内执行 1000 iterations；`raw.csv` 230 行，`summary.csv` 与 `summary.json` 各 46 项。样本集 SHA-256 为 `5dbf193e0a91b49f75d51a668fa59db2029558af350256a0da87937dcf38436b`。
+- 正确性：三架构 46 例退出码、诊断指标和冻结 stdout SHA 均通过，跨架构 stdout SHA 差异为 0；Windows runner 使用 binary stdout，避免 CRT CRLF 转换污染冻结值。
+- 源码锚点：`v3.3.0` 条件输出实现，仓库提交 `59990eeacae1a5c3819f6e98d740f51d01aa9ede`，叠加本工作包在压力样本中发现并以 ASan 复现的 `fold-unique` workbuf 扩容后旧指针读取修复。相对 `v3.3.0`，条件输出生产代码仅删除 `src/cond/fold.c` 两处无效旧 token 数组复制；未修复版本因 heap-use-after-free 不作为可运行性能锚点。
+- 报告：win64=`out/artifacts/bench/wp02-win64-final/20260824-093556`；linux x86_64=`out/artifacts/bench/wp02-linux-x86_64/20260824-092208`；linux aarch64（QEMU）=`out/artifacts/bench/wp02-linux-aarch64-qemu/20260824-092221`。各目录均含 `raw.csv`、`summary.csv`、`summary.json`。
+- 工具链：win64 MinGW GCC 13-win32；linux x86_64 GCC 13.3.0；linux aarch64 musl GCC 11.2.1，静态 runner 由 `qemu-aarch64-static` 执行。完整 CFLAGS、runner/脚本 SHA、OS/CPU 与场景参数保存在各 `summary.json`；QEMU 数据仅作为 aarch64 独立锚点，不与原生架构作快慢结论。
+- 代表结果：linux x86_64 的 `fold/stress-crlf` median/p95 为 31.027/33.256 ms，`fold-unique/stress-crlf` 为 32.779/37.418 ms，`batch/all` 为 8.222/8.707 ms；均为每次 1000 iterations。当前热点证据集中在高密度 fold 路径，后续优化须另立工作包，不并入 WP-02。
+- 限制：Windows PowerShell 5.1 无可靠子进程 peak working set 采样时报告 `peak_rss_kb=0`，表示该平台指标不可用，不解释为零内存；Linux 报告由 `/usr/bin/time -f %M` 采集峰值 RSS。
+- 生产制品复核：纳入 `fold.c` 安全修复后，Strict `lto-auto` 默认轮无编译/LTO 告警，九架构产物及仓库内、外部 lzispro 同步目录均按本轮清单 `9/9` 匹配；Linux/QEMU、win32、win64 冒烟分别完成 `18/3/3` 条查询且标题/权威尾行一一对应、零告警，Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS（`out/artifacts/20260824-094617`，299s）。本轮无需追加代码修复。
+
 ## 5. Phase 3：条件输出 Phase 2.5 重定版（WP-03–WP-06）
 
 ### 5.0 前置：RFC 定版（随 WP-03 提交文档修订）
@@ -220,7 +232,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | 工作包 | 状态 | 阶段 | 内容 | 备注 |
 |---|---|---|---|---|
 | WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
-| WP-02 | proposed | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 基准脚本、报告与可选 C 可观测性可分别实施 |
+| WP-02 | done | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 46 场景三架构安全基线与冻结 SHA 已回填；发现并修复 fold UAF |
 | WP-03 | proposed | Phase 3 | RFC 定版 + `--no-body` | 文档前置完成后实施最小功能切片 |
 | WP-04 | proposed | Phase 3 | `--print-meta` | 依赖 WP-03 的 RFC 定版，不要求与 WP-03 使用相同执行方式 |
 | WP-05 | proposed | Phase 3 | `--print-chain` + `--pick` | 依赖 WP-04 的元信息定义；合并实施须单独评审 |
@@ -357,13 +369,25 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：构建/同步/静态产物提交前移到 tag 创建之前；目标 tag 不存在时以进程环境注入 `WHOIS_FORCE_VERSION`；现有 tag 不指向最终提交时 fail-close；GitHub/Gitee token 不再进入 Bash 命令文本；smoke 新增顺序、强制版本、token 内联与九架构加 checksum 集合断言；修正 `injection-view-fallback` 对 handler 返回契约的反向断言，并新增 core golden 双向门禁
 - 决策/回退：保留 opt-in 发布行为与默认远程构建入口；生产查询逻辑未因 selftest 修复改变；真实发布演练前不关闭 WP-01
 
+### WP-02/离线条件输出性能基线（2026-08-24）
+- 状态：done
+- 类型：MIXED
+- 执行方式：传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：v3.3.0 条件输出实现；commit=`59990eeacae1a5c3819f6e98d740f51d01aa9ede` + 本工作包 fold UAF 安全修复；无前置工作包
+- 结果：46/46 场景在 win64、linux x86_64、linux aarch64（QEMU）均 PASS；三架构冻结 stdout SHA 完全一致；每份报告含 230 行 raw 与 46 行 summary
+- run：win64=`out/artifacts/bench/wp02-win64-final/20260824-093556`；linux x86_64=`out/artifacts/bench/wp02-linux-x86_64/20260824-092208`；linux aarch64 QEMU=`out/artifacts/bench/wp02-linux-aarch64-qemu/20260824-092221`；最终生产远程构建/冒烟=`out/artifacts/20260824-094617`
+- 门禁：harness strict compile（`-Wall -Wextra -Werror`）=PASS；ASan fold-unique stress/batch=PASS；冻结 SHA 复跑=PASS；最终 Strict `lto-auto` 无编译/LTO 告警，九架构 build/hash=9/9 PASS；Linux/win32/win64 smoke=`18/3/3` 且零告警；Golden/referral=PASS；双同步目录 hash=9/9 PASS；编码与 diff 门禁=PASS
+- 变更：新增固定 fixture/manifest/expected SHA、C harness、PowerShell 与 Python 驱动；报告记录 commit/version、工具链/CFLAGS、架构、OS/CPU、样本/runner/脚本 SHA、median/p95 与原始测量；修复 `wc_fold_build_line_wb` 扩容后从已失效 token 指针复制导致的 heap-use-after-free
+- 决策/回退：基准不暴露生产 CLI 文件注入；`[BENCH]` 仅由测试 harness 写 stderr，生产 `[WORKBUF-STATS]` 契约不变；aarch64 QEMU 仅作独立架构锚点；性能优化根据报告另立工作包
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
 - [x] WP-01：令牌脱敏 + 静态自检
 - [x] WP-01：dry-run 防回归断言（本地无构建路径；远程 build+sync 路径待办）
 - [x] WP-01：`injection-view-fallback` 定性/修复
-- [ ] WP-02：离线基准脚本与 v3.3.0 基线报告
+- [x] WP-02：离线基准脚本与 v3.3.0 安全基线报告
 - [ ] WP-03：条件输出 RFC 定版 + `--no-body`
 - [ ] WP-04：`--print-meta`
 - [ ] WP-05：`--print-chain` + `--pick`

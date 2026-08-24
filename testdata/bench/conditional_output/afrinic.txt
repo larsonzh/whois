@@ -1,0 +1,8 @@
+inetnum: 198.51.100.0 - 198.51.100.255
+netname: TEST-NET-2
+descr: Example AFRINIC documentation network
+country: ZA
+org: ORG-TEST-AFRINIC
+status: ASSIGNED PA
+route: 198.51.100.0/24
+origin: AS64497

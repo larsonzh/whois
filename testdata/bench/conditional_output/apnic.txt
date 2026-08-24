@@ -1,0 +1,7 @@
+inetnum: 203.0.113.0 - 203.0.113.255
+netname: TEST-NET-3
+descr: Example APNIC documentation network
+country: AU
+admin-c: TEST-AP
+tech-c: TEST-AP
+status: ASSIGNED PORTABLE

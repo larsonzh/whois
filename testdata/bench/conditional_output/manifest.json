@@ -1,0 +1,14 @@
+﻿{
+  "schemaVersion": 1,
+  "fixtures": [
+    { "id": "iana", "file": "iana.txt", "query": "example.test", "rir": "whois.iana.org", "lineEnding": "lf" },
+    { "id": "arin", "file": "arin.txt", "query": "192.0.2.1", "rir": "whois.arin.net", "lineEnding": "lf" },
+    { "id": "apnic", "file": "apnic.txt", "query": "203.0.113.1", "rir": "whois.apnic.net", "lineEnding": "lf" },
+    { "id": "ripe", "file": "ripe.txt", "query": "2001:db8::1", "rir": "whois.ripe.net", "lineEnding": "lf" },
+    { "id": "afrinic", "file": "afrinic.txt", "query": "198.51.100.1", "rir": "whois.afrinic.net", "lineEnding": "lf" },
+    { "id": "lacnic", "file": "lacnic.txt", "query": "2001:db8:1::1", "rir": "whois.lacnic.net", "lineEnding": "lf" },
+    { "id": "stress-crlf", "file": "stress.txt", "query": "benchmark.example", "rir": "whois.example.test", "lineEnding": "crlf" },
+    { "id": "banner", "file": "banner.txt", "query": "empty.example", "rir": "unknown", "lineEnding": "lf" },
+    { "id": "empty", "file": "empty.txt", "query": "empty.example", "rir": "unknown", "lineEnding": "lf" }
+  ]
+}

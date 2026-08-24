@@ -166,7 +166,6 @@ char* wc_fold_build_line_wb(const char* body,
                             size_t need = (tok_cap ? tok_cap*2 : 16) * sizeof(TokenView);
                             TokenView* base = (TokenView*)wc_workbuf_reserve(&scratch, need, "wc_fold_tokens");
                             tok_cap = tok_cap ? tok_cap*2 : 16;
-                            if (toks) memcpy(base, toks, tok_count * sizeof(TokenView));
                             toks = base;
                         }
                         toks[tok_count].s = val;
@@ -188,7 +187,6 @@ char* wc_fold_build_line_wb(const char* body,
                             size_t need = (tok_cap ? tok_cap*2 : 16) * sizeof(TokenView);
                             TokenView* base = (TokenView*)wc_workbuf_reserve(&scratch, need, "wc_fold_tokens");
                             tok_cap = tok_cap ? tok_cap*2 : 16;
-                            if (toks) memcpy(base, toks, tok_count * sizeof(TokenView));
                             toks = base;
                         }
                         toks[tok_count].s = s2;
