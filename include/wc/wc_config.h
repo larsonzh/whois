@@ -36,6 +36,7 @@ struct Config {
 	int no_redirect;               // Disable following redirects when set
 	int plain_mode;                // Suppress header line when set
 	int no_body;                   // Suppress final response body rendering
+	int print_meta;                // Append per-query k=v metadata line when set
 	int show_non_auth_body;        // Show non-authoritative bodies when enabled
 	int show_post_marker_body;     // Show bodies after ERX/IANA marker when enabled
 	int hide_failure_body;         // Hide rate-limit/denied body lines when enabled

@@ -184,11 +184,12 @@ build+verify → stage statics + checksum → commit+push → create tag → pub
 
 ### 5.2 WP-04：稳定元信息输出
 
-- 新增 `--print-meta`（或 `--meta`，**不复用 `--fold` 名称**）。
+- 新增 `--print-meta`（选项名冻结；**不复用 `--fold` 名称**）。
 - 输出行式 TAB 分隔 `k=v`：`query`、`rir`、`status`、`duration_ms`、`attempts`、`redirects`；续加字段须在 RFC 登记。
 - 语义与响应分类契约一致：`status=success|error`，error 分类复用 `Failure > Non-Authoritative > Semantic Empty > Authoritative` 的最终判定。
-- 默认关闭；与 `--fold`/`--no-body` 组合行为需在回填中定义并在 USAGE 示例给出。
-- 验收：单条 + 批量 golden；与现有元信息（如 Address Status 行）不冲突。
+- 默认关闭；与 `--fold`/`--no-body` 组合行为已在 `docs/RFC-conditional-output-CN.md` WP-04 第 3 节定版，实现时同步 USAGE 示例。
+- 已实现并完成独立复核：失败 fold 与 lookup 前短路均保持每输入一条元信息；值归一化无堆分配；attempts 绑定本次 lookup 实际网络上下文。
+- 验收：扩展合同 `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`），覆盖单条、显式/自动批量、组合、失败、本地短路及未启用 `--print-meta` 时的 fold 失败 stdout 兼容性；与现有元信息（如 Address Status 行）不冲突。
 
 ### 5.3 WP-05：链路输出与轻量字段抽取
 
@@ -234,7 +235,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
 | WP-02 | done | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 46 场景三架构安全基线与冻结 SHA 已回填；发现并修复 fold UAF |
 | WP-03 | done | Phase 3 | RFC 定版 + `--no-body` | 协议、产品实现、合同 smoke 与完整发布门禁均已完成 |
-| WP-04 | proposed | Phase 3 | `--print-meta` | 依赖 WP-03 的 RFC 定版，不要求与 WP-03 使用相同执行方式 |
+| WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 9/9 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
 | WP-05 | proposed | Phase 3 | `--print-chain` + `--pick` | 依赖 WP-04 的元信息定义；合并实施须单独评审 |
 | WP-06 | proposed | Phase 3 | `--stats` | 输出位置与组合语义先评审，再决定执行方式 |
 | 后续编号 | 未登记 | 待定 | 按基准结果单独立项的性能优化 | 每项建立独立工作包，使用登记时下一个未占用的 `WP-xx` 编号 |
@@ -393,6 +394,16 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：`--no-body` 贯穿 opts/config/render 路径并覆盖成功、失败、私网、无效输入和 Phase C；新增 parser selftest 与合同 smoke；修正 Selftest Golden raw 策略在无 batch 输入时错误要求私网正文的编排断言；RFC/USAGE/Release Notes 双语回填
 - 决策/回退：`--no-body` 只抑制最终正文渲染，保留首行、Phase C Address Status（如适用）与尾行；不提前停止网络读取；与 `--plain` 或任一 fold 开关组合时 fail-fast
 
+### WP-04/`--print-meta` 实现与验证（2026-08-24）
+- 状态：done
+- 类型：CONTRACT + PRODUCT
+- 执行方式：文档评审/传统交互式
+- 结果：在 `docs/RFC-conditional-output-CN.md` 定版 `--print-meta` 无参数观测选项并完成实现——记录尾后追加单行 TAB 分隔 `k=v`（字段顺序冻结：`query`/`rir`/`status`/`duration_ms`/`attempts`/`redirects`）；`status` 仅 `success|error`，`error` 绑定最终失败判定；数值字段来源已登记（单调时钟差值、连接计数差值、`hops-1`）；与 `--no-body`/`--fold`/`-g`/`--grep*` 合法，与 `--plain` 查询前 fail-fast；字段名与语义冻结，新增字段只允许追加并在 RFC 登记。
+- run：合同 smoke=`out/artifacts/print_meta_contract/20260824-151824`；最终同步制品 Strict `lto-auto`=`out/artifacts/20260824-151759`（350s）
+- 门禁：win64 standalone selftest（含 `opts-print-meta-parser`/`opts-print-meta-plain-conflict`）=PASS；合同 smoke=`18/18`；最终 Strict 九架构 build/hash、Golden、三起点 referral PASS 且无编译/LTO 告警；Linux/QEMU、win32、win64 smoke 首尾对应、零告警；两个 lzispro 同步目录与 artifact `9/9` SHA 一致；编码与 diff 门禁=PASS
+- 变更：`--print-meta` 贯穿 opts/config/render 路径；`wc_result_meta` 新增 `duration_ms`/`attempts`（`wc_lookup_execute` 生命周期采样）；`wc_pipeline_render_meta` 在尾行/折叠行后输出元信息，失败报告路径同步挂载；新增 parser selftest、合同 smoke 与双语 USAGE/Release Notes；修复 `wc_workbuf_reserve` 同缓冲覆盖与失败路径缺元信息两处缺陷
+- 决策：选项名固定 `--print-meta`；元信息行位于记录末尾（尾行或折叠行之后）；观测选项不改变退出码、权威判定与诊断标签；数值字段不可测量输出 0
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
@@ -401,7 +412,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-01：`injection-view-fallback` 定性/修复
 - [x] WP-02：离线基准脚本与 v3.3.0 安全基线报告
 - [x] WP-03：条件输出 RFC 定版 + `--no-body`
-- [ ] WP-04：`--print-meta`
+- [x] WP-04：`--print-meta`
 - [ ] WP-05：`--print-chain` + `--pick`
 - [ ] WP-06：`--stats`
 - [ ] 后续：性能热点优化（按证据逐项登记新的 `WP-xx`）

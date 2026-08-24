@@ -474,6 +474,20 @@ void wc_preclass_emit_observation(const Config* config,
 		preclass_disabled);
 }
 
+static void wc_query_exec_render_meta(const Config* config,
+		const char* query,
+		const struct wc_result* result,
+		const char* authoritative_display)
+{
+	if (!config || !config->print_meta)
+		return;
+	struct wc_result empty_result = {0};
+	wc_client_render_opts_t meta_render_opts =
+		wc_client_render_opts_init(config);
+	wc_pipeline_render_meta(&meta_render_opts, query,
+		result ? result : &empty_result, authoritative_display);
+}
+
 static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 		const char* query)
 {
@@ -501,6 +515,7 @@ static int wc_handle_invalid_ip_or_cidr(const Config* cfg,
 			wc_output_tail_unknown_plain();
 		}
 	}
+	wc_query_exec_render_meta(cfg, safe_query, NULL, "unknown");
 	return 1;
 }
 
@@ -561,7 +576,8 @@ int wc_execute_lookup(const Config* config,
 	return wc_lookup_execute(&q, &lopts, out_res);
 }
 
-int wc_handle_suspicious_query(const char* query, int in_batch,
+int wc_handle_suspicious_query(const Config* config, const char* query,
+		int in_batch,
 		const wc_selftest_injection_t* injection)
 {
 	const char* safe_query = query ? query : "";
@@ -596,11 +612,13 @@ int wc_handle_suspicious_query(const char* query, int in_batch,
 		fprintf(stderr,
 			"Error: Suspicious query detected in batch mode: %s\n",
 			safe_query);
+		wc_query_exec_render_meta(config, safe_query, NULL, "error");
 		return 1;
 	}
 	log_security_event(SEC_EVENT_SUSPICIOUS_QUERY,
 		"Blocked suspicious query: %s", safe_query);
 	fprintf(stderr, "Error: Suspicious query detected\n");
+	wc_query_exec_render_meta(config, safe_query, NULL, "error");
 	wc_cache_cleanup();
 	return 1;
 }
@@ -649,6 +667,7 @@ int wc_handle_private_ip(const Config* config,
 			wc_output_tail_unknown_plain();
 		}
 	}
+	wc_query_exec_render_meta(cfg, safe_query, NULL, "unknown");
 	return 1;
 }
 
@@ -745,21 +764,12 @@ void wc_report_query_failure(const Config* config,
 	int fold_output = config && config->fold_output;
 	int plain_mode = config && config->plain_mode;
 	int no_body = config && config->no_body;
-	if (!fold_output && !plain_mode && res) {
+	if (res) {
 		int failure_has_error = (err != 0 || lerr != 0);
 		const char* via_host = res->meta.via_host[0]
 			? res->meta.via_host
 			: (server_host ? server_host : "whois.iana.org");
 		const char* via_ip = res->meta.via_ip[0] ? res->meta.via_ip : NULL;
-		if (via_ip)
-			wc_output_header_via_ip(query, via_host, via_ip);
-		else
-			wc_output_header_via_unknown(query, via_host);
-		if (!no_body && res->body && res->body[0]) {
-			fputs(res->body, stdout);
-			if (res->body[strlen(res->body) - 1] != '\n')
-				putchar('\n');
-		}
 		const char* auth_host = failure_has_error
 			? "error"
 			: (res->meta.authoritative_host[0]
@@ -770,12 +780,33 @@ void wc_report_query_failure(const Config* config,
 			: (res->meta.authoritative_ip[0]
 				? res->meta.authoritative_ip
 				: "unknown");
-		if (strcmp(auth_host, "unknown") == 0 &&
-				strcmp(auth_ip, "unknown") == 0) {
-			wc_output_tail_unknown_unknown();
-		} else {
-			wc_output_tail_authoritative_ip(auth_host, auth_ip);
+		if (fold_output) {
+			if (config && config->print_meta) {
+				const char* fold_sep = config->fold_sep
+					? config->fold_sep : " ";
+				char* folded = wc_fold_build_line("", query, auth_host,
+					fold_sep, config->fold_upper);
+				printf("%s", folded);
+				free(folded);
+			}
+		} else if (!plain_mode) {
+			if (via_ip)
+				wc_output_header_via_ip(query, via_host, via_ip);
+			else
+				wc_output_header_via_unknown(query, via_host);
+			if (!no_body && res->body && res->body[0]) {
+				fputs(res->body, stdout);
+				if (res->body[strlen(res->body) - 1] != '\n')
+					putchar('\n');
+			}
+			if (strcmp(auth_host, "unknown") == 0 &&
+					strcmp(auth_ip, "unknown") == 0) {
+				wc_output_tail_unknown_unknown();
+			} else {
+				wc_output_tail_authoritative_ip(auth_host, auth_ip);
+			}
 		}
+		wc_query_exec_render_meta(config, query, res, auth_host);
 	}
 }
 
@@ -804,7 +835,7 @@ int wc_client_run_single_query(const Config* config,
 		wc_signal_handle_pending_shutdown();
 		return WC_EXIT_SIGINT;
 	}
-	if (wc_handle_suspicious_query(query, 0, injection))
+	if (wc_handle_suspicious_query(cfg, query, 0, injection))
 		return 1;
 	if (wc_query_exec_validate_ip_or_cidr(cfg, query))
 		return 0;

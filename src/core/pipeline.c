@@ -246,6 +246,50 @@ static void wc_pipeline_render_tail(const wc_client_render_opts_t* render_opts,
     }
 }
 
+// Print a metadata value for TAB-separated k=v output: control characters
+// and whitespace runs collapse to a single space; leading/trailing dropped.
+static void wc_pipeline_print_meta_value(const char* src)
+{
+    int emitted = 0;
+    int pending_space = 0;
+    if (!src)
+        src = "";
+    for (const unsigned char* p = (const unsigned char*)src; *p; ++p) {
+        unsigned char c = *p;
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c < 32) {
+            pending_space = 1;
+            continue;
+        }
+        if (pending_space && emitted)
+            putchar(' ');
+        pending_space = 0;
+        putchar((char)c);
+        emitted = 1;
+    }
+}
+
+// Emit the WP-04 metadata line: one TAB-separated k=v record appended at the
+// end of a query record (after the authoritative tail or after the folded line).
+void wc_pipeline_render_meta(const wc_client_render_opts_t* render_opts,
+        const char* query,
+        const struct wc_result* res,
+        const char* authoritative_display)
+{
+    if (!render_opts || !res || !render_opts->print_meta || render_opts->plain_mode)
+        return;
+    const char* rirv = (authoritative_display && *authoritative_display)
+        ? authoritative_display : "unknown";
+    const char* status = (strcmp(rirv, "error") == 0) ? "error" : "success";
+    unsigned int redirects = (res->meta.hops > 0)
+        ? (unsigned int)(res->meta.hops - 1) : 0;
+    fputs("query=", stdout);
+    wc_pipeline_print_meta_value(query);
+    fputs("\trir=", stdout);
+    wc_pipeline_print_meta_value(rirv);
+    printf("\tstatus=%s\tduration_ms=%u\tattempts=%u\tredirects=%u\n",
+        status, res->meta.duration_ms, res->meta.attempts, redirects);
+}
+
 // Centralized render pipeline used by both batch and single-query paths.
 void wc_pipeline_render(const Config* cfg,
         const wc_client_render_opts_t* render_opts,
@@ -330,6 +374,8 @@ void wc_pipeline_render(const Config* cfg,
             render_opts ? render_opts->fold_upper : 0,
             &filter_wb);
         printf("%s", folded);
+        wc_pipeline_render_meta(render_opts, query, res,
+            authoritative_display);
     } else {
         if (plain_mode && filtered) {
             filtered = wc_pipeline_strip_plain_hints_inplace(filtered);
@@ -345,6 +391,8 @@ void wc_pipeline_render(const Config* cfg,
             }
         }
         wc_pipeline_render_tail(render_opts, res, authoritative_display);
+        wc_pipeline_render_meta(render_opts, query, res,
+            authoritative_display);
     }
     if (authoritative_display_owned)
         free(authoritative_display_owned);

@@ -166,6 +166,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_
 - `--no-body` 抑制最终 WHOIS 正文，但保留查询首行、适用时的 `Address Status:` 和权威尾行；DNS、连接、重试、重定向、权威判定及 `-g/--grep*` 过滤仍完整执行。
 - `--no-body` 可与 `-g`、`--grep*`、正文选择器及批量模式组合；与 `--plain`、`--fold`、`--fold-sep`、`--fold-unique` 或 `--no-fold-upper` 组合会在查询前报错退出。
 - WP-03 最终制品验证（2026-08-24）：Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-115609`，248s）；Linux/QEMU、win32、win64 smoke=`18/3/3` 且首尾一一对应、零告警，两个 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品合同 smoke=`13/13`（`out/artifacts/no_body_contract/20260824-120031`）。
+- `--print-meta` 在每条查询记录末尾追加一行 TAB 分隔的 `k=v` 元信息：`query=...`、`rir=...`、`status=success|error`、`duration_ms=...`、`attempts=...`、`redirects=...`；首行、正文、尾行与退出码保持不变。
+- `--print-meta` 可与 `-g`、`--grep*`、`--no-body`、`--fold` 及批量模式组合；与 `--plain` 组合会在查询前报错退出。
+- lookup 失败配合 `--fold` 时固定输出 `<query> ERROR` 后再输出 error 元信息；非法 IP/CIDR 与显式私网沿用既有 unknown 尾行，元信息为 `rir=unknown status=success`；安全规则在 lookup 前拒绝时仅输出 `rir=error status=error` 元信息。未触网路径的三个数值字段均为 0。
+- 未启用 `--print-meta` 时，`--fold` 的既有失败行为不变：lookup 失败只写 stderr，stdout 为空。
+- 元信息值会删除首尾空白，并把内部连续空白或控制字符折叠为单空格；反斜杠仍按字面输出。
+- WP-04 最终验证（2026-08-24）：扩展 smoke `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`），新增覆盖失败 fold、非法输入、显式私网、安全拒绝、值归一化、stdin 自动批量、grep 组合及未启用元信息时的 fold 失败兼容性；最终同步 win64 standalone selftest PASS。Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS（`out/artifacts/20260824-151759`，350s），两个同步目录与 artifact 的 SHA 均为 `9/9` 一致。
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
 - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
 - `--no-fold-upper` 保留原大小写（默认会转为大写）

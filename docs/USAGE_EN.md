@@ -789,6 +789,12 @@ printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 --no-body
 
 WP-03 final artifact verification (2026-08-24): the Strict `lto-auto` run passes all nine builds/hashes, Golden, and the three referral starts with no compile/LTO warnings (`out/artifacts/20260824-115609`, 248s). Linux/QEMU, win32, and win64 smoke counts are `18/3/3`, with matching query headers and authoritative tails and zero alerts; both lzispro sync directories match the artifact hashes `9/9`. The final win64 artifact also passes the dedicated contract smoke `13/13` (`out/artifacts/no_body_contract/20260824-120031`).
 
+`--print-meta` appends one TAB-separated `k=v` metadata line per query record: `query=...`, `rir=...`, `status=success|error`, `duration_ms=...`, `attempts=...`, `redirects=...`; headers, body, tail, and exit codes remain unchanged. It combines with `-g`, `--grep*`, `--no-body`, `--fold`, and batch mode; combining it with `--plain` fails before lookup.
+
+With `--fold`, a lookup failure emits `<query> ERROR` followed by error metadata. Without `--print-meta`, the existing folded-failure behavior is unchanged: lookup failures write only to stderr and leave stdout empty. Invalid IP/CIDR and explicit private-address rejection retain their existing unknown tail and emit `rir=unknown status=success`; a security rejection before lookup emits only `rir=error status=error` metadata. All three numeric fields are zero when no network lookup occurs. Metadata values drop leading/trailing whitespace and collapse internal whitespace or control characters to one space; backslashes remain literal.
+
+WP-04 final verification (2026-08-24): the expanded contract smoke passes `18/18` (`out/artifacts/print_meta_contract/20260824-151824`), adding lookup-failure fold, invalid input, explicit private, security rejection, value normalization, automatic stdin batch, grep-combination coverage, and compatibility for folded failures without metadata enabled; the final synchronized win64 artifact passes the standalone selftest. The Strict `lto-auto` run passes all nine builds/hashes, Golden, and three referral starts (`out/artifacts/20260824-151759`, 350s), and both sync directories match the artifact hashes `9/9`.
+
 - Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
   - Format: `<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`
   - Handy for BusyBox pipelines and simple classification

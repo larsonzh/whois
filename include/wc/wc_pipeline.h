@@ -31,6 +31,13 @@ char* wc_apply_response_filters(const Config* config,
 								int in_batch,
 								wc_workbuf_t* wb);
 
+// Append the WP-04 TAB-separated metadata line for the given query record
+// (used by the success render path and the failure report path).
+void wc_pipeline_render_meta(const wc_client_render_opts_t* render_opts,
+							 const char* query,
+							 const struct wc_result* res,
+							 const char* authoritative_display);
+
 #ifdef __cplusplus
 }
 #endif

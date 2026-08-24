@@ -42,7 +42,8 @@ static const char* const k_conditional_output_lines[] = {
     "      --fold-sep STR        Separator for folded output (default: space)",
     "      --no-fold-upper       Preserve original case in folded output (default: upper)",
     "      --fold-unique         De-duplicate tokens in folded output",
-    "      --no-body             Suppress response body; keep query header, status, and authoritative tail"
+    "      --no-body             Suppress response body; keep query header, status, and authoritative tail",
+    "      --print-meta          Append a TAB-separated k=v metadata line per query"
 };
 
 static const char* const k_diagnostics_lines[] = {

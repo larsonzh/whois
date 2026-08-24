@@ -21,7 +21,8 @@ int wc_execute_lookup(const Config* config,
                       wc_net_context_t* net_ctx,
                       struct wc_result* out_res);
 
-int wc_handle_suspicious_query(const char* query,
+int wc_handle_suspicious_query(const Config* config,
+                               const char* query,
                                int in_batch,
                                const wc_selftest_injection_t* injection);
 int wc_handle_private_ip(const Config* config,

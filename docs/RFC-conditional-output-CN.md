@@ -60,6 +60,77 @@
 
 验收结果（2026-08-24）：独立合同 smoke `13/13` PASS；最终同步制品 Strict `lto-auto` 九架构 build/hash、Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-115609`，248s）。Linux/QEMU、win32、win64 smoke 分别为 `18/3/3`，首尾行一一对应且零告警；仓库内、外部 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品再次通过 `13/13` 合同 smoke（`out/artifacts/no_body_contract/20260824-120031`）。
 
+## WP-04：`--print-meta` 冻结契约
+
+### 1. 作用域与数据流
+
+- `--print-meta` 是无参数、默认关闭的观测选项；不新增短选项；选项名固定为 `--print-meta`，不复用 `--fold` 名称。
+- 查询、DNS、连接、重试、完整响应读取、重定向、权威判定、title 投影、grep 过滤与 fold 处理全部照常执行。该选项不得提前停止网络读取，不得改变退出码、最终权威 RIR、诊断标签或 workbuf 统计。
+- 每条查询在记录末尾追加一行元信息（见第 2 节）；批量模式逐条输出，不新增批次汇总行（汇总属 WP-06 `--stats`）。
+
+### 2. 输出格式与记录边界
+
+- 一行一个记录；字段对之间以 TAB 分隔，键与值以 `=` 连接；解析规则为取第一个 `=` 作为键值分隔，值允许包含 `=`。
+- 字段顺序固定为：`query`、`rir`、`status`、`duration_ms`、`attempts`、`redirects`。
+- 行位置（固定排列）：
+  - 非 fold/plain：`=== Query:` → `Address Status:`（如适用）→ 正文（`--no-body` 时省略）→ `=== Authoritative RIR:` → 元信息行
+  - `--fold`：折叠行 → 元信息行
+  - lookup 失败且启用 `--fold`：`<query> ERROR` → `rir=error status=error` 元信息行
+  - 安全规则在 lookup 前拒绝输入：不回显业务边界，仅输出 `rir=error status=error` 元信息行；诊断仍写 stderr
+  - `--plain`：见第 3 节（非法组合）
+- 批量记录顺序与输入顺序一致；每个非空输入项恰好输出一行元信息。
+
+### 3. 组合与冲突
+
+| 组合 | 规则 |
+|---|---|
+| `--print-meta` + `-g/--grep*` | 合法；过滤只影响正文，元信息行与过滤结果无关 |
+| `--print-meta` + `--no-body` | 合法；元信息行照常输出 |
+| `--print-meta` + `--fold` | 合法；折叠行后输出元信息行 |
+| `--print-meta` + `--fold-sep/--fold-unique/--no-fold-upper` | 合法；由 `--fold` 组合承载 |
+| `--print-meta` + `--plain` | 非法；在查询开始前按 usage-error 输出单行错误并非零退出 |
+
+重复指定 `--print-meta` 幂等；选项先后顺序不改变判定。冲突判定优先级：`--print-meta` 与 `--plain` 的冲突最先判定；现有 `--plain`/`--no-body`/`--fold` 互斥判定保持不变，`--print-meta` 不改变这些判定。
+
+### 4. 字段语义与稳定表示
+
+- `query`：本输入项（批量行归一后原样，含 CIDR/域名/ASN）。
+- `rir`：最终权威显示 host，与尾行 host 完全一致（含 `unknown`/`error`；IP 字面量按尾行同一映射规则转换）。
+- `status`：仅两值 `success`/`error`。`error` 当且仅当最终失败判定成立（即尾行 host 为 `error` 的未收敛/失败判定：限流/拒绝访问、传输失败、未消失败债权等）；其余情形（权威收敛、`unknown` 权威回落、Phase C 早收敛 Address Status）均为 `success`。
+- lookup 前本地短路保持既有业务边界语义：非法 IP/CIDR 与显式私网拒绝已有 `unknown` 尾行，因此输出 `rir=unknown status=success`；安全规则拒绝没有业务尾行，稳定输出 `rir=error status=error`。这些路径未发生网络尝试，三个数值字段均为 0。
+- `duration_ms`：查询生命周期单调时钟差值（毫秒，无符号整数；由执行器在查询前后采样单调时钟）。
+- `attempts`：查询生命周期内连接尝试次数（本次 lookup 实际网络上下文计数的前后差值；无法取得差值时输出 0）。
+- `redirects`：由既有 `hops` 推导，公式 `(hops > 0) ? (hops - 1) : 0`。
+- 数值字段不可测量的稳定表示为 0；所有字段恒输出，不省略键。
+
+### 5. 转义与资源上限
+
+- 值中的 TAB、LF、CR、NUL 及其他控制字符归一为单个空格；连续空白折叠为单空格；首尾空白去除；反斜杠按字面输出，不引入转义层。
+- 键名固定小写 ASCII（字母与下划线）；无转义前缀。
+- 不新增资源上限：query 长度沿用现有上限（批量行缓冲、argv 参数）；元信息行由固定键和有界值组成，不新增累计输出长度上限。
+
+### 6. 兼容与字段演进
+
+- 字段名称与语义冻结；后续新增字段只允许追加到行尾并在本 RFC 登记，不改变既有字段顺序与含义；同步更新解析器与黄金测试。
+- `--print-meta` 是观测选项：不掩盖查询失败，不改变权威判定，不改变退出码。
+
+### 7. 验收矩阵
+
+- 默认未启用：与当前 golden 逐字节一致。
+- 单条：success、unknown、error 各输出一行元信息；字段数 6、顺序正确、数值字段非负。
+- 批量：显式 `-B` 与 stdin 非 TTY 各验证每条记录一行元信息、顺序一致、无附加汇总行。
+- 组合：`--no-body`、`--fold`、`-g`/`--grep*` 各组合验证行排列；`--plain` 组合验证查询前 fail-fast（usage-error 单行、非零退出）。
+- 早返回：lookup 失败 + fold、非法 IP/CIDR（普通/fold）、显式私网拒绝和安全规则拒绝均验证恰好一行元信息及稳定状态。
+- 归一化：argv 值的前导/尾随空白删除，内部空白和控制字符折叠为单空格。
+- 数值语义：`duration_ms >= 0`、`attempts >= 0`、`redirects >= 0`；私网/无效输入样本下 `rir` 与 `status` 与尾行语义一致。
+- BusyBox：`printf '8.8.8.8\n1.1.1.1\n' | whois-client --no-body --print-meta` 可由 awk/cut 按 TAB 提取 `query=`、`status=` 字段。
+
+### 验收结果（2026-08-24）
+
+- 独立复核后的合同 smoke 扩展为 `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`）：在原 success/unknown/error/private、`--no-body`/`--fold`/显式批量、幂等与 `--plain` 基础上，新增 lookup 失败 + fold、非法 IP/CIDR（普通/fold）、显式私网、安全拒绝、前导/尾随空白归一化、stdin 自动批量、grep 组合及未启用 `--print-meta` 时 fold 失败 stdout 兼容性覆盖；最终同步 win64 制品 standalone selftest 及 parser/冲突断言继续 PASS。
+- 最终同步制品 Strict `lto-auto` 九架构 build/hash、Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-151759`，350s）；Linux/QEMU、win32、win64 smoke 首尾一一对应且零告警；两个 lzispro 同步目录与 artifact `9/9` SHA 一致。
+- 实现与独立复核共修复：共享 workbuf 覆盖导致 `query=unknown`、普通失败路径缺元信息、失败 + fold 与 lookup 前短路漏行、前导空白未去除，以及 attempts 错读 active context 而非本次 lookup override context。值归一化改为无堆分配流式输出，避免内存分配失败静默丢失整条元信息。
+
 > 更新注记（2025-11-16）：本 RFC 聚焦“条件输出/筛选/折叠”等业务能力；3.2.2 的安全加固、3.2.7 的 CLI-only 节流迁移与 3.2.8 的三跳/重试指标增强均保持默认 stdout 契约不变，故仅在此补充里程碑：
 > - 已交付：`-g` 标题前缀筛选（Step 1）、`--grep/--grep-cs` + 行/块模式（Step 1.5）、`--fold` 单行折叠（3.2.1）、CLI-only 节流与重试指标（3.2.7）、三跳模拟与黑洞自测/指标基线（3.2.8）。
 > - 待办/评估：`--no-body`、链路/元信息打印、早停/最大字节优化、轻量字段抽取（Step 4）等仍按路线推进；安全与网络增强保持与本 RFC 正交。

@@ -221,7 +221,7 @@ static int selftest_injection_view_fallback(void) {
     if (inj.fault_version == 0)
         inj.fault_version = 1;
     wc_selftest_set_injection_view_for_test(&inj);
-    int rc = wc_handle_suspicious_query("1.2.3.4;", 0, NULL);
+    int rc = wc_handle_suspicious_query(NULL, "1.2.3.4;", 0, NULL);
     int failed_local = 0;
     if (rc == 0) {
         fprintf(stderr, "[SELFTEST] action=injection-view-fallback: PASS\n");
@@ -527,6 +527,8 @@ static int selftest_preclass_phasec_policy(void)
         wc_opts_t long_opts;
         wc_opts_t permuted_opts;
         wc_opts_t no_body_opts;
+        wc_opts_t print_meta_opts;
+        wc_opts_t print_meta_conflict_opts;
         char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
         char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
         char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
@@ -568,6 +570,29 @@ static int selftest_preclass_phasec_policy(void)
             fprintf(stderr, "[SELFTEST] opts-no-body-parser: PASS\n");
         }
         wc_opts_free(&no_body_opts);
+        optind = 1;
+        {
+            char* print_meta_argv[] = { "whois", "--print-meta", "8.8.8.8", NULL };
+            if (wc_opts_parse(3, print_meta_argv, &print_meta_opts) != 0 ||
+                !print_meta_opts.print_meta) {
+                fprintf(stderr, "[SELFTEST] opts-print-meta-parser: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-print-meta-parser: PASS\n");
+            }
+            wc_opts_free(&print_meta_opts);
+        }
+        optind = 1;
+        {
+            char* conflict_argv[] = { "whois", "--print-meta", "--plain", "8.8.8.8", NULL };
+            if (wc_opts_parse(4, conflict_argv, &print_meta_conflict_opts) == 0) {
+                fprintf(stderr, "[SELFTEST] opts-print-meta-plain-conflict: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-print-meta-plain-conflict: PASS\n");
+            }
+            wc_opts_free(&print_meta_conflict_opts);
+        }
     }
     return failed;
 }

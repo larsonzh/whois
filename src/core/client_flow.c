@@ -809,7 +809,7 @@ int wc_client_run_batch_stdin(const Config* config,
         const char* query = wc_client_normalize_batch_line(linebuf);
         if (!query)
             continue;
-        if (wc_handle_suspicious_query(query, 1, injection))
+        if (wc_handle_suspicious_query(cfg, query, 1, injection))
             continue;
           /* Let normal implicit special-purpose queries reach Phase C while
               preserving explicit hosts and force-private selftest coverage. */
