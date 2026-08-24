@@ -351,18 +351,18 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 执行方式：传统交互式
 - 执行映射：A/B=不适用；task-definition=不适用
 - 基线/依赖：v3.3.0；无前置工作包
-- 结果：本地 dry-run PASS；远程 build+sync、最终 tag 指向与真实发布演练待预发布窗口完成
-- run：`out/artifacts/oneclick_dryrun_guard/20260824-071904`
-- 门禁：专项 dry-run=PASS；其余发布侧门禁待本工作包后续实施项完成后执行
-- 变更：构建/同步/静态产物提交前移到 tag 创建之前；目标 tag 不存在时以进程环境注入 `WHOIS_FORCE_VERSION`；现有 tag 不指向最终提交时 fail-close；GitHub/Gitee token 不再进入 Bash 命令文本；smoke 新增顺序、强制版本、token 内联与九架构加 checksum 集合断言
-- 决策/回退：保留 opt-in 发布行为与默认远程构建入口；真实演练前不关闭 WP-01，`injection-view-fallback` 仍作为独立实施项处理
+- 结果：本地 dry-run PASS；`injection-view-fallback` 已修复并纳入 core golden；最终 Strict 重建与双目录制品同步 PASS；真实 one-click 最终 tag 指向演练待预发布窗口完成
+- run：`out/artifacts/oneclick_dryrun_guard/20260824-071904`；Fast=`out/artifacts/20260824-073602`；selftest=`20260824-073602/074252/074814/075417/080035`；Strict=`out/artifacts/20260824-081341`
+- 门禁：专项 dry-run=PASS；Fast x86_64/win64 build/hash/smoke/golden=PASS；standalone selftest exit=0；core 与四策略 selftest golden=PASS；Strict `lto-auto` 默认轮无编译/LTO 告警、九架构 hash `9/9`、Golden/referral PASS（281s），三份 smoke 无硬错误，双同步目录九架构哈希一致；其余发布侧门禁待本工作包后续实施项完成后执行
+- 变更：构建/同步/静态产物提交前移到 tag 创建之前；目标 tag 不存在时以进程环境注入 `WHOIS_FORCE_VERSION`；现有 tag 不指向最终提交时 fail-close；GitHub/Gitee token 不再进入 Bash 命令文本；smoke 新增顺序、强制版本、token 内联与九架构加 checksum 集合断言；修正 `injection-view-fallback` 对 handler 返回契约的反向断言，并新增 core golden 双向门禁
+- 决策/回退：保留 opt-in 发布行为与默认远程构建入口；生产查询逻辑未因 selftest 修复改变；真实发布演练前不关闭 WP-01
 
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
 - [x] WP-01：令牌脱敏 + 静态自检
 - [x] WP-01：dry-run 防回归断言（本地无构建路径；远程 build+sync 路径待办）
-- [ ] WP-01：`injection-view-fallback` 定性/修复
+- [x] WP-01：`injection-view-fallback` 定性/修复
 - [ ] WP-02：离线基准脚本与 v3.3.0 基线报告
 - [ ] WP-03：条件输出 RFC 定版 + `--no-body`
 - [ ] WP-04：`--print-meta`

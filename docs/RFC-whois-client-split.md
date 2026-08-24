@@ -5,7 +5,7 @@
 > - 明确“已完成的历史拆分”和“当前维护状态”，便于长期维护和断点续作；
 > - 保证在任何时刻，都能回答：当前 master 上 `whois_client.c` 的形态与目标状态之间还差多少。
 
-**当前状态（截至 2026-08-23）**：
+**当前状态（截至 2026-08-24）**：
 
 - `whois_client.c` 已收敛为参数入口与前端调度薄层；客户端拆分主线完成，不再以文件行数、helper 数量或 A/B 轮次作为继续拆分依据。
 - Address-Space 前置分类器的功能开发、默认放量、回退路径、契约验证与 literal 收敛均已完成；剩余 6 个多调用或带 prototype 的 literal helper 作为命名常量有意保留。
@@ -14,11 +14,12 @@
 
 **当前维护状态（唯一状态入口）**：
 
-- 当前无主动开发事项。RFC 状态治理与 A/B 单阶段轮次检查点 Phase 1 已于 2026-08-23 收口。
-- 2026-08-23 发布候选完整复核已通过，无需代码修复。当前语义冻结；下一步仅进行版本号确认、release body、tag 与 GitHub Release 收口。若后续修改源码、测试或发布制品，须重跑受影响门禁后再发布。
+- post-3.3.0 开发已按 `docs/RFC-post-3.3.0-development-plan.md` 启动，WP-01 当前为 active；后续工作包状态以该 RFC 为唯一入口。
+- 2026-08-24 已修复 `injection-view-fallback` standalone selftest 的反向返回值断言，生产查询逻辑与输出契约不变；Strict `lto-auto` 默认轮九架构、hash、Golden、referral 与 standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s）。WP-01 尚待真实 one-click 最终 tag 指向演练。
 - 核心模块局部治理与性能优化不设常驻优先级或排期；仅在测试覆盖和可复现实测基线证明收益后，以新事项启动。
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-24：WP-01 `injection-view-fallback` 遗留项完成修复与重建复核。测试改用天然可疑输入区分 injection view fallback 与普通阻断，并按 handler 既有返回契约断言；core golden 新增 PASS 必须出现、FAIL 禁止出现。最终 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 Local hash `9/9`、Golden 与三起点 referral 全 PASS（`out/artifacts/20260824-081341`，281s）；Linux/win32/win64 smoke 为 `18/3/3` 条完整查询且无硬错误，Strict win64 standalone selftest exit=0，双同步目录九架构哈希一致。
 - 2026-08-23：响应分类修复后的发布候选完整复核通过。Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 清单实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`，292s；`20260823-152347`，281s）；Batch 四策略全 `[golden] PASS`（`152928/153443/154054/154744`，1,356.781s）；Selftest 四策略及独立 core golden 全 PASS（`155355/155909/160500/161048`，1,298.199s），core 报告逐项命中 `redirect-invalid-key-priority`、`redirect-denied-priority`、`redirect-rate-limit-priority`、`redirect-semantic-empty-priority` PASS 且禁止对应 FAIL。12x6 authority 空表、`errors=(no errors found)`（`out/artifacts/redirect_matrix_10x6/20260823-161855`）；CIDR body `4/4`、draft matrix `9/9`、bundle exit 0（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍含既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不属于 golden 门禁全绿声明，也不是本轮回归；本轮无需代码修复。
 - 2026-08-23：RFC 状态治理与 A/B 检查点 Phase 1 收口完成：完整 `status_ticket_mini_regression.ps1` 实跑 `72/72 PASS`（`failed_cases=0`），其中 `round-checkpoint-phase1`、`fast-pass-resume-matrix` 均 PASS；证据 `out/artifacts/status_ticket_mini_regression/20260823-144058`。顶部唯一状态入口不再保留已完成的 P0/P1；Phase 1 固定为观测元数据，恢复继续使用 fast-pass，direct resume 不启用，Phase 2/3 保持关闭。
 - 2026-08-23：确定性响应分类回归完成：新增 `redirect-invalid-key-priority`、`redirect-denied-priority`、`redirect-rate-limit-priority`、`redirect-semantic-empty-priority` 四条离线冻结响应 selftest，覆盖 `Failure > Non-Authoritative > Semantic Empty > Authoritative` 的关键冲突边界；core selftest golden 对每项要求 PASS 且禁止 FAIL。Linux、win32、win64 三架构构建/自测、Local hash 与 referral 全 PASS（最终证据 `out/artifacts/core_selftest/20260823-142050`）；invalid-search-key 首轮发现并修复统一写回前的状态覆盖缺陷，其余生产行为已符合契约。

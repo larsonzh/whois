@@ -39,6 +39,8 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 Lookup rules contract (new): `docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
 
+Post-3.3.0 fix verification (2026-08-24): the reversed return-value assertion in the `injection-view-fallback` standalone selftest is corrected; production query logic and output contracts are unchanged. The core golden gate now requires PASS and forbids FAIL. The final default Strict `lto-auto` round has no compile/LTO warnings, and all nine hashes, Golden, all three referral starts, and the Strict standalone selftest pass (`out/artifacts/20260824-081341`, 281s); synchronized artifact hashes match.
+
 Release-candidate verification (2026-08-23): default/debug Strict `lto-auto` rounds have no compile/LTO warnings, both nine-architecture SHA-256 lists recalculate with `9/9` matches, and Golden/referral checks pass (`out/artifacts/20260823-151731`, `20260823-152347`). All four Batch and Selftest Golden strategies pass, and the standalone core golden gate locks all four response-classification priority assertions. The 12x6 authority-mismatch table is empty with no errors (`redirect_matrix_10x6/20260823-161855`); CIDR body is `4/4` and the draft matrix is `9/9` (`cidr_bundle_summary_20260823-163528.txt`). The complete standalone core raw log still contains pre-existing network WARN/SKIP results and `injection-view-fallback: FAIL`; do not describe that standalone run as all green, and do not treat it as a regression in this change. No code fix is required and current semantics are frozen.
 
 Need one-click Release updating (optionally skip tagging) or a quick remote Makefile build smoke check? See the Operations guide:

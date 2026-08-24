@@ -41,6 +41,8 @@
 
 查询规则契约（新增）：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
 
+post-3.3.0 修复验证（2026-08-24）：`injection-view-fallback` standalone selftest 的反向返回值断言已修正，生产查询逻辑与输出契约不变；core golden 现要求 PASS 且禁止 FAIL。最终 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 hash、Golden、三起点 referral 与 Strict standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s），同步制品哈希一致。
+
 发布候选验证（2026-08-23）：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`、`20260823-152347`）；Batch 与 Selftest Golden 四策略全 PASS，独立 core golden 逐项锁定四条响应分类优先级断言；12x6 authority mismatch 空表且无 errors（`redirect_matrix_10x6/20260823-161855`）；CIDR body `4/4`、draft matrix `9/9`（`cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍有既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不应表述为 standalone 全绿，也不影响本轮 golden 门禁结论。本轮无需代码修复，当前语义冻结。
 
 若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：

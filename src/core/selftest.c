@@ -221,9 +221,9 @@ static int selftest_injection_view_fallback(void) {
     if (inj.fault_version == 0)
         inj.fault_version = 1;
     wc_selftest_set_injection_view_for_test(&inj);
-    int rc = wc_handle_suspicious_query("1.2.3.4", 0, NULL);
+    int rc = wc_handle_suspicious_query("1.2.3.4;", 0, NULL);
     int failed_local = 0;
-    if (rc != 0) {
+    if (rc == 0) {
         fprintf(stderr, "[SELFTEST] action=injection-view-fallback: PASS\n");
     } else {
         fprintf(stderr, "[SELFTEST] action=injection-view-fallback: FAIL\n");

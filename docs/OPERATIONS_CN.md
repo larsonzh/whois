@@ -4,6 +4,8 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+post-3.3.0 WP-01 重建复核（2026-08-24）：修正 `injection-view-fallback` standalone selftest 断言并补入 core golden 后，Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 Local hash `9/9`、Golden 与三起点 referral 全 PASS（`out/artifacts/20260824-081341`，281s）。Linux/win32/win64 smoke 分别完成 `18/3/3` 条查询，标题与权威尾行数量一致且无硬错误；Strict win64 standalone `--selftest` 退出 0，fallback PASS=1/FAIL=0。仓库内与外部 lzispro 同步目录的九架构哈希均与 artifact 清单一致。此记录是 v3.3.0 基线后的修复验证，不改写下方 2026-08-23 发布候选的历史状态。
+
 发布候选复核记录（2026-08-23）：响应分类修复后，Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`，292s；`20260823-152347`，281s）；Batch 四策略全 PASS（`152928/153443/154054/154744`），Selftest 四策略与独立 core golden 全 PASS（`155355/155909/160500/161048`），四条新增分类优先级 PASS 均命中且对应 FAIL 均被禁止；12x6 authority mismatch 空表、无 errors（`redirect_matrix_10x6/20260823-161855`）；CIDR bundle 为 body `4/4` + draft `9/9`、exit 0（`cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍有既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不能写成 standalone 全绿，但不构成本轮回归。本轮无需代码修复；后续只进行版本号、release body、tag 与 GitHub Release 收口，任一源码/测试/制品变更后重跑受影响门禁。
 
 ## 日报/发布记录一段式结论模板（A/B 无人值守）

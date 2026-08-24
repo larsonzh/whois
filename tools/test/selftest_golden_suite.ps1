@@ -282,11 +282,13 @@ $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] red
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-denied-priority: PASS')
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-rate-limit-priority: PASS')
 $coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-semantic-empty-priority: PASS')
+$coreArgs += " --require-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] action=injection-view-fallback: PASS')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] preclass-(consistency|single-pass|cache-single-scan): FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-invalid-key-priority: FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-denied-priority: FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-rate-limit-priority: FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] redirect-semantic-empty-priority: FAIL.*')
+$coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[SELFTEST\] action=injection-view-fallback: FAIL.*')
 $coreArgs += " --forbid-line " + (Convert-ToBashLiteral -Text '\[PRECLASS-CONSISTENCY\].*')
 $coreCmd = "cd $repoQuoted && set -o pipefail && $coreArgs 2>&1 | tee " + (Convert-ToBashLiteral -Text $coreReportMsys)
 Write-Output "[suite-selftest] [core] golden: $coreCmd"
