@@ -377,6 +377,7 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->no_body = 0;
     o->print_meta = 0;
     o->print_chain = 0;
+    o->stats = 0;
     o->pick_keys = NULL;
     o->pick_mode = WC_PICK_MODE_FIRST;
     o->pick_mode_seen = 0;
@@ -415,6 +416,7 @@ static struct option wc_long_options[] = {
     {"print-chain", no_argument, 0, 1324},
     {"pick", required_argument, 0, 1325},
     {"pick-mode", required_argument, 0, 1326},
+    {"stats", no_argument, 0, 1327},
     {"buffer-size", required_argument, 0, 'b'},
     {"retries", required_argument, 0, 'r'},
     {"timeout", required_argument, 0, 't'},
@@ -593,6 +595,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1322: o->no_body = 1; break;
             case 1323: o->print_meta = 1; break;
             case 1324: o->print_chain = 1; break;
+            case 1327: o->stats = 1; break;
             case 1325: {
                 char* parsed = NULL;
                 if (wc_pick_parse_keys(optarg, &parsed) != 0)
@@ -846,6 +849,10 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
     }
     if (o->pick_keys && o->plain_mode) {
         fprintf(stderr, "Error: --pick cannot be combined with --plain\n");
+        return 35;
+    }
+    if (o->stats && o->plain_mode) {
+        fprintf(stderr, "Error: --stats cannot be combined with --plain\n");
         return 35;
     }
     if (o->no_body && o->plain_mode) {

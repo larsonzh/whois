@@ -38,6 +38,7 @@ struct Config {
 	int no_body;                   // Suppress final response body rendering
 	int print_meta;                // Append per-query k=v metadata line when set
 	int print_chain;               // Append ordered logical server hops when set
+	int stats;                     // Append one batch summary line at EOF
 	const char* pick_keys;         // Canonical --pick key list, or NULL
 	int pick_mode;                 // --pick-mode: 0=first, 1=join
 	int show_non_auth_body;        // Show non-authoritative bodies when enabled

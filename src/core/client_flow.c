@@ -47,6 +47,7 @@
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
 #include "wc/wc_server.h"
+#include "wc/wc_stats.h"
 
 static int wc_client_debug_enabled(const Config* config)
 {
@@ -601,6 +602,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
     const char* server_host,
     int port,
     wc_net_context_t* net_ctx,
+    wc_stats_t* stats,
     const char* query)
 {
     wc_batch_context_builder_t ctx_builder;
@@ -615,6 +617,8 @@ static int wc_client_handle_batch_query(const Config* cfg,
     memset(&res, 0, sizeof(res));
 
     if (wc_query_exec_validate_ip_or_cidr(cfg, query)) {
+        if (stats)
+            wc_stats_record(stats, 1, WC_STATS_ERROR_NONE, "unknown", 0);
         wc_runtime_housekeeping_tick();
         return 0;
     }
@@ -635,19 +639,24 @@ static int wc_client_handle_batch_query(const Config* cfg,
     if (step47_short_circuit) {
         if (wc_client_init_unknown_result(&res, start_host) != 0) {
             wc_report_query_failure(cfg, query, start_host, ENOMEM, &res);
+            if (stats)
+                wc_stats_record(stats, 0, WC_STATS_ERROR_INTERNAL, NULL, 0);
             wc_runtime_housekeeping_tick();
             return WC_EXIT_FAILURE;
         }
         wc_pipeline_render(cfg, render_opts,
             query, start_host, &res, 1);
+        if (stats)
+            wc_stats_record(stats, 1, WC_STATS_ERROR_NONE, "unknown", 0);
         wc_lookup_result_free(&res);
         wc_runtime_housekeeping_tick();
         return 0;
     }
 
     rc = wc_execute_lookup(cfg, query, start_host, port, net_ctx, &res);
+    int lookup_succeeded = (!rc && res.body) ? 1 : 0;
 
-    if (!rc && res.body) {
+    if (lookup_succeeded) {
         wc_pipeline_render(cfg, render_opts,
             query, start_host, &res, 1);
     } else {
@@ -655,6 +664,22 @@ static int wc_client_handle_batch_query(const Config* cfg,
             res.meta.last_connect_errno);
         wc_report_query_failure(cfg, query, start_host,
             res.meta.last_connect_errno, &res);
+    }
+
+    if (stats) {
+        const char* authoritative_host = res.meta.authoritative_host[0]
+            ? res.meta.authoritative_host : NULL;
+        char* mapped_host = NULL;
+        if (lookup_succeeded && authoritative_host &&
+                wc_dns_is_ip_literal(authoritative_host)) {
+            mapped_host = wc_dns_rir_fallback_from_ip(cfg, authoritative_host);
+            if (mapped_host)
+                authoritative_host = mapped_host;
+        }
+        wc_stats_record(stats, lookup_succeeded,
+            lookup_succeeded ? WC_STATS_ERROR_NONE : WC_STATS_ERROR_LOOKUP,
+            authoritative_host, res.meta.duration_ms);
+        free(mapped_host);
     }
 
     if (wc_client_is_batch_strategy_enabled()) {
@@ -698,6 +723,12 @@ static int wc_client_prepare_mode(const wc_opts_t* opts,
 
     if (wc_client_detect_mode_and_query(opts, argc, (char**)argv,
             batch_mode, single_query, config) != 0) {
+        *out_exit_code = wc_client_handle_usage_error(argv[0], config);
+        return -1;
+    }
+
+    if (opts && opts->stats && !*batch_mode) {
+        fprintf(stderr, "Error: --stats requires batch input via -B or stdin\n");
         *out_exit_code = wc_client_handle_usage_error(argv[0], config);
         return -1;
     }
@@ -784,9 +815,15 @@ int wc_client_run_batch_stdin(const Config* config,
     const wc_client_render_opts_t* render_opts =
         render_opts_override ? render_opts_override : &render_opts_local;
 
+    wc_stats_t stats;
+    wc_stats_init(&stats);
+    wc_stats_t* active_stats = (cfg && cfg->stats) ? &stats : NULL;
+
     int rc = wc_client_batch_entry_prepare(cfg);
-    if (rc)
+    if (rc) {
+        wc_stats_free(&stats);
         return rc;
+    }
 
     wc_net_context_t* active_net_ctx = net_ctx;
     int resources_ready = active_net_ctx ? 1 : 0;
@@ -809,8 +846,22 @@ int wc_client_run_batch_stdin(const Config* config,
         const char* query = wc_client_normalize_batch_line(linebuf);
         if (!query)
             continue;
-        if (wc_handle_suspicious_query(cfg, query, 1, injection))
+        if (active_stats) {
+            int prepare_rc = wc_stats_prepare_next(active_stats);
+            if (prepare_rc != WC_STATS_PREPARE_OK) {
+                fprintf(stderr, prepare_rc == WC_STATS_PREPARE_LIMIT
+                    ? "Error: --stats batch limit exceeded (maximum 1000000 queries)\n"
+                    : "Error: Unable to allocate --stats duration samples\n");
+                rc = WC_EXIT_FAILURE;
+                break;
+            }
+        }
+        if (wc_handle_suspicious_query(cfg, query, 1, injection)) {
+            if (active_stats)
+                wc_stats_record(active_stats, 0,
+                    WC_STATS_ERROR_REJECTED, NULL, 0);
             continue;
+        }
           /* Let normal implicit special-purpose queries reach Phase C while
               preserving explicit hosts and force-private selftest coverage. */
         {
@@ -821,8 +872,12 @@ int wc_client_run_batch_stdin(const Config* config,
                 (server_host && *server_host) ||
                 !wc_client_is_phasec_early_converge_candidate(cfg, query,
                     phasec_classified, &phasec_result)) {
-                if (wc_handle_private_ip(cfg, query, query, 1, injection))
+                if (wc_handle_private_ip(cfg, query, query, 1, injection)) {
+                    if (active_stats)
+                        wc_stats_record(active_stats, 1,
+                            WC_STATS_ERROR_NONE, "unknown", 0);
                     continue;
+                }
             }
         }
 
@@ -840,7 +895,7 @@ int wc_client_run_batch_stdin(const Config* config,
         }
 
         int step_rc = wc_client_handle_batch_query(cfg, render_opts,
-            injection, server_host, port, active_net_ctx, query);
+            injection, server_host, port, active_net_ctx, active_stats, query);
         if (step_rc == WC_EXIT_SIGINT) {
             rc = WC_EXIT_SIGINT;
             break;
@@ -863,6 +918,9 @@ int wc_client_run_batch_stdin(const Config* config,
     }
     if (wc_client_should_abort_due_to_signal())
         rc = WC_EXIT_SIGINT;
+    if (active_stats && rc == WC_EXIT_SUCCESS)
+        wc_stats_render(active_stats);
+    wc_stats_free(&stats);
     return rc;
 }
 

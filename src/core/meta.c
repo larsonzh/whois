@@ -46,7 +46,8 @@ static const char* const k_conditional_output_lines[] = {
     "      --print-meta          Append a TAB-separated k=v metadata line per query",
     "      --print-chain         Append the ordered logical WHOIS server chain per query",
     "      --pick KEYS           Append selected WHOIS header values",
-    "      --pick-mode MODE      Select first or join duplicate header values"
+    "      --pick-mode MODE      Select first or join duplicate header values",
+    "      --stats               Append one batch summary line at end of input"
 };
 
 static const char* const k_diagnostics_lines[] = {

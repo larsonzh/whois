@@ -1,6 +1,6 @@
 ﻿# RFC: whois 条件输出（Phase 2.5）
 
-> 状态：重定版契约生效（2026-08-24）；WP-03 `--no-body`、WP-04 `--print-meta`、WP-05A `--print-chain` 与 WP-05B `--pick` 已实现；WP-05 整体完整门禁已通过。
+> 状态：重定版契约生效（2026-08-24）；WP-03 `--no-body`、WP-04 `--print-meta`、WP-05A `--print-chain`、WP-05B `--pick` 与 WP-06 `--stats` 已实现并完成各自最终门禁。
 > 权威顺序：本节“2026 重定版”高于下方历史路线；历史示例仅保留设计演进背景，不得作为新实现依据。
 > 关联计划：`docs/RFC-post-3.3.0-development-plan.md`。
 
@@ -8,8 +8,7 @@
 
 | 分栏 | 能力 | 当前结论 |
 |---|---|---|
-| 已实现 | `-g`；`--grep/--grep-cs`；`--grep-line/--grep-block`；续行控制；`--fold`、`--fold-sep`、`--fold-unique`、`--no-fold-upper`；WP-03 `--no-body`；WP-04 `--print-meta`；WP-05A `--print-chain`；WP-05B `--pick` | 保持 title -> grep -> pick -> fold/body 顺序，并按启用项追加 pick/chain/meta 观测行 |
-| 待实现 | WP-06 `--stats` | 每个工作包先冻结协议，再修改产品源码 |
+| 已实现 | `-g`；`--grep/--grep-cs`；`--grep-line/--grep-block`；续行控制；`--fold`、`--fold-sep`、`--fold-unique`、`--no-fold-upper`；WP-03 `--no-body`；WP-04 `--print-meta`；WP-05A `--print-chain`；WP-05B `--pick`；WP-06 `--stats` | 保持 title -> grep -> pick -> fold/body 顺序，并按启用项追加 pick/chain/meta 观测行和批次末尾 stats 汇总 |
 | 废弃/冲突设计 | `--fold kv`、`--title-grep`、`--print chain`、`--fields server_chain` | 不实现；分别由现有 `--fold`、`-g` 及后续独立选项取代 |
 | 风险项（暂缓） | `--max-bytes`、网络读取早停/命中即停、并发批量、DNS/重试调整、JSON/CSV、`--normalize-keys` | 不属于 WP-03–WP-06；如需实施须另立工作包 |
 
@@ -223,6 +222,83 @@ printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
 - 最终 win64 standalone selftest 退出 0；`opts-pick-parser`、`opts-pick-mode-without-pick`、`pick-extract-first-join`、`pick-truncation-boundary` 全 PASS，覆盖精确标题匹配（`route` 不匹配 `route6`）、first/join、空首次值、续行归一化及逐字段 64 KiB 截断后继续输出后续键。
 - 三目标 build/hash 与三起点 referral PASS（`out/artifacts/20260824-164010`，233s）；该轮 win64 Wine 网络 smoke 对 `8.8.8.8` 返回环境性非零 WARN，前一轮同一产品修复的三目标 smoke 全 PASS（`out/artifacts/20260824-163234`，254s）。
 - WP-05 最终重建复核 PASS（`out/artifacts/20260824-170256`，351s）：Strict 版本九架构 `lto-auto` 构建无编译/LTO 告警，artifact 与两个发布目录的 SHA-256 均 `9/9` 一致；Linux/QEMU/native smoke=`18`、win32=`3`、win64=`3`，每条查询首尾对应且无告警；Golden PASS，IANA/ARIN/AFRINIC 三起点 referral 均收敛至 AFRINIC。发布产物已同步到仓库内与外部 lzispro 目录。
+
+## WP-06：批量统计冻结契约
+
+### 1. 作用域与输出位置
+
+- `--stats` 是无参数、默认关闭的批量业务汇总选项；不新增短选项。它只在显式 `-B` 或 stdin 非 TTY 自动批量模式合法，单条模式在查询开始前按 usage-error 失败。
+- 汇总必须直接消费每条查询的结构化结果，不得解析或截获 stdout，也不得复用 WP-02 的 `[WORKBUF-STATS]` 诊断协议。查询、DNS、重试、重定向、权威判定和逐条渲染均保持不变。
+- 完整批次正常读到 EOF 后，在所有逐查询记录之后向 stdout 追加且只追加一行统计。stderr 继续只承载诊断/内部指标；`--stats` 不新增 stderr 成功提示。
+- 收到 SIGINT、统计内存分配失败或触发统计资源上限时不输出部分统计行，沿用非零退出路径。普通单项查询失败仍按现有批量语义继续后续输入，批次读到 EOF 后输出包含该失败项的完整统计。
+
+### 2. 固定行协议
+
+字段对以 TAB 分隔，键与十进制无符号整数以 `=` 连接，字段顺序固定为：
+
+```text
+stats_total=<n>\tstats_success=<n>\tstats_error=<n>\tstats_error_lookup=<n>\tstats_error_rejected=<n>\tstats_error_internal=<n>\tstats_rir_iana=<n>\tstats_rir_arin=<n>\tstats_rir_ripe=<n>\tstats_rir_apnic=<n>\tstats_rir_lacnic=<n>\tstats_rir_afrinic=<n>\tstats_rir_verisign=<n>\tstats_rir_unknown=<n>\tstats_rir_error=<n>\tstats_rir_other=<n>\tstats_duration_p50_ms=<n>\tstats_duration_p95_ms=<n>
+```
+
+- 所有键始终输出，禁止省略零值、改变顺序、输出浮点数或千位分隔符。
+- 空输入，以及只有空白行或首个非空字符为 `#` 的注释行时，输出全部计数和两个分位数均为 `0` 的统计行，退出码为 0。
+- `stats_total = stats_success + stats_error`。
+- `stats_error = stats_error_lookup + stats_error_rejected + stats_error_internal`。
+- 所有 `stats_rir_*` 桶之和等于 `stats_total`；一个输入项恰好进入一个状态桶、一个错误分类（仅 error 状态）和一个 RIR 桶。
+
+### 3. 计数与分类口径
+
+- `stats_total` 统计批量规范化后实际接收的非空、非注释输入项；lookup 前本地短路仍计一项。被忽略的空行和注释行不计数。
+- success/error 必须与 WP-04 `status` 语义一致：正常 lookup、权威 unknown、非法 IP/CIDR 和既有私网/Phase C 成功短路计 success；安全规则拒绝、lookup 失败和内部资源失败计 error。不得根据正文内容或批次最终退出码重新推断状态。
+- `stats_error_lookup` 包含已进入查询执行路径后的 DNS、连接、超时、协议和重定向失败；`stats_error_rejected` 包含安全规则在 lookup 前拒绝的输入；`stats_error_internal` 仅包含客户端自身资源或状态构造失败。新增错误来源必须先明确归入其中一类，不得静默增加字段。
+- RIR 按 WP-04 最终展示语义分类：规范 IANA、ARIN、RIPE、APNIC、LACNIC、AFRINIC、Verisign 主机分别进入对应桶；success 且无规范权威 RIR 进入 `stats_rir_unknown`；所有 error 状态进入 `stats_rir_error`；success 且存在非规范权威主机进入 `stats_rir_other`。匹配大小写不敏感，但不得用子串猜测 RIR。
+
+### 4. 时延分位与资源上限
+
+- 时延样本覆盖 `stats_total` 的全部输入项，取与 WP-04 `duration_ms` 相同的查询生命周期值；lookup 前本地短路样本为 `0`。error 样本不排除。
+- p50/p95 使用精确 nearest-rank：将 `N` 个无符号毫秒样本升序排列，百分位 `p` 取 1-based 索引 `ceil(p * N)` 的样本；这里 `p50=0.50`、`p95=0.95`。`N=0` 时两个结果均为 `0`，不做插值或平均。
+- 为保持精确分位且限制内存，首版每批最多统计 1,000,000 个有效输入项，时长样本使用每项 32-bit 无符号整数。遇到第 1,000,001 项时必须在执行该项查询前向 stderr 报错、停止读取并以非零退出，且不得输出部分统计行。
+- 时长数组分配或扩容失败时同样 fail-close；已完成查询的既有逐条 stdout 不回滚，但不得输出看似完整的统计行。
+
+### 5. 组合、记录边界与退出码
+
+| 组合 | 规则 |
+|---|---|
+| `--stats` + `--no-body`/`--fold`/`-g`/`--grep*` | 合法；逐条业务记录照常输出，统计行最后输出 |
+| `--stats` + `--pick`/`--print-chain`/`--print-meta` | 合法；每项仍按 pick -> chain -> meta 排列，统计行只在整个批次末尾输出 |
+| `--stats` + `--plain` | 非法；plain 缺少稳定记录边界，查询开始前 fail-fast |
+| `--stats` + 单条位置参数 | 非法；统计只定义批量生命周期 |
+
+- `--stats` 不改变普通单项失败时批量继续执行和最终退出码的既有语义；只有既有终止条件或统计自身 fail-close 条件产生新的非零退出。
+- 重复指定 `--stats` 幂等。未启用时默认 stdout、stderr、退出码和资源使用保持逐字节兼容。
+- 固定总排列为：每项 title/grep -> pick -> fold/body -> chain -> meta 的既有记录，全部输入项结束后再输出 stats。统计行不属于任何单项记录。
+
+### 6. 验收矩阵与命令用例
+
+- parser：显式批量、自动批量、重复选项、单条冲突、plain 冲突，以及冲突必须在首个查询前失败。
+- 计数：空批次、空白/注释、全成功、全失败、混合 success/error、本地短路和普通失败后继续；验证三组求和不变量。
+- RIR：六个 RIR、Verisign、unknown、error、other 各桶及大小写匹配。
+- 分位：`N=0/1/2/20` 固定样本，验证 nearest-rank、error/零时长纳入、无插值和输入顺序不影响结果。
+- 资源：恰好 1,000,000 项可完成，第 1,000,001 项执行前 fail-close；模拟分配失败时无部分统计行。
+- 组合：`--no-body`、`--fold`、pick/chain/meta、显式/自动批量和默认关闭兼容性；验证统计行恒为 stdout 最后一行。
+
+```sh
+# 显式批量：所有逐条记录之后追加一行 stats_*= 汇总
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -B --no-body --print-meta --stats
+
+# stdin 非 TTY 自动批量；fold 行完成后输出批次统计
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -g 'NetName|Country' --fold --stats
+```
+
+### 7. 聚焦验收（2026-08-24）
+
+- x86_64/win64 `lto-auto` 完整编译、链接与 artifact SHA-256 校验 PASS（`out/artifacts/20260824-175509`，127s）。
+- win64 专项合同 smoke `12/12` PASS（`out/artifacts/stats_contract/20260824-175550`），覆盖空/注释批次、success/rejected/lookup error、RIR 与错误求和、观测/fold 排列、单条/plain 冲突、重复选项、默认关闭和 stdin 自动批量。
+- 真实联网复核发现 pipeline 渲染接管并清空 `res.body` 后，stats 才读取该指针判定成功，导致已正常输出 `status=success` 的查询被误计入 `stats_error_lookup`；现于渲染前冻结 lookup 成功状态，渲染与聚合共同使用该状态。`8.8.8.8` + `1.1.1.1` 的 meta/fold 两种组合均回归为 `total=2 success=2 error=0`，ARIN/APNIC 各 1、`rir_error=0`。
+- 修复后最终 Strict 九架构 `lto-auto` 构建、Local hash、Golden 与 IANA/ARIN/AFRINIC 三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-185823`，316s）；可运行 Linux/QEMU 目标、win32、win64 smoke 分别完成 `18/3/3` 条查询，首尾一一对应且零告警；artifact、仓库发布目录与外部 lzispro 发布目录 SHA-256 均 `9/9` 一致。
+- 最终同步 win64 制品专项合同再次 `12/12` PASS（`out/artifacts/stats_contract/20260824-190108`），standalone selftest 退出 0；`opts-stats-parser`、`opts-stats-plain-conflict` 与 `stats-aggregate-percentiles` 均唯一 PASS。
 
 > 更新注记（2025-11-16）：本 RFC 聚焦“条件输出/筛选/折叠”等业务能力；3.2.2 的安全加固、3.2.7 的 CLI-only 节流迁移与 3.2.8 的三跳/重试指标增强均保持默认 stdout 契约不变，故仅在此补充里程碑：
 > - 已交付：`-g` 标题前缀筛选（Step 1）、`--grep/--grep-cs` + 行/块模式（Step 1.5）、`--fold` 单行折叠（3.2.1）、CLI-only 节流与重试指标（3.2.7）、三跳模拟与黑洞自测/指标基线（3.2.8）。

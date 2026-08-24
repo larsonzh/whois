@@ -17,6 +17,7 @@
 - post-3.3.0 开发已按 `docs/RFC-post-3.3.0-development-plan.md` 启动，WP-01 当前为 active；后续工作包状态以该 RFC 为唯一入口。
 - 2026-08-24 已修复 `injection-view-fallback` standalone selftest 的反向返回值断言，生产查询逻辑与输出契约不变；Strict `lto-auto` 默认轮九架构、hash、Golden、referral 与 standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s）。WP-01 尚待真实 one-click 最终 tag 指向演练。
 - 2026-08-24 WP-05 已完成：`wc_pick` 独立承载精确标题字段抽取，pipeline 顺序固定为 title -> grep -> pick -> fold/body，查询执行结果独立记录有序 logical hop。最终 Strict `lto-auto` 九架构零编译/LTO 告警，artifact 与双发布目录 SHA-256 `9/9` 一致，Linux/QEMU/native 与 Windows Wine smoke 零告警，Golden/三起点 referral PASS（`out/artifacts/20260824-170256`，351s）。
+- 2026-08-24 WP-06 已完成：新增独立 `wc_stats` 聚合器，由 batch orchestrator 持有跨查询生命周期并直接消费结构化 result；真实联网复核后修复 pipeline 渲染清空 `res.body` 导致成功查询误计 lookup error 的问题，成功状态改为渲染前冻结。固定统计行、精确 nearest-rank 分位与 1,000,000 项资源上限已通过修复后最终 Strict 九架构 build/hash、Golden、三起点 referral、双目录 release sync 与同步 win64 `12/12` 专项合同（`out/artifacts/20260824-185823`，316s；`stats_contract/20260824-190108`）。
 - 核心模块局部治理与性能优化不设常驻优先级或排期；仅在测试覆盖和可复现实测基线证明收益后，以新事项启动。
 
 **快速索引（轻整理，摘要版）**：

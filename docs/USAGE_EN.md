@@ -832,6 +832,20 @@ printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
 
 `--pick` can be combined with `--fold`, but `--no-body` conflicts with every fold option. `--pick` and `--print-chain` also conflict with `--plain`.
 
+`--stats` is batch-only (`-B` or non-TTY stdin) and appends one fixed TAB-separated summary line to stdout after every per-query record. Its fields cover total and success/error counts, lookup/rejected/internal error classes, fixed IANA/six-RIR/Verisign/unknown/error/other buckets, and exact nearest-rank p50/p95 latency in milliseconds. An empty batch emits an all-zero line; ordinary per-query failures still allow the batch to continue and enter the error counts. Stats combines with no-body, fold, filters, and pick/chain/meta, while a positional single query or `--plain` fails before lookup. The limit is 1,000,000 effective inputs per batch; overflow, allocation failure, or SIGINT never emits a partial summary.
+
+```sh
+# Explicit batch; the stats line follows every metadata line
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -B --no-body --print-meta --stats
+
+# Non-TTY stdin selects batch mode automatically; stats follows folded records
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -g 'NetName|Country' --fold --stats
+```
+
+WP-06 final verification (2026-08-24): live-network review fixed successful queries being counted as lookup errors after the pipeline took ownership of and cleared the response body; lookup success is now frozen before rendering. Both meta and fold runs for `8.8.8.8` plus `1.1.1.1` report `success=2 error=0`, with one ARIN and one APNIC result. After the fix, strict nine-architecture `lto-auto` builds/hashes, Golden, three referral starts, and both release-directory syncs pass with no compile/LTO warnings (`out/artifacts/20260824-185823`, 316s). The artifact, repository release directory, and external lzispro release directory each match all `9/9` SHA-256 hashes. Runnable Linux/QEMU, win32, and win64 smoke counts are `18/3/3`, with matching query headers and authoritative tails and zero alerts. The final synchronized win64 artifact passes the dedicated contract smoke `12/12` (`out/artifacts/stats_contract/20260824-190108`); standalone selftest exits 0 and each parser, plain-conflict, and aggregate/percentile label passes exactly once.
+
 - Use `--fold` to print a single folded line per query using the current selection (after `-g` and `--grep*`):
   - Format: `<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`
   - Handy for BusyBox pipelines and simple classification

@@ -20,6 +20,7 @@
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_title.h"
 #include "wc/wc_pick.h"
+#include "wc/wc_stats.h"
 #include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
@@ -534,6 +535,8 @@ static int selftest_preclass_phasec_policy(void)
         wc_opts_t print_chain_conflict_opts;
         wc_opts_t pick_opts;
         wc_opts_t pick_conflict_opts;
+        wc_opts_t stats_opts;
+        wc_opts_t stats_conflict_opts;
         char* short_argv[] = { "whois", "-DP", "-h", "whois.arin.net", "8.8.8.8", NULL };
         char* long_argv[] = { "whois", "--debug", "--host=whois.arin.net", "8.8.8.8", NULL };
         char* permuted_argv[] = { "whois", "203.0.113.0/24", "-h", "arin", NULL };
@@ -645,6 +648,65 @@ static int selftest_preclass_phasec_policy(void)
                 fprintf(stderr, "[SELFTEST] opts-pick-mode-without-pick: PASS\n");
             }
             wc_opts_free(&pick_conflict_opts);
+        }
+        optind = 1;
+        {
+            char* stats_argv[] = { "whois", "-B", "--stats", NULL };
+            if (wc_opts_parse(3, stats_argv, &stats_opts) != 0 ||
+                    !stats_opts.stats || !stats_opts.explicit_batch) {
+                fprintf(stderr, "[SELFTEST] opts-stats-parser: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-stats-parser: PASS\n");
+            }
+            wc_opts_free(&stats_opts);
+        }
+        optind = 1;
+        {
+            char* conflict_argv[] = { "whois", "-B", "--stats", "--plain", NULL };
+            if (wc_opts_parse(4, conflict_argv, &stats_conflict_opts) == 0) {
+                fprintf(stderr, "[SELFTEST] opts-stats-plain-conflict: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] opts-stats-plain-conflict: PASS\n");
+            }
+            wc_opts_free(&stats_conflict_opts);
+        }
+        {
+            wc_stats_t stats;
+            const unsigned int durations[] = {50, 10, 40, 20, 30};
+            unsigned int p50 = 0;
+            unsigned int p95 = 0;
+            wc_stats_init(&stats);
+            for (size_t index = 0; index < 5; ++index) {
+                if (wc_stats_prepare_next(&stats) != WC_STATS_PREPARE_OK) {
+                    failed = 1;
+                    break;
+                }
+                if (index == 4) {
+                    wc_stats_record(&stats, 0, WC_STATS_ERROR_REJECTED,
+                        NULL, durations[index]);
+                } else {
+                    const char* hosts[] = {
+                        "whois.arin.net", "unknown",
+                        "whois.verisign-grs.com", "whois.example.test"
+                    };
+                    wc_stats_record(&stats, 1, WC_STATS_ERROR_NONE,
+                        hosts[index], durations[index]);
+                }
+            }
+            wc_stats_calculate_percentiles(&stats, &p50, &p95);
+            if (stats.total != 5 || stats.success != 4 || stats.error != 1 ||
+                    stats.error_rejected != 1 || stats.rir_arin != 1 ||
+                    stats.rir_unknown != 1 || stats.rir_verisign != 1 ||
+                    stats.rir_other != 1 || stats.rir_error != 1 ||
+                    p50 != 30 || p95 != 50) {
+                fprintf(stderr, "[SELFTEST] stats-aggregate-percentiles: FAIL\n");
+                failed = 1;
+            } else {
+                fprintf(stderr, "[SELFTEST] stats-aggregate-percentiles: PASS\n");
+            }
+            wc_stats_free(&stats);
         }
         {
             const char* response =

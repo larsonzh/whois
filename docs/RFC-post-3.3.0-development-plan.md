@@ -206,9 +206,12 @@ build+verify → stage statics + checksum → commit+push → create tag → pub
 
 ### 5.4 WP-06：`--stats`（独立工作包）
 
-- 批量生命周期末尾输出；输出位置（stdout 末尾 vs stderr）需先在 RFC 定稿并评审。
-- 指标：总数/成功数/错误分类分布/RIR 分布/时延分位（p50/p95）。
-- 与 `--no-body`、`--fold`、`--print-meta` 的组合行为必须显式定义。
+- 协议已在 `docs/RFC-conditional-output-CN.md` 冻结：仅批量合法，完整 EOF 后向 stdout 追加固定 18 字段统计行；单条与 `--plain` 查询前 fail-fast。
+- 指标已实现为总数、success/error、lookup/rejected/internal 错误分类、固定 RIR 桶及精确 nearest-rank p50/p95；聚合直接消费结构化查询结果，不解析 stdout，也不复用 `[WORKBUF-STATS]`。
+- 精确分位采用有界 32-bit 时长数组，每批最多 1,000,000 个有效输入项；超限、分配失败或 SIGINT 不输出部分汇总。
+- 与 `--no-body`、`--fold`、过滤、pick/chain/meta 和显式/自动批量的组合已实现。真实联网复核修复了 pipeline 渲染后 `res.body` 已被清空、stats 因此把成功查询误计为 lookup error 的问题；成功状态现于渲染前冻结，meta/fold 两种双查询组合均为 `success=2 error=0`，ARIN/APNIC 各 1。
+- 最终同步 win64 专项合同 `12/12` 与 standalone 新增三项 selftest 唯一 PASS（`out/artifacts/stats_contract/20260824-190108`）。
+- 修复后最终 Strict 九架构 `lto-auto` build/hash、Golden、三起点 referral 与双发布目录同步全部 PASS且无编译/LTO 告警（`out/artifacts/20260824-185823`，316s）；可运行 Linux/QEMU、win32、win64 smoke=`18/3/3`，首尾对应且零告警；artifact、仓库 release 与外部 lzispro release SHA-256 均 `9/9` 一致。
 
 ### 5.5 CLI 契约定稿门禁
 
@@ -242,7 +245,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-03 | done | Phase 3 | RFC 定版 + `--no-body` | 协议、产品实现、合同 smoke 与完整发布门禁均已完成 |
 | WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 18/18 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
 | WP-05 | completed | Phase 3 | WP-05A `--print-chain` + WP-05B `--pick` | 两个切片及专项合同完成；九架构 Strict/Golden/referral/双目录 sync 最终复核 PASS（`20260824-170256`） |
-| WP-06 | proposed | Phase 3 | `--stats` | 输出位置与组合语义先评审，再决定执行方式 |
+| WP-06 | completed | Phase 3 | `--stats` | 协议、实现、真实联网成功计数修复、专项合同与最终 Strict 九架构/Golden/referral/release sync 全部完成（`20260824-185823`） |
 | 后续编号 | 未登记 | 待定 | 按基准结果单独立项的性能优化 | 每项建立独立工作包，使用登记时下一个未占用的 `WP-xx` 编号 |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
@@ -419,5 +422,5 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-03：条件输出 RFC 定版 + `--no-body`
 - [x] WP-04：`--print-meta`
 - [x] WP-05：`--print-chain` + `--pick`
-- [ ] WP-06：`--stats`
+- [x] WP-06：`--stats`
 - [ ] 后续：性能热点优化（按证据逐项登记新的 `WP-xx`）

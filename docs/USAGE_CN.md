@@ -203,6 +203,20 @@ printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
 ```
 
 `--pick` 可与 `--fold` 组合，但 `--no-body` 与任何 fold 开关互斥；`--pick`/`--print-chain` 与 `--plain` 也互斥。
+
+`--stats` 仅用于 `-B` 或 stdin 非 TTY 的批量模式，在全部逐查询记录之后向 stdout 追加一行固定 TAB 分隔汇总。字段覆盖总数、success/error、lookup/rejected/internal 错误分类、IANA/六个 RIR/Verisign/unknown/error/other 分布，以及精确 nearest-rank `p50/p95` 毫秒时延。空批次输出全零行；普通单项失败仍继续批次并计入 error。`--stats` 可与 no-body、fold、过滤及 pick/chain/meta 组合，与单条位置参数或 `--plain` 查询前 fail-fast。统计上限为每批 1,000,000 个有效输入项，超限、分配失败或 SIGINT 不输出部分汇总。
+
+```sh
+# 显式批量；stats 行固定在所有 meta 行之后
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -B --no-body --print-meta --stats
+
+# stdin 非 TTY 自动批量；fold 记录之后输出统计
+printf '8.8.8.8\n1.1.1.1\n' |
+  ./whois-x86_64 -g 'NetName|Country' --fold --stats
+```
+
+WP-06 最终验证（2026-08-24）：真实联网复核修复了 pipeline 渲染接管正文后 stats 把成功查询误计为 lookup error 的问题；成功状态现于渲染前冻结，`8.8.8.8` + `1.1.1.1` 的 meta/fold 组合均输出 `success=2 error=0`、ARIN/APNIC 各 1。修复后 Strict 九架构 `lto-auto` build/hash、Golden、三起点 referral 与双目录 release sync 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-185823`，316s），artifact、仓库发布目录与外部 lzispro 发布目录 SHA-256 均 `9/9` 一致；可运行 Linux/QEMU、win32、win64 smoke=`18/3/3`，首尾对应且零告警。最终同步 win64 专项合同 `12/12` PASS（`out/artifacts/stats_contract/20260824-190108`），standalone selftest 退出 0且 parser、plain 冲突、聚合/分位三项均唯一 PASS。
 - 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
 - `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
 - `--no-fold-upper` 保留原大小写（默认会转为大写）

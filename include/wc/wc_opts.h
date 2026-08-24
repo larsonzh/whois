@@ -30,6 +30,7 @@ typedef struct wc_opts_s {
     int no_body;                 // --no-body suppress final response body rendering
     int print_meta;              // --print-meta append per-query k=v metadata line
     int print_chain;             // --print-chain append ordered logical server hops
+    int stats;                   // --stats append one batch summary line at EOF
     char* pick_keys;             // --pick canonical key list (allocated)
     int pick_mode;               // --pick-mode: 0=first, 1=join
     int pick_mode_seen;
