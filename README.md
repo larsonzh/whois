@@ -1,4 +1,4 @@
-﻿# whois (v3.3.0)
+﻿# whois (v3.3.1)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -99,6 +99,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.3.1：发布说明 `RELEASE_NOTES.md#331` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1 | Gitee Releases（查找 v3.3.1）: https://gitee.com/larsonzh/whois/releases
+		- v3.3.1: Release notes `RELEASE_NOTES.md#331` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1 | Gitee Releases (find v3.3.1): https://gitee.com/larsonzh/whois/releases
 	- v3.3.0：发布说明 `RELEASE_NOTES.md#330` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0 | Gitee Releases（查找 v3.3.0）: https://gitee.com/larsonzh/whois/releases
 		- v3.3.0: Release notes `RELEASE_NOTES.md#330` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0 | Gitee Releases (find v3.3.0): https://gitee.com/larsonzh/whois/releases
 	- v3.2.12：发布说明 `RELEASE_NOTES.md#3212` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.12 | Gitee Releases（查找 v3.2.12）: https://gitee.com/larsonzh/whois/releases
@@ -122,6 +124,25 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.3.1 速览 / What's new <a id="331"></a>
+
+- 条件输出与观测增强：新增 `--no-body`、`--print-meta`、`--print-chain`、`--pick`，处理顺序冻结 title → grep → pick → fold/body，观测顺序 pick → chain → meta，输出契约不变。
+	- Conditional-output and observability enhancements: adds `--no-body`, `--print-meta`, `--print-chain`, and `--pick`; processing order is frozen as title → grep → pick → fold/body with observations ordered pick → chain → meta, and the output contract stays unchanged.
+- 批量统计 `--stats`：批量模式固定 18 字段 stdout 汇总（total/success/error、错误分类、RIR 桶与精确 nearest-rank p50/p95），仅批量可用且超限/中断不输出部分汇总。
+	- Batch statistics `--stats`: a fixed 18-field stdout summary (total/success/error, error classes, RIR buckets, exact nearest-rank p50/p95); batch-only, with no partial summary on overflow or interruption.
+- fold 性能与正确性：逐 token 上界容量预留（reserve `1,417,000/1,420,000` → `26,000/29,000`，stress median 提升 3.9%~55.1%），并修复 workbuf 扩容后旧指针读取的 `fold-unique` UAF。
+	- Fold performance and correctness: one reserve per token with a strict upper bound (reserves `1,417,000/1,420,000` → `26,000/29,000`, stress medians up 3.9%–55.1%), fixing the `fold-unique` stale-pointer UAF after workbuf growth.
+- 发布工具首批收口：一键发布顺序 build/verify → statics sync/commit → tag → release，支持版本注入、令牌脱敏与 dry-run 防回归；真实 one-click 演练随 WP-01 预发布窗口完成。
+	- Release-tooling closure, first slice: one-click release follows build/verify → statics sync/commit → tag → release with version injection, token scrubbing, and dry-run guards; the real one-click rehearsal completes in the WP-01 prerelease window.
+- 验证（2026-08-24，WP 阶段）：三架构 46/46 冻结矩阵、ASan/UBSan、最终 Strict `lto-auto` 九架构零编译/LTO 告警、Golden 与三起点 referral、`18/3/3` smoke、三目录 `9/9` SHA（`out/artifacts/20260824-205103`，311s）。
+	- Verification (2026-08-24, WP phase): 46/46 frozen matrices on three architectures, ASan/UBSan, final Strict `lto-auto` nine-architecture builds with zero compile/LTO diagnostics, Golden and three referral starts, `18/3/3` smoke, and `9/9` SHA-256 across three directories (`out/artifacts/20260824-205103`, 311s).
+
+参考与下载 / Links
+- 发布说明 / Release notes: `RELEASE_NOTES.md#331`
+- 使用说明 / Usage: CN `docs/USAGE_CN.md` | EN `docs/USAGE_EN.md`
+- GitHub 发布 / GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1
+- Gitee 发布 / Gitee Releases: https://gitee.com/larsonzh/whois/releases （查找 v3.3.1）
 
 ## v3.3.0 速览 / What's new <a id="330"></a>
 
