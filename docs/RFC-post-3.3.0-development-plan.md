@@ -1,9 +1,9 @@
 ﻿# RFC: Post-3.3.0 Development Plan（v3.3.0 黄金基线后续开发计划）
 
 > 状态：已批准（2026-08-24 总体评审通过）
-> 基线：`v3.3.0`（2026-08-24 正式发布）
-> 当前发布基线：`v3.3.1`（2026-08-25 正式发布）；`v3.3.0` 继续作为本文原始规划与 WP-02 性能对照基线。
-> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-07 已完成，WP-08–WP-11 按第 11 节登记为下一阶段候选工作。
+> 原始规划基线：`v3.3.0`（2026-08-24 正式发布）
+> 当前基线：`v3.3.1`（2026-08-25 正式发布；WP-08 性能重基线已完成）；`v3.3.0` 仅继续作为本文历史规划与 WP-02 性能对照基线。
+> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-08 已完成，WP-09–WP-11 按第 11 节保留为下一阶段候选工作。
 > 关联：
 > - 条件输出现状与历史设计：`docs/RFC-conditional-output-CN.md`
 > - 发布流程：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md`
@@ -248,7 +248,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-05 | completed | Phase 3 | WP-05A `--print-chain` + WP-05B `--pick` | 两个切片及专项合同完成；九架构 Strict/Golden/referral/双目录 sync 最终复核 PASS（`20260824-170256`） |
 | WP-06 | completed | Phase 3 | `--stats` | 协议、实现、真实联网成功计数修复、专项合同与最终 Strict 九架构/Golden/referral/release sync 全部完成（`20260824-185823`） |
 | WP-07 | done | Phase 2 follow-up | fold token 容量预留优化 | 三架构冻结基准、sanitizer 与重建 Strict 九架构/Golden/referral/双目录 sync 全部完成（`20260824-205103`） |
-| WP-08 | proposed | Phase 4 | v3.3.1 性能重基线与回归预算 | 复用 WP-02 冻结样本和三架构口径；只建立当前基线，不预设优化结论 |
+| WP-08 | done | Phase 4 | v3.3.1 性能重基线与回归预算 | 三架构各 3 次完整复跑、共 414 个 case 汇总全部通过；初始预算采用正确性硬门禁与性能复测告警（2026-08-25） |
 | WP-09 | proposed | Phase 4 | 条件输出 sanitizer 确定性回归门禁 | 先复用现有 fold/fold-unique 压力入口；不扩张为全仓告警清理 |
 | WP-10 | proposed | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 现有 `--buffer-size`、接收上限与协议安全阈值并存；先审计，未通过契约门禁则不新增 CLI |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
@@ -442,6 +442,20 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：仅修改 `src/cond/fold.c` 的 token 输出容量检查频率；不改变扫描、空白折叠、大小写、CR/LF 截断、分隔符、去重或输出协议
 - 决策/回退：预留上界为当前长度 + 可选分隔符长度 + 原 token 长度，格式化输出不会超过该上界；若跨架构基准退化或 sanitizer/冻结 SHA 失败，回退本工作包单一源码改动
 
+### WP-08/v3.3.1 性能重基线与回归预算（2026-08-25）
+- 状态：done
+- 类型：TEST/TOOL + DOC
+- 执行方式：传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：commit=`ce6ea09649f55ef6589c19bf6b833fa5454dcb81`（`v3.3.1-3-gce6ea096`）；发布基线=`v3.3.1`；WP-02/WP-07=done；从 WP-07 完成提交 `83523269` 到本提交，runner、驱动、固定样本及其直接生产源码无差异
+- 结果：linux x86_64、linux aarch64 QEMU 与 win64 各执行 3 次完整独立复跑；每次均为 46/46 case、warm-up 1、测量 5 次、每次 1000 iterations，共 9 份 `summary.json`、414 个 case 汇总和 2070 行原始测量。全部 stdout SHA 与样本集 SHA `5dbf193e0a91b49f75d51a668fa59db2029558af350256a0da87937dcf38436b` 冻结一致；每架构 46/46 case 的 output bytes、reserve/grow/max-request/max-cap/max-view 及 stdout SHA 在三轮间完全一致
+- 代表值：三轮 median 的中位数（范围）——linux x86_64 `fold/stress-crlf=22.972 ms (16.102–23.019)`、`fold-unique/stress-crlf=27.858 ms (18.395–30.016)`、`batch/all=9.991 ms (6.868–11.030)`；aarch64 QEMU 分别为 `91.613 ms (84.466–137.465)`、`125.587 ms (116.650–150.427)`、`41.487 ms (33.585–50.742)`；win64 分别为 `93.123 ms (87.757–139.532)`、`102.723 ms (86.264–114.097)`、`83.974 ms (81.080–99.082)`。三架构对应 reserve/grow/max-cap 稳定为 fold `26000/4/2048`、fold-unique `29000/3004/2048`、batch `9000/2/2048`
+- run：linux x86_64=`out/artifacts/bench/wp08-v331-linux-x86_64/{20260825-152116,20260825-152435,20260825-152437}`；linux aarch64 QEMU=`out/artifacts/bench/wp08-v331-linux-aarch64-qemu/{20260825-152132,20260825-152606,20260825-152620}`；win64=`out/artifacts/bench/wp08-v331-win64/{20260825-152345,20260825-152450,20260825-152523}`
+- 构建复现：runner 源闭包固定为 `bench_conditional_output_harness.c + header.c + title.c + grep.c + fold.c + workbuf.c`；x86_64 使用 GCC 13.3.0、`-std=c11 -O3 -Wall -Wextra -Werror -DWC_WORKBUF_ENABLE_STATS`；aarch64 使用 musl GCC 11.2.1、`-O2` 加 `-static` 并由 `qemu-aarch64-static` 运行；win64 使用 MinGW GCC 13-win32、`-O2` 加 `-static-libgcc -static-libstdc++ -lwinpthread -lregex`，测试 runner 同目录提供工具链的 `libgnurx-0.dll`。Linux 调用 `bench_conditional_output.py`，Windows 调用 `bench_conditional_output.ps1`，其余参数均为 `repetitions=5/warmup=1/iterations-per-run=1000`
+- 初始回归预算：冻结 SHA、退出码、46 case 完整性及 workbuf 结构化指标为硬门禁，任一变化立即失败；计时只比较同主机、同架构、同编译配置下至少 3 次完整复跑的 median-of-medians。当前环境短 case、QEMU 与 win64 调度波动明显，单轮计时不设硬失败线；复测汇总相对本基线同时超过以下相对值和绝对值时进入人工回归评审：x86_64 `50% + 10 ms`、aarch64 QEMU `75% + 50 ms`、win64 `60% + 50 ms`。阈值是噪声隔离告警线，不是可接受性能退化目标；连续积累 3 个可比基线后重新收紧
+- 门禁：三架构严格编译零告警；9/9 完整报告、414/414 case 与冻结 SHA PASS；三架构各 46/46 结构化指标三轮一致；产物仅写 `out/artifacts/bench`，未修改生产源码、默认输出或诊断标签
+- 决策/回退：未发现可由本基线证明的新生产热点，不登记性能优化工作包；WP-08 关闭。后续性能变更须复用本节命令与预算，若环境或工具链变化则新建分层基线，不覆盖本组报告
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现、静态断言与 v3.3.1 真实 one-click 演练完成，2026-08-25）
@@ -455,6 +469,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-06：`--stats`
 - [x] WP-07：按 WP-02 证据登记 fold token 容量预留优化
 - [x] WP-07：ASan/UBSan、win64、aarch64 QEMU 与最终发布门禁
+- [x] WP-08：v3.3.1 三架构各 3 次完整性能重基线与初始回归预算
 
 ## 11. v3.3.1 后续工作计划（2026-08-25 登记）
 
