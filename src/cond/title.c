@@ -159,7 +159,7 @@ char* wc_title_filter_response_wb(const char* input, wc_workbuf_t* wb) {
             should_print = (print_cont && hv.leading_ws) ? 1 : 0;
         }
         if (should_print) {
-            memcpy(out + opos, line_start, line_len);
+            memmove(out + opos, line_start, line_len);
             opos += line_len;
             if (*q == '\n') { out[opos++] = '\n'; }
         }

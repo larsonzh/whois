@@ -5,6 +5,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased
 
+中文摘要 / Chinese summary
+- WP-09 条件输出 sanitizer 门禁与重叠复制修复（2026-08-25）：修复 title 过滤和 grep line 模式在输入/输出共用 workbuf 且向前压缩时使用 `memcpy` 导致的重叠复制未定义行为，改为仅在五处同缓冲直接复制使用 `memmove`；block 模式及独立缓冲复制保持不变。新增 native Linux GCC ASan/UBSan 门禁，既有 46 项冻结 SHA 与 grep line 两种续行配置 × 9 fixture 的 18 项冻结 SHA 全部 PASS；受控 test-only `memcpy` 重叠负例稳定触发 `memcpy-param-overlap`（`out/artifacts/conditional_output_sanitizer/20260825-084057`）。源码修改后的最终 Strict Version `lto-auto` 默认轮无编译/LTO 告警，九架构构建、实算 SHA、Golden、三起点 referral、24 组查询冒烟及双目录同步复核全部 PASS（`out/artifacts/20260825-171420`，285s）；x86_64/win32/win64 聚焦 grep selftest 共 9 项 PASS（`out/artifacts/20260825-165446`）。默认输出、过滤顺序和 CLI 契约不变。
+
+English summary
+- WP-09 conditional-output sanitizer gate and overlapping-copy fix (2026-08-25): fixes undefined overlapping `memcpy` operations when title filtering or grep line mode compacts data forward within the shared workbuf. Only the five direct same-buffer copies now use `memmove`; block mode and copies between independent buffers remain unchanged. A native Linux GCC ASan/UBSan gate passes the existing 46 frozen-SHA cases plus 18 frozen grep-line cases covering both continuation settings across nine fixtures. Its controlled test-only overlapping-`memcpy` probe is reliably rejected with `memcpy-param-overlap` (`out/artifacts/conditional_output_sanitizer/20260825-084057`). The final post-change Strict Version `lto-auto` default run has no compiler or LTO warnings; all nine builds, recomputed hashes, Golden, three referral origins, 24 query smoke cases, and both release-directory sync comparisons pass (`out/artifacts/20260825-171420`, 285s). Focused x86_64/win32/win64 grep selftests also pass all nine checks (`out/artifacts/20260825-165446`). Default output, filter ordering, and CLI contracts are unchanged.
+
 ## 3.3.1
 
 中文摘要 / Chinese summary

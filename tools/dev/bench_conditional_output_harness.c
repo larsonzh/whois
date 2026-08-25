@@ -21,6 +21,8 @@ typedef enum bench_scenario_e {
     BENCH_RAW,
     BENCH_TITLE,
     BENCH_GREP,
+    BENCH_GREP_LINE,
+    BENCH_GREP_LINE_CONT,
     BENCH_FOLD,
     BENCH_FOLD_UNIQUE,
     BENCH_BATCH
@@ -31,7 +33,8 @@ typedef enum bench_scenario_e {
 static void usage(const char* program)
 {
     fprintf(stderr,
-        "Usage: %s --fixture PATH [...] --scenario raw|title|grep|fold|fold-unique|batch "
+        "Usage: %s --fixture PATH [...] --scenario "
+        "raw|title|grep|grep-line|grep-line-cont|fold|fold-unique|batch "
         "[--iterations N] [--query TEXT] [--rir HOST]\n",
         program);
 }
@@ -73,6 +76,8 @@ static int parse_scenario(const char* value, bench_scenario_t* scenario)
     if (strcmp(value, "raw") == 0) *scenario = BENCH_RAW;
     else if (strcmp(value, "title") == 0) *scenario = BENCH_TITLE;
     else if (strcmp(value, "grep") == 0) *scenario = BENCH_GREP;
+    else if (strcmp(value, "grep-line") == 0) *scenario = BENCH_GREP_LINE;
+    else if (strcmp(value, "grep-line-cont") == 0) *scenario = BENCH_GREP_LINE_CONT;
     else if (strcmp(value, "fold") == 0) *scenario = BENCH_FOLD;
     else if (strcmp(value, "fold-unique") == 0) *scenario = BENCH_FOLD_UNIQUE;
     else if (strcmp(value, "batch") == 0) *scenario = BENCH_BATCH;
@@ -90,10 +95,11 @@ static int configure_scenario(bench_scenario_t scenario)
         return wc_title_parse_patterns(
             "netrange|inetnum|inet6num|netname|orgname|org-name|country|descr|origin|route") >= 0;
     }
-    if (scenario == BENCH_GREP) {
+    if (scenario == BENCH_GREP || scenario == BENCH_GREP_LINE ||
+        scenario == BENCH_GREP_LINE_CONT) {
         wc_grep_set_enabled(1);
-        wc_grep_set_line_mode(0);
-        wc_grep_set_keep_continuation(1);
+        wc_grep_set_line_mode(scenario != BENCH_GREP);
+        wc_grep_set_keep_continuation(scenario != BENCH_GREP_LINE);
         return wc_grep_compile(
             "^(netrange|inetnum|inet6num|netname|orgname|org-name|country|descr|origin|route):",
             0) >= 0;
@@ -133,7 +139,8 @@ static char* run_scenario(bench_scenario_t scenario,
         return NULL;
     if (scenario == BENCH_TITLE)
         filtered = wc_title_filter_response_wb(filtered, filter_wb);
-    else if (scenario == BENCH_GREP)
+    else if (scenario == BENCH_GREP || scenario == BENCH_GREP_LINE ||
+        scenario == BENCH_GREP_LINE_CONT)
         filtered = wc_grep_filter_wb(filtered, filter_wb);
     if (scenario == BENCH_FOLD || scenario == BENCH_FOLD_UNIQUE)
         return wc_fold_build_line_wb(filtered, query, rir, " ", 1, fold_wb);

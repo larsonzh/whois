@@ -258,7 +258,7 @@ char* wc_grep_filter_line_wb(const char* input, wc_workbuf_t* wb) {
             int rc = 1;
             if (det_len < sizeof(tmp_stack)) { memcpy(tmp_stack, line_start, det_len); tmp_stack[det_len] = '\0'; tmp = tmp_stack; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
             else { char* t = wc_workbuf_reserve(&tmp_wb, det_len, "wc_grep_tmp_line"); memcpy(t, line_start, det_len); t[det_len] = '\0'; tmp = t; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
-            if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
+            if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memmove(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
         } else if (is_cont && in_block) {
             char* dst = wc_workbuf_view_alloc(&blk_view, line_len + ((*q == '\n') ? 1 : 0), "wc_grep_line_blk");
             memcpy(dst, line_start, line_len);
@@ -267,7 +267,7 @@ char* wc_grep_filter_line_wb(const char* input, wc_workbuf_t* wb) {
             int rc = 1;
             if (det_len < sizeof(tmp_stack)) { memcpy(tmp_stack, line_start, det_len); tmp_stack[det_len] = '\0'; tmp = tmp_stack; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
             else { char* t = wc_workbuf_reserve(&tmp_wb, det_len, "wc_grep_tmp_line"); memcpy(t, line_start, det_len); t[det_len] = '\0'; tmp = t; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
-            if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
+            if (rc == 0) { blk_matched = 1; if (!s_grep.keep_cont) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memmove(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; } }
         } else if (is_boundary) {
             if (in_block) {
                 if (s_grep.keep_cont) {
@@ -280,13 +280,13 @@ char* wc_grep_filter_line_wb(const char* input, wc_workbuf_t* wb) {
             // keep markers "=== ..." regardless of match
             if (det_len >= 3 && line_start[0] == '=' && line_start[1] == '=' && line_start[2] == '=') {
                 out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append");
-                memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n';
+                memmove(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n';
             } else {
                 const char* tmp = NULL;
                 int rc = 1;
                 if (det_len < sizeof(tmp_stack)) { memcpy(tmp_stack, line_start, det_len); tmp_stack[det_len] = '\0'; tmp = tmp_stack; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
                 else { char* t = wc_workbuf_reserve(&tmp_wb, det_len, "wc_grep_tmp_line"); memcpy(t, line_start, det_len); t[det_len] = '\0'; tmp = t; rc = regexec(&s_grep.re, tmp, 0, NULL, 0); }
-                if (rc == 0) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memcpy(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; }
+                if (rc == 0) { out = wc_workbuf_reserve(wb, opos + line_len + ((*q == '\n') ? 1 : 0), "wc_grep_filter_line_append"); memmove(out + opos, line_start, line_len); opos += line_len; if (*q == '\n') out[opos++] = '\n'; }
             }
         }
 

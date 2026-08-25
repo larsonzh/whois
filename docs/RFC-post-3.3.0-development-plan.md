@@ -3,7 +3,7 @@
 > 状态：已批准（2026-08-24 总体评审通过）
 > 原始规划基线：`v3.3.0`（2026-08-24 正式发布）
 > 当前基线：`v3.3.1`（2026-08-25 正式发布；WP-08 性能重基线已完成）；`v3.3.0` 仅继续作为本文历史规划与 WP-02 性能对照基线。
-> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-08 已完成，WP-09–WP-11 按第 11 节保留为下一阶段候选工作。
+> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-09 已完成，WP-10–WP-11 按第 11 节保留为下一阶段候选工作。
 > 关联：
 > - 条件输出现状与历史设计：`docs/RFC-conditional-output-CN.md`
 > - 发布流程：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md`
@@ -249,7 +249,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-06 | completed | Phase 3 | `--stats` | 协议、实现、真实联网成功计数修复、专项合同与最终 Strict 九架构/Golden/referral/release sync 全部完成（`20260824-185823`） |
 | WP-07 | done | Phase 2 follow-up | fold token 容量预留优化 | 三架构冻结基准、sanitizer 与重建 Strict 九架构/Golden/referral/双目录 sync 全部完成（`20260824-205103`） |
 | WP-08 | done | Phase 4 | v3.3.1 性能重基线与回归预算 | 三架构各 3 次完整复跑、共 414 个 case 汇总全部通过；初始预算采用正确性硬门禁与性能复测告警（2026-08-25） |
-| WP-09 | proposed | Phase 4 | 条件输出 sanitizer 确定性回归门禁 | 先复用现有 fold/fold-unique 压力入口；不扩张为全仓告警清理 |
+| WP-09 | done | Phase 4 | 条件输出 sanitizer 确定性回归门禁与重叠复制修复 | Linux native ASan/UBSan 64 个正向场景、受控负例、最终 Strict 九架构回归及三架构 grep selftest 全部 PASS（2026-08-25） |
 | WP-10 | proposed | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 现有 `--buffer-size`、接收上限与协议安全阈值并存；先审计，未通过契约门禁则不新增 CLI |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
 
@@ -456,6 +456,21 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 门禁：三架构严格编译零告警；9/9 完整报告、414/414 case 与冻结 SHA PASS；三架构各 46/46 结构化指标三轮一致；产物仅写 `out/artifacts/bench`，未修改生产源码、默认输出或诊断标签
 - 决策/回退：未发现可由本基线证明的新生产热点，不登记性能优化工作包；WP-08 关闭。后续性能变更须复用本节命令与预算，若环境或工具链变化则新建分层基线，不覆盖本组报告
 
+### WP-09/条件输出 sanitizer 确定性回归门禁（2026-08-25）
+- 状态：done
+- 类型：MIXED（PRODUCT bugfix + TEST/TOOL）
+- 执行方式：传统交互式
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：commit=`35fa9977c1965fe4c5129807160201cc7c6068a4` + 当前工作树；WP-02/WP-07/WP-08=done
+- 发现：生产 pipeline 将原始响应复制到共享 `filter_wb` 后，依次把同一地址传给 title/grep。title 的保留行复制与 grep line 模式的四处直接保留行复制均可能把较后的源区间压缩到较前的目标区间，原 `memcpy` 在区间重叠时属于未定义行为；ASan 已在 title/arin 路径报告 `memcpy-param-overlap`。grep block 模式从独立 `blk_wb` flush，不属于同一缺陷类
+- 修复：仅将五处已确认可能同 workbuf 重叠的 `line_start -> out + opos` 复制改为 `memmove`；独立 workbuf、栈临时缓冲与最终 owned-copy 的 `memcpy` 保持不变。默认输出、过滤顺序、正则、续行、折叠与诊断协议不变
+- 门禁：新增 `tools/test/conditional_output_sanitizer_gate.sh`，仅支持 native Linux + GCC sanitizer runtime；严格编译真实 harness 后复跑既有 46 项冻结 SHA，并覆盖 `grep-line` / `grep-line-cont` × 9 fixture 的 18 项独立冻结 SHA；每个新增场景双跑一致。test-only 负例使用重叠 `memcpy`，必须被 ASan 以 `memcpy-param-overlap` 非零拦截，否则 fail-close
+- run：最终 sanitizer gate=`out/artifacts/conditional_output_sanitizer/20260825-084057`，`positive_cases=64`、`frozen_cases=46`、`extended_cases=18`、`negative_probe=detected`、`negative_exit=134`
+- 工具链边界：GCC 13.3.0 native linux x86_64 支持 ASan/UBSan；当前 MinGW GCC 13-win32 与 aarch64 musl GCC 11.2.1 均缺少 sanitizer runtime，因此不伪造跨架构 sanitizer 结论，跨架构行为继续由严格构建、冻结 SHA 与 Golden 覆盖
+- 产品回归：源码修改后的最终 Strict Version `lto-auto` 默认轮无编译/LTO 告警，九架构构建与本地 SHA、Golden、IANA/ARIN/AFRINIC 三起点 referral 全部 PASS（`out/artifacts/20260825-171420`，285s）。Linux/QEMU 六架构各执行 `8.8.8.8`、`1.1.1.1`、`10.0.0.8`，共 18 组查询；win32/win64 各 3 组，共 6 组查询，标题/权威尾行完整，公网查询分别收敛 ARIN/APNIC，私网查询保持 `unknown @ unknown`。九个 artifact SHA-256 实算与清单 `9/9` 一致，仓库内外两个 release 同步目录共 `20/20` 文件与 artifact 一致；三条 referral 路径均收敛 AFRINIC 且 retry `failures=0`
+- 专项回归：启用 `WHOIS_GREP_TEST` 的 x86_64/win32/win64 聚焦构建与 `--selftest-grep` smoke 全部 PASS，三架构的 block、line/no-cont、line/keep-cont 共 9 项通过（`out/artifacts/20260825-165446`，184s）
+- 关闭结论：sanitizer、受控负例、编码、ShellCheck/Bash syntax、最终 Strict 产品回归、双目录同步复核与聚焦 grep selftest 均通过，WP-09 关闭
+
 ### 起步检查单
 
 - [x] WP-01：一键发布顺序与版本注入（本地实现、静态断言与 v3.3.1 真实 one-click 演练完成，2026-08-25）
@@ -470,6 +485,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-07：按 WP-02 证据登记 fold token 容量预留优化
 - [x] WP-07：ASan/UBSan、win64、aarch64 QEMU 与最终发布门禁
 - [x] WP-08：v3.3.1 三架构各 3 次完整性能重基线与初始回归预算
+- [x] WP-09：Linux native ASan/UBSan 确定性门禁、受控负例与生产重叠复制修复
 
 ## 11. v3.3.1 后续工作计划（2026-08-25 登记）
 
@@ -480,11 +496,11 @@ v3.3.1 已完成原计划中的发布工程、性能基线、条件输出和 fol
 执行顺序：
 
 1. **P0：WP-08**，先建立 v3.3.1 可重复性能基线，为后续判断提供同口径证据。
-2. **P0：WP-09**，在不改变产品行为的前提下，把已经用于 WP-02/WP-07 的 sanitizer 压力验证整理为可重复门禁。WP-08 与 WP-09 可串行或在互不修改同一工作区时独立执行。
+2. **P0：WP-09**，把已经用于 WP-02/WP-07 的 sanitizer 压力验证整理为可重复门禁；若门禁暴露生产内存安全缺陷，只做有 sanitizer 与同缓冲数据流证据的最小 bugfix。WP-08 与 WP-09 可串行或在互不修改同一工作区时独立执行。
 3. **P1：WP-10**，完成响应读取上限的契约与实现审计；只有研究结论明确证明新增公开选项有独立价值且不损害权威判定，才另行批准 PRODUCT 实施项。
 4. **P2：WP-11**，保留小幅可观测性扩展入口，但必须先有真实用户场景、跨 RIR 样本和稳定字段语义；无证据则保持 `proposed`。
 
-默认执行方式为传统交互式开发。WP-08、WP-09 和 WP-10 的首个实施项分别为 TEST/TOOL、TEST/TOOL、DOC/TEST，不创建 A/B 任务定义；只有后续获批且改动量、风险适合确定性 D1–D4 编排的 PRODUCT 实施项，才单独评审是否采用 Vx A/B。
+默认执行方式为传统交互式开发。WP-08 和 WP-10 的首个实施项分别为 TEST/TOOL、DOC/TEST；WP-09 因 sanitizer 实证缺陷调整为 MIXED。三者均不创建 A/B 任务定义；只有后续获批且改动量、风险适合确定性 D1–D4 编排的 PRODUCT 实施项，才单独评审是否采用 Vx A/B。
 
 ### 11.2 WP-08：v3.3.1 性能重基线与回归预算
 
@@ -496,10 +512,11 @@ v3.3.1 已完成原计划中的发布工程、性能基线、条件输出和 fol
 
 ### 11.3 WP-09：条件输出 sanitizer 确定性回归门禁
 
-- 将现有 fold / fold-unique stress 与 batch 的 ASan/UBSan 验证整理为离线、固定输入、固定迭代数且失败码稳定的专项入口，覆盖 workbuf 扩容、长 token、CR/LF 截断、去重和格式化组合。
-- 第一阶段只复用已有 harness 与源码路径；是否扩展到 pick、stats 或更多 pipeline 组合，以可构造的内存安全边界和实际覆盖缺口为依据。
+- 将现有 title、grep、fold / fold-unique stress 与 batch 的 ASan/UBSan 验证整理为离线、固定输入、冻结 SHA 且失败码稳定的专项入口，覆盖同 workbuf 压缩、block/line 模式、续行开关、workbuf 扩容、长 token、CR/LF 截断、去重和格式化组合。
+- 第一阶段复用已有 harness 与源码路径，并补齐 `grep-line` / `grep-line-cont`；不凭推测扩展到 pick、stats 或无内存安全边界证据的组合。
 - 门禁不得依赖公网，不修改 stdout/stderr 产品契约，不因新增工具入口进行全仓告警清理或无关重构；不新增 VS Code task，优先接入现有测试脚本或 Makefile 入口。
-- 完成条件：同一命令可重复构建并运行，正常用例退出 0，注入失败可被稳定识别，相关文档写明工具链前提与适用范围。
+- 当前工具链范围限定 native Linux x86_64 GCC ASan/UBSan；MinGW 与 aarch64 musl 缺 sanitizer runtime 时明确记录 unavailable，不把环境缺口判为产品失败，也不降低其他架构的严格构建与 Golden 门禁。
+- 完成条件：同一命令可重复构建并运行，64 个正常用例退出 0 且冻结输出一致，受控 test-only 重叠复制负例被稳定识别，生产缺陷完成最小修复，相关文档写明工具链前提与适用范围。
 
 ### 11.4 WP-10：响应读取上限语义审计与 `--max-bytes` 决策门禁
 
