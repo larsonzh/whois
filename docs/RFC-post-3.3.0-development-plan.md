@@ -3,7 +3,7 @@
 > 状态：已批准（2026-08-24 总体评审通过）
 > 原始规划基线：`v3.3.0`（2026-08-24 正式发布）
 > 当前基线：`v3.3.1`（2026-08-25 正式发布；WP-08 性能重基线已完成）；`v3.3.0` 仅继续作为本文历史规划与 WP-02 性能对照基线。
-> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-09 已完成，WP-10–WP-11 按第 11 节保留为下一阶段候选工作。
+> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-10 已完成，WP-11 按第 11 节保留为证据触发的候选工作。
 > 关联：
 > - 条件输出现状与历史设计：`docs/RFC-conditional-output-CN.md`
 > - 发布流程：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md`
@@ -250,7 +250,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-07 | done | Phase 2 follow-up | fold token 容量预留优化 | 三架构冻结基准、sanitizer 与重建 Strict 九架构/Golden/referral/双目录 sync 全部完成（`20260824-205103`） |
 | WP-08 | done | Phase 4 | v3.3.1 性能重基线与回归预算 | 三架构各 3 次完整复跑、共 414 个 case 汇总全部通过；初始预算采用正确性硬门禁与性能复测告警（2026-08-25） |
 | WP-09 | done | Phase 4 | 条件输出 sanitizer 确定性回归门禁与重叠复制修复 | Linux native ASan/UBSan 64 个正向场景、受控负例、最终 Strict 九架构回归及三架构 grep selftest 全部 PASS（2026-08-25） |
-| WP-10 | proposed | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 现有 `--buffer-size`、接收上限与协议安全阈值并存；先审计，未通过契约门禁则不新增 CLI |
+| WP-10 | done | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 真实接收上限就是 `--buffer-size`；离线审计确认静默截断会造成分类漂移，决定不新增重复 CLI（2026-08-25） |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
@@ -486,6 +486,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - [x] WP-07：ASan/UBSan、win64、aarch64 QEMU 与最终发布门禁
 - [x] WP-08：v3.3.1 三架构各 3 次完整性能重基线与初始回归预算
 - [x] WP-09：Linux native ASan/UBSan 确定性门禁、受控负例与生产重叠复制修复
+- [x] WP-10：响应读取上限数据流、截断分类漂移与 `--max-bytes` 决策审计
 
 ## 11. v3.3.1 后续工作计划（2026-08-25 登记）
 
@@ -525,6 +526,14 @@ v3.3.1 已完成原计划中的发布工程、性能基线、条件输出和 fol
 - 研究阶段不得改网络读取行为或公开 CLI。只有同时满足“独立于 `--buffer-size` 的用户价值明确”“截断可观测且 fail-close”“不误判权威 RIR”“默认行为零变化”，才可把 PRODUCT 实施项提升为 `ready`。
 - 任一条件无法满足，或现有 `--buffer-size` 已足以表达需求，则以“不新增 `--max-bytes`”关闭研究；禁止退化为网络命中即停。
 
+实施回填（2026-08-25）：
+
+- 数据流结论：`--buffer-size` 默认 512 KiB，并作为主查询路径传给 `wc_recv_until_idle(..., max_bytes)`，同时控制工作缓冲容量和实际网络接收上限；协议安全层的 10 MiB 最大响应约束未接入该主接收路径。因而 `--max-bytes` 没有独立于现有选项的控制对象。
+- native Linux GCC socketpair 审计直接调用真实 `wc_recv_until_idle`：低于上限、恰好上限、超过上限 3 个案例全部 PASS；超过上限时函数返回成功且只交付上限内字节，调用方没有截断状态，确认 `silent_truncation=confirmed`。
+- 分类审计覆盖 IPv4 权威尾部、IPv6 referral、CIDR ERX/IANA 标记和批量拒绝访问标记 4 个案例，完整响应与截断响应均走真实分类 helper；7 个总案例全部 PASS，并确认四类 `classification_drift=confirmed`。复现入口为 `tools/test/response_limit_audit.sh`，证据为 `out/artifacts/response_limit_audit/20260825-183151/report.txt`。
+- 决策：关闭 WP-10，不新增 `--max-bytes`。该选项与 `--buffer-size` 重复，且“截断可观测且 fail-close”“不误判权威 RIR”两项 PRODUCT 门禁不满足；默认网络行为和公开 CLI 保持不变。
+- 后续边界：静默截断应作为独立的内部 fail-close bugfix 候选另行评审，目标是让接收上限耗尽可区分并阻止部分响应进入权威判定；不得借该候选引入第二个公开字节上限或网络命中即停。
+
 ### 11.5 WP-11：证据触发的 stats/pick 小幅扩展
 
 - 候选范围仅限现有稳定模型可表达的附加 stats 字段或 pick allowlist 字段；stats 只能追加稳定键，pick 只能在跨 RIR 样本确认值语义、续行和多值规则后增加字段。
@@ -542,3 +551,5 @@ v3.3.1 已完成原计划中的发布工程、性能基线、条件输出和 fol
 ### 11.7 阶段复审点
 
 WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 覆盖缺口和实际用户反馈，决定 WP-10 是否进入研究、WP-11 是否出现可立项候选。若没有新的证据，允许本阶段停在测试与文档增强，不以新增产品功能作为阶段完成标准。
+
+复审回填（2026-08-25）：WP-08 基线未证明新的生产性能热点，WP-09 已关闭共享 workbuf 的实证内存安全缺陷；据此完成 WP-10 研究并作出“不新增 `--max-bytes`”决定。当前没有 WP-11 所需的真实用户场景、跨 RIR 样本或稳定字段语义，WP-11 保持 `proposed`，不进入实施。

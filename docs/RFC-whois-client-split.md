@@ -14,12 +14,13 @@
 
 **当前维护状态（唯一状态入口）**：
 
-- post-3.3.0 开发已按 `docs/RFC-post-3.3.0-development-plan.md` 推进，WP-01–WP-09 均已完成（done）；后续工作包状态以该 RFC 为唯一入口。
+- post-3.3.0 开发已按 `docs/RFC-post-3.3.0-development-plan.md` 推进，WP-01–WP-10 均已完成（done）；WP-11 保持证据触发的 proposed，后续工作包状态以该 RFC 为唯一入口。
 - 2026-08-24 已修复 `injection-view-fallback` standalone selftest 的反向返回值断言，生产查询逻辑与输出契约不变；Strict `lto-auto` 默认轮九架构、hash、Golden、referral 与 standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s）；2026-08-25 真实 one-click 演练完成（v3.3.1，tag 指向最终静态产物提交 `4357c6a0`），WP-01 关闭（done）。
 - 2026-08-24 WP-05 已完成：`wc_pick` 独立承载精确标题字段抽取，pipeline 顺序固定为 title -> grep -> pick -> fold/body，查询执行结果独立记录有序 logical hop。最终 Strict `lto-auto` 九架构零编译/LTO 告警，artifact 与双发布目录 SHA-256 `9/9` 一致，Linux/QEMU/native 与 Windows Wine smoke 零告警，Golden/三起点 referral PASS（`out/artifacts/20260824-170256`，351s）。
 - 2026-08-24 WP-06 已完成：新增独立 `wc_stats` 聚合器，由 batch orchestrator 持有跨查询生命周期并直接消费结构化 result；真实联网复核后修复 pipeline 渲染清空 `res.body` 导致成功查询误计 lookup error 的问题，成功状态改为渲染前冻结。固定统计行、精确 nearest-rank 分位与 1,000,000 项资源上限已通过修复后最终 Strict 九架构 build/hash、Golden、三起点 referral、双目录 release sync 与同步 win64 `12/12` 专项合同（`out/artifacts/20260824-185823`，316s；`stats_contract/20260824-190108`）。
 - 2026-08-24 WP-07 已完成：基于 WP-02 的高密度 fold 热点证据，将 `append_token_with_format` 的逐字节 workbuf reserve 合并为逐 token 上界预留；三架构冻结矩阵、ASan/UBSan 与量化收益门禁均通过。最新 Strict `lto-auto` 重建无编译/LTO 告警，九架构 hash、Golden、三起点 referral 与双目录 release sync 全 PASS（`out/artifacts/20260824-205103`，311s）；Linux/QEMU、win32、win64 smoke=`18/3/3` 且零告警，三处制品 SHA-256 均 `9/9` 一致。
 - 2026-08-25 WP-09 已完成：修复 title 与 grep line 模式在共享 workbuf 向前压缩时的五处重叠 `memcpy`，并建立 native Linux GCC ASan/UBSan 确定性门禁（64 个正向场景与受控负例 PASS）。最终 Strict Version `lto-auto` 默认轮无编译/LTO 告警，九架构 build/hash、Golden、三起点 referral、Linux/QEMU `18` 组与 Windows `6` 组查询冒烟及双目录 release sync 全 PASS（`out/artifacts/20260825-171420`，285s）；x86_64/win32/win64 聚焦 grep selftest `9/9` PASS（`out/artifacts/20260825-165446`）。
+- 2026-08-25 WP-10 已完成：确认 `--buffer-size` 已直接控制主查询实际接收上限，新增 `--max-bytes` 没有独立语义；native Linux GCC 的 3 个真实接收案例与 IPv4/IPv6/CIDR/批量 4 个分类案例全部 PASS，实证当前上限耗尽会静默成功并造成权威、referral、ERX/IANA、拒绝访问分类漂移（`out/artifacts/response_limit_audit/20260825-183151`）。决定不新增公开 CLI、不改变网络行为；截断可观测与 fail-close 作为独立内部 bugfix 候选另行评审。WP-08/WP-09 轻量复审未发现 WP-11 所需用户证据，WP-11 保持 proposed。
 - 核心模块局部治理与性能优化不设常驻优先级或排期；仅在测试覆盖和可复现实测基线证明收益后，以新事项启动。
 
 **快速索引（轻整理，摘要版）**：
