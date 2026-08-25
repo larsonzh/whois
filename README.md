@@ -133,8 +133,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- Batch statistics `--stats`: a fixed 18-field stdout summary (total/success/error, error classes, RIR buckets, exact nearest-rank p50/p95); batch-only, with no partial summary on overflow or interruption.
 - fold 性能与正确性：逐 token 上界容量预留（reserve `1,417,000/1,420,000` → `26,000/29,000`，stress median 提升 3.9%~55.1%），并修复 workbuf 扩容后旧指针读取的 `fold-unique` UAF。
 	- Fold performance and correctness: one reserve per token with a strict upper bound (reserves `1,417,000/1,420,000` → `26,000/29,000`, stress medians up 3.9%–55.1%), fixing the `fold-unique` stale-pointer UAF after workbuf growth.
-- 发布工具首批收口：一键发布顺序 build/verify → statics sync/commit → tag → release，支持版本注入、令牌脱敏与 dry-run 防回归；真实 one-click 演练随 WP-01 预发布窗口完成。
-	- Release-tooling closure, first slice: one-click release follows build/verify → statics sync/commit → tag → release with version injection, token scrubbing, and dry-run guards; the real one-click rehearsal completes in the WP-01 prerelease window.
+- 发布工具首批收口：一键发布顺序 build/verify → statics sync/commit → tag → release，支持版本注入、令牌脱敏与 dry-run 防回归；真实 one-click 演练已于 2026-08-25 完成（v3.3.1，tag 指向最终静态产物提交 `4357c6a0`）。
+	- Release-tooling closure, first slice: one-click release follows build/verify → statics sync/commit → tag → release with version injection, token scrubbing, and dry-run guards; the real one-click rehearsal completed on 2026-08-25 (v3.3.1, tag pointing to the final statics commit `4357c6a0`).
 - 验证（2026-08-24，WP 阶段）：三架构 46/46 冻结矩阵、ASan/UBSan、最终 Strict `lto-auto` 九架构零编译/LTO 告警、Golden 与三起点 referral、`18/3/3` smoke、三目录 `9/9` SHA（`out/artifacts/20260824-205103`，311s）。
 	- Verification (2026-08-24, WP phase): 46/46 frozen matrices on three architectures, ASan/UBSan, final Strict `lto-auto` nine-architecture builds with zero compile/LTO diagnostics, Golden and three referral starts, `18/3/3` smoke, and `9/9` SHA-256 across three directories (`out/artifacts/20260824-205103`, 311s).
 

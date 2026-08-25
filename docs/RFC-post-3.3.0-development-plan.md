@@ -240,7 +240,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 
 | 工作包 | 状态 | 阶段 | 内容 | 备注 |
 |---|---|---|---|---|
-| WP-01 | active | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本与本地 dry-run 防回归已落地；远程 build+sync 演练和遗留 selftest 定性待完成 |
+| WP-01 | done | Phase 1 | 一键发布顺序/版本注入 + 令牌脱敏 + dry-run 防回归 | 发布脚本、本地 dry-run 防回归、遗留 selftest 定性/修复与 v3.3.1 真实 one-click 发布演练全部完成（2026-08-25） |
 | WP-02 | done | Phase 2 | 离线性能基准脚本 + workbuf 可观测性 + 基线报告 | 46 场景三架构安全基线与冻结 SHA 已回填；发现并修复 fold UAF |
 | WP-03 | done | Phase 3 | RFC 定版 + `--no-body` | 协议、产品实现、合同 smoke 与完整发布门禁均已完成 |
 | WP-04 | done | Phase 3 | `--print-meta` | 契约冻结、产品实现、合同 smoke 18/18 与最终 Strict 九架构构建/Golden/referral 均通过（2026-08-24） |
@@ -379,6 +379,18 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 变更：构建/同步/静态产物提交前移到 tag 创建之前；目标 tag 不存在时以进程环境注入 `WHOIS_FORCE_VERSION`；现有 tag 不指向最终提交时 fail-close；GitHub/Gitee token 不再进入 Bash 命令文本；smoke 新增顺序、强制版本、token 内联与九架构加 checksum 集合断言；修正 `injection-view-fallback` 对 handler 返回契约的反向断言，并新增 core golden 双向门禁
 - 决策/回退：保留 opt-in 发布行为与默认远程构建入口；生产查询逻辑未因 selftest 修复改变；真实发布演练前不关闭 WP-01
 
+### WP-01/真实 one-click 发布演练（2026-08-25）
+- 状态：done
+- 类型：TEST/TOOL（发布流程真实演练）
+- 执行方式：真实一键发布（one_click_release.ps1，BuildAndSyncIf=true）
+- 执行映射：A/B=不适用；task-definition=不适用
+- 基线/依赖：v3.3.1 发布准备提交 `6d2b04f5`；WP-02=done
+- 结果：真实 one-click 全流程 PASS（build+verify → statics 同步与提交 → annotated tag v3.3.1 → GitHub/Gitee Release 更新），过程中无任何故障与不适；构建版本串精确为 v3.3.1（无 git describe fallback）；tag 指向最终静态产物提交
+- run：构建产物=`out/artifacts/20260825-101612`（build_out 含 build_report/golden_report/三份 smoke/SHA256SUMS-static.txt 与九架构二进制）；statics 提交=`4357c6a0`（release: update whois statics for v3.3.1）；tag=`v3.3.1`（annotated，2026-08-25 10:16:29 +0800，message=`whois v3.3.1`，指向 `4357c6a0`）；Gitee Release body 更新命令 exit=0；origin/master 已同步至 `4357c6a0`
+- 门禁：golden=`[golden] PASS`；Linux/QEMU、win32、win64 smoke=`18/3/3` 且 alerts=0；build_report 覆盖九架构；statics 提交同时更新九架构二进制与 `SHA256SUMS-static.txt`；tag 指向静态产物提交；日志无 token 明文；`git status` 干净
+- 变更：无源码/脚本变更；本轮为发布流程真实演练
+- 决策/回退：WP-01 关闭（done）；后续版本发布沿用真实 one-click 路径
+
 ### WP-02/离线条件输出性能基线（2026-08-24）
 - 状态：done
 - 类型：MIXED
@@ -427,9 +439,9 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 
 ### 起步检查单
 
-- [x] WP-01：一键发布顺序与版本注入（本地实现与静态断言完成，真实演练待办）
+- [x] WP-01：一键发布顺序与版本注入（本地实现、静态断言与 v3.3.1 真实 one-click 演练完成，2026-08-25）
 - [x] WP-01：令牌脱敏 + 静态自检
-- [x] WP-01：dry-run 防回归断言（本地无构建路径；远程 build+sync 路径待办）
+- [x] WP-01：dry-run 防回归断言（本地无构建路径与真实 one-click build+sync 路径均完成，2026-08-25）
 - [x] WP-01：`injection-view-fallback` 定性/修复
 - [x] WP-02：离线基准脚本与 v3.3.0 安全基线报告
 - [x] WP-03：条件输出 RFC 定版 + `--no-body`

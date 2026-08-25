@@ -4,6 +4,8 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+post-3.3.0 WP-01 真实一键发布演练复核（2026-08-25）：v3.3.1 发布经 one-click build+verify → statics 同步与提交 → annotated tag v3.3.1 → GitHub/Gitee Release 更新全流程 PASS，过程中无任何故障与不适；tag 指向最终静态产物提交 `4357c6a0`，构建产物 `out/artifacts/20260825-101612`（golden PASS、smoke `18/3/3` alerts=0），Gitee Release body 更新 exit=0，origin/master 已同步。WP-01 关闭（done）。
+
 post-3.3.0 WP-07 最终重建复核（2026-08-24）：fold token 容量预留优化后的 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 Local hash、Golden 与三起点 referral 全 PASS（`out/artifacts/20260824-205103`，311s）。Linux/QEMU、win32、win64 smoke 分别完成 `18/3/3` 条查询，查询首行与权威尾行数量一致且零告警；IANA/ARIN/AFRINIC 三起点均收敛至 AFRINIC。artifact 清单、仓库 release 与外部 lzispro release 目录独立实算均为 `9/9` SHA-256 一致；Windows win32/win64 均为 full-static。本轮无需追加代码修复。
 
 post-3.3.0 WP-02 最终制品复核（2026-08-24）：纳入 `src/cond/fold.c` 的 workbuf 扩容后旧指针读取修复后，Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 Local hash、Golden 与三起点 referral 全 PASS（`out/artifacts/20260824-094617`，299s）。Linux/QEMU、win32、win64 smoke 分别完成 `18/3/3` 条查询，标题与权威尾行数量一致且零告警；artifact 清单独立重算 `9/9`，仓库内与外部 lzispro 同步目录也均为 `9/9`。本轮无需追加代码修复。
