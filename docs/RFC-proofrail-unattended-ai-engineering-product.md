@@ -10,7 +10,7 @@
 
 ### 0.1 正式名称（推荐）
 
-**ProofRail**（中文名：**证轨**）
+**ProofRail**（紧凑标识：**PrfRail**；工程名称：`prfrail`；中文名：**证轨**）
 
 - 标语（Tagline）：*Provable rails for unattended AI engineering* —— 为 AI 无人值守编程铺设可证明的轨道。
 - 命名解读：
@@ -20,11 +20,56 @@
   - **Rail（轨道/护栏）**：双关语义。既是 *guardrail*（护栏）——编辑边界矩阵、停机门禁、
     fail-close 状态机对 AI 权限的最小化约束；也是 *rail*（轨道）——first-fail-stop 的
     顺序执行语义让 AI 只能沿预定义轨道推进，不能自由发挥。
-  - 发音简洁、无常见商标冲突风险、域名与包名可用性好（proofrail.dev / go 模块
-    `github.com/<org>/proofrail`）。
+  - 正式名称完整表达产品定位；工程名称短小，适合作为仓库名、CLI、包名和模块前缀。
   - 中文名"证轨"两字对应 Proof/Rail，紧凑且技术气质鲜明。
 
-### 0.2 备选名称
+### 0.2 名称分层与使用规范
+
+采用 **ProofRail / PrfRail / `prfrail`** 的三级命名组合：
+
+| 使用场景 | 写法 | 说明 |
+|----------|------|------|
+| 正式品牌、标题、对外文档 | **ProofRail** | 保留 Proof + Rail 的完整语义与品牌辨识度 |
+| 紧凑视觉标识、空间受限界面 | **PrfRail** | 由 ProofRail 压缩而来，不将 `PR` 突出为独立缩写 |
+| 仓库、CLI、可执行文件、包名和模块前缀 | `prfrail` | 全小写、无连字符，便于跨平台使用与检索 |
+| 中文文档与传播 | **证轨** | 对应“证明/证据链 + 轨道/护栏” |
+
+推荐示例：
+
+```text
+正式名称：ProofRail
+紧凑标识：PrfRail
+仓库名称：prfrail
+CLI：prfrail
+Go 模块：github.com/<org>/prfrail
+中文名称：证轨
+```
+
+CLI 命令示例：
+
+```bash
+prfrail check
+prfrail apply
+prfrail verify
+prfrail guard
+prfrail inspect
+prfrail promote
+```
+
+不建议将 **PRail** 作为正式名称或主要简称：在软件工程语境中，`PR` 通常首先被理解为
+*Pull Request*，容易让产品被误认为仅面向 PR 检查或 PR 流水线。`PrfRail` 保留了
+Proof 的来源提示，同时通过工程名称 `prfrail` 降低重名与语义歧义风险。
+
+命名一致性规则：
+
+1. README、RFC、官网和发布说明首次出现时使用 **ProofRail**。
+2. 紧凑界面可使用 **PrfRail**，但首次出现时应注明其为 ProofRail 的紧凑标识。
+3. 代码、命令、目录、制品和配置键统一使用小写 `prfrail`，避免混用 `prail`、`proofrail`
+   或不同大小写变体。
+4. 名称可用性会随时间变化；正式创建独立项目或商业发布前，应再次检查 GitHub、域名、
+   语言包注册表及目标市场商标。
+
+### 0.3 备选名称
 
 | 备选 | 解读 | 未选为首选的原因 |
 |------|------|------------------|
@@ -33,16 +78,16 @@
 | **SentinelForge**（哨兵工坊） | 哨兵（guard/watchdog）+ 锻造（代码变更） | 偏向监控语义，弱化了"可证明"这一核心卖点 |
 | **FailClose** | 直接取自体系的核心安全原则 | 作为原则名极佳，但作为产品名偏负面 |
 
-### 0.3 子模块命名建议
+### 0.4 子模块命名建议
 
-沿用铁路隐喻，保持品牌一致性：
+沿用铁路隐喻，并统一使用 `prfrail` 工程前缀：
 
-- `proofrail-switch`（taskdef）：任务定义 schema 与静态 checker——"道岔"决定轨道走向。
-- `proofrail-track`（applier）：原子执行引擎——列车只能沿轨道行驶。
-- `proofrail-signal`（tickets）：票据生命周期与状态机——"信号灯"控制放行与阻断。
-- `proofrail-guard`（guard）：进程监控与停机门禁。
-- `proofrail-depot`（repair）：Prepare/Inspect/Validate/Promote 候选事务——"检修库"。
-- `proofrail-gates`（gates）：可插拔验证门禁。
+- `prfrail-switch`（taskdef）：任务定义 schema 与静态 checker——"道岔"决定轨道走向。
+- `prfrail-track`（applier）：原子执行引擎——列车只能沿轨道行驶。
+- `prfrail-signal`（tickets）：票据生命周期与状态机——"信号灯"控制放行与阻断。
+- `prfrail-guard`（guard）：进程监控与停机门禁。
+- `prfrail-depot`（repair）：Prepare/Inspect/Validate/Promote 候选事务——"检修库"。
+- `prfrail-gates`（gates）：可插拔验证门禁。
 
 ## 1. 总体结论：可行，且价值明确
 
@@ -116,7 +161,7 @@ whois 业务本身高度解耦，具备抽取为通用产品的条件。它解�
 
 ## 5. 产品形态与模块划分
 
-建议建立独立仓库，模块划分（括号内为 0.3 节的品牌化命名）：
+建议建立名为 `prfrail` 的独立仓库，模块划分（括号内为 0.4 节的品牌化命名）：
 
 1. `taskdef`（switch）：任务定义 schema、解析、target registry、静态 checker。
 2. `applier`（track）：原子执行引擎（journal、原子写、回滚、receipt）。
