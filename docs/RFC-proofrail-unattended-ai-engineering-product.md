@@ -854,16 +854,16 @@ model = "standard"
 review = "hybrid"
 
 [[tasks.steps]]
-id = "D1"
+id = "implement"
 kind = "code"
 
 [[tasks.steps]]
-id = "V1"
+id = "verify"
 kind = "verify"
 hooks = ["go-test", "go-build", "cli-smoke"]
 
 [[tasks.steps]]
-id = "V2"
+id = "platform-check"
 kind = "noop"
 reason = "No platform-specific verification in this task"
 
@@ -873,7 +873,7 @@ agent = { channel = "ipc" }
 [[workspace.components]]
 id = "core"
 root = "."
-harness = "c"
+harness = "go"
 ```
 
 `code` step 未声明 `execution` 时默认为 `autonomous`；`supervised` 与 `manual-handoff` 仅在任务
