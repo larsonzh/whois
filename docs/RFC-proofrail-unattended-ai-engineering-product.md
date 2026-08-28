@@ -148,7 +148,8 @@ ProofRail 首版不是代码托管平台、CI 服务、通用项目管理工具�
    - 自愈开关（self-heal enabled、cross-round repair enabled）与人工解锁规则。
 
 5. **运行编排与可观测性**
-   - stage window / supervisor / companion / session guard / watchdog 的进程编排。
+   - stage window（监控链启动器）/ session guard（已合并原 supervisor/companion 功能）/
+     takeover trigger / terminal watchdog 的进程编排。
    - 工单轮询 V2 的生命周期状态机、账本持久化、重启屏障、drain/recovery-drain。
    - start-file 身份绑定、快照完整性校验、心跳与健康检查。
 
