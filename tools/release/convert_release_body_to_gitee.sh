@@ -27,7 +27,7 @@ set -euo pipefail
 # 预览（不改文件）:
 #   ./tools/release/convert_release_body_to_gitee.sh -n -t v3.3.0 docs/release_bodies/v3.3.0.md
 # 直接转换（版本可从文件名/正文自动推断，也支持省略前导 v）:
-#   ./tools/release/convert_release_body_to_gitee.sh -n v3.3.0 docs/release_bodies/v3.3.0.md
+#   ./tools/release/convert_release_body_to_gitee.sh -t v3.3.0 docs/release_bodies/v3.3.0.md
 
 owner=larsonzh
 repo=whois
