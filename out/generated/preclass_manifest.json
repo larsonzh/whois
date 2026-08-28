@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-15T22:51:03.5869886+00:00",
+  "generated_at": "2026-08-27T21:55:06.9042659+00:00",
   "source_ipv4": "docs/registry-snapshots/iana-ipv4-address-space.csv",
   "source_ipv6": "docs/registry-snapshots/iana-ipv6-address-space.csv",
   "source_ipv4_special": "docs/registry-snapshots/iana-ipv4-special-registry.csv",
@@ -10,7 +10,7 @@
   "source_ipv6_sha256": "c14dc88152d43969dd43b3d23d86421283bdf8a82d463e0dcbae5d5deee416f8",
   "source_ipv4_special_sha256": "25bcc3bf28abcc4a689b8c2a742fdf2153a9eb1f769479e0e4ccb23bf0340702",
   "source_ipv6_special_sha256": "9501073c7895d647de11cce9c8fb032224ba06ba7cdd8a2dbd79fea6f8b92dbf",
-  "snapshot_manifest_sha256": "f7d606685ddccd6340198ffb2fc0c58d254979a20cb7e3f34a25ab562ca535ca",
+  "snapshot_manifest_sha256": "09ee27d1df03acf985121c715ef1063853df43a6d969561548a3ecb23e3dd794",
   "record_count_v4": 281,
   "record_count_v6": 44,
   "record_count_special": 49,

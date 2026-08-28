@@ -1,4 +1,4 @@
-﻿# whois (v3.3.1)
+﻿# whois (v3.3.2)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -99,6 +99,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.3.2：发布说明 `RELEASE_NOTES.md#332` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.2 | Gitee Releases（查找 v3.3.2）: https://gitee.com/larsonzh/whois/releases
+		- v3.3.2: Release notes `RELEASE_NOTES.md#332` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.2 | Gitee Releases (find v3.3.2): https://gitee.com/larsonzh/whois/releases
 	- v3.3.1：发布说明 `RELEASE_NOTES.md#331` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1 | Gitee Releases（查找 v3.3.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.3.1: Release notes `RELEASE_NOTES.md#331` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1 | Gitee Releases (find v3.3.1): https://gitee.com/larsonzh/whois/releases
 	- v3.3.0：发布说明 `RELEASE_NOTES.md#330` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.0 | Gitee Releases（查找 v3.3.0）: https://gitee.com/larsonzh/whois/releases
@@ -124,6 +126,15 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.3.2 速览 / What's new <a id="332"></a>
+
+- 稳定性修复（WP-09）：修复 title 过滤与 grep line 模式在共享 workbuf 向前压缩时的五处重叠 `memcpy` 未定义行为，改为 `memmove`，并新增 native Linux GCC ASan/UBSan 确定性回归门禁；默认输出、过滤顺序与 CLI 契约不变。
+	- Stability fix (WP-09): fixes five undefined overlapping `memcpy` operations when title filtering or grep line mode compacts data forward in the shared workbuf, switching them to `memmove`, and adds a deterministic native Linux GCC ASan/UBSan regression gate; default output, filter ordering, and CLI contracts stay unchanged.
+- 响应上限审计（WP-10）：确认 `--buffer-size` 已直接控制主查询路径的实际接收上限；离线审计证实上限耗尽时当前行为为静默截断，并可能导致权威、referral、ERX/IANA 与拒绝访问标记分类漂移，因此不新增重复的 `--max-bytes`，网络行为不变；静默截断已登记为独立内部 fail-close bugfix 候选，本版不实施。
+	- Read-limit audit (WP-10): confirms `--buffer-size` already caps actual receive bytes on the main query path; the offline audit shows the current behavior silently truncates at the cap and can drift authority, referral, ERX/IANA, and denied-marker classification, so no duplicate `--max-bytes` is added and network behavior stays unchanged; silent truncation is filed as a separate internal fail-close fix candidate and is not implemented in this release.
+- 验证（2026-08-28，发布候选）：IANA Registry 快照刷新完成且上游无数据变化（`docs/registry-snapshots/manifest.json`）；发布前门禁全部 PASS：Strict `lto-auto` 构建/冒烟/Golden/referral 无告警（`out/artifacts/20260828-081629`，212s，9/9 SHA 一致）、DryRun build+sync `exit_code=0`（`20260828-061931`）、D6 双轮 `RoundPass=True`（`d6_consistency_double_round/20260828-065758`）、CIDR body `4/4`+matrix `9/9`（`cidr_bundle/...075315`）、Redirect Matrix `authMismatch=0 error=0`（`redirect_matrix_10x6/20260828-075458`）、Step47 预发布 7/7 pass（`step47_prerelease/20260828-080030`）、写盘核心守卫 `pass=True`。
+	- Verification (2026-08-28, release candidate): IANA Registry snapshot refreshed with no upstream data change (`docs/registry-snapshots/manifest.json`); all prerelease gates pass: strict `lto-auto` build/smoke/Golden/referral with no warnings (`out/artifacts/20260828-081629`, 212s, 9/9 matching SHA-256), dry-run build+sync `exit_code=0` (`20260828-061931`), D6 double-round `RoundPass=True` (`d6_consistency_double_round/20260828-065758`), CIDR body `4/4` plus matrix `9/9` (`cidr_bundle/...075315`), Redirect Matrix `authMismatch=0 error=0` (`redirect_matrix_10x6/20260828-075458`), Step47 prerelease 7/7 pass (`step47_prerelease/20260828-080030`), and write-core guard `pass=True`.
 
 ## v3.3.1 速览 / What's new <a id="331"></a>
 
