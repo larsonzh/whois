@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 #ifndef WC_CLIENT_FRONTEND_H
 #define WC_CLIENT_FRONTEND_H
 

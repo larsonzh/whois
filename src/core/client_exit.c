@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Centralized exit helpers for CLI usage errors.
 
 #include "wc/wc_client_exit.h"

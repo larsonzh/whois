@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Unified server backoff helpers built on wc_dns_health memory.
 
 #include <stddef.h>

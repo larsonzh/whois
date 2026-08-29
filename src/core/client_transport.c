@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Legacy socket send/receive helpers for WHOIS client compatibility.
 
 #ifndef _POSIX_C_SOURCE

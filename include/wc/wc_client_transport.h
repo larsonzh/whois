@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Socket send/receive helpers preserved for legacy WHOIS execution paths.
 
 #ifndef WC_CLIENT_TRANSPORT_H

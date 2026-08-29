@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Client-side utility helpers for whois CLI layer.
 // Focused on small, reusable helpers that are logically tied
 // to CLI/config parsing but do not belong to generic wc_util.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Output helpers for WHOIS client: headers/tails formatting and logging.
 
 #include <stdio.h>

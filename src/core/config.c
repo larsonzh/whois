@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Config validation helpers shared by CLI and core modules.
 
 #include <stdio.h>

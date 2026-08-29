@@ -481,8 +481,8 @@ Links / 参考:
 
 ## 许可证 / License
 
-- GPL-3.0-or-later
-	- Licensed under GPL-3.0-or-later.
+- MIT
+	- Licensed under MIT.
 
 ## 远程交叉编译 / Remote cross-compilation
 

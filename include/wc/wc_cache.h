@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Cache-related helpers for whois client (server backoff, connection health, etc.).
 
 #ifndef WC_CACHE_H

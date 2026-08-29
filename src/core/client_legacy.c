@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Legacy WHOIS query orchestration preserved for compatibility.
 
 #ifndef _POSIX_C_SOURCE

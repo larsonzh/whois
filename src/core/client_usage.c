@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Client usage helpers: server catalog & alias resolution.
 
 #include <stdio.h>

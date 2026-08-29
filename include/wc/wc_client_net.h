@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Client-side networking helpers for whois CLI.
 // Provides legacy resolution and fallback connect routines
 // while the new lookup pipeline matures.

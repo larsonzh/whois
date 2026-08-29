@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared server backoff helper built on top of DNS health tracking.
 
 #ifndef WC_BACKOFF_H

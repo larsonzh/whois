@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // WHOIS protocol safety helpers.
 
 #ifndef WC_PROTOCOL_SAFETY_H

@@ -1,5 +1,5 @@
-// whois client (version 3.3.2) - migrated from lzispro
-// License: GPL-3.0-or-later
+// whois client (version 3.3.3) - migrated from lzispro
+// License: MIT
 
 // ============================================================================
 // 1. Feature toggles and includes

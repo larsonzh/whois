@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Legacy WHOIS query orchestration helpers kept for compatibility.
 
 #ifndef WC_CLIENT_LEGACY_H
