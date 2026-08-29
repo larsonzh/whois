@@ -3,7 +3,7 @@
 > 状态：已批准（2026-08-24 总体评审通过）
 > 原始规划基线：`v3.3.0`（2026-08-24 正式发布）
 > 当前基线：`v3.3.1`（2026-08-25 正式发布；WP-08 性能重基线已完成）；`v3.3.0` 仅继续作为本文历史规划与 WP-02 性能对照基线。
-> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-10 已完成，WP-11 按第 11 节保留为证据触发的候选工作。
+> 评审结论：原范围、工作包治理、依赖、门禁与估算继续有效；WP-01–WP-10 已完成，WP-11 按第 11 节保留为证据触发的候选工作；WP-12/WP-13 按第 12 节分别进入 v3.3.3 发布准备和协议评审。
 > 关联：
 > - 条件输出现状与历史设计：`docs/RFC-conditional-output-CN.md`
 > - 发布流程：`docs/RELEASE_FLOW_CN.md` / `docs/RELEASE_FLOW_EN.md`
@@ -27,6 +27,7 @@ v3.3.0 已作为新黄金基线发布，产品语义冻结（响应分类契约�
 1. 完成发布工具链根因修复与防回归（Phase 1）。
 2. 建立可重复、离线、多架构的性能黄金基准（Phase 2）。
 3. 重定版条件输出 Phase 2.5，并按风险从低到高增量落地（Phase 3）。
+4. 从 v3.3.3 起完成许可证迁移，并在不破坏冻结网络语义的前提下评审代理传输能力（Phase 5）。
 
 ### 1.1 总体评审记录
 
@@ -252,6 +253,8 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-09 | done | Phase 4 | 条件输出 sanitizer 确定性回归门禁与重叠复制修复 | Linux native ASan/UBSan 64 个正向场景、受控负例、最终 Strict 九架构回归及三架构 grep selftest 全部 PASS（2026-08-25） |
 | WP-10 | done | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 真实接收上限就是 `--buffer-size`；离线审计确认静默截断会造成分类漂移，决定不新增重复 CLI（2026-08-25） |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
+| WP-12 | active | Phase 5 | GPL-3.0 → MIT 许可证迁移 | 变更已在工作树准备；自 v3.3.3 正式发布版本起生效，v3.3.2 仍为 GPL；发布前须完成权利来源确认（2026-08-29 登记） |
+| WP-13 | proposed | Phase 5 | 通过代理访问 RIR 站点 | 分阶段覆盖 HTTP CONNECT、SOCKS5/5h、SOCKS4/4a 与 HTTPS proxy；IPv4/IPv6、环境变量、DNS/健康/缓存及静态构建契约尚待定版（2026-08-29 登记） |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
 
@@ -285,7 +288,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 - `blocked`：记录阻塞事实、责任边界和解除条件，不以降低门禁方式解除。
 - `done`：代码/文档/脚本已落地，全部适用门禁通过，证据路径与决策已回填，且无未登记的后续修补项。
 
-原阶段依赖为：WP-01 可立即启动；WP-02 可与 WP-01 并行；WP-03 须先完成条件输出 RFC 重定版；WP-04 依赖 WP-03 的元信息/正文组合契约；WP-05 依赖 WP-04 的字段协议；WP-06 依赖 WP-04 的状态与时延字段定义。下一阶段依赖见第 11 节。依赖只约束契约，不要求使用相同执行方式或同一次 A/B。
+原阶段依赖为：WP-01 可立即启动；WP-02 可与 WP-01 并行；WP-03 须先完成条件输出 RFC 重定版；WP-04 依赖 WP-03 的元信息/正文组合契约；WP-05 依赖 WP-04 的字段协议；WP-06 依赖 WP-04 的状态与时延字段定义。后续阶段依赖见第 11、12 节。依赖只约束契约，不要求使用相同执行方式或同一次 A/B。
 
 ### 6.4 工作量与日历估算
 
@@ -311,6 +314,8 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 3. WP-02 的最大不确定性是测试专用离线注入边界；WP-04/WP-05 的最大不确定性是现有查询结果结构是否已完整保留 attempts、redirect chain 和失败分类。完成开工 spike 后应重新估算，若单项偏差超过 30%，更新本节与工作包状态。
 4. `injection-view-fallback` 若仅完成 known-issue 定性，WP-01 取区间下半；若根因涉及注入视图生命周期与多路径修复，取上半。
 5. 任何新增范围必须登记新的 `WP-xx`，不得消耗本节缓冲后静默并入。
+
+Phase 5 单独估算，不并入上述历史合计：WP-12 的机械迁移、权利来源核验与发布证据预计 0.5–2 人日；WP-13 在契约冻结后预计 13–24 人日，其中代理核心与本地确定性测试 8–14 人日，HTTPS proxy 的 TLS 依赖/CA/静态链接验证 5–10 人日。若依赖 spike 证明 HTTPS proxy 无法满足九架构静态制品约束，则 WP-13 不得以删减门禁方式强行交付，应拆为后续工作包或明确标记 unsupported。
 
 ## 7. 工作包门禁（发布侧回归清单）
 
@@ -345,6 +350,9 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 | 性能基准波动（网络、架构差异） | 离线样本；分架构记录；同参数重复跑 |
 | 合并切片互相干扰 | 按 6 节合并原则；合并工作包失败时拆回独立实施项 |
 | token 泄漏复发 | 静态自检 + 日志审计纳入 Phase 1 回归 |
+| 代理故障污染 RIR 地址健康 | 区分代理端点、代理握手和目标拒绝；仅有目标地址证据时更新既有 host+family 健康记忆 |
+| HTTPS proxy 引入不可移植 TLS 依赖 | 开工前完成九架构静态链接、CA 来源、许可证与制品体积 spike；不满足即拆分/暂缓 HTTPS proxy |
+| 代理凭据泄漏 | 禁止密码型 CLI 参数；URL/环境变量统一脱敏，测试日志、进程命令行与错误文本均不得出现 secret |
 
 ## 9. 非目标（明确不做）
 
@@ -353,6 +361,7 @@ PRODUCT/MIXED 的完整门禁顺序固定：
 - 不重开已关闭的 A/B 直接 resume / 历史 PASS 快照 / 失败自动续跑路线（见 `docs/RFC-whois-client-split.md` 顶部状态治理）。
 - 不调整 DNS 候选/健康/回退冻结策略。
 - 不建设公告发布或置顶自动化；发布频率低，继续采用人工操作。
+- WP-13 不提供 UDP、PAC/WPAD、透明代理探测、系统浏览器代理自动导入或 TLS-wrapped WHOIS；HTTPS proxy 只加密客户端到代理的控制/隧道链路，隧道内 WHOIS 仍为明文 TCP。
 
 ## 10. 执行回填模板
 
@@ -560,3 +569,95 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - 结果：全部发布前门禁 PASS——IANA 快照刷新（上游无变化）、Strict `lto-auto` 九架构无编译/LTO 告警且 9/9 SHA 一致、Golden 与三起点 referral PASS（`out/artifacts/20260828-081629`，212s）、build+sync dry-run `exit_code=0`（`20260828-061931`）、D6 双轮 `RoundPass=True`（`20260828-065758`）、CIDR `4/4+9/9`（`...075315`）、Redirect Matrix `authMismatch=0 error=0`（`20260828-075458`）、Step47 预发布 7/7（`20260828-080030`）、写盘核心守卫 `pass=True`。
 - 限制：本轮产物版本串为 `v3.3.1-9-g23d061d3-dirty`（工作区含未提交变更），仅作为发布候选验证；正式 v3.3.2 产物必须在变更提交推送后由 One-Click Release 强制版本重建。
 - 决策：不修改任何产品代码；进入提交推送与 One-Click Release 阶段（等待用户授权）。
+
+## 12. v3.3.3 后续工作计划（2026-08-29 登记）
+
+### 12.1 许可证迁移：GPL-3.0 → MIT（WP-12，v3.3.3 实施）
+
+- 触发：用户决定将项目许可证由 GPL-3.0-or-later 迁移到 MIT，且自 **v3.3.3 正式发布版本起生效**；v3.3.2 按封板内容保留 GPL-3.0。许可证提交必须在 v3.3.3 tag 之前，tag、源代码与发布说明须指向同一许可状态。
+- 状态/方式：`active`，传统交互式（变更已在工作树准备，无需 A/B）；尚未提交、推送或发布。已登记日期 2026-08-29。
+- 变更清单：
+  - `LICENSE`：GPL-3.0 全文替换为 MIT License（Copyright (c) 2026 larsonzh），UTF-8 无 BOM + LF；
+  - `README.md`：许可证段落改为 MIT；
+  - `src/` 14 个源文件与 `include/wc/` 8 个头文件：`// SPDX-License-Identifier: MIT` / `// License: MIT`；
+  - `src/core/meta.c` 的 `WHOIS_VERSION` 与 `src/whois_client.c` 的版本注释属于 v3.3.3 版本准备，其中仅后者同时含许可证头变更，提交审计时不得把版本改动误计为许可证迁移。
+- 验证现状：工作树范围内零 `GPL-3.0-or-later` / `General Public License` / `GNU GENERAL` 残留；LICENSE 与源/头文件编码（无 BOM + LF）与原格式一致；README 保持 BOM + LF。许可证/注释本身按 DOC/metadata 门禁执行编码、残留扫描、SPDX 一致性、`git diff --check` 和一次严格编译；v3.3.3 版本整体仍按第 7 节执行完整发布侧回归。
+- 提交边界：**v3.3.2 的小版本提交不得包含任何许可证相关文件**（`LICENSE`、`README.md` 许可证段落、22 个源/头文件头部）；许可证变更文件仅作为 v3.3.3 提交内容进入 `origin/master`（定向 `git add`，禁止 `git add -A`）。
+- 发布前权利门禁：盘点仓库历史中的版权主体与具有可版权性贡献的作者，确认项目拥有重许可权或取得必要同意，并保存依据；第三方代码、数据、工具输出与依赖继续遵守各自许可证，不因根 LICENSE 改为 MIT 自动重许可。本项为发布治理要求，不构成法律意见。
+- 发布材料：同步 README、Release Notes、GitHub Release 与源码归档中的许可证说明；GitHub license badge 可由平台动态检测，无需手工改 URL，但发布前须确认识别结果为 MIT。
+- 回退：v3.3.3 发布前若权利门禁不满足，回滚许可证相关工作树/提交并保留 GPL。v3.3.3 一旦以 MIT 对外发布，已获得 MIT 许可的副本不能通过后续回滚追溯撤销；只能对未来版本另作许可决定并保留审计记录。
+
+### 12.2 通过代理访问 RIR 站点（WP-13，proposed）
+
+- 需求：允许用户经代理访问 RIR whois 服务（TCP，默认端口 43，可经 `-p/--port` 或 referral 自定义），适用于受限网络、出口合规与日志隔离。目标端点与代理端点的地址族、DNS、失败和指标必须分离，默认直连语义零变化。
+
+#### 12.2.1 代码事实与接入边界
+
+- 现有 `wc_dial_43` 同时承担 `getaddrinfo(AF_UNSPEC)`、非阻塞 TCP connect、重试/时延统计和 `wc_dns_health_note_result(host,family,success)`；`lookup_exec_connect` 已先生成 RIR IPv4/IPv6 候选并按冻结策略逐个调用该函数。代理实现不得令 `wc_dial_43(proxy,...)` 直接更新目标 RIR 健康，否则代理端点故障会污染 RIR host+family 状态。
+- 实施前先抽出“无业务副作用的 TCP 端点拨号”底层，再由直连适配器保留现有统计/健康语义，由代理适配器分阶段执行：拨号代理端点 → 可选 TLS → 代理握手 → 得到面向目标的字节流。现有主路径以裸 fd 调用 `send`/`recv`（`wc_recv_until_idle` 亦直接 `recv`）；HTTPS proxy 因 CONNECT 后的 WHOIS 字节仍须经 TLS record 传输，必须先引入统一的 transport `read/write/close/wait` 抽象，正确处理 partial I/O、TLS `WANT_READ/WANT_WRITE` 与单调时钟 deadline，不能把 TLS 底层裸 fd 交回现有 I/O。查询、referral 与渲染层不得感知代理协议。
+- 现有连接缓存键为目标 `host+port` 且值为裸 socket fd。代理 MVP 默认禁用该缓存；若后续启用，缓存键至少包含代理协议/端点/认证身份/目标 host+port/DNS 模式，HTTPS proxy 还须缓存 TLS transport 而非裸 fd，禁止不同代理或身份之间复用。
+- signal 活跃连接登记代理 peer（不得含凭据），逻辑 chain 仍只记录 RIR hop；代理路由只在 `--debug` / `--retry-metrics` 下以脱敏诊断输出，不进入 stdout 或 `--print-chain`。
+
+#### 12.2.2 目标、端口与 referral 契约
+
+- 初始目标端口来自 `q->port`（`-p/--port`，默认 43）；referral parser 已支持 `whois://host:port`、`rwhois://host:port` 和 `[IPv6]:port`，后续 hop 会把 `next_port` 写入 `current_port`。每个代理隧道必须使用**当前 hop 的 `current_host:current_port`**，不得固定 43，也不得始终复用初始 `q->port`。
+- HTTP CONNECT authority 对 IPv6 字面量使用 `[addr]:port`；SOCKS5 使用 ATYP=IPv4/IPv6/domain 与网络字节序端口。SOCKS4 只原生承载 IPv4 地址；SOCKS4a 承载域名但不保证代理最终选择 IPv6，因此不得宣称 `socks4://` 完整支持 IPv6 目标。
+- 代理端点（客户端实际连接的 proxy host:port）与目标端点（RIR host:port）独立解析。现有 `--ipv4-only`/`--ipv6-only`/family mode 只约束目标候选；代理端点默认 `AF_UNSPEC`，是否增加 `--proxy-family auto|v4|v6` 在契约评审中决定，禁止隐式复用目标 family 偏好。
+
+#### 12.2.3 DNS 模式与冻结策略
+
+- 默认 `resolve=local`：沿用现有 DNS 候选顺序，选出数值 IPv4/IPv6 后交给 HTTP CONNECT/SOCKS5，完整保留目标 family、健康记忆和 fallback 可观测性。
+- `socks4a://` / `socks5h://` 明确表示 `resolve=proxy`；发送目标主机名而非本地候选。远程解析无法证明代理实际选择的地址族，故不得更新目标 host+family 健康记忆，也不能承诺 `--ipv4-only`/`--ipv6-only`、per-RIR family override 或 candidate fallback 的严格语义。第一版应对这些组合查询前 fail-fast；若后续获得可验证协议能力，再单独放宽。
+- HTTP(S) CONNECT 默认发送本地选中的数值地址；如未来支持 CONNECT 域名远程解析，必须用独立显式模式，不得仅因 URL 使用域名而静默切换 DNS 所有权。
+- 代理 TCP/TLS/认证/协议故障只记代理失败；`lookup_exec_connect` 当前还会按每个 candidate 的 `attempt_success` 调用 `wc_lookup_record_backoff_result` 并进入 forced-IPv4/known-IP fallback，代理适配器必须显式阻断这条例程。仅当 SOCKS/CONNECT 明确返回目标不可达且能绑定当前候选时，才允许作为目标尝试失败进入 lookup 决策；代理端点、认证、证书或协议级故障属于 host-independent failure，应 fail-close 终止本 hop，避免对所有 RIR 候选重复握手。无论何种代理错误，均不得被解释为 RIR 限流/拒绝正文、ERX/IANA 标记或权威响应。
+
+#### 12.2.4 协议与交付分层
+
+| 协议 | 代理链路 | 目标地址能力 | 认证 | 交付要求 |
+|---|---|---|---|---|
+| `http://` | 明文 TCP + CONNECT | 本地解析时 IPv4/IPv6 | Basic（明文暴露给代理链路） | 第一阶段候选；带认证时默认拒绝，除非显式允许不安全代理认证 |
+| `socks5://` | SOCKS5 | 本地解析时 IPv4/IPv6 | username/password | 第一阶段候选 |
+| `socks5h://` | SOCKS5 + 远程 DNS | domain，实际家族不可观测 | username/password | 第一阶段候选，受 12.2.3 组合限制 |
+| `socks4://` | SOCKS4 | 仅 IPv4 literal | USERID（不视为强认证） | 第二阶段兼容项 |
+| `socks4a://` | SOCKS4a + 远程 DNS | domain，IPv6 不保证 | USERID | 第二阶段兼容项 |
+| `https://` | TLS 到代理 + CONNECT | 本地解析时 IPv4/IPv6 | Basic over TLS | 第二阶段；先通过 TLS 依赖 spike |
+
+- 当前 Makefile 仅链接 pthread（Windows 另有 ws2_32/iphlpapi），没有 TLS/curl/OpenSSL 依赖。`https://` proxy 开工前必须冻结 TLS 后端、CA 来源、证书/主机名验证、SNI、静态链接可得性、依赖许可证、漏洞更新和九架构制品体积；不得默认关闭证书验证，也不得把 HTTPS proxy 与第一阶段核心强行同批。
+- HTTPS proxy 只保护客户端到代理的链路；CONNECT 隧道内的 WHOIS 仍为明文 TCP。本工作包不实现 WHOIS over TLS、UDP、PAC/WPAD、透明代理探测或系统浏览器代理自动导入。
+
+#### 12.2.5 CLI、环境变量与凭据
+
+- 候选 CLI：`--proxy <scheme://host[:port]>`、`--proxy-env`（显式启用通用代理环境变量）、`--proxy-family auto|v4|v6`（待评审）和 `--proxy-allow-insecure-auth`。代理 URL 的 IPv6 host 必须使用方括号；缺省端口、长度上限、percent-decoding、非法 path/query/fragment 均须在专用代理 RFC 冻结。
+- 不提供 `--proxy-pass`：命令行参数可被 shell history 和进程列表读取，与凭据不进入命令文本的要求冲突。用户名可配置；密码只允许从专用环境变量或受权限保护的凭据文件读取，具体接口在安全评审冻结。兼容含 userinfo 的环境变量 URL 时必须全程脱敏，并在文档警告其环境泄漏风险。
+- 原始 WHOIS 不是 HTTP/HTTPS 目标，环境变量优先级不得照搬网页 URL 选择逻辑。候选顺序冻结为：显式 `--proxy` > 专用 `WHOIS_PROXY` >（仅启用 `--proxy-env` 时）`ALL_PROXY` > `all_proxy` > 经批准的兼容别名；未配置则直连。专用 `WHOIS_PROXY` 本身即显式 opt-in；机器上已有通用代理变量不能令升级后的客户端自动改道，从而守住默认行为零变化。`HTTP_PROXY`/`HTTPS_PROXY` 是否作为兼容别名须单独批准，不能用“目标 scheme”推断；POSIX 环境变量大小写敏感，Windows 才不区分大小写。出于 CGI 注入兼容风险，POSIX 默认不读取大写 `HTTP_PROXY`。
+- 同时读取 `NO_PROXY` 与 `no_proxy` 时采用显式优先级而非“大小写不敏感”。匹配在**每个逻辑 hop**建立隧道前按目标 host 与 current port 计算；至少支持 `*`、精确域名、前导点域后缀、IPv4、方括号 IPv6 和可选 `:port`。CIDR 与其他通配符只有在实现和测试冻结后才支持，不得模糊匹配。
+- `NO_PROXY` 命中时该 hop 直连，后续 referral hop 重新判断；未指定 `--proxy-env` 时忽略通用代理和 bypass 环境变量，但仍允许专用 `WHOIS_PROXY`；显式直连开关的名称与其是否覆盖 `WHOIS_PROXY` 在代理 RFC 冻结。任何日志、错误、core dump 辅助文本和测试 artifact 均不得输出密码、完整 userinfo 或 Proxy-Authorization。
+
+#### 12.2.6 超时、重试、指标与错误分类
+
+- 单次 target attempt 使用一个单调时钟 deadline，覆盖代理 DNS/TCP、可选 TLS、代理握手和目标隧道建立；各阶段不得分别获得完整 `--timeout` 而使总时长倍增。响应读取保留现有 idle-timeout 与最大字节数语义，但计时、等待和读取必须经统一 transport API，使裸 socket 与 TLS transport 的超时结果一致。
+- `attempts` 保持 WP-04 已冻结的“本次 lookup 实际网络上下文中的 TCP 连接尝试次数”语义；直连时计目标 socket attempt，代理时计实际 proxy endpoint socket attempt（含地址/重试），TLS/CONNECT/SOCKS 协议消息不另增 attempts。代理阶段细节另记脱敏 `[PROXY-METRICS]`，不得重定义既有字段。代理 TCP/TLS/认证/协议/目标拒绝须有稳定内部分类，但 stdout 与退出码仍遵循现有 lookup failure 契约。
+- 每次重试重新建立隧道；认证失败、证书验证失败和协议格式错误默认不可重试，连接超时/暂态 I/O 可按既有预算重试。代理错误不得触发 RIR rate-limit app retry。
+
+#### 12.2.7 实施切片与验收
+
+1. **WP-13A（DOC/TEST spike）**：新建专用代理 RFC，冻结 CLI/env/DNS/错误/secret/timeout 语义；用本地 fake proxy 验证协议解析和静态构建依赖，不改生产网络行为。
+2. **WP-13B（PRODUCT）**：实现无副作用 TCP endpoint dialer、统一 transport 抽象（裸 socket 实现）、HTTP CONNECT、SOCKS5/5h、本地/远程 DNS 门禁、显式 `--proxy-env`、每 hop `NO_PROXY` 与代理缓存禁用策略。
+3. **WP-13C（PRODUCT，兼容扩展）**：SOCKS4/4a；不得扩大 IPv6 能力声明。
+4. **WP-13D（PRODUCT，条件项）**：为统一 transport 增加 TLS 实现并交付 HTTPS proxy；仅在九架构 TLS spike 全部通过后进入 `ready`，否则拆出并保持 `proposed/deferred`，不阻塞 13B。
+
+- **改动量与执行方式**：WP-13 整体属于大规模、跨模块网络改动，不是单纯增加 `--proxy` 参数；预计触及配置结构、选项解析、endpoint dialer、查询 transport、lookup connect/recv、缓存身份、指标、构建依赖、fake proxy、黄金合同和用户文档。采用“交互式设计/spike + Vx A/B 生产实现”的混合方式，不把 13A–13D 合并为一次无人值守任务。
+- **13A 交互式**：专用代理 RFC、完整 CLI 解析表（含 `-p/--port` × `--proxy`、环境变量、地址族、DNS 模式与非法组合）、fake proxy 协议探针和 TLS 九架构静态构建 spike 使用传统交互式开发；该阶段不得改变生产网络行为。
+- **13B Vx-first**：生产代码按依赖至少拆为三个链式 Vx A/B 批次，而非一个超大任务：13B-1 抽取无副作用 endpoint dialer 并建立裸 socket transport；13B-2 增加配置/CLI/env 解析、HTTP CONNECT 与每 hop bypass；13B-3 增加 SOCKS5/5h、DNS 模式门禁、错误/健康隔离、指标和缓存策略。每批使用 `schemaVersion=vx-draft`、完整 target closure 和稳定 target id，前一批通过完整 D1-D4/V1-V4 后才作为后一批 prerequisite。
+- **13C/13D 独立 Vx**：SOCKS4/4a 作为 13C 独立 Vx A/B；HTTPS proxy 仅在 13A TLS spike 与 13B transport 基线通过后作为 13D 独立 Vx A/B。不得将 13C 或 13D 并入 13B 以追赶版本；若实施评估证明某个后续切片很小，只能按仓库“小而独立、验证闭包完整”的合并规则另行评审，不能预先合包。
+- **任务编制门禁**：各 Vx 批次在生成 start-file 前完成 TODO-free、`-SyntaxOnly`、Vx 专项安全回归、A/B 链式全定义检查及完整 target set 的编译/黄金/Step47 验证；运行中不得切换 schema 或扩大冻结 target registry。任一批失败按 first-fail-stop 阻断其依赖批次，不得通过静默直连、协议降级或削减双栈合同绕过。
+
+- 专项合同必须使用本地确定性 fake proxy，不依赖公网，覆盖：IPv4/IPv6 代理端点 × IPv4/IPv6 目标、自定义初始端口、referral 改端口、HTTP 2xx/407/拒绝、SOCKS REP 分类、认证脱敏、超时 deadline、每 hop `NO_PROXY`、批量复用隔离、SIGINT、代理故障不污染 DNS health/authoritative RIR、默认直连 stdout/stderr/退出码冻结。
+- 完整验收：协议专项合同、x86_64/win32/win64 聚焦测试、九架构 Strict/Golden/referral、Batch/Selftest/CIDR/Redirect/Step47 全 PASS；同步 `USAGE_CN/EN`、Release Notes、代理 RFC 与安全说明。任何未支持组合必须查询前 fail-fast，不得静默直连或降级协议。
+- `ready` 门禁：13A 的契约与 spike 完成、目标文件/依赖闭包和执行方式明确后，13B/13C/13D 分别评审；不得因 WP-13 总体已登记而一次性视为全部批准。
+- 暂缓项联动：本工作包不改变网络读取早停、并发批量、RIR DNS 候选排序、健康/回退决策或权威判定（见 5.6 / 11.6）。
+
+### 12.3 发布顺序提醒
+
+- v3.3.2：待用户授权后提交（仅含 v3.3.2 既有变更，**不含许可证迁移**）并 One-Click Release，确认产物版本精确为 v3.3.2。
+- v3.3.3：WP-12 为必发项；WP-13 仅纳入届时已独立通过 `ready` 和全部门禁的切片，不以追赶版本号压缩协议、TLS 或九架构验证。发布前按第 7 节完成完整回归。
