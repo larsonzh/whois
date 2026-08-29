@@ -5,7 +5,7 @@
 #endif
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"

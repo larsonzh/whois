@@ -2,7 +2,7 @@
 // lookup_exec_tail.c - Authority and guard tail handling
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 #include <stdlib.h>
 

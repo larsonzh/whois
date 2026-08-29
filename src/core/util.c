@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Core utility helpers shared by whois_client and core modules.
 
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +12,9 @@
 
 #ifdef _WIN32
 #include <winsock2.h>
+#include <windows.h>
 #else
+#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -37,6 +43,22 @@ char* wc_safe_strdup(const char* s, const char* function_name)
     char* p = (char*)wc_safe_malloc(len, function_name);
     memcpy(p, s, len);
     return p;
+}
+
+void wc_sleep_ms(unsigned int milliseconds)
+{
+    if (milliseconds == 0)
+        return;
+
+#ifdef _WIN32
+    Sleep((DWORD)milliseconds);
+#else
+    struct timespec remaining;
+    remaining.tv_sec = (time_t)(milliseconds / 1000U);
+    remaining.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+    }
+#endif
 }
 
 void wc_safe_close(int* fd, const char* function_name, int debug_enabled)

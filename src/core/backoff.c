@@ -2,7 +2,7 @@
 // Unified server backoff helpers built on wc_dns_health memory.
 
 #include <stddef.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <winsock2.h>
 #include <ws2tcpip.h>

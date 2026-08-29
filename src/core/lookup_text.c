@@ -2,7 +2,7 @@
 // lookup_text.c - Text parsing helpers for lookup
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 #include <ctype.h>
 #include <time.h>

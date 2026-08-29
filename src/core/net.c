@@ -12,13 +12,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#include <windows.h>
 #else
+#include <unistd.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -45,6 +46,12 @@
 
 // For active-connection tracking via wc_signal
 #include "wc/wc_signal.h"
+
+#if defined(_WIN32) || defined(__MINGW32__)
+#define WC_NET_NATIVE_SOCKET(fd) ((SOCKET)(fd))
+#else
+#define WC_NET_NATIVE_SOCKET(fd) (fd)
+#endif
 
 #if defined(_WIN32) || defined(__MINGW32__)
 static void wc_net_log_wsa_error_if_debug(const Config* config, const char* stage, int wsa_error) {
@@ -395,9 +402,20 @@ void wc_net_flush_registered_contexts(void)
     wc_net_flush_registered_contexts_internal();
 }
 
+static void wc_net_monotonic_now(struct timespec* value)
+{
+#if defined(_WIN32) || defined(__MINGW32__)
+    ULONGLONG milliseconds = GetTickCount64();
+    value->tv_sec = (time_t)(milliseconds / 1000ULL);
+    value->tv_nsec = (long)((milliseconds % 1000ULL) * 1000000ULL);
+#else
+    clock_gettime(CLOCK_MONOTONIC, value);
+#endif
+}
+
 static void wc_net_record_latency(wc_net_context_t* ctx, struct timespec t0){
     if(!wc_net_context_retry_metrics_enabled(ctx)) return;
-    struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+    struct timespec t1; wc_net_monotonic_now(&t1);
     long ms = (long)((t1.tv_sec - t0.tv_sec)*1000 + (t1.tv_nsec - t0.tv_nsec)/1000000);
     if (ms < 0) {
         ms = 0;
@@ -433,8 +451,7 @@ static void wc_net_sleep_between_attempts_if_enabled(wc_net_context_t* ctx, int 
     if (sleep_ms > max_ms) sleep_ms = max_ms;
     if (sleep_ms <= 0) return;
 
-    struct timespec ts; ts.tv_sec = (time_t)(sleep_ms/1000); ts.tv_nsec = (long)((sleep_ms%1000)*1000000L);
-    nanosleep(&ts,NULL);
+    wc_sleep_ms((unsigned int)sleep_ms);
     ctx->total_sleep_ms += (unsigned)(sleep_ms > 0 ? sleep_ms : 0);
 }
 
@@ -512,8 +529,7 @@ int wc_dial_43(wc_net_context_t* ctx,
     do {
         gerr = getaddrinfo(host, portbuf, &hints, &res);
         if (gerr == EAI_AGAIN && gai_tries < 2) {
-            struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = 100*1000*1000L; // 100ms
-            nanosleep(&ts, NULL);
+            wc_sleep_ms(100U);
         }
         gai_tries++;
     } while (gerr == EAI_AGAIN && gai_tries < 3);
@@ -592,7 +608,7 @@ int wc_dial_43(wc_net_context_t* ctx,
                 }
                 fprintf(stderr, "[NET-DEBUG] attempt=%u addr_index=%d try=%d/%d family=%d host=%s\n", net_ctx->attempts+1, addr_index, atry+1, per_tries, rp->ai_family, dbg_host);
             }
-            struct timespec t0; if(wc_net_context_retry_metrics_enabled(net_ctx)) clock_gettime(CLOCK_MONOTONIC,&t0);
+            struct timespec t0 = {0, 0}; if(wc_net_context_retry_metrics_enabled(net_ctx)) wc_net_monotonic_now(&t0);
             net_ctx->attempts++;
             int wsa_err = 0;
             if (out) {
@@ -621,8 +637,7 @@ retry_socket:
                         fprintf(stderr, "[NET-DEBUG] fd limit hit, dropping cached connections and retrying\n");
                     }
                     wc_cache_drop_connections();
-                    struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = 50*1000*1000L;
-                    nanosleep(&ts, NULL);
+                    wc_sleep_ms(50U);
                     goto retry_socket;
                 }
                 goto per_try_end;
@@ -651,10 +666,10 @@ retry_socket:
             int connected_now = 0;
             if (c_rc == 0) { connected_now = 1; out->last_errno=0; }
             else if (errno == EINPROGRESS) {
-                fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
+                fd_set wfds; FD_ZERO(&wfds); FD_SET(WC_NET_NATIVE_SOCKET(fd), &wfds);
                 struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = (timeout_ms%1000)*1000;
                 int sel = select(fd+1, NULL, &wfds, NULL, &tv);
-                if (sel == 1 && FD_ISSET(fd, &wfds)) {
+                if (sel == 1 && FD_ISSET(WC_NET_NATIVE_SOCKET(fd), &wfds)) {
 #ifdef _WIN32
                     int soerr = 0; int slen = sizeof(soerr);
                     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&soerr, &slen) == 0 && soerr == 0) { connected_now = 1; out->last_errno = 0; }
@@ -798,7 +813,7 @@ ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_tim
             break;
         }
         if (used >= cap) break; // full
-        fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
+        fd_set rfds; FD_ZERO(&rfds); FD_SET(WC_NET_NATIVE_SOCKET(fd), &rfds);
         struct timeval tv; tv.tv_sec = idle_timeout_ms / 1000; tv.tv_usec = (idle_timeout_ms % 1000) * 1000;
         int sel = select(fd + 1, &rfds, NULL, NULL, &tv);
         if (sel < 0) { if (errno == EINTR) continue; break; }
@@ -806,7 +821,7 @@ ssize_t wc_recv_until_idle(int fd, char** out_buf, size_t* out_len, int idle_tim
             // idle timeout reached
             break;
         }
-        if (!FD_ISSET(fd, &rfds)) {
+        if (!FD_ISSET(WC_NET_NATIVE_SOCKET(fd), &rfds)) {
             // unexpected; treat as idle
             break;
         }

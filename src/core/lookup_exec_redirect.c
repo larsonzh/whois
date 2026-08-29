@@ -4,7 +4,7 @@
 #define _POSIX_C_SOURCE 200112L
 #endif
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -15,6 +15,7 @@
 #include "wc/wc_lookup.h"
 #include "wc/wc_net.h"
 #include "wc/wc_server.h"
+#include "wc/wc_util.h"
 #include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_rules.h"
@@ -874,10 +875,7 @@ static void wc_lookup_exec_run_eval(
 
             if (ctx->cfg && ctx->cfg->batch_interval_ms > 0) {
                 int delay_ms = ctx->cfg->batch_interval_ms;
-                struct timespec ts;
-                ts.tv_sec = (time_t)(delay_ms / 1000);
-                ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
-                nanosleep(&ts, NULL);
+                wc_sleep_ms((unsigned int)delay_ms);
             }
             recheck_opts = *ctx->zopts;
             recheck_q = (struct wc_query){

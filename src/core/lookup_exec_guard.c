@@ -2,7 +2,7 @@
 // lookup_exec_guard.c - Loop guard helpers for lookup exec
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 
 #include "wc/wc_dns.h"

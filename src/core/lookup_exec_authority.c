@@ -2,7 +2,7 @@
 // lookup_exec_authority.c - Authority tail handling for lookup exec
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 #include <stdlib.h>
 

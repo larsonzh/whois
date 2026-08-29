@@ -5,15 +5,15 @@
 #endif
 #include <string.h>
 #include <limits.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <sys/types.h>
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -67,10 +67,7 @@ static void wc_lookup_exec_sleep_ms(int ms)
 {
     if (ms <= 0)
         return;
-    struct timespec ts;
-    ts.tv_sec = (time_t)(ms / 1000);
-    ts.tv_nsec = (long)((ms % 1000) * 1000000L);
-    nanosleep(&ts, NULL);
+    wc_sleep_ms((unsigned int)ms);
 }
 
 static void wc_lookup_exec_log_cidr_body_action(

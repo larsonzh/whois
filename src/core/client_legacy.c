@@ -15,13 +15,13 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <unistd.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <time.h>
-#include <unistd.h>
 
 #include "wc/wc_cache.h"
 #include "wc/wc_client_legacy.h"
@@ -191,10 +191,7 @@ char* wc_client_perform_legacy_query(const Config* config,
             }
 
             if (delay_ms > 0) {
-                struct timespec ts;
-                ts.tv_sec = (time_t)(delay_ms / 1000);
-                ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
-                nanosleep(&ts, NULL);
+                wc_sleep_ms((unsigned int)delay_ms);
             }
         }
 

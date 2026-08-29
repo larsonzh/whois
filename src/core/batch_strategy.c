@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <stddef.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "wc/wc_batch_strategy.h"
 

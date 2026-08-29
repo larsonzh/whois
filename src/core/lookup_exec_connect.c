@@ -4,7 +4,7 @@
 #define _POSIX_C_SOURCE 200112L
 #endif
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -321,10 +321,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                         gai = getaddrinfo(domain_for_ipv4, NULL, &hints, &res);
                         if (gai == EAI_AGAIN && tries < maxtries - 1) {
                             int ms = (cfg->dns_retry_interval_ms >= 0 ? cfg->dns_retry_interval_ms : 100);
-                            struct timespec ts;
-                            ts.tv_sec = ms / 1000;
-                            ts.tv_nsec = (long)((ms % 1000) * 1000000L);
-                            nanosleep(&ts, NULL);
+                            wc_sleep_ms((unsigned int)ms);
                         }
                         tries++;
                     } while (gai == EAI_AGAIN && tries < maxtries);

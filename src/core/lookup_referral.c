@@ -2,7 +2,7 @@
 // lookup_referral.c - Referral parsing and host helpers
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 #include <ctype.h>
 

@@ -3,11 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(_MSC_VER)
-#define strncasecmp _strnicmp
-#else
-#include <strings.h>
-#endif
+#include "wc/wc_strings.h"
 
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <ws2tcpip.h>

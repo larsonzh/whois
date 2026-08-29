@@ -16,6 +16,9 @@ void* wc_safe_malloc(size_t size, const char* function_name);
 // input is NULL; otherwise either succeeds or terminates the process.
 char* wc_safe_strdup(const char* s, const char* function_name);
 
+// Sleep for the requested duration using the platform-native API.
+void wc_sleep_ms(unsigned int milliseconds);
+
 // Safe close wrapper shared by multiple modules; suppresses EBADF noise
 // and logs only when useful while always invalidating the descriptor.
 void wc_safe_close(int* fd, const char* function_name, int debug_enabled);

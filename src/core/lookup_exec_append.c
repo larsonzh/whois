@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "lookup_exec_append.h"
 

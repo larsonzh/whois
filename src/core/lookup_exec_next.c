@@ -2,7 +2,7 @@
 // lookup_exec_next.c - Next-hop selection for lookup exec
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 
 #include "wc/wc_lookup.h"

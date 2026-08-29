@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: MIT
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <windows.h>
+#else
 #include <sys/time.h>
+#endif
 #include <time.h>
 
 #include "wc/wc_batch_strategy.h"
@@ -13,7 +20,7 @@
 
 typedef struct wc_batch_strategy_plan_b_state_s {
     char last_authoritative[128];
-    long last_success_ms;
+    int64_t last_success_ms;
 } wc_batch_strategy_plan_b_state_t;
 
 static wc_batch_strategy_plan_b_state_t g_plan_b_state;
@@ -26,22 +33,26 @@ wc_batch_strategy_plan_b_get_state(const wc_batch_context_t* ctx)
     return &g_plan_b_state;
 }
 
-static long wc_batch_strategy_plan_b_now_ms(void)
+static int64_t wc_batch_strategy_plan_b_now_ms(void)
 {
+#if defined(_WIN32) || defined(__MINGW32__)
+    return (int64_t)GetTickCount64();
+#else
 #ifdef CLOCK_MONOTONIC
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
-        return (ts.tv_sec * 1000L) + (ts.tv_nsec / 1000000L);
+        return ((int64_t)ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
 #endif
     struct timeval tv;
     if (gettimeofday(&tv, NULL) == 0)
-        return (tv.tv_sec * 1000L) + (tv.tv_usec / 1000L);
+        return ((int64_t)tv.tv_sec * 1000) + (tv.tv_usec / 1000);
     return 0;
+#endif
 }
 
 static void wc_batch_strategy_plan_b_log_hit(const wc_batch_context_t* ctx,
         const char* host,
-        long age_ms,
+    int64_t age_ms,
         long window_ms)
 {
     if (!host)
@@ -49,7 +60,7 @@ static void wc_batch_strategy_plan_b_log_hit(const wc_batch_context_t* ctx,
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
     wc_log_dns_batchf(
-        "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%ld window_ms=%ld\n",
+        "[DNS-BATCH] action=plan-b-hit host=%s age_ms=%" PRId64 " window_ms=%ld\n",
         host,
         age_ms,
         window_ms);
@@ -57,7 +68,7 @@ static void wc_batch_strategy_plan_b_log_hit(const wc_batch_context_t* ctx,
 
 static void wc_batch_strategy_plan_b_log_stale(const wc_batch_context_t* ctx,
         const char* host,
-        long age_ms,
+    int64_t age_ms,
         long window_ms)
 {
     if (!host)
@@ -65,7 +76,7 @@ static void wc_batch_strategy_plan_b_log_stale(const wc_batch_context_t* ctx,
     if (!wc_batch_strategy_debug_enabled(ctx))
         return;
     wc_log_dns_batchf(
-        "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%ld window_ms=%ld\n",
+        "[DNS-BATCH] action=plan-b-stale host=%s age_ms=%" PRId64 " window_ms=%ld\n",
         host,
         age_ms,
         window_ms);
@@ -168,10 +179,10 @@ static const char* wc_batch_strategy_plan_b_pick(const wc_batch_context_t* ctx)
     wc_batch_strategy_plan_b_state_t* state =
         wc_batch_strategy_plan_b_get_state(ctx);
     long window_ms = wc_dns_penalty_window_ms();
-    long now_ms = wc_batch_strategy_plan_b_now_ms();
+    int64_t now_ms = wc_batch_strategy_plan_b_now_ms();
     const char* cached = wc_batch_strategy_plan_b_cached_host(state);
     if (cached) {
-        long age_ms = -1;
+        int64_t age_ms = -1;
         if (state->last_success_ms > 0 && now_ms > 0 &&
                 now_ms >= state->last_success_ms) {
             age_ms = now_ms - state->last_success_ms;

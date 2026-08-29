@@ -6,7 +6,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
@@ -1302,10 +1302,7 @@ static void wc_dns_collect_addrinfo(const Config* config,
         gai_rc = getaddrinfo(canon, "43", &hints, &res);
         if (gai_rc==EAI_AGAIN && tries < maxtries-1) {
             int ms = (cfg->dns_retry_interval_ms >= 0 ? cfg->dns_retry_interval_ms : 100);
-            struct timespec ts;
-            ts.tv_sec = (time_t)(ms/1000);
-            ts.tv_nsec = (long)((ms%1000)*1000000L);
-            nanosleep(&ts,NULL);
+            wc_sleep_ms((unsigned int)ms);
         }
         tries++;
     } while(gai_rc==EAI_AGAIN && tries<maxtries);

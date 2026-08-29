@@ -4,11 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_WIN32) || defined(__MINGW32__)
-#define strcasecmp _stricmp
-#else
-#include <strings.h>
-#endif
+#include "wc/wc_strings.h"
 
 #include "wc/wc_stats.h"
 

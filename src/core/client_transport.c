@@ -24,6 +24,7 @@
 
 #include "wc/wc_client_transport.h"
 #include "wc/wc_config.h"
+#include "wc/wc_net.h"
 #include "wc/wc_output.h"
 #include "wc/wc_protocol_safety.h"
 #include "wc/wc_signal.h"
@@ -80,7 +81,11 @@ char* wc_client_receive_response(const Config* config, int sockfd)
             break;
         }
         FD_ZERO(&read_fds);
+    #if defined(_WIN32) || defined(__MINGW32__)
+        FD_SET((SOCKET)sockfd, &read_fds);
+    #else
         FD_SET(sockfd, &read_fds);
+    #endif
         timeout.tv_sec = cfg->timeout_sec;
         timeout.tv_usec = 0;
 

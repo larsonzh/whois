@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // server.c - Phase A skeleton for whois server normalization and RIR guess
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <ctype.h>
 #include "wc/wc_server.h"
 #include "wc/wc_known_ips.h"

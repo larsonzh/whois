@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // lookup_exec_rules.c - Deterministic rule predicates for lookup execution
 
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "wc/wc_dns.h"
 #include "wc/wc_known_ips.h"

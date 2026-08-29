@@ -33,6 +33,7 @@
 #include "wc/wc_seclog.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_signal.h"
+#include "wc/wc_strings.h"
 #include "wc/wc_util.h"
 #include "wc/wc_ip_pref.h"
 

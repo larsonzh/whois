@@ -575,14 +575,15 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 ### 12.1 许可证迁移：GPL-3.0 → MIT（WP-12，v3.3.3 实施）
 
 - 触发：用户决定将项目许可证由 GPL-3.0-or-later 迁移到 MIT，且自 **v3.3.3 正式发布版本起生效**；v3.3.2 按封板内容保留 GPL-3.0。许可证提交必须在 v3.3.3 tag 之前，tag、源代码与发布说明须指向同一许可状态。
-- 状态/方式：`active`，传统交互式（变更已在工作树准备，无需 A/B）；尚未提交、推送或发布。已登记日期 2026-08-29。
+- 状态/方式：`implemented/pending-release`，传统交互式（无需 A/B）；已于 2026-08-29 提交并推送至 `origin/master`，待 v3.3.3 正式发布后对外实施。
 - 变更清单：
   - `LICENSE`：GPL-3.0 全文替换为 MIT License（Copyright (c) 2026 larsonzh），UTF-8 无 BOM + LF；
   - `README.md`：许可证段落改为 MIT；
-  - `src/` 14 个源文件与 `include/wc/` 8 个头文件：`// SPDX-License-Identifier: MIT` / `// License: MIT`；
+  - `src/` 15 个源文件与 `include/wc/` 8 个头文件（合计 23 个）：`// SPDX-License-Identifier: MIT` / `// License: MIT`；
   - `src/core/meta.c` 的 `WHOIS_VERSION` 与 `src/whois_client.c` 的版本注释属于 v3.3.3 版本准备，其中仅后者同时含许可证头变更，提交审计时不得把版本改动误计为许可证迁移。
 - 验证现状：工作树范围内零 `GPL-3.0-or-later` / `General Public License` / `GNU GENERAL` 残留；LICENSE 与源/头文件编码（无 BOM + LF）与原格式一致；README 保持 BOM + LF。许可证/注释本身按 DOC/metadata 门禁执行编码、残留扫描、SPDX 一致性、`git diff --check` 和一次严格编译；v3.3.3 版本整体仍按第 7 节执行完整发布侧回归。
-- 提交边界：**v3.3.2 的小版本提交不得包含任何许可证相关文件**（`LICENSE`、`README.md` 许可证段落、22 个源/头文件头部）；许可证变更文件仅作为 v3.3.3 提交内容进入 `origin/master`（定向 `git add`，禁止 `git add -A`）。
+- 跨平台收口与最终复验（2026-08-29）：审计并统一 Windows/POSIX 的大小写字符串比较、`ssize_t`、平台头、sleep 与 64 位单调毫秒计时；最终补齐 `nanosleep` 所需的 POSIX feature-test macro，并将 retry metrics 的 `timespec` 起点显式零初始化，消除严格编译告警。最终 Strict `lto-auto` 轮确认九架构均实际使用 `-flto=auto`，无编译/LTO 告警，Local hash、Golden、IANA/ARIN/AFRINIC 三起点 referral 与仓库内/外双目录 release sync 全部 PASS（`out/artifacts/20260829-094858`，273s）；产品网络、DNS/重试和 stdout/stderr 契约不变，无需追加代码修复。
+- 提交边界：v3.3.2 tag 已在许可证迁移前完成；许可证相关文件（`LICENSE`、`README.md` 许可证段落、23 个源/头文件头部）已作为 v3.3.3 准备提交进入 `origin/master`，未污染 v3.3.2。后续提交继续定向 `git add`，禁止 `git add -A`。
 - 发布前权利门禁：盘点仓库历史中的版权主体与具有可版权性贡献的作者，确认项目拥有重许可权或取得必要同意，并保存依据；第三方代码、数据、工具输出与依赖继续遵守各自许可证，不因根 LICENSE 改为 MIT 自动重许可。本项为发布治理要求，不构成法律意见。
 - 发布材料：同步 README、Release Notes、GitHub Release 与源码归档中的许可证说明；GitHub license badge 可由平台动态检测，无需手工改 URL，但发布前须确认识别结果为 MIT。
 - 回退：v3.3.3 发布前若权利门禁不满足，回滚许可证相关工作树/提交并保留 GPL。v3.3.3 一旦以 MIT 对外发布，已获得 MIT 许可的副本不能通过后续回滚追溯撤销；只能对未来版本另作许可决定并保留审计记录。

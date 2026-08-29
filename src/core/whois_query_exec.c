@@ -5,7 +5,7 @@
 #define _GNU_SOURCE
 #include <string.h>
 #if !defined(_WIN32) && !defined(__MINGW32__)
-#include <strings.h>
+#include "wc/wc_strings.h"
 #endif
 #include <stdlib.h>
 #include <errno.h>

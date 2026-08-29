@@ -4,7 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_dns.h"

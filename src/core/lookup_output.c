@@ -2,7 +2,7 @@
 // lookup_output.c - Hop header and body slicing helpers
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>

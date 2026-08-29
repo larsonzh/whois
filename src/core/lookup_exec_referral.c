@@ -2,7 +2,7 @@
 // lookup_exec_referral.c - Referral parsing for lookup exec
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>

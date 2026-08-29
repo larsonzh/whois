@@ -19,10 +19,7 @@
 #endif
 #include <ctype.h>
 
-#if defined(_WIN32) || defined(__MINGW32__)
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#endif
+#include "wc/wc_strings.h"
 
 #if defined(_WIN32) || defined(__MINGW32__)
 /* Minimal getopt shim for Windows/MinGW hosts (no system getopt.h). */

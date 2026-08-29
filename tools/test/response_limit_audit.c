@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: MIT
 
-#include <errno.h>
 #include <stdio.h>
+
+#if !defined(__linux__)
+
+int main(void)
+{
+    fputs("[RESPONSE-LIMIT-AUDIT] status=SKIP reason=native-linux-required\n", stderr);
+    return 2;
+}
+
+#else
+
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -81,3 +92,5 @@ int main(void)
            failures == 0 ? "confirmed" : "unconfirmed");
     return failures == 0 ? 0 : 1;
 }
+
+#endif

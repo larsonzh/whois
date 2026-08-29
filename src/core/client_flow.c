@@ -11,12 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if !defined(_WIN32) && !defined(__MINGW32__)
-#include <strings.h>
-#else
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#endif
+#include "wc/wc_strings.h"
 #include <time.h>
 
 #include "wc/wc_client_flow.h"
@@ -33,6 +28,7 @@
 #include "wc/wc_batch_strategy.h"
 #include "wc/wc_client_exit.h"
 #include "wc/wc_client_meta.h"
+#include "wc/wc_util.h"
 #include "wc/wc_debug.h"
 #include "wc/wc_dns.h"
 #include "wc/wc_log.h"
@@ -906,14 +902,7 @@ int wc_client_run_batch_stdin(const Config* config,
                 int jitter = rand() % (cfg->batch_jitter_ms + 1);
                 delay_ms += jitter;
             }
-#if defined(_WIN32) || defined(__MINGW32__)
-            Sleep((DWORD)delay_ms);
-#else
-            struct timespec ts = {0};
-            ts.tv_sec = (time_t)(delay_ms / 1000);
-            ts.tv_nsec = (long)((delay_ms % 1000) * 1000000L);
-            nanosleep(&ts, NULL);
-#endif
+            wc_sleep_ms((unsigned int)delay_ms);
         }
     }
     if (wc_client_should_abort_due_to_signal())

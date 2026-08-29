@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 
 #include "wc/wc_dns.h"
 #include "wc/wc_lookup.h"

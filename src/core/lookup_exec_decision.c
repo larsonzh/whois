@@ -2,7 +2,7 @@
 // lookup_exec_decision.c - Redirect and next-hop decision helpers
 
 #include <string.h>
-#include <strings.h>
+#include "wc/wc_strings.h"
 #include <stdlib.h>
 
 #include "wc/wc_dns.h"

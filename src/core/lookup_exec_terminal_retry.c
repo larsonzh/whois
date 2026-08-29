@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <stdio.h>
 #include <string.h>
-#if defined(_MSC_VER)
-#define strcasecmp _stricmp
-#else
-#include <strings.h>
-#endif
+#include "wc/wc_strings.h"
 
 #include "wc/wc_dns.h"
 #include "wc/wc_redirect.h"
