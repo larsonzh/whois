@@ -471,12 +471,34 @@ static void wc_net_sync_fault_profile(wc_net_context_t* ctx)
     ctx->selftest_fault_version_seen = ver;
 }
 
-int wc_dial_43(wc_net_context_t* ctx,
-               const char* host,
-               uint16_t port,
-               int timeout_ms,
-               int retries,
-               struct wc_net_info* out) {
+#ifndef WC_NET_DIAL_POLICY_DEFINED
+#define WC_NET_DIAL_POLICY_DEFINED 1
+typedef enum wc_net_endpoint_family {
+    WC_NET_ENDPOINT_FAMILY_AUTO = 0,
+    WC_NET_ENDPOINT_FAMILY_IPV4 = 4,
+    WC_NET_ENDPOINT_FAMILY_IPV6 = 6
+} wc_net_endpoint_family_t;
+typedef struct wc_net_dial_policy {
+    wc_net_endpoint_family_t family;
+    int record_dns_health;
+} wc_net_dial_policy_t;
+#endif
+#define WC_NET_ENDPOINT_DIAL_IMPL 1
+
+void wc_net_dial_policy_init(wc_net_dial_policy_t* policy)
+{
+    if (!policy) return;
+    policy->family = WC_NET_ENDPOINT_FAMILY_AUTO;
+    policy->record_dns_health = 0;
+}
+
+int wc_net_dial_endpoint(wc_net_context_t* ctx,
+                         const char* host,
+                         uint16_t port,
+                         int timeout_ms,
+                         int retries,
+                         const wc_net_dial_policy_t* policy,
+                         struct wc_net_info* out) {
     wc_net_context_t* net_ctx = wc_net_resolve_context(ctx);
     if (!net_ctx) {
         if (out) {
@@ -486,7 +508,17 @@ int wc_dial_43(wc_net_context_t* ctx,
         }
         return WC_ERR_INVALID;
     }
-    if (!host || !out) return WC_ERR_INVALID;
+    if (!host || !out || !policy) return WC_ERR_INVALID;
+    int endpoint_family = AF_UNSPEC;
+    if (policy->family == WC_NET_ENDPOINT_FAMILY_IPV4) endpoint_family = AF_INET;
+    else if (policy->family == WC_NET_ENDPOINT_FAMILY_IPV6) endpoint_family = AF_INET6;
+    else if (policy->family != WC_NET_ENDPOINT_FAMILY_AUTO) {
+        wc_net_info_init(out);
+        out->err = WC_ERR_INVALID;
+        out->last_errno = EINVAL;
+        return out->err;
+    }
+    int record_dns_health = policy->record_dns_health ? 1 : 0;
     if (wc_signal_should_terminate()) {
         wc_net_info_init(out);
         out->err = WC_ERR_IO;
@@ -507,7 +539,11 @@ int wc_dial_43(wc_net_context_t* ctx,
     const Config* config = net_ctx ? net_ctx->config : NULL;
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
-    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = AF_UNSPEC;
+    #ifndef WC_NET_ENDPOINT_DIAL_IMPL
+    int endpoint_family = AF_UNSPEC;
+    int record_dns_health = 1;
+#endif
+    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = endpoint_family;
 #ifdef AI_ADDRCONFIG
     hints.ai_flags = AI_ADDRCONFIG; // prefer addresses valid for the local configuration
 #else
@@ -516,12 +552,14 @@ int wc_dial_43(wc_net_context_t* ctx,
     int numeric_host = (host && wc_dns_is_ip_literal(host)) ? 1 : 0;
 #ifdef AI_NUMERICHOST
     if (numeric_host) {
-        hints.ai_flags |= AI_NUMERICHOST;
-        if (strchr(host, ':')) {
-            hints.ai_family = AF_INET6;
-        } else {
-            hints.ai_family = AF_INET;
+        int numeric_family = strchr(host, ':') ? AF_INET6 : AF_INET;
+        if (endpoint_family != AF_UNSPEC && endpoint_family != numeric_family) {
+            out->err = WC_ERR_INVALID;
+            out->last_errno = EAFNOSUPPORT;
+            return out->err;
         }
+        hints.ai_flags |= AI_NUMERICHOST;
+        hints.ai_family = numeric_family;
     }
 #endif
     struct addrinfo* res = NULL;
@@ -734,10 +772,10 @@ retry_socket:
                 int debug_enabled = config ? config->debug : 0;
                 wc_net_record_latency(net_ctx, t0); net_ctx->failures++; wc_safe_close(&fd, "wc_dial_43(connect_fail)", debug_enabled); wc_net_classify_errno(net_ctx, errno); wc_net_log_wsa_error_if_debug(config, "connect", wsa_err);
             }
-            // Feed DNS health memory with per-attempt outcome. This is
-            // observability-only in Phase 3 step 2 and does not alter
-            // dialing behavior.
-            wc_dns_health_note_result(config, host, rp->ai_family, connected_now);
+            // Feed DNS health memory only for direct target dialing.
+            if (record_dns_health) {
+                wc_dns_health_note_result(config, host, rp->ai_family, connected_now);
+            }
         per_try_end:
             if (success) break;
             if (atry+1 < per_tries) { wc_net_sleep_between_attempts_if_enabled(net_ctx, atry, per_tries); }
@@ -754,9 +792,20 @@ retry_socket:
     return out->err;
 }
 
-// Convenience helper: dial + register active connection for signal handling.
-// This is a thin wrapper around wc_dial_43() and
-// wc_signal_register_active_connection(), keeping dialing semantics unchanged.
+int wc_dial_43(wc_net_context_t* ctx,
+               const char* host,
+               uint16_t port,
+               int timeout_ms,
+               int retries,
+               struct wc_net_info* out)
+{
+    wc_net_dial_policy_t policy;
+    wc_net_dial_policy_init(&policy);
+    policy.record_dns_health = 1;
+    return wc_net_dial_endpoint(ctx, host, port, timeout_ms, retries, &policy, out);
+}
+
+// Convenience helper: direct dial plus active connection registration.
 int wc_net_dial_and_register(wc_net_context_t* ctx,
                              const char* host,
                              uint16_t port,

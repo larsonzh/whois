@@ -94,6 +94,27 @@ struct wc_net_info {
     int last_errno;         // last errno from connect/select failure (0 if success)
 };
 
+#define WC_NET_DIAL_POLICY_DEFINED 1
+typedef enum wc_net_endpoint_family {
+    WC_NET_ENDPOINT_FAMILY_AUTO = 0,
+    WC_NET_ENDPOINT_FAMILY_IPV4 = 4,
+    WC_NET_ENDPOINT_FAMILY_IPV6 = 6
+} wc_net_endpoint_family_t;
+
+typedef struct wc_net_dial_policy {
+    wc_net_endpoint_family_t family;
+    int record_dns_health;
+} wc_net_dial_policy_t;
+
+void wc_net_dial_policy_init(wc_net_dial_policy_t* policy);
+int wc_net_dial_endpoint(wc_net_context_t* ctx,
+                         const char* host,
+                         uint16_t port,
+                         int timeout_ms,
+                         int retries,
+                         const wc_net_dial_policy_t* policy,
+                         struct wc_net_info* out);
+
 int wc_net_dial_and_register(wc_net_context_t* ctx,
                              const char* host,
                              uint16_t port,
