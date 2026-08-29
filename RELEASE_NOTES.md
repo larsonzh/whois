@@ -8,10 +8,12 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 中文摘要 / Chinese summary
 - v3.3.3 许可证迁移（待正式发布生效）：项目许可证由 GPL-3.0-or-later 改为 MIT，同步根 `LICENSE`、README 许可证说明及 23 个源/头文件的 SPDX/License 标识；版本号准备为 3.3.3。第三方代码、数据、工具输出与依赖继续遵守各自许可证。
 - Windows 编辑器与头文件可移植性：集中提供 `wc_strings.h`，由 Windows CRT 映射 `strcasecmp`/`strncasecmp`、POSIX 使用 `strings.h`；修正 `ssize_t`、`unistd.h`、`sys/time.h`、sleep 与 Plan B 64 位毫秒计时的条件编译，并为 native-Linux 响应上限审计增加非 Linux SKIP 门禁。最终补齐 `nanosleep` 的 POSIX feature-test macro，并显式零初始化 retry metrics 的 `timespec` 起点；Strict `lto-auto` 九架构确认实际使用 `-flto=auto`，无编译/LTO 告警，Local hash、Golden、三起点 referral 与双目录 release sync 全部 PASS（`out/artifacts/20260829-094858`，273s）。产品网络与输出语义不变。
+- WP-13A 代理访问契约/依赖 spike：新增专用代理 RFC、本地确定性 HTTP CONNECT/SOCKS5 fake proxy 探针与 OpenSSL 静态链接依赖探针；首轮协议合同 9/9 PASS（`out/artifacts/proxy_protocol_spike/20260829-030918`）。本切片不增加产品 CLI、不改变网络路径；HTTPS proxy 仍须通过九架构静态依赖门禁。
 
 English summary
 - v3.3.3 license migration (effective upon the formal release): changes the project license from GPL-3.0-or-later to MIT and synchronizes the root `LICENSE`, README license notice, and SPDX/License identifiers across 23 source/header files; prepares the version as 3.3.3. Third-party code, data, tool output, and dependencies remain subject to their respective licenses.
 - Windows editor and header portability: centralizes `strcasecmp`/`strncasecmp` compatibility in `wc_strings.h`, using Windows CRT mappings and POSIX `strings.h`; corrects conditional handling for `ssize_t`, `unistd.h`, `sys/time.h`, sleeps, and Plan B's 64-bit millisecond clock, and adds a non-Linux SKIP gate to the native-Linux response-limit audit. The final fixes provide the POSIX feature-test macro required by `nanosleep` and explicitly zero-initialize the retry-metrics `timespec` origin. A Strict `lto-auto` nine-architecture run confirms actual `-flto=auto` use with no compiler/LTO warnings; Local hash, Golden, all three referral origins, and both release-directory syncs pass (`out/artifacts/20260829-094858`, 273s). Product networking and output semantics are unchanged.
+- WP-13A proxy-access contract/dependency spike: adds a dedicated proxy RFC, a deterministic local HTTP CONNECT/SOCKS5 fake-proxy probe, and an OpenSSL static-link dependency probe. The initial protocol contract passes 9/9 cases (`out/artifacts/proxy_protocol_spike/20260829-030918`). This slice adds no product CLI and changes no network path; HTTPS proxy remains gated on the nine-architecture static-dependency matrix.
 
 ## 3.3.2 (2026-08-28)
 

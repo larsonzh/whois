@@ -254,7 +254,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-10 | done | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 真实接收上限就是 `--buffer-size`；离线审计确认静默截断会造成分类漂移，决定不新增重复 CLI（2026-08-25） |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
 | WP-12 | active | Phase 5 | GPL-3.0 → MIT 许可证迁移 | 变更已在工作树准备；自 v3.3.3 正式发布版本起生效，v3.3.2 仍为 GPL；发布前须完成权利来源确认（2026-08-29 登记） |
-| WP-13 | proposed | Phase 5 | 通过代理访问 RIR 站点 | 分阶段覆盖 HTTP CONNECT、SOCKS5/5h、SOCKS4/4a 与 HTTPS proxy；IPv4/IPv6、环境变量、DNS/健康/缓存及静态构建契约尚待定版（2026-08-29 登记） |
+| WP-13 | active | Phase 5 | 通过代理访问 RIR 站点 | WP-13A 契约/依赖 spike 已启动；HTTP CONNECT 与 SOCKS5/5h 本地协议探针 9/9 PASS，生产网络行为未改；TLS 九架构静态依赖与凭据来源仍是后续 ready 门禁（2026-08-29） |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
 
@@ -588,7 +588,7 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - 发布材料：同步 README、Release Notes、GitHub Release 与源码归档中的许可证说明；GitHub license badge 可由平台动态检测，无需手工改 URL，但发布前须确认识别结果为 MIT。
 - 回退：v3.3.3 发布前若权利门禁不满足，回滚许可证相关工作树/提交并保留 GPL。v3.3.3 一旦以 MIT 对外发布，已获得 MIT 许可的副本不能通过后续回滚追溯撤销；只能对未来版本另作许可决定并保留审计记录。
 
-### 12.2 通过代理访问 RIR 站点（WP-13，proposed）
+### 12.2 通过代理访问 RIR 站点（WP-13，active）
 
 - 需求：允许用户经代理访问 RIR whois 服务（TCP，默认端口 43，可经 `-p/--port` 或 referral 自定义），适用于受限网络、出口合规与日志隔离。目标端点与代理端点的地址族、DNS、失败和指标必须分离，默认直连语义零变化。
 
@@ -657,6 +657,14 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - 完整验收：协议专项合同、x86_64/win32/win64 聚焦测试、九架构 Strict/Golden/referral、Batch/Selftest/CIDR/Redirect/Step47 全 PASS；同步 `USAGE_CN/EN`、Release Notes、代理 RFC 与安全说明。任何未支持组合必须查询前 fail-fast，不得静默直连或降级协议。
 - `ready` 门禁：13A 的契约与 spike 完成、目标文件/依赖闭包和执行方式明确后，13B/13C/13D 分别评审；不得因 WP-13 总体已登记而一次性视为全部批准。
 - 暂缓项联动：本工作包不改变网络读取早停、并发批量、RIR DNS 候选排序、健康/回退决策或权威判定（见 5.6 / 11.6）。
+
+#### 12.2.8 WP-13A 首个实施切片（2026-08-29）
+
+- 新增专用契约 `docs/RFC-proxy-access.md`，冻结默认直连、显式代理优先级、每 hop current host/port、HTTP CONNECT 数值目标、SOCKS5/5h DNS 所有权、代理失败与 RIR 健康/权威隔离、单调 deadline、缓存默认禁用及日志脱敏边界；凭据来源和 `--proxy-family` 保持 open，不提前进入生产实现。
+- 新增标准库 loopback fake proxy `tools/test/proxy_protocol_spike.py`，不依赖公网、不修改产品代码；覆盖 HTTP IPv4 自定义端口、IPv6 bracket authority、200/407/502，以及 SOCKS5 IPv4/IPv6/domain、username/password 和 target-refused REP 共 9 案例。
+- 首轮执行 `9/9 PASS`，机器报告为 `out/artifacts/proxy_protocol_spike/20260829-030918/report.json`；Python 编译检查与编辑器诊断均通过。
+- 新增 `tools/test/proxy_tls_dependency_spike.sh`，用于每个远程编译器验证 OpenSSL 客户端、peer verification、SNI、hostname verification API 与全静态链接；当前本机未配置 OpenSSL 工具链，不制造本地 PASS。WP-13D 继续保持 blocked，须取得七个 POSIX 目标加 win32/win64 的真实报告。
+- 下一门禁：复核专用 RFC，冻结凭据来源与代理端点 family CLI；远程运行 TLS 依赖矩阵；随后才能为 13B-1 endpoint dialer + bare transport 编制首对 Vx A/B 任务定义。
 
 ### 12.3 发布顺序提醒
 
