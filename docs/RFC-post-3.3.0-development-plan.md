@@ -254,7 +254,7 @@ WP-03–WP-06 在修改产品源码前，必须先在重定版 `docs/RFC-conditi
 | WP-10 | done | Phase 4 study | 响应读取上限语义审计与 `--max-bytes` 可行性决策 | 真实接收上限就是 `--buffer-size`；离线审计确认静默截断会造成分类漂移，决定不新增重复 CLI（2026-08-25） |
 | WP-11 | proposed | Phase 4 backlog | `--stats` / `--pick` 小幅扩展候选池 | 仅由真实用户场景触发；未形成需求证据前不得进入 `ready` |
 | WP-12 | active | Phase 5 | GPL-3.0 → MIT 许可证迁移 | 变更已在工作树准备；自 v3.3.3 正式发布版本起生效，v3.3.2 仍为 GPL；发布前须完成权利来源确认（2026-08-29 登记） |
-| WP-13 | active | Phase 5 | 通过代理访问 RIR 站点 | WP-13A 契约/依赖 spike 已启动；HTTP CONNECT 与 SOCKS5/5h 本地协议探针 9/9 PASS，生产网络行为未改；TLS 九架构静态依赖与凭据来源仍是后续 ready 门禁（2026-08-29） |
+| WP-13 | active | Phase 5 | 通过代理访问 RIR 站点 | WP-13A 双语契约与 HTTP CONNECT/SOCKS5/5h 协议、配置探针 21/21 PASS，family/凭据合同已冻结且生产网络行为未改；TLS 九架构静态依赖仍是 13D ready 门禁（2026-08-29） |
 
 `WP-xx` 是稳定的需求与回填标识，不代表任务定义文件数量、D/V 轮次或 A/B 串行号。历史 Vx A/B 55/56 仍只表示已经完成的第 55/56 份无人值守执行，不得据此把本计划的后续工作包称为 A/B 57–62，也不得提前占用这些串行号。
 
@@ -603,7 +603,7 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 
 - 初始目标端口来自 `q->port`（`-p/--port`，默认 43）；referral parser 已支持 `whois://host:port`、`rwhois://host:port` 和 `[IPv6]:port`，后续 hop 会把 `next_port` 写入 `current_port`。每个代理隧道必须使用**当前 hop 的 `current_host:current_port`**，不得固定 43，也不得始终复用初始 `q->port`。
 - HTTP CONNECT authority 对 IPv6 字面量使用 `[addr]:port`；SOCKS5 使用 ATYP=IPv4/IPv6/domain 与网络字节序端口。SOCKS4 只原生承载 IPv4 地址；SOCKS4a 承载域名但不保证代理最终选择 IPv6，因此不得宣称 `socks4://` 完整支持 IPv6 目标。
-- 代理端点（客户端实际连接的 proxy host:port）与目标端点（RIR host:port）独立解析。现有 `--ipv4-only`/`--ipv6-only`/family mode 只约束目标候选；代理端点默认 `AF_UNSPEC`，是否增加 `--proxy-family auto|v4|v6` 在契约评审中决定，禁止隐式复用目标 family 偏好。
+- 代理端点（客户端实际连接的 proxy host:port）与目标端点（RIR host:port）独立解析。现有 `--ipv4-only`/`--ipv6-only`/family mode 只约束目标候选；`--proxy-family auto|v4|v6` 仅控制代理端点，默认 `auto`（`AF_UNSPEC`），禁止隐式复用目标 family 偏好。
 
 #### 12.2.3 DNS 模式与冻结策略
 
@@ -628,8 +628,8 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 
 #### 12.2.5 CLI、环境变量与凭据
 
-- 候选 CLI：`--proxy <scheme://host[:port]>`、`--proxy-env`（显式启用通用代理环境变量）、`--proxy-family auto|v4|v6`（待评审）和 `--proxy-allow-insecure-auth`。代理 URL 的 IPv6 host 必须使用方括号；缺省端口、长度上限、percent-decoding、非法 path/query/fragment 均须在专用代理 RFC 冻结。
-- 不提供 `--proxy-pass`：命令行参数可被 shell history 和进程列表读取，与凭据不进入命令文本的要求冲突。用户名可配置；密码只允许从专用环境变量或受权限保护的凭据文件读取，具体接口在安全评审冻结。兼容含 userinfo 的环境变量 URL 时必须全程脱敏，并在文档警告其环境泄漏风险。
+- 冻结 CLI：`--proxy <scheme://host[:port]>`、`--proxy-env`（显式启用通用代理环境变量）、`--proxy-family auto|v4|v6`（默认 `auto`）和 `--proxy-allow-insecure-auth`。代理 URL 的 IPv6 host 必须使用方括号；缺省端口、长度上限、percent-decoding、非法 path/query/fragment 均以专用代理 RFC 为准。
+- 不提供 `--proxy-pass`：命令行参数可被 shell history 和进程列表读取，与凭据不进入命令文本的要求冲突。凭据首选成对非空 `WHOIS_PROXY_USER`/`WHOIS_PROXY_PASSWORD`；CLI `--proxy` URL 禁止 userinfo，仅环境来源 URL 可携带完整 percent-encoded userinfo。专用变量与 URL userinfo 混用、任一来源凭据残缺均查询前 fail-fast；凭据文件、交互提示与 OS keychain 延后评审。
 - 原始 WHOIS 不是 HTTP/HTTPS 目标，环境变量优先级不得照搬网页 URL 选择逻辑。候选顺序冻结为：显式 `--proxy` > 专用 `WHOIS_PROXY` >（仅启用 `--proxy-env` 时）`ALL_PROXY` > `all_proxy` > 经批准的兼容别名；未配置则直连。专用 `WHOIS_PROXY` 本身即显式 opt-in；机器上已有通用代理变量不能令升级后的客户端自动改道，从而守住默认行为零变化。`HTTP_PROXY`/`HTTPS_PROXY` 是否作为兼容别名须单独批准，不能用“目标 scheme”推断；POSIX 环境变量大小写敏感，Windows 才不区分大小写。出于 CGI 注入兼容风险，POSIX 默认不读取大写 `HTTP_PROXY`。
 - 同时读取 `NO_PROXY` 与 `no_proxy` 时采用显式优先级而非“大小写不敏感”。匹配在**每个逻辑 hop**建立隧道前按目标 host 与 current port 计算；至少支持 `*`、精确域名、前导点域后缀、IPv4、方括号 IPv6 和可选 `:port`。CIDR 与其他通配符只有在实现和测试冻结后才支持，不得模糊匹配。
 - `NO_PROXY` 命中时该 hop 直连，后续 referral hop 重新判断；未指定 `--proxy-env` 时忽略通用代理和 bypass 环境变量，但仍允许专用 `WHOIS_PROXY`；显式直连开关的名称与其是否覆盖 `WHOIS_PROXY` 在代理 RFC 冻结。任何日志、错误、core dump 辅助文本和测试 artifact 均不得输出密码、完整 userinfo 或 Proxy-Authorization。
@@ -660,11 +660,13 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 
 #### 12.2.8 WP-13A 首个实施切片（2026-08-29）
 
-- 新增专用契约 `docs/RFC-proxy-access.md`，冻结默认直连、显式代理优先级、每 hop current host/port、HTTP CONNECT 数值目标、SOCKS5/5h DNS 所有权、代理失败与 RIR 健康/权威隔离、单调 deadline、缓存默认禁用及日志脱敏边界；凭据来源和 `--proxy-family` 保持 open，不提前进入生产实现。
-- 新增标准库 loopback fake proxy `tools/test/proxy_protocol_spike.py`，不依赖公网、不修改产品代码；覆盖 HTTP IPv4 自定义端口、IPv6 bracket authority、200/407/502，以及 SOCKS5 IPv4/IPv6/domain、username/password 和 target-refused REP 共 9 案例。
-- 首轮执行 `9/9 PASS`，机器报告为 `out/artifacts/proxy_protocol_spike/20260829-030918/report.json`；Python 编译检查与编辑器诊断均通过。
+- 新增专用双语契约 `docs/RFC-proxy-access.md`，冻结默认直连、显式代理优先级、每 hop current host/port、HTTP CONNECT 数值目标、SOCKS5/5h DNS 所有权、代理失败与 RIR 健康/权威隔离、单调 deadline、缓存默认禁用、日志脱敏、凭据来源及 `--proxy-family` 边界，不提前改变生产网络行为。
+- 新增标准库 loopback fake proxy `tools/test/proxy_protocol_spike.py`，不依赖公网、不修改产品代码；覆盖 9 项 HTTP CONNECT/SOCKS5 协议案例和 12 项代理来源、凭据、family 配置案例。
+- 扩展后执行 `21/21 PASS`，机器报告为 `out/artifacts/proxy_protocol_spike/20260829-032916/report.json`；Python 编译检查与编辑器诊断均通过。
 - 新增 `tools/test/proxy_tls_dependency_spike.sh`，用于每个远程编译器验证 OpenSSL 客户端、peer verification、SNI、hostname verification API 与全静态链接；当前本机未配置 OpenSSL 工具链，不制造本地 PASS。WP-13D 继续保持 blocked，须取得七个 POSIX 目标加 win32/win64 的真实报告。
-- 下一门禁：复核专用 RFC，冻结凭据来源与代理端点 family CLI；远程运行 TLS 依赖矩阵；随后才能为 13B-1 endpoint dialer + bare transport 编制首对 Vx A/B 任务定义。
+- 专用 RFC 现已冻结 `--proxy-family=auto|v4|v6`（默认 `auto`，仅控制代理端点）与 13B 凭据来源：首选成对非空 `WHOIS_PROXY_USER`/`WHOIS_PROXY_PASSWORD`；CLI URL 禁止 userinfo；仅环境来源 URL 允许成对 userinfo；专用变量与 URL userinfo 混用时 fail-fast。凭据文件、交互提示与 OS keychain 延后评审。
+- 协议探针新增 12 项纯配置矩阵，覆盖默认直连、CLI/专用/通用环境优先级、通用环境显式 opt-in、专用和环境 URL 凭据、CLI userinfo/残缺或歧义凭据拒绝、代理 IPv6 family、字面量 family 冲突及 socks5h 目标 family 控制冲突；写报告前强制检查测试密码不落盘。扩展后 `21/21 PASS`，机器报告为 `out/artifacts/proxy_protocol_spike/20260829-032916/report.json`。
+- WP-13B-1 首对 Vx A/B 已完成编制期验收：A 为 `testdata/autopilot_code_step_tasks_20270624_20270630.json`（target set `7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`），B 为 `testdata/autopilot_code_step_tasks_20270701_20270707.json`（target set `1d22100e1bb2b1966509b93d5cbc3bacc383cd9833ef72a42c547e35e946a667`）。SyntaxOnly、D1-D4、A 全定义、B→A prerequisite 链、三项 Vx 安全回归、effective payload hash、九架构 `lto-auto` build/smoke/hash、Golden/referral、Step47 preflight 5/5 与 table guard 均 PASS；权威双语 Checklist A/B 见 `docs/RFC-proxy-access.md` 第 10 节。当前状态为“准备完成，待启动授权”，尚未启动、提交或推送；远程 TLS 依赖矩阵继续独立阻断 13D，不阻断 13B。
 
 ### 12.3 发布顺序提醒
 

@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import unquote, urlsplit
 
 
 @dataclass
@@ -20,6 +21,14 @@ class CaseResult:
     name: str
     status: str
     detail: str
+
+
+@dataclass(frozen=True)
+class ProxyDecision:
+    source: str
+    scheme: str
+    endpoint_family: str
+    authenticated: bool
 
 
 def recv_exact(conn: socket.socket, size: int) -> bytes:
@@ -232,6 +241,82 @@ def assert_equal(actual: object, expected: object) -> None:
         raise AssertionError(f"expected {expected!r}, got {actual!r}")
 
 
+def resolve_proxy_config(
+    *,
+    cli_proxy: str | None = None,
+    proxy_env_enabled: bool = False,
+    proxy_family: str = "auto",
+    env: dict[str, str] | None = None,
+    restrictive_target_controls: bool = False,
+) -> ProxyDecision | None:
+    values = env or {}
+    if proxy_family not in {"auto", "v4", "v6"}:
+        raise ValueError("invalid proxy endpoint family")
+
+    source = ""
+    proxy_url = ""
+    if cli_proxy:
+        source, proxy_url = "cli", cli_proxy
+    elif values.get("WHOIS_PROXY"):
+        source, proxy_url = "WHOIS_PROXY", values["WHOIS_PROXY"]
+    elif proxy_env_enabled and values.get("ALL_PROXY"):
+        source, proxy_url = "ALL_PROXY", values["ALL_PROXY"]
+    elif proxy_env_enabled and values.get("all_proxy"):
+        source, proxy_url = "all_proxy", values["all_proxy"]
+    else:
+        return None
+
+    try:
+        parsed = urlsplit(proxy_url)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid proxy URL") from exc
+    if parsed.scheme not in {"http", "socks5", "socks5h"} or not parsed.hostname:
+        raise ValueError("invalid proxy URL")
+    if parsed.path or parsed.query or parsed.fragment:
+        raise ValueError("proxy URL has unsupported components")
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("invalid proxy port")
+
+    url_has_userinfo = parsed.username is not None or parsed.password is not None
+    if source == "cli" and url_has_userinfo:
+        raise ValueError("CLI proxy URL must not contain userinfo")
+    if url_has_userinfo:
+        username = unquote(parsed.username or "")
+        password = unquote(parsed.password or "")
+        if not username or not password:
+            raise ValueError("proxy URL userinfo must be complete")
+
+    dedicated_user = values.get("WHOIS_PROXY_USER")
+    dedicated_password = values.get("WHOIS_PROXY_PASSWORD")
+    dedicated_present = dedicated_user is not None or dedicated_password is not None
+    if dedicated_present and (not dedicated_user or not dedicated_password):
+        raise ValueError("dedicated proxy credentials must be complete")
+    if dedicated_present and url_has_userinfo:
+        raise ValueError("proxy credential sources are ambiguous")
+
+    try:
+        endpoint_ip = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        endpoint_ip = None
+    if endpoint_ip is not None:
+        expected_family = "v4" if endpoint_ip.version == 4 else "v6"
+        if proxy_family != "auto" and proxy_family != expected_family:
+            raise ValueError("proxy literal conflicts with endpoint family")
+    if parsed.scheme == "socks5h" and restrictive_target_controls:
+        raise ValueError("remote DNS conflicts with target family controls")
+
+    return ProxyDecision(source, parsed.scheme, proxy_family, dedicated_present or url_has_userinfo)
+
+
+def expect_config_error(operation: Callable[[], object]) -> None:
+    try:
+        operation()
+    except ValueError:
+        return
+    raise AssertionError("expected proxy configuration rejection")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", default="out/artifacts/proxy_protocol_spike")
@@ -295,6 +380,120 @@ def main() -> int:
 
         cases.append((name, socks_operation))
 
+    cases.extend(
+        (
+            (
+                "config-default-direct",
+                lambda: assert_equal(resolve_proxy_config(), None),
+            ),
+            (
+                "config-cli-precedence",
+                lambda: assert_equal(
+                    resolve_proxy_config(
+                        cli_proxy="http://proxy.example.test:8080",
+                        proxy_env_enabled=True,
+                        env={"WHOIS_PROXY": "socks5://ignored.example.test:1080"},
+                    ),
+                    ProxyDecision("cli", "http", "auto", False),
+                ),
+            ),
+            (
+                "config-generic-env-opt-in",
+                lambda: assert_equal(
+                    resolve_proxy_config(
+                        proxy_env_enabled=True,
+                        env={"ALL_PROXY": "socks5://proxy.example.test:1080"},
+                    ),
+                    ProxyDecision("ALL_PROXY", "socks5", "auto", False),
+                ),
+            ),
+            (
+                "config-generic-env-ignored",
+                lambda: assert_equal(
+                    resolve_proxy_config(env={"ALL_PROXY": "socks5://proxy.example.test:1080"}),
+                    None,
+                ),
+            ),
+            (
+                "config-dedicated-credentials",
+                lambda: assert_equal(
+                    resolve_proxy_config(
+                        cli_proxy="socks5://proxy.example.test:1080",
+                        env={
+                            "WHOIS_PROXY_USER": "test-user",
+                            "WHOIS_PROXY_PASSWORD": "test-password",
+                        },
+                    ),
+                    ProxyDecision("cli", "socks5", "auto", True),
+                ),
+            ),
+            (
+                "config-env-url-userinfo",
+                lambda: assert_equal(
+                    resolve_proxy_config(
+                        env={"WHOIS_PROXY": "http://test-user:test-password@proxy.example.test:8080"}
+                    ),
+                    ProxyDecision("WHOIS_PROXY", "http", "auto", True),
+                ),
+            ),
+            (
+                "config-cli-userinfo-rejected",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        cli_proxy="http://test-user:test-password@proxy.example.test:8080"
+                    )
+                ),
+            ),
+            (
+                "config-partial-credentials-rejected",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        cli_proxy="socks5://proxy.example.test:1080",
+                        env={"WHOIS_PROXY_USER": "test-user"},
+                    )
+                ),
+            ),
+            (
+                "config-ambiguous-credentials-rejected",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        env={
+                            "WHOIS_PROXY": "socks5://url-user:url-password@proxy.example.test:1080",
+                            "WHOIS_PROXY_USER": "dedicated-user",
+                            "WHOIS_PROXY_PASSWORD": "dedicated-password",
+                        }
+                    )
+                ),
+            ),
+            (
+                "config-proxy-family-v6",
+                lambda: assert_equal(
+                    resolve_proxy_config(
+                        cli_proxy="http://[2001:db8::80]:8080", proxy_family="v6"
+                    ),
+                    ProxyDecision("cli", "http", "v6", False),
+                ),
+            ),
+            (
+                "config-proxy-family-conflict",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        cli_proxy="http://192.0.2.80:8080", proxy_family="v6"
+                    )
+                ),
+            ),
+            (
+                "config-socks5h-target-controls-rejected",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        cli_proxy="socks5h://proxy.example.test:1080",
+                        restrictive_target_controls=True,
+                    )
+                ),
+            ),
+        )
+    )
+
     results = [run_case(name, operation) for name, operation in cases]
     now = datetime.now(timezone.utc)
     output_dir = Path(args.output_root) / now.strftime("%Y%m%d-%H%M%S")
@@ -312,7 +511,11 @@ def main() -> int:
         },
     }
     report_path = output_dir / "report.json"
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    report_text = json.dumps(report, indent=2) + "\n"
+    for secret in ("test-password", "url-password", "dedicated-password"):
+        if secret in report_text:
+            raise RuntimeError("proxy protocol report contains credential material")
+    report_path.write_text(report_text, encoding="utf-8")
     print(
         f"[PROXY-PROTOCOL-SPIKE] result={report['result']} "
         f"passed={report['summary']['passed']} failed={report['summary']['failed']} "

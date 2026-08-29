@@ -35,7 +35,7 @@ WP-13A 不改变任何生产网络路径。
 |---|---|---|
 | `--proxy <url>` | 13B 已冻结 | 显式代理，优先级最高；13B 支持 `http`、`socks5` 和 `socks5h`。 |
 | `--proxy-env` | 13B 已冻结 | 启用通用 `ALL_PROXY`/`all_proxy` 发现及 `NO_PROXY`/`no_proxy`；未指定时忽略通用代理环境变量。 |
-| `--proxy-family auto\|v4\|v6` | 待定 | 仅控制代理端点地址族，不得隐式复用目标地址族偏好。 |
+| `--proxy-family auto\|v4\|v6` | 13B 已冻结 | 默认 `auto`；仅控制代理端点地址族，不得隐式复用目标地址族偏好。 |
 | `--proxy-allow-insecure-auth` | 13B 已冻结 | 通过明文 `http` 代理发送 HTTP Basic 凭据前必须显式指定。 |
 | `--proxy-pass` | 禁止 | 不得通过 argv 接收秘密。 |
 
@@ -56,13 +56,21 @@ WP-13A 不改变任何生产网络路径。
 
 仅当 `--proxy-env` 启用通用环境变量处理时读取 `NO_PROXY`/`no_proxy`。每个 WHOIS hop 都重新计算匹配。首版支持 `*`、精确 host、前导点域名后缀、IPv4 字面量、方括号 IPv6 字面量以及可选精确端口；不支持 CIDR 和任意 glob。
 
-凭据来源仍待安全评审冻结；冻结前不得开始生产认证实现。测试可使用内存凭据，但报告只能包含 case 名称。
+13B 的认证来源冻结如下：
+
+- 首选专用环境变量 `WHOIS_PROXY_USER` 与 `WHOIS_PROXY_PASSWORD`；必须同时存在且均为非空，否则在 lookup 前失败。
+- CLI `--proxy` URL 禁止 userinfo，防止凭据进入 shell history 和进程列表。
+- 仅来自 `WHOIS_PROXY`、`ALL_PROXY` 或 `all_proxy` 的代理 URL 可为兼容性携带 percent-encoded `username:password@`；username 与 password 必须均为非空。
+- 专用凭据变量与环境 URL userinfo 同时存在属于歧义配置，必须 fail-fast，不得静默覆盖或拼接来源。
+- 13B 不支持凭据文件、交互式提示或 OS 密钥链；后续增加任何来源均须单独评审。
+
+环境继承仍可能暴露秘密，因此使用文档必须建议最小化子进程继承。测试可使用内存凭据，但报告只能包含 case 名称。
 
 ## 4. DNS 与地址族契约
 
 - `http://` 和 `socks5://` 使用本地目标解析；现有目标候选顺序、地址族控制和健康记忆保持权威。
 - `socks5h://` 将域名发送给代理。由于无法观测代理最终选择的目标地址族，13B 中它与 `--ipv4-only`、`--ipv6-only`、per-RIR family override 及 candidate fallback 控制不兼容；这些组合必须在 lookup 前失败。
-- 在 `--proxy-family` 冻结前，代理端点以 `AF_UNSPEC` 独立解析。
+- `--proxy-family=auto` 使用 `AF_UNSPEC` 独立解析代理端点；`v4`/`v6` 分别限制为 `AF_INET`/`AF_INET6`。数值代理字面量与显式 family 不匹配时必须在拨号前失败。
 - HTTP CONNECT 使用数值目标候选；IPv6 authority 编码为 `[address]:port`。
 - SOCKS5 对 IPv4 使用 ATYP 1、IPv6 使用 ATYP 4，仅 `socks5h` 远程 DNS 使用 ATYP 3。
 - 远程 DNS 尝试因地址族未知，绝不更新目标 host+family 健康状态。
@@ -133,9 +141,35 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 ## 9. Ready 门禁
 
-本 RFC 与协议探针通过评审后，WP-13B-1 方可进入任务定义设计。凭据来源冻结前，WP-13B 认证仍保持 blocked。仅当同一获批后端的 TLS 探针通过七个 POSIX 目标及 win32/win64，且其许可证、CVE 与更新策略均已记录后，WP-13D 才能解除 blocked。
+本 RFC 与协议探针通过评审后，WP-13B-1 方可进入任务定义设计。代理端点 family 与 13B 凭据来源现已冻结；生产认证仍须由确定性配置测试覆盖后才可进入实现。仅当同一获批后端的 TLS 探针通过七个 POSIX 目标及 win32/win64，且其许可证、CVE 与更新策略均已记录后，WP-13D 才能解除 blocked。
 
 生产验收仍须通过 x86_64/win32/win64 聚焦合同、九架构 Strict 构建、Golden/referral、Batch/Selftest/CIDR/Redirect/Step47、默认直连输出冻结，并同步中英文使用文档。
+
+## 10. WP-13B-1 下次开工清单
+
+状态：准备完成，待启动授权。运行窗口为 `2027-06-24 ~ 2027-07-07`，使用 `schemaVersion=vx-draft`、`strict-enforce`、event-only 串行 A/B；B 仅在 A 最终 PASS 且 A 成功快照完整性通过后启动。active start-file 为 `testdata/unattended_start/active/unattended_ab_start_20270624-20270707.md`。不得在用户明确授权前启动、提交或推送。
+
+### 10.1 Checklist A：endpoint dialer policy
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270624_20270630.json`
+- 目标：抽取 `wc_net_dial_endpoint` 及显式 endpoint-family/health policy，并用兼容 wrapper 保持 `wc_dial_43` 的直连行为。
+- 非目标：不增加代理 CLI、协议握手、认证或 TLS；不改变 stdout、RIR referral、目标 DNS 健康和 retry metrics 契约。
+- 冻结 target set：`net_header` = `include/wc/wc_net.h`（existing c-header）；`net_source` = `src/core/net.c`（existing c-source）；`defaultTarget=net_source`。
+- `target_set_sha256=7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`。
+- D1 声明 policy/API；D2 抽取实现并保留 legacy wrapper；D3 接入 family conflict 与 health gating；D4 为设计期确认的最小 noop。
+
+编制期门禁：TODO-free/编码、SyntaxOnly、D1-D4、无 RoundTag 全定义严格检查、三项 Vx 专项安全回归均 PASS。A effective target set 已纳入聚焦编译；A+B effective target set 的最终九架构 `lto-auto` 构建、9/9 本地 hash、Linux/QEMU 与 win32/win64 smoke、Golden、三起点 referral、Step47 preflight 5/5 和 preclass table guard 均 PASS。归档证据：`out/artifacts/wp13b1_validation/20260829-120009`。
+
+### 10.2 Checklist B：bare transport wiring
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270701_20270707.json`
+- 目标：创建裸字节 transport 合同与实现，并将 lookup send/recv/close 接到该适配器，保持 fd 所有权、timeout、buffer、signal、错误和 close reason 不变。
+- 非目标：不实现 HTTP CONNECT、SOCKS、TLS、代理配置或连接复用。
+- 冻结 target set：`net_header`、`net_source` 与 A 相交；新增 `transport_header` = `include/wc/wc_transport.h`（create c-header）、`transport_source` = `src/core/transport.c`（create c-source）；`lookup_send` = `src/core/lookup_exec_send.c`、`lookup_recv` = `src/core/lookup_exec_recv.c`（existing c-source）；`defaultTarget=lookup_send`。
+- `target_set_sha256=1d22100e1bb2b1966509b93d5cbc3bacc383cd9833ef72a42c547e35e946a667`。
+- D1/D2 创建 transport declaration/definition；D3/D4 分别迁移 lookup send/recv 路径。
+
+编制期门禁：SyntaxOnly、D1-D4、以 A 为 prerequisite 的链式全定义严格检查及完整 effective payload hash 校验均 PASS；完整编译、Golden/referral、Step47 证据与 10.1 相同。运行期 B 必须保持 `blocked-by-a`，直到 A PASS、A snapshot 完整且 B 启动门禁通过。
 
 # English Version
 
@@ -170,7 +204,7 @@ WP-13A changes no production network path.
 |---|---|---|
 | `--proxy <url>` | frozen for 13B | Explicit proxy; highest precedence. Supported 13B schemes are `http`, `socks5`, and `socks5h`. |
 | `--proxy-env` | frozen for 13B | Enables generic `ALL_PROXY`/`all_proxy` discovery and `NO_PROXY`/`no_proxy`. Generic environment variables are ignored without this flag. |
-| `--proxy-family auto\|v4\|v6` | open | Controls only the proxy endpoint family. It must not reuse target-family preferences implicitly. |
+| `--proxy-family auto\|v4\|v6` | frozen for 13B | Defaults to `auto`; controls only the proxy endpoint family. It must not reuse target-family preferences implicitly. |
 | `--proxy-allow-insecure-auth` | frozen for 13B | Required before sending HTTP Basic credentials over a plain `http` proxy connection. |
 | `--proxy-pass` | forbidden | Secrets must not be accepted in argv. |
 
@@ -191,13 +225,21 @@ The frozen precedence is:
 
 `NO_PROXY`/`no_proxy` are consulted only when `--proxy-env` enabled generic environment handling. Matching is recalculated for every WHOIS hop. The first implementation supports `*`, exact host, leading-dot domain suffix, IPv4 literal, bracketed IPv6 literal, and an optional exact port. CIDR and arbitrary glob syntax are not supported.
 
-The credential source remains open for security review. Until it is frozen, production authentication work must not begin. Tests may use in-memory credentials and must report case names only.
+The 13B authentication sources are frozen as follows:
+
+- Dedicated `WHOIS_PROXY_USER` and `WHOIS_PROXY_PASSWORD` environment variables are preferred. Both must be present and non-empty, or configuration fails before lookup.
+- Userinfo is forbidden in a CLI `--proxy` URL so credentials cannot enter shell history or process listings.
+- Only proxy URLs obtained from `WHOIS_PROXY`, `ALL_PROXY`, or `all_proxy` may carry percent-encoded `username:password@` userinfo for compatibility. Both username and password must be non-empty.
+- Dedicated credential variables combined with environment-URL userinfo are ambiguous and fail fast; sources are never silently overridden or combined.
+- Credential files, interactive prompts, and OS keychains are not supported in 13B. Any additional source requires separate review.
+
+Environment inheritance can still expose secrets, so usage documentation must recommend minimizing child-process inheritance. Tests may use in-memory credentials and must report case names only.
 
 ## 4. DNS and address-family contract
 
 - `http://` and `socks5://` use local target resolution. Existing target candidate ordering, family controls, and health memory remain authoritative.
 - `socks5h://` sends a domain name to the proxy. Because the selected target address family is unobservable, it is incompatible in 13B with `--ipv4-only`, `--ipv6-only`, per-RIR family overrides, and candidate fallback controls. These combinations fail before lookup.
-- The proxy endpoint resolves independently with `AF_UNSPEC` until `--proxy-family` is frozen.
+- `--proxy-family=auto` resolves the proxy endpoint independently with `AF_UNSPEC`; `v4` and `v6` restrict it to `AF_INET` and `AF_INET6`, respectively. A numeric proxy literal that conflicts with an explicit family fails before dialing.
 - HTTP CONNECT uses a numeric target candidate. IPv6 authorities are encoded as `[address]:port`.
 - SOCKS5 uses ATYP 1 for IPv4, 4 for IPv6, and 3 only for `socks5h` remote DNS.
 - Remote-DNS attempts never update target host+family health because the family is unknown.
@@ -268,6 +310,32 @@ The probe requires a fully static link and references TLS client setup, peer ver
 
 ## 9. Readiness gates
 
-WP-13B-1 may enter task-definition design after this RFC and the protocol spike are reviewed. WP-13B authentication remains blocked until the credential source is frozen. WP-13D remains blocked until the TLS probe passes all seven POSIX targets plus win32 and win64 with one approved backend and its license/CVE/update policy documented.
+WP-13B-1 may enter task-definition design after this RFC and the protocol spike are reviewed. The proxy-endpoint family and 13B credential sources are now frozen; production authentication still requires deterministic configuration tests before implementation. WP-13D remains blocked until the TLS probe passes all seven POSIX targets plus win32 and win64 with one approved backend and its license/CVE/update policy documented.
 
 Production acceptance still requires focused x86_64/win32/win64 contracts, nine-architecture Strict builds, Golden/referral, Batch/Selftest/CIDR/Redirect/Step47, default-direct output freezing, and synchronized Chinese/English usage documentation.
+
+## 10. WP-13B-1 next-start checklist
+
+Status: ready, awaiting launch authorization. The `2027-06-24 ~ 2027-07-07` window uses `schemaVersion=vx-draft`, `strict-enforce`, and serial event-only A/B execution. B starts only after A passes and its success snapshot passes integrity validation. The active start file is `testdata/unattended_start/active/unattended_ab_start_20270624-20270707.md`. No launch, commit, or push is authorized yet.
+
+### 10.1 Checklist A: endpoint dialer policy
+
+- Definition: `testdata/autopilot_code_step_tasks_20270624_20270630.json`.
+- Goal: extract `wc_net_dial_endpoint` with explicit endpoint-family and health policy while preserving direct behavior through the `wc_dial_43` compatibility wrapper.
+- Excluded: proxy CLI, handshakes, authentication, and TLS; stdout, RIR referral, target DNS-health, and retry-metrics contracts remain unchanged.
+- Frozen targets: `net_header` = `include/wc/wc_net.h` (existing c-header) and `net_source` = `src/core/net.c` (existing c-source), with `defaultTarget=net_source`.
+- `target_set_sha256=7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`.
+- D1 declares the policy/API, D2 extracts the implementation and legacy wrapper, D3 applies family conflicts and health gating, and D4 is a design-time minimal noop.
+
+TODO/encoding, SyntaxOnly, D1-D4, full-definition checking without RoundTag, and all three Vx safety regressions pass. The final A+B effective set passes focused compilation, nine-architecture `lto-auto` builds, 9/9 local hashes, Linux/QEMU and win32/win64 smoke, Golden, three-origin referral, Step47 preflight 5/5, and the preclass table guard. Archived evidence: `out/artifacts/wp13b1_validation/20260829-120009`.
+
+### 10.2 Checklist B: bare transport wiring
+
+- Definition: `testdata/autopilot_code_step_tasks_20270701_20270707.json`.
+- Goal: create the bare byte-transport contract and implementation, then route lookup send/receive/close through it without changing fd ownership, timeout, buffer, signal, error, or close-reason behavior.
+- Excluded: HTTP CONNECT, SOCKS, TLS, proxy configuration, and connection reuse.
+- Frozen targets: `net_header` and `net_source` overlap A; `transport_header` = `include/wc/wc_transport.h` (create c-header), `transport_source` = `src/core/transport.c` (create c-source), `lookup_send` = `src/core/lookup_exec_send.c`, and `lookup_recv` = `src/core/lookup_exec_recv.c` (existing c-source), with `defaultTarget=lookup_send`.
+- `target_set_sha256=1d22100e1bb2b1966509b93d5cbc3bacc383cd9833ef72a42c547e35e946a667`.
+- D1/D2 create the transport declaration/definition; D3/D4 migrate lookup send/receive respectively.
+
+SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and effective-payload hash validation pass. The complete build, Golden/referral, and Step47 evidence is shared with 10.1. At runtime B remains `blocked-by-a` until A passes, its snapshot is complete, and B's launch gate passes.

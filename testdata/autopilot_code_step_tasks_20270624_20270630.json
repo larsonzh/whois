@@ -1,0 +1,196 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13b1-a-endpoint-dialer-policy-20270624-20270630",
+  "targetFile": "src/core/net.c",
+  "targetFiles": [
+    {
+      "id": "net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "net_source",
+      "file": "src/core/net.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "net_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the endpoint-family policy and side-effect-controlled endpoint dialer while retaining the existing wc_dial_43 direct-connect API.",
+      "idempotentContainsByTarget": {
+        "net_header": [
+          "typedef struct wc_net_dial_policy {",
+          "int wc_net_dial_endpoint(wc_net_context_t* ctx,"
+        ]
+      },
+      "operations": [
+        {
+          "target": "net_header",
+          "pattern": "struct wc_net_info \\{\\n    int fd;                 // socket fd \\(>=0\\) or -1\\n    char ip\\[64\\];            // resolved remote IP \\(text\\) or \"unknown\"\\n    int connected;          // 1 if connected, 0 otherwise\\n    int err;                // wc_err_t mapped error code\\n    int last_errno;         // last errno from connect/select failure \\(0 if success\\)\\n\\};\\n\\nint wc_net_dial_and_register\\(",
+          "replacement": "struct wc_net_info {\n    int fd;                 // socket fd (>=0) or -1\n    char ip[64];            // resolved remote IP (text) or \"unknown\"\n    int connected;          // 1 if connected, 0 otherwise\n    int err;                // wc_err_t mapped error code\n    int last_errno;         // last errno from connect/select failure (0 if success)\n};\n\n#define WC_NET_DIAL_POLICY_DEFINED 1\ntypedef enum wc_net_endpoint_family {\n    WC_NET_ENDPOINT_FAMILY_AUTO = 0,\n    WC_NET_ENDPOINT_FAMILY_IPV4 = 4,\n    WC_NET_ENDPOINT_FAMILY_IPV6 = 6\n} wc_net_endpoint_family_t;\n\ntypedef struct wc_net_dial_policy {\n    wc_net_endpoint_family_t family;\n    int record_dns_health;\n} wc_net_dial_policy_t;\n\nvoid wc_net_dial_policy_init(wc_net_dial_policy_t* policy);\nint wc_net_dial_endpoint(wc_net_context_t* ctx,\n                         const char* host,\n                         uint16_t port,\n                         int timeout_ms,\n                         int retries,\n                         const wc_net_dial_policy_t* policy,\n                         struct wc_net_info* out);\n\nint wc_net_dial_and_register(",
+          "idempotentContains": [
+            "typedef struct wc_net_dial_policy {"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "endpoint-family-enum-declared",
+          "target": "net_header",
+          "pattern": "typedef enum wc_net_endpoint_family \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "dial-policy-declared",
+          "target": "net_header",
+          "pattern": "typedef struct wc_net_dial_policy \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "endpoint-dialer-declared",
+          "target": "net_header",
+          "pattern": "int wc_net_dial_endpoint\\(wc_net_context_t\\* ctx,",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-dialer-still-declared",
+          "target": "net_header",
+          "pattern": "int wc_dial_43\\(wc_net_context_t\\* ctx,",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Rename the implementation to wc_net_dial_endpoint, validate its explicit policy, and restore wc_dial_43 as a compatibility wrapper that opts into target DNS-health recording.",
+      "idempotentContainsByTarget": {
+        "net_source": [
+          "int wc_net_dial_endpoint(wc_net_context_t* ctx,",
+          "policy.record_dns_health = 1;"
+        ]
+      },
+      "operations": [
+        {
+          "target": "net_source",
+          "pattern": "int wc_dial_43\\(wc_net_context_t\\* ctx,\\n               const char\\* host,\\n               uint16_t port,\\n               int timeout_ms,\\n               int retries,\\n               struct wc_net_info\\* out\\) \\{\\n    wc_net_context_t\\* net_ctx = wc_net_resolve_context\\(ctx\\);\\n    if \\(!net_ctx\\) \\{\\n        if \\(out\\) \\{\\n            wc_net_info_init\\(out\\);\\n            out->err = WC_ERR_INVALID;\\n            out->last_errno = EINVAL;\\n        \\}\\n        return WC_ERR_INVALID;\\n    \\}\\n    if \\(!host \\|\\| !out\\) return WC_ERR_INVALID;",
+          "replacement": "#ifndef WC_NET_DIAL_POLICY_DEFINED\n#define WC_NET_DIAL_POLICY_DEFINED 1\ntypedef enum wc_net_endpoint_family {\n    WC_NET_ENDPOINT_FAMILY_AUTO = 0,\n    WC_NET_ENDPOINT_FAMILY_IPV4 = 4,\n    WC_NET_ENDPOINT_FAMILY_IPV6 = 6\n} wc_net_endpoint_family_t;\ntypedef struct wc_net_dial_policy {\n    wc_net_endpoint_family_t family;\n    int record_dns_health;\n} wc_net_dial_policy_t;\n#endif\n#define WC_NET_ENDPOINT_DIAL_IMPL 1\n\nvoid wc_net_dial_policy_init(wc_net_dial_policy_t* policy)\n{\n    if (!policy) return;\n    policy->family = WC_NET_ENDPOINT_FAMILY_AUTO;\n    policy->record_dns_health = 0;\n}\n\nint wc_net_dial_endpoint(wc_net_context_t* ctx,\n                         const char* host,\n                         uint16_t port,\n                         int timeout_ms,\n                         int retries,\n                         const wc_net_dial_policy_t* policy,\n                         struct wc_net_info* out) {\n    wc_net_context_t* net_ctx = wc_net_resolve_context(ctx);\n    if (!net_ctx) {\n        if (out) {\n            wc_net_info_init(out);\n            out->err = WC_ERR_INVALID;\n            out->last_errno = EINVAL;\n        }\n        return WC_ERR_INVALID;\n    }\n    if (!host || !out || !policy) return WC_ERR_INVALID;\n    int endpoint_family = AF_UNSPEC;\n    if (policy->family == WC_NET_ENDPOINT_FAMILY_IPV4) endpoint_family = AF_INET;\n    else if (policy->family == WC_NET_ENDPOINT_FAMILY_IPV6) endpoint_family = AF_INET6;\n    else if (policy->family != WC_NET_ENDPOINT_FAMILY_AUTO) {\n        wc_net_info_init(out);\n        out->err = WC_ERR_INVALID;\n        out->last_errno = EINVAL;\n        return out->err;\n    }\n    int record_dns_health = policy->record_dns_health ? 1 : 0;",
+          "idempotentContains": [
+            "int endpoint_family = AF_UNSPEC;"
+          ]
+        },
+        {
+          "target": "net_source",
+          "pattern": "// Convenience helper: dial \\+ register active connection for signal handling\\.\\n// This is a thin wrapper around wc_dial_43\\(\\) and\\n// wc_signal_register_active_connection\\(\\), keeping dialing semantics unchanged\\.\\nint wc_net_dial_and_register\\(",
+          "replacement": "int wc_dial_43(wc_net_context_t* ctx,\n               const char* host,\n               uint16_t port,\n               int timeout_ms,\n               int retries,\n               struct wc_net_info* out)\n{\n    wc_net_dial_policy_t policy;\n    wc_net_dial_policy_init(&policy);\n    policy.record_dns_health = 1;\n    return wc_net_dial_endpoint(ctx, host, port, timeout_ms, retries, &policy, out);\n}\n\n// Convenience helper: direct dial plus active connection registration.\nint wc_net_dial_and_register(",
+          "idempotentContains": [
+            "policy.record_dns_health = 1;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "endpoint-policy-init-defined",
+          "target": "net_source",
+          "pattern": "void wc_net_dial_policy_init\\(wc_net_dial_policy_t\\* policy\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "endpoint-dialer-defined",
+          "target": "net_source",
+          "pattern": "int wc_net_dial_endpoint\\(wc_net_context_t\\* ctx,",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-wrapper-defined",
+          "target": "net_source",
+          "pattern": "int wc_dial_43\\(wc_net_context_t\\* ctx,",
+          "expectedCount": 1
+        },
+        {
+          "name": "legacy-wrapper-enables-health",
+          "target": "net_source",
+          "pattern": "policy\\.record_dns_health = 1;",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Apply endpoint-family selection during resolution, reject numeric literal conflicts, and gate the target DNS-health hook behind the explicit direct-connect policy.",
+      "idempotentContainsByTarget": {
+        "net_source": [
+          "hints.ai_family = endpoint_family;",
+          "int numeric_family = strchr(host, ':') ? AF_INET6 : AF_INET;",
+          "if (record_dns_health) {"
+        ]
+      },
+      "operations": [
+        {
+          "target": "net_source",
+          "pattern": "struct addrinfo hints; memset\\(&hints,0,sizeof\\(hints\\)\\); hints\\.ai_socktype = SOCK_STREAM; hints\\.ai_family = AF_UNSPEC;",
+          "replacement": "#ifndef WC_NET_ENDPOINT_DIAL_IMPL\n    int endpoint_family = AF_UNSPEC;\n    int record_dns_health = 1;\n#endif\n    struct addrinfo hints; memset(&hints,0,sizeof(hints)); hints.ai_socktype = SOCK_STREAM; hints.ai_family = endpoint_family;",
+          "idempotentContains": [
+            "hints.ai_family = endpoint_family;"
+          ]
+        },
+        {
+          "target": "net_source",
+          "pattern": "if \\(numeric_host\\) \\{\\n        hints\\.ai_flags \\|= AI_NUMERICHOST;\\n        if \\(strchr\\(host, ':'\\)\\) \\{\\n            hints\\.ai_family = AF_INET6;\\n        \\} else \\{\\n            hints\\.ai_family = AF_INET;\\n        \\}\\n    \\}",
+          "replacement": "if (numeric_host) {\n        int numeric_family = strchr(host, ':') ? AF_INET6 : AF_INET;\n        if (endpoint_family != AF_UNSPEC && endpoint_family != numeric_family) {\n            out->err = WC_ERR_INVALID;\n            out->last_errno = EAFNOSUPPORT;\n            return out->err;\n        }\n        hints.ai_flags |= AI_NUMERICHOST;\n        hints.ai_family = numeric_family;\n    }",
+          "idempotentContains": [
+            "int numeric_family = strchr(host, ':') ? AF_INET6 : AF_INET;"
+          ]
+        },
+        {
+          "target": "net_source",
+          "pattern": "            // Feed DNS health memory with per-attempt outcome\\. This is\\n            // observability-only in Phase 3 step 2 and does not alter\\n            // dialing behavior\\.\\n            wc_dns_health_note_result\\(config, host, rp->ai_family, connected_now\\);",
+          "replacement": "            // Feed DNS health memory only for direct target dialing.\n            if (record_dns_health) {\n                wc_dns_health_note_result(config, host, rp->ai_family, connected_now);\n            }",
+          "idempotentContains": [
+            "if (record_dns_health) {"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "resolver-uses-endpoint-family",
+          "target": "net_source",
+          "pattern": "hints\\.ai_family = endpoint_family;",
+          "expectedCount": 1
+        },
+        {
+          "name": "literal-family-conflict-guard",
+          "target": "net_source",
+          "pattern": "endpoint_family != AF_UNSPEC && endpoint_family != numeric_family",
+          "expectedCount": 1
+        },
+        {
+          "name": "health-hook-remains-single",
+          "target": "net_source",
+          "pattern": "wc_dns_health_note_result\\(config, host, rp->ai_family, connected_now\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "health-hook-is-policy-gated",
+          "target": "net_source",
+          "pattern": "if \\(record_dns_health\\) \\{\\n                wc_dns_health_note_result",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "No additional source change is designed for D4; endpoint policy extraction is complete after D3."
+    }
+  }
+}

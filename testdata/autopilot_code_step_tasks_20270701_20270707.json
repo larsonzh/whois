@@ -1,0 +1,323 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13b1-b-bare-transport-20270701-20270707",
+  "targetFile": "src/core/lookup_exec_send.c",
+  "targetFiles": [
+    {
+      "id": "net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "net_source",
+      "file": "src/core/net.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "transport_header",
+      "file": "include/wc/wc_transport.h",
+      "kind": "c-header",
+      "lifecycle": "create"
+    },
+    {
+      "id": "transport_source",
+      "file": "src/core/transport.c",
+      "kind": "c-source",
+      "lifecycle": "create"
+    },
+    {
+      "id": "lookup_send",
+      "file": "src/core/lookup_exec_send.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_recv",
+      "file": "src/core/lookup_exec_recv.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "lookup_send",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Create the public bare byte-transport contract without changing lookup behavior or ownership of the underlying socket descriptor.",
+      "idempotentContainsByTarget": {
+        "transport_header": [
+          "typedef struct wc_transport {",
+          "void wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled);"
+        ]
+      },
+      "operations": [
+        {
+          "type": "create-file",
+          "target": "transport_header",
+          "content": "#ifndef WC_TRANSPORT_H\n#define WC_TRANSPORT_H\n\n#include <stddef.h>\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\ntypedef struct wc_transport {\n    int* fd;\n} wc_transport_t;\n\nvoid wc_transport_init(wc_transport_t* transport, int* fd);\nint wc_transport_send_all(wc_transport_t* transport, const char* data, size_t len, int timeout_ms);\nint wc_transport_recv_until_idle(wc_transport_t* transport, char** out, size_t* out_len, int timeout_ms, int max_bytes);\nvoid wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled);\n\n#ifdef __cplusplus\n}\n#endif\n\n#endif // WC_TRANSPORT_H\n",
+          "contentSha256": "1af6808f676d311eb7df07f1dd0f57818a75e8ced7e21586720075024a54a68a",
+          "existingPolicy": "skip",
+          "idempotentContains": [
+            "#define WC_TRANSPORT_H"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "transport-struct-declared",
+          "target": "transport_header",
+          "pattern": "typedef struct wc_transport \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-send-declared",
+          "target": "transport_header",
+          "pattern": "int wc_transport_send_all\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-recv-declared",
+          "target": "transport_header",
+          "pattern": "int wc_transport_recv_until_idle\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-close-declared",
+          "target": "transport_header",
+          "pattern": "void wc_transport_close\\(",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Create the bare transport implementation as a behavior-preserving adapter over existing send, receive, and safe-close primitives.",
+      "idempotentContainsByTarget": {
+        "transport_source": [
+          "static int wc_transport_is_valid(const wc_transport_t* transport)",
+          "return wc_recv_until_idle(*transport->fd, out, out_len, timeout_ms, max_bytes);"
+        ]
+      },
+      "operations": [
+        {
+          "type": "create-file",
+          "target": "transport_source",
+          "content": "// SPDX-License-Identifier: MIT\n// transport.c - Byte transport abstraction for lookup I/O\n\n#ifndef __has_include\n#define __has_include(x) 0\n#endif\n#if __has_include(\"wc/wc_transport.h\")\n#include \"wc/wc_transport.h\"\n#else\n#include <stddef.h>\ntypedef struct wc_transport {\n    int* fd;\n} wc_transport_t;\n#endif\n\n#include \"wc/wc_net.h\"\n#include \"wc/wc_util.h\"\n\nvoid wc_transport_init(wc_transport_t* transport, int* fd)\n{\n    if (!transport) return;\n    transport->fd = fd;\n}\n\nstatic int wc_transport_is_valid(const wc_transport_t* transport)\n{\n    return transport && transport->fd;\n}\n\nint wc_transport_send_all(wc_transport_t* transport, const char* data, size_t len, int timeout_ms)\n{\n    if (!wc_transport_is_valid(transport)) return -1;\n    return wc_send_all(*transport->fd, data, len, timeout_ms);\n}\n\nint wc_transport_recv_until_idle(wc_transport_t* transport, char** out, size_t* out_len, int timeout_ms, int max_bytes)\n{\n    if (!wc_transport_is_valid(transport)) return -1;\n    return wc_recv_until_idle(*transport->fd, out, out_len, timeout_ms, max_bytes);\n}\n\nvoid wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled)\n{\n    if (!wc_transport_is_valid(transport)) return;\n    wc_safe_close(transport->fd, reason, debug_enabled);\n}\n",
+          "contentSha256": "ff3f6fe7c6af7d1763b48c97d2be644e2f3c226f3ca706ec0c64c22524d965d1",
+          "existingPolicy": "skip",
+          "idempotentContains": [
+            "// transport.c - Byte transport abstraction for lookup I/O"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "transport-init-defined",
+          "target": "transport_source",
+          "pattern": "void wc_transport_init\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-send-defined",
+          "target": "transport_source",
+          "pattern": "int wc_transport_send_all\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-recv-defined",
+          "target": "transport_source",
+          "pattern": "int wc_transport_recv_until_idle\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "transport-close-defined",
+          "target": "transport_source",
+          "pattern": "void wc_transport_close\\(",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Route lookup query send and every send-path close through a stack-bound bare transport while retaining the same fd, timeout, errors, and close reasons.",
+      "idempotentContainsByTarget": {
+        "lookup_send": [
+          "wc_transport_t transport;",
+          "wc_transport_send_all(&transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000)",
+          "wc_transport_close(&transport, \"wc_lookup_send_fail\", debug_enabled);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "lookup_send",
+          "pattern": "#include \"wc/wc_net\\.h\"\\n#include \"wc/wc_lookup\\.h\"",
+          "replacement": "#include \"wc/wc_net.h\"\n#ifndef __has_include\n#define __has_include(x) 0\n#endif\n#if __has_include(\"wc/wc_transport.h\")\n#include \"wc/wc_transport.h\"\n#else\ntypedef struct wc_transport { int* fd; } wc_transport_t;\nvoid wc_transport_init(wc_transport_t* transport, int* fd);\nint wc_transport_send_all(wc_transport_t* transport, const char* data, size_t len, int timeout_ms);\nvoid wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled);\n#endif\n#include \"wc/wc_lookup.h\"",
+          "idempotentContains": [
+            "int wc_transport_send_all(wc_transport_t* transport, const char* data, size_t len, int timeout_ms);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "    \\}\\n\\n    int arin_retry_active =",
+          "replacement": "    }\n\n    wc_transport_t transport;\n    wc_transport_init(&transport, &ctx->ni->fd);\n\n    int arin_retry_active =",
+          "idempotentContains": [
+            "wc_transport_init(&transport, &ctx->ni->fd);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_malloc_fail\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport, \"wc_lookup_malloc_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport, \"wc_lookup_malloc_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport, \"wc_lookup_signal_abort\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport, \"wc_lookup_signal_abort\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "if \\(wc_send_all\\(ctx->ni->fd, line, qlen \\+ 2, ctx->zopts->timeout_sec \\* 1000\\) < 0\\)",
+          "replacement": "if (wc_transport_send_all(&transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000) < 0)",
+          "idempotentContains": [
+            "wc_transport_send_all(&transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000)"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_send_fail\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport, \"wc_lookup_send_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport, \"wc_lookup_send_fail\", debug_enabled);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "send-transport-initialized-once",
+          "target": "lookup_send",
+          "pattern": "wc_transport_init\\(&transport, &ctx->ni->fd\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "raw-send-removed",
+          "target": "lookup_send",
+          "pattern": "wc_send_all\\(ctx->ni->fd,",
+          "expectedCount": 0
+        },
+        {
+          "name": "send-path-transport-closes",
+          "target": "lookup_send",
+          "pattern": "wc_transport_close\\(&transport,",
+          "expectedCount": 3
+        },
+        {
+          "name": "send-path-raw-closes-removed",
+          "target": "lookup_send",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd,",
+          "expectedCount": 0
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Route lookup response receive and every receive-path close through the same bare transport contract while preserving the existing buffer, timeout, and signal semantics.",
+      "idempotentContainsByTarget": {
+        "lookup_recv": [
+          "wc_transport_t transport;",
+          "wc_transport_recv_until_idle(&transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes)",
+          "wc_transport_close(&transport, \"wc_lookup_recv_done\", debug_enabled);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "lookup_recv",
+          "pattern": "#include \"wc/wc_config\\.h\"\\n#include \"wc/wc_net\\.h\"",
+          "replacement": "#include \"wc/wc_config.h\"\n#ifndef __has_include\n#define __has_include(x) 0\n#endif\n#if __has_include(\"wc/wc_transport.h\")\n#include \"wc/wc_transport.h\"\n#else\ntypedef struct wc_transport { int* fd; } wc_transport_t;\nvoid wc_transport_init(wc_transport_t* transport, int* fd);\nint wc_transport_recv_until_idle(wc_transport_t* transport, char** out, size_t* out_len, int timeout_ms, int max_bytes);\nvoid wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled);\n#endif\n#include \"wc/wc_net.h\"",
+          "idempotentContains": [
+            "int wc_transport_recv_until_idle(wc_transport_t* transport, char** out, size_t* out_len, int timeout_ms, int max_bytes);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "    \\}\\n\\n    if \\(wc_signal_should_terminate\\(\\)\\)",
+          "replacement": "    }\n\n    wc_transport_t transport;\n    wc_transport_init(&transport, &ctx->ni->fd);\n\n    if (wc_signal_should_terminate())",
+          "idempotentContains": [
+            "wc_transport_init(&transport, &ctx->ni->fd);\n\n    if (wc_signal_should_terminate())"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport,\n                \"wc_lookup_signal_abort\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport,\n                \"wc_lookup_signal_abort\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "if \\(wc_recv_until_idle\\(ctx->ni->fd, ctx->body, ctx->blen, ctx->zopts->timeout_sec \\* 1000, max_bytes\\) < 0\\)",
+          "replacement": "if (wc_transport_recv_until_idle(&transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes) < 0)",
+          "idempotentContains": [
+            "wc_transport_recv_until_idle(&transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes)"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_recv_fail\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport, \"wc_lookup_recv_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport, \"wc_lookup_recv_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd, \"wc_lookup_recv_done\", debug_enabled\\);",
+          "replacement": "wc_transport_close(&transport, \"wc_lookup_recv_done\", debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_close(&transport, \"wc_lookup_recv_done\", debug_enabled);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "recv-transport-initialized-once",
+          "target": "lookup_recv",
+          "pattern": "wc_transport_init\\(&transport, &ctx->ni->fd\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "raw-recv-removed",
+          "target": "lookup_recv",
+          "pattern": "wc_recv_until_idle\\(ctx->ni->fd,",
+          "expectedCount": 0
+        },
+        {
+          "name": "recv-path-transport-closes",
+          "target": "lookup_recv",
+          "pattern": "wc_transport_close\\(&transport,",
+          "expectedCount": 3
+        },
+        {
+          "name": "recv-path-raw-closes-removed",
+          "target": "lookup_recv",
+          "pattern": "wc_safe_close\\(&ctx->ni->fd,",
+          "expectedCount": 0
+        }
+      ]
+    }
+  }
+}
