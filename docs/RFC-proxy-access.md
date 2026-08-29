@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13A 契约与依赖探针实施中 / active contract and dependency spike.
+状态 / Status：WP-13B-1 已完成；WP-13B-2 前置门禁已通过 / WP-13B-1 complete; WP-13B-2 entry gates passed.
 
 # 中文版
 
@@ -181,7 +181,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 | started_at / completed_at / elapsed | `2026-08-29 12:59:42` → `2026-08-29 18:15:18` / `0d 05:15:37` |
 | run_dir | `out/artifacts/dev_verify_multiround/20260829-130015` |
 | final result / summary | `out/artifacts/dev_verify_multiround/20260829-130015/final_status.json`（Result=pass, ExitCode=0, 8/8 轮, FailedRoundTags=[]）、`summary.csv` |
-| task-static / code-step artifact | 各 D 轮独立 checker 哈希绑定产物（run_dir 内）；无 code-step 事务 |
+| task-static / code-step artifact | 各 D 轮独立 checker 与 code-step 哈希绑定产物（run_dir 内）；无 task-definition repair transaction |
 | snapshot manifest / target set SHA-256 | `target_set_sha256=7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`；A 成功快照完整性通过 |
 | 事故、自愈、重启摘要 | NONE（无 incident、recovery_attempts=0、无重启） |
 | RFC 回填日期 | 2026-08-30 |
@@ -195,7 +195,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 | started_at / completed_at / elapsed | `2026-08-29 18:14:36` → `2026-08-29 23:38:35` / `0d 05:24:00` |
 | run_dir | `out/artifacts/dev_verify_multiround/20260829-181508` |
 | final result / summary | `out/artifacts/dev_verify_multiround/20260829-181508/final_status.json`（Result=pass, ExitCode=0, 8/8 轮, FailedRoundTags=[], GeneratedAt=23:37:36）、`summary.csv` |
-| task-static / code-step artifact | 各 D 轮独立 checker 哈希绑定产物（run_dir 内）；无 code-step 事务 |
+| task-static / code-step artifact | 各 D 轮独立 checker 与 code-step 哈希绑定产物（run_dir 内）；无 task-definition repair transaction |
 | 事故、自愈、重启摘要 | NONE |
 | RFC 回填日期 | 2026-08-30 |
 
@@ -204,7 +204,12 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - A/B 总结：A、B 均为一次通过（8/8 轮），无卡滞、无重启、无自动修复；SESSION=PASS。事件票闭环：`a-pass-conclusion-b-started`（T20260829-181518844-f18488a6，handled_at 2026-08-29 18:17:25）、`chat-session-final-status`（chat-final-20260829-233835，handled_at 2026-08-29 23:39:40）；event-only 模式无常规状态票。
 - A/B 合计用时：`0d 10:38:54`（session start `2026-08-29 12:59:42` → `2026-08-29 23:38:35`）。
 - 运行后 Strict 验证（2026-08-30）：远程编译冒烟同步 + 黄金校验（Strict Version）——`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → 无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS，退出码 0，用时 219s，日志目录 `out/artifacts/20260830-001936`。
-- 未完成项与后续动作：无阻塞项；后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
+- 完成后复核未发现当前直连路径、fd 所有权、close reason 或构建集成的高严重度回归；`src/core/transport.c` 已由 Makefile wildcard 纳入构建。
+- 复核发现的 transport 扩展缺口已收敛：`wc_transport_t` 现通过可注入 ops/context 实际分派 `read/write/wait/close`，裸 socket 为默认 adapter；`wc_transport_send_all_until` 与 `wc_transport_wait_until` 共享绝对单调 deadline，lookup 现有高层调用和 response idle-timeout 语义保持不变。确定性 `tools/test/transport_contract_test.ps1` 已覆盖 adapter 分派、partial write、read、wait deadline、timeout、close 与无效 transport；现有 selftest 新增 policy 默认 health-off、非法 family、数值地址 family 冲突及 DNS-health hook 隔离。
+- 复核后验证（2026-08-30）：本地 clang 严格聚焦语法检查与 transport contract PASS；九架构 `lto-auto` build/smoke/selftest、9/9 local hash、Golden 与三起点 referral PASS，用时 275s，证据目录 `out/artifacts/20260830-010926`，且未同步或改写 release 目录。
+- DNS-health 隔离专项（2026-08-30）：通过自测计数器直接证明 `record_dns_health=0` 不调用目标 health hook，并以 `record_dns_health=1` 对照确认同一路径可观测；x86_64、win64、win32 smoke/selftest 与 local hash 均 PASS（143s，`out/artifacts/20260830-012006`）。WP-13B-2 可进入配置/CLI/env、HTTP CONNECT 与每 hop bypass 的 Vx 任务定义编制，仍须遵守第 9 节完整验收门禁。
+- 最终同步产物审计（2026-08-30）：Strict Version `lto-auto` 九架构远程构建、默认查询 smoke、双目录同步与 Golden/referral 全部 PASS，无编译/LTO 告警，用时 241s（`out/artifacts/20260830-014939`）。归档九个二进制的 SHA-256 独立复算均与 `SHA256SUMS-static.txt` 匹配，仓库 release 清单与归档逐字一致；Linux/QEMU、win32、win64 默认 smoke 的 `8.8.8.8`/`1.1.1.1`/`10.0.0.8` 标题与权威尾行契约稳定。Golden 以 `8.8.8.8` 主 smoke 直接 PASS；IANA、ARIN、AFRINIC 三起点 referral 分别以 3/2/1 次成功连接、零失败收敛到 AFRINIC。该轮未启用 `--selftest`，专项 transport/policy/health-isolation 证据仍以上述 `010926`/`012006` 两轮为准；无需代码修复。
+- 后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处）。
 - 未经用户明确授权，不执行提交或推送。
 
@@ -387,7 +392,7 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and e
 | started_at / completed_at / elapsed | `2026-08-29 12:59:42` → `2026-08-29 18:15:18` / `0d 05:15:37` |
 | run_dir | `out/artifacts/dev_verify_multiround/20260829-130015` |
 | Final result / summary | `out/artifacts/dev_verify_multiround/20260829-130015/final_status.json` (Result=pass, ExitCode=0, 8/8 rounds, FailedRoundTags=[]), `summary.csv` |
-| task-static / code-step artifact | Per-D-round hash-bound checker artifacts inside run_dir; no code-step transaction |
+| task-static / code-step artifact | Per-D-round hash-bound checker and code-step artifacts inside run_dir; no task-definition repair transaction |
 | Snapshot manifest / target set SHA-256 | `target_set_sha256=7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`; A success snapshot integrity passed |
 | Incidents / self-heal / restart | NONE (no incidents, recovery_attempts=0, no restarts) |
 | RFC backfill date | 2026-08-30 |
@@ -401,7 +406,7 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and e
 | started_at / completed_at / elapsed | `2026-08-29 18:14:36` → `2026-08-29 23:38:35` / `0d 05:24:00` |
 | run_dir | `out/artifacts/dev_verify_multiround/20260829-181508` |
 | Final result / summary | `out/artifacts/dev_verify_multiround/20260829-181508/final_status.json` (Result=pass, ExitCode=0, 8/8 rounds, FailedRoundTags=[], GeneratedAt=23:37:36), `summary.csv` |
-| task-static / code-step artifact | Per-D-round hash-bound checker artifacts inside run_dir; no code-step transaction |
+| task-static / code-step artifact | Per-D-round hash-bound checker and code-step artifacts inside run_dir; no task-definition repair transaction |
 | Incidents / self-heal / restart | NONE |
 | RFC backfill date | 2026-08-30 |
 
@@ -410,6 +415,11 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and e
 - A/B summary: A and B both passed first try (8/8 rounds), no stalls, restarts, or auto-fixes; SESSION=PASS. Event tickets closed: `a-pass-conclusion-b-started` (T20260829-181518844-f18488a6, handled_at 2026-08-29 18:17:25) and `chat-session-final-status` (chat-final-20260829-233835, handled_at 2026-08-29 23:39:40); event-only mode emitted no routine status tickets.
 - Combined A/B elapsed: `0d 10:38:54` (session start `2026-08-29 12:59:42` → `2026-08-29 23:38:35`).
 - Post-run Strict validation (2026-08-30): remote build + smoke sync + Golden check (Strict Version) via `WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → no warnings + no lto warnings + Local hash verify: PASS + Golden PASS + referral check: PASS, exit code 0, 219s, log dir `out/artifacts/20260830-001936`.
-- Open items / follow-up: none blocking; WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) remain gated by section 9 readiness gates.
+- The post-completion review found no high-severity regression in the current direct path, fd ownership, close reasons, or build integration; the Makefile wildcard includes `src/core/transport.c`.
+- The transport extension gap found by that review is closed. `wc_transport_t` now dispatches `read/write/wait/close` through injectable ops/context, with the bare socket as the default adapter. `wc_transport_send_all_until` and `wc_transport_wait_until` share an absolute monotonic deadline while existing lookup-level calls and response idle-timeout semantics remain unchanged. Deterministic `tools/test/transport_contract_test.ps1` coverage includes adapter dispatch, partial writes, reads, wait deadlines, timeout, close, and invalid transports; existing selftests now cover policy defaults with health recording disabled, invalid families, numeric-literal family conflicts, and DNS-health hook isolation.
+- Post-review validation (2026-08-30): focused strict clang syntax checks and the transport contract passed; nine-architecture `lto-auto` build/smoke/selftest, 9/9 local hashes, Golden, and three-origin referral checks passed in 275s. Evidence is under `out/artifacts/20260830-010926`; no release directory was synchronized or rewritten.
+- DNS-health isolation contract (2026-08-30): a selftest counter directly proves that `record_dns_health=0` does not call the target health hook, with `record_dns_health=1` as the positive control. x86_64, win64, and win32 smoke/selftest and local hashes passed in 143s (`out/artifacts/20260830-012006`). WP-13B-2 may proceed to Vx task-definition design for configuration/CLI/environment parsing, HTTP CONNECT, and per-hop bypass, subject to the full section 9 acceptance gates.
+- Final synchronized-artifact audit (2026-08-30): the Strict Version `lto-auto` nine-architecture remote build, default-query smoke, two-directory sync, Golden, and referral checks all passed with no compiler/LTO warnings in 241s (`out/artifacts/20260830-014939`). Independent SHA-256 recomputation for all nine archived binaries matches `SHA256SUMS-static.txt`, and the repository release manifest is byte-for-byte identical to the archive. Linux/QEMU, win32, and win64 default smoke preserves the query-header and authoritative-tail contracts for `8.8.8.8`, `1.1.1.1`, and `10.0.0.8`. Golden passed directly against the primary `8.8.8.8` smoke; IANA, ARIN, and AFRINIC referral origins converged to AFRINIC with 3/2/1 successful connection attempts and zero failures. This round did not enable `--selftest`; focused transport/policy/health-isolation evidence remains in the `010926`/`012006` rounds above. No code fix is required.
+- WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) remain gated by section 9 readiness gates.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file).
 - No commit or push without explicit user authorization.

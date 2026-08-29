@@ -658,7 +658,7 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - `ready` 门禁：13A 的契约与 spike 完成、目标文件/依赖闭包和执行方式明确后，13B/13C/13D 分别评审；不得因 WP-13 总体已登记而一次性视为全部批准。
 - 暂缓项联动：本工作包不改变网络读取早停、并发批量、RIR DNS 候选排序、健康/回退决策或权威判定（见 5.6 / 11.6）。
 
-#### 12.2.8 WP-13A 首个实施切片（2026-08-29）
+#### 12.2.8 WP-13A 与 WP-13B-1 实施记录（2026-08-29 至 2026-08-30）
 
 - 新增专用双语契约 `docs/RFC-proxy-access.md`，冻结默认直连、显式代理优先级、每 hop current host/port、HTTP CONNECT 数值目标、SOCKS5/5h DNS 所有权、代理失败与 RIR 健康/权威隔离、单调 deadline、缓存默认禁用、日志脱敏、凭据来源及 `--proxy-family` 边界，不提前改变生产网络行为。
 - 新增标准库 loopback fake proxy `tools/test/proxy_protocol_spike.py`，不依赖公网、不修改产品代码；覆盖 9 项 HTTP CONNECT/SOCKS5 协议案例和 12 项代理来源、凭据、family 配置案例。
@@ -666,7 +666,11 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - 新增 `tools/test/proxy_tls_dependency_spike.sh`，用于每个远程编译器验证 OpenSSL 客户端、peer verification、SNI、hostname verification API 与全静态链接；当前本机未配置 OpenSSL 工具链，不制造本地 PASS。WP-13D 继续保持 blocked，须取得七个 POSIX 目标加 win32/win64 的真实报告。
 - 专用 RFC 现已冻结 `--proxy-family=auto|v4|v6`（默认 `auto`，仅控制代理端点）与 13B 凭据来源：首选成对非空 `WHOIS_PROXY_USER`/`WHOIS_PROXY_PASSWORD`；CLI URL 禁止 userinfo；仅环境来源 URL 允许成对 userinfo；专用变量与 URL userinfo 混用时 fail-fast。凭据文件、交互提示与 OS keychain 延后评审。
 - 协议探针新增 12 项纯配置矩阵，覆盖默认直连、CLI/专用/通用环境优先级、通用环境显式 opt-in、专用和环境 URL 凭据、CLI userinfo/残缺或歧义凭据拒绝、代理 IPv6 family、字面量 family 冲突及 socks5h 目标 family 控制冲突；写报告前强制检查测试密码不落盘。扩展后 `21/21 PASS`，机器报告为 `out/artifacts/proxy_protocol_spike/20260829-032916/report.json`。
-- WP-13B-1 首对 Vx A/B 已完成编制期验收：A 为 `testdata/autopilot_code_step_tasks_20270624_20270630.json`（target set `7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`），B 为 `testdata/autopilot_code_step_tasks_20270701_20270707.json`（target set `1d22100e1bb2b1966509b93d5cbc3bacc383cd9833ef72a42c547e35e946a667`）。SyntaxOnly、D1-D4、A 全定义、B→A prerequisite 链、三项 Vx 安全回归、effective payload hash、九架构 `lto-auto` build/smoke/hash、Golden/referral、Step47 preflight 5/5 与 table guard 均 PASS；权威双语 Checklist A/B 见 `docs/RFC-proxy-access.md` 第 10 节。当前状态为“准备完成，待启动授权”，尚未启动、提交或推送；远程 TLS 依赖矩阵继续独立阻断 13D，不阻断 13B。
+- WP-13B-1 首对 Vx A/B 已完成：A 为 `testdata/autopilot_code_step_tasks_20270624_20270630.json`（target set `7918987e6f12e6cde433c258b93b30e3218819e48e2292a5693c096eecf94b08`），B 为 `testdata/autopilot_code_step_tasks_20270701_20270707.json`（target set `1d22100e1bb2b1966509b93d5cbc3bacc383cd9833ef72a42c547e35e946a667`）。A/B 均一次通过 8/8 轮，SESSION=PASS，无 incident、自愈或重启；运行目录分别为 `out/artifacts/dev_verify_multiround/20260829-130015` 与 `out/artifacts/dev_verify_multiround/20260829-181508`，合计用时 `0d 10:38:54`。运行后九架构 Strict build/smoke/hash、Golden 与 referral 复验 PASS，证据目录为 `out/artifacts/20260830-001936`；权威双语回填见 `docs/RFC-proxy-access.md` 第 10 节。相关变更已于 2026-08-30 提交并推送至 `origin/master`（`e1a6fa6f`）。远程 TLS 依赖矩阵继续独立阻断 13D，不阻断 13B。
+- 完成后复核未发现当前直连路径、fd 所有权、close reason 或构建集成的高严重度回归，但最初确认 bare transport 仍是固定 `int *fd` 的薄封装。复核跟进已将其收敛为实际使用的可注入 ops/context：`read/write/wait/close` 均经 adapter 分派，裸 socket 为默认实现，`wc_transport_send_all_until`/`wc_transport_wait_until` 使用共享绝对单调 deadline；lookup 现有高层 API、response idle-timeout、signal 与 close reason 语义保持不变。
+- 新增 `tools/test/transport_contract_test.ps1` 确定性覆盖 adapter 分派、partial write、read、wait deadline、timeout、close 与无效 transport；现有 selftest 增加 policy 默认 health-off、非法 endpoint family、数值地址 family 冲突及 DNS-health hook 隔离。2026-08-30 复核后九架构 `lto-auto` build/smoke/selftest、9/9 hash、Golden 与三起点 referral 全部 PASS（275s，`out/artifacts/20260830-010926`），未同步 release 目录。
+- DNS-health 隔离通过可观测自测计数器直接证明：`record_dns_health=0` 不调用目标 health hook，`record_dns_health=1` 对照路径会调用。x86_64、win64、win32 smoke/selftest 与 local hash 均 PASS（143s，`out/artifacts/20260830-012006`）。至此 WP-13B-2 前置 transport/policy 门禁闭环，可进入配置/CLI/env、HTTP CONNECT 与每 hop bypass 的 Vx 任务定义编制；九架构 Strict、Golden/referral 和 Step47 仍是实施后的完整验收门禁。
+- 代码与测试文件调整后的最终同步产物轮（2026-08-30）再次通过 Strict Version `lto-auto` 九架构 build、默认 smoke、Local hash、Golden、三起点 referral 与双目录同步，零编译/LTO 告警（241s，`out/artifacts/20260830-014939`）。九个归档二进制独立 SHA-256 复算全匹配，仓库 release 清单与归档逐字一致；默认 smoke 输出契约稳定，IANA/ARIN/AFRINIC 起点均零失败收敛 AFRINIC。本轮未传 `--selftest`，不替代 `010926`/`012006` 的专项证据；审计无需代码修复，WP-13B-2 前置门禁状态保持通过。
 
 ### 12.3 发布顺序提醒
 

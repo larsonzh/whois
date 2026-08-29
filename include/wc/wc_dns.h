@@ -186,6 +186,9 @@ void wc_dns_apply_debug_batch_penalties_once(const Config* config);
 // Record the outcome of a connect attempt for (host,family).
 // 'success' should be non-zero on successful connect.
 void wc_dns_health_note_result(const Config* config, const char* host, int family, int success);
+void wc_dns_health_note_count_reset_for_test(void);
+unsigned long wc_dns_health_note_count_for_test(void);
+void wc_dns_health_note_count_disable_for_test(void);
 
 // Query current health state for (host,family). Returns
 // WC_DNS_HEALTH_OK when the entry is considered healthy or

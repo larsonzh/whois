@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h> // free
+#include <errno.h>
 #include "wc/wc_selftest.h"
 #include "lookup_exec_terminal_retry.h"
 #include "wc/wc_preclass.h"
@@ -21,6 +22,7 @@
 #include "wc/wc_title.h"
 #include "wc/wc_pick.h"
 #include "wc/wc_stats.h"
+#include "wc/wc_util.h"
 #include "lookup_internal.h"
 #include "lookup_exec_redirect.h"
 #include "lookup_exec_next.h"
@@ -211,6 +213,72 @@ static int selftest_dns_family_controls(void) {
     }
     wc_dns_candidate_list_free(&list);
     return failed_local;
+}
+
+static int selftest_net_dial_policy(void)
+{
+    wc_net_context_config_t context_config;
+    wc_net_context_t context;
+    wc_net_dial_policy_t policy;
+    struct wc_net_info info;
+    int failed = 0;
+
+    wc_net_context_config_init(&context_config);
+    if (wc_net_context_init(&context, &context_config) != 0) {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-context: FAIL\n");
+        return 1;
+    }
+
+    wc_net_dial_policy_init(&policy);
+    if (policy.family != WC_NET_ENDPOINT_FAMILY_AUTO || policy.record_dns_health != 0) {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-defaults: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-defaults: PASS\n");
+    }
+
+    policy.family = (wc_net_endpoint_family_t)99;
+    if (wc_net_dial_endpoint(&context, "127.0.0.1", 43, 100, 1, &policy, &info) != WC_ERR_INVALID ||
+        info.last_errno != EINVAL) {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-invalid-family: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-invalid-family: PASS\n");
+    }
+
+    wc_net_dial_policy_init(&policy);
+    policy.family = WC_NET_ENDPOINT_FAMILY_IPV6;
+    if (wc_net_dial_endpoint(&context, "127.0.0.1", 43, 100, 1, &policy, &info) != WC_ERR_INVALID ||
+        info.last_errno != EAFNOSUPPORT) {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-family-conflict: FAIL\n");
+        failed = 1;
+    } else {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-family-conflict: PASS\n");
+    }
+
+    wc_net_dial_policy_init(&policy);
+    policy.family = WC_NET_ENDPOINT_FAMILY_IPV4;
+    wc_dns_health_note_count_reset_for_test();
+    (void)wc_net_dial_endpoint(&context, "127.0.0.1", 0, 100, 1, &policy, &info);
+    if (info.fd >= 0) wc_safe_close(&info.fd, "selftest_net_dial_policy", 0);
+    if (wc_dns_health_note_count_for_test() != 0) {
+        fprintf(stderr, "[SELFTEST] net-dial-policy-health-isolation: FAIL (health-off)\n");
+        failed = 1;
+    } else {
+        policy.record_dns_health = 1;
+        (void)wc_net_dial_endpoint(&context, "127.0.0.1", 0, 100, 1, &policy, &info);
+        if (info.fd >= 0) wc_safe_close(&info.fd, "selftest_net_dial_policy", 0);
+        if (wc_dns_health_note_count_for_test() == 0) {
+            fprintf(stderr, "[SELFTEST] net-dial-policy-health-isolation: FAIL (health-on)\n");
+            failed = 1;
+        } else {
+            fprintf(stderr, "[SELFTEST] net-dial-policy-health-isolation: PASS\n");
+        }
+    }
+    wc_dns_health_note_count_disable_for_test();
+
+    wc_net_context_shutdown(&context);
+    return failed;
 }
 
 static int selftest_injection_view_fallback(void) {
@@ -1200,6 +1268,7 @@ int wc_selftest_run(void) {
     selftest_dns_candidate_limit();
     selftest_dns_negative_flag();
     failed |= selftest_dns_family_controls();
+    failed |= selftest_net_dial_policy();
     failed |= selftest_dns_fallback_toggles();
     failed |= selftest_injection_view_fallback();
 

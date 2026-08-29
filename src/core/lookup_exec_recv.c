@@ -7,17 +7,7 @@
 #include <stdio.h>
 
 #include "wc/wc_config.h"
-#ifndef __has_include
-#define __has_include(x) 0
-#endif
-#if __has_include("wc/wc_transport.h")
 #include "wc/wc_transport.h"
-#else
-typedef struct wc_transport { int* fd; } wc_transport_t;
-void wc_transport_init(wc_transport_t* transport, int* fd);
-int wc_transport_recv_until_idle(wc_transport_t* transport, char** out, size_t* out_len, int timeout_ms, int max_bytes);
-void wc_transport_close(wc_transport_t* transport, const char* reason, int debug_enabled);
-#endif
 #include "wc/wc_net.h"
 #include "wc/wc_util.h"
 #include "wc/wc_signal.h"

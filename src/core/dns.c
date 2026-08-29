@@ -711,9 +711,29 @@ char* wc_dns_rir_fallback_from_ip(const Config* config, const char* ip_literal) 
     return out;
 }
 
+static unsigned long g_dns_health_note_count = 0;
+static int g_dns_health_note_count_enabled = 0;
+
+void wc_dns_health_note_count_reset_for_test(void) {
+    g_dns_health_note_count = 0;
+    g_dns_health_note_count_enabled = 1;
+}
+
+unsigned long wc_dns_health_note_count_for_test(void) {
+    return g_dns_health_note_count;
+}
+
+void wc_dns_health_note_count_disable_for_test(void) {
+    g_dns_health_note_count_enabled = 0;
+    g_dns_health_note_count = 0;
+}
+
 void wc_dns_health_note_result(const Config* config, const char* host, int family, int success) {
     if (!host || !*host) return;
     if (family != AF_INET && family != AF_INET6) return;
+
+    if (g_dns_health_note_count_enabled)
+        g_dns_health_note_count++;
 
     const Config* cfg = wc_dns_config_or_zero(config);
     if (!cfg)
