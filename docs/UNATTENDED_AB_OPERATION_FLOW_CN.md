@@ -631,6 +631,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 - Vx 模板中的 `preclass_source/preclass_header/query_exec` 是结构示例，不是固定注册表。编制时应替换为本任务目标并删除所有未使用条目、operation、marker 和 assertion；禁止为“以后可能用到”保留无实际计划的 target，尤其是未使用的 `lifecycle=create` 目标。
 - `defaultTarget`：指向主要目标 id。`targetFile` 作为兼容投影时必须与该条目的 `file` 一致，不得把它当成第二套目标来源。
 - `lifecycle=create`：只用于计划内新文件，且必须由恰好一个 `create-file` operation 首次引入；父目录必须已存在。不得因磁盘文件缺失而临时把 `existing` 改成 `create`。
+- `create-file` 创建轮隔离：在同一任务定义中，创建轮的 `create-file` 必须是该 target 在该轮的唯一 operation；不得在同轮后续 operation 中对该 target 再做 `regex-patch`。整轮 replay 会校验该 target 的最终内容仍与 `create-file.contentSha256` 完全一致，同轮继续修改会导致 create replay 失败。需要增量修改时，最早放到下一 D 轮，并确保创建轮写入的文件可独立通过当轮语法/编译门禁；若已在 D4 创建或无需分阶段，则直接把最终完整内容写入 `create-file.content`。跨任务 prerequisite 已创建的文件，在后续任务中按其当时真实基线声明和修改，不得重复 `create-file`。
 - `qualityPolicy.operationSafetyPolicy`：新任务固定为 `enforce`，不得为绕过检查改成 `warn` 或 `off`。
 - `qualityPolicy.notes`：说明本任务的安全边界或特殊 no-op 约束，不用于替代轮次验收条件。
 - `executionHints`：只描述执行密度和策略，不定义业务语义。`minOperationsPerDRound` 应服从真实改动量，禁止为了达到数字而拆分原子改动或增加无调用 helper。
@@ -644,6 +645,7 @@ Vx 单文件任务是 Vx 注册表只有一个目标的正常形态。仍应为 
 
 - `description` 写清“改什么、为什么、保持什么不变”，不要只写“refactor”或“cleanup”。
 - 同一轮中的 `operations` 按依赖顺序排列；op2 可以依赖 op1 的 replacement，checker 和执行器都会使用顺序内存文本。
+- 上述同轮依赖不适用于继续修改本轮刚由 `create-file` 引入的同一 target；新文件的后续 patch 必须跨到下一 D 轮。创建轮仍可在 `create-file` 之后修改其他已存在 target，例如补 include 或声明引用，但当轮结束时整个 effective target map 必须可独立编译。
 - helper 的定义、所需 prototype、真实调用点替换和旧形态清理应放在同轮，或者确保前一轮结束时源码已经可独立编译。不得把“新增未调用 helper”留给不确定的后续轮补齐。
 - 不同业务 token 不得因文本相似而合并。例如 action、reason、class、confidence 各自属于不同语义域，replacement 必须逐 token 保持原行为。
 - 一项不可分割的变更尽量由一个 op 完成。尤其是“删除旧 prototype + 在首次 caller 前插入唯一 prototype”应作为原子归一化操作。

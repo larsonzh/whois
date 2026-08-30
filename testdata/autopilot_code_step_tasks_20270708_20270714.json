@@ -1,0 +1,216 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13b2-a-proxy-config-cli-env-preflight-a-slice-20270708-20270714",
+  "targetFile": "src/core/opts.c",
+  "targetFiles": [
+    { "id": "config_header", "file": "include/wc/wc_config.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_header", "file": "include/wc/wc_opts.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_source", "file": "src/core/opts.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "client_meta_source", "file": "src/core/client_meta.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "client_runner_source", "file": "src/core/client_runner.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "meta_source", "file": "src/core/meta.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "selftest_source", "file": "src/core/selftest.c", "kind": "c-source", "lifecycle": "existing" }
+  ],
+  "defaultTarget": "opts_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare the 13B-2 A proxy preflight contract; HTTP CONNECT and per-hop NO_PROXY routing remain in the later B prerequisite task.",
+      "idempotentContainsByTarget": {
+        "config_header": ["WC_PROXY_SOURCE_CLI = 1", "13B-2 A preflight state; routing remains disabled"],
+        "opts_header": ["typedef struct wc_proxy_env_s", "--proxy authority-only URL", "resolved A-stage preflight state", "int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out);"]
+      },
+      "operations": [
+        {
+          "target": "config_header",
+          "pattern": "typedef struct Config Config;\n\nstruct Config \\{",
+          "replacement": "typedef struct Config Config;\n\ntypedef enum wc_proxy_scheme {\n    WC_PROXY_SCHEME_DIRECT = 0,\n    WC_PROXY_SCHEME_HTTP = 1,\n    WC_PROXY_SCHEME_SOCKS5 = 2,\n    WC_PROXY_SCHEME_SOCKS5H = 3\n} wc_proxy_scheme_t;\n\ntypedef enum wc_proxy_family {\n    WC_PROXY_FAMILY_AUTO = 0,\n    WC_PROXY_FAMILY_V4 = 4,\n    WC_PROXY_FAMILY_V6 = 6\n} wc_proxy_family_t;\n\ntypedef enum wc_proxy_source {\n    WC_PROXY_SOURCE_NONE = 0,\n    WC_PROXY_SOURCE_CLI = 1,\n    WC_PROXY_SOURCE_WHOIS_PROXY = 2,\n    WC_PROXY_SOURCE_ALL_PROXY = 3,\n    WC_PROXY_SOURCE_ALL_PROXY_LOWER = 4\n} wc_proxy_source_t;\n\ntypedef struct wc_proxy_config {\n    int configured;\n    int routing_enabled;\n    int proxy_env_enabled;\n    int allow_insecure_auth;\n    int has_credentials;\n    wc_proxy_scheme_t scheme;\n    wc_proxy_family_t family;\n    wc_proxy_source_t source;\n    int endpoint_port;\n    char endpoint_host[256];\n    char username[128];\n    char password[128];\n} wc_proxy_config_t;\n\nstruct Config {",
+          "idempotentContains": ["WC_PROXY_SOURCE_CLI = 1"]
+        },
+        {
+          "target": "config_header",
+          "pattern": "\tconst char\\* batch_strategy;    // batch accelerator/strategy selection\n};",
+          "replacement": "\tconst char* batch_strategy;    // batch accelerator/strategy selection\n\twc_proxy_config_t proxy;       // 13B-2 A preflight state; routing remains disabled\n};",
+          "idempotentContains": ["13B-2 A preflight state; routing remains disabled"]
+        },
+        {
+          "target": "opts_header",
+          "pattern": "#include \"wc/wc_dns_family_mode.h\"\n\ntypedef struct wc_opts_s \\{",
+          "replacement": "#include \"wc/wc_dns_family_mode.h\"\n#include \"wc/wc_config.h\"\n\ntypedef struct wc_proxy_env_s {\n    const char* whois_proxy;\n    const char* all_proxy;\n    const char* all_proxy_lower;\n    const char* whois_proxy_user;\n    const char* whois_proxy_password;\n} wc_proxy_env_t;\n\ntypedef struct wc_opts_s {",
+          "idempotentContains": ["typedef struct wc_proxy_env_s"]
+        },
+        {
+          "target": "opts_header",
+          "pattern": "    int hide_failure_body;         // --hide-failure-body \\(filter rate-limit/denied body lines\\)\n    int debug;                   // -D enable debug prints",
+          "replacement": "    int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)\n    const char* proxy_url;         // --proxy authority-only URL\n    int proxy_env;                 // --proxy-env enables ALL_PROXY/all_proxy fallback\n    const char* proxy_family;      // --proxy-family auto|v4|v6\n    int proxy_allow_insecure_auth; // explicit cleartext HTTP credential gate\n    int debug;                   // -D enable debug prints",
+          "idempotentContains": ["--proxy authority-only URL"]
+        },
+        {
+          "target": "opts_header",
+          "pattern": "    int dns_no_fallback;         // --dns-no-fallback: disable extra DNS fallback paths \\(forced IPv4 / known IPv4\\)\n} wc_opts_t;",
+          "replacement": "    int dns_no_fallback;         // --dns-no-fallback: disable extra DNS fallback paths (forced IPv4 / known IPv4)\n\n    wc_proxy_config_t proxy;       // resolved A-stage preflight state\n} wc_opts_t;",
+          "idempotentContains": ["resolved A-stage preflight state"]
+        },
+        {
+          "target": "opts_header",
+          "pattern": "// Parse CLI options, populate opts and adjust global modules \\(title/grep/fold/seclog\\)\\.\n// Returns 0 on success, non-zero on error \\(usage already printed\\)\\.\nint wc_opts_parse\\(int argc, char\\* argv\\[\\], wc_opts_t\\* opts\\);",
+          "replacement": "// Resolve proxy configuration from explicit CLI state and a deterministic env view.\n// Returns non-zero on success. A-stage always leaves routing_enabled cleared.\nint wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out);\n\n// Volatile-clear all proxy state, including fixed credential buffers.\nvoid wc_opts_proxy_clear(wc_proxy_config_t* proxy);\n\n// Parse production CLI state and apply option-owned modules.\n// A non-zero result is a stable usage/configuration failure.\nint wc_opts_parse(int argc, char* argv[], wc_opts_t* opts);",
+          "idempotentContains": ["int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out);"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d1-proxy-config-one", "target": "config_header", "pattern": "typedef struct wc_proxy_config", "expectedCount": 1 },
+        { "name": "d1-no-raw-url", "target": "config_header", "pattern": "raw_url", "expectedCount": 0 },
+        { "name": "d1-configured-routing-split", "target": "config_header", "pattern": "int configured;\\n    int routing_enabled;", "expectedCount": 1 },
+        { "name": "d1-fixed-secret-buffers", "target": "config_header", "pattern": "char username\\[128\\];\\n    char password\\[128\\];", "expectedCount": 1 },
+        { "name": "d1-env-view-one", "target": "opts_header", "pattern": "typedef struct wc_proxy_env_s", "expectedCount": 1 },
+        { "name": "d1-public-resolver-one", "target": "opts_header", "pattern": "int wc_opts_proxy_resolve\\(", "expectedCount": 1 },
+        { "name": "d1-public-clear-one", "target": "opts_header", "pattern": "void wc_opts_proxy_clear\\(", "expectedCount": 1 }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement the deterministic 13B-2 A resolver and production env adapter; configured proxies fail closed because HTTP CONNECT and per-hop NO_PROXY routing belong to the later B prerequisite task.",
+      "idempotentContainsByTarget": {
+        "opts_source": ["13B-2 A proxy literal validation", "int wc_opts_proxy_resolve", "case 1331: o->proxy_allow_insecure_auth = 1; break;", "Proxy configured, but this build contains only 13B-2 A preflight", "wc_opts_proxy_clear(&o->proxy);"]
+      },
+      "operations": [
+        {
+          "target": "opts_source",
+          "pattern": "#include \"wc/wc_strings.h\"\n\n#if defined\\(_WIN32\\) \\|\\| defined\\(__MINGW32__\\)",
+          "replacement": "#include \"wc/wc_strings.h\"\n#include \"wc/wc_dns.h\" /* 13B-2 A proxy literal validation */\n\n#if defined(_WIN32) || defined(__MINGW32__)",
+          "idempotentContains": ["13B-2 A proxy literal validation"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    {\"cache-counter-sampling\", no_argument, 0, 1217},\n    {\"batch-strategy\", required_argument, 0, 1300},",
+          "replacement": "    {\"cache-counter-sampling\", no_argument, 0, 1217},\n    {\"proxy\", required_argument, 0, 1328},\n    {\"proxy-env\", no_argument, 0, 1329},\n    {\"proxy-family\", required_argument, 0, 1330},\n    {\"proxy-allow-insecure-auth\", no_argument, 0, 1331},\n    {\"batch-strategy\", required_argument, 0, 1300},",
+          "idempotentContains": ["proxy-allow-insecure-auth"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "// Local helpers ----------------------------------------------------------------\nstatic size_t parse_size_with_unit_local\\(const char\\* str\\) \\{",
+          "replacement": "// Local helpers ----------------------------------------------------------------\nvoid wc_opts_proxy_clear(wc_proxy_config_t* proxy)\n{\n    volatile unsigned char* cursor;\n    size_t index;\n    if (!proxy) return;\n    cursor = (volatile unsigned char*)proxy;\n    for (index = 0; index < sizeof(*proxy); ++index) cursor[index] = 0;\n}\n\nstatic int wc_opts_proxy_copy(char* dst, size_t capacity, const char* src)\n{\n    size_t length;\n    if (!dst || capacity == 0 || !src) return 0;\n    length = strlen(src);\n    if (length >= capacity) return 0;\n    memcpy(dst, src, length + 1);\n    return 1;\n}\n\nstatic int wc_opts_proxy_hex(unsigned char value)\n{\n    if (value >= '0' && value <= '9') return value - '0';\n    if (value >= 'a' && value <= 'f') return value - 'a' + 10;\n    if (value >= 'A' && value <= 'F') return value - 'A' + 10;\n    return -1;\n}\n\nstatic int wc_opts_proxy_percent_well_formed(const char* text)\n{\n    const unsigned char* cursor = (const unsigned char*)text;\n    if (!cursor) return 0;\n    while (*cursor) {\n        if (*cursor == '%') {\n            if (!cursor[1] || !cursor[2] || wc_opts_proxy_hex(cursor[1]) < 0 ||\n                wc_opts_proxy_hex(cursor[2]) < 0) return 0;\n            cursor += 3;\n        } else {\n            ++cursor;\n        }\n    }\n    return 1;\n}\n\nstatic int wc_opts_proxy_decode(char* dst, size_t capacity, const char* src)\n{\n    size_t used = 0;\n    const unsigned char* cursor = (const unsigned char*)src;\n    if (!dst || capacity == 0 || !cursor) return 0;\n    while (*cursor) {\n        unsigned char value = *cursor++;\n        if (value == '%') {\n            int high = wc_opts_proxy_hex(cursor[0]);\n            int low = wc_opts_proxy_hex(cursor[1]);\n            if (high < 0 || low < 0) return 0;\n            value = (unsigned char)((high << 4) | low);\n            cursor += 2;\n        }\n        if (value == 0 || value < 0x20 || value == 0x7f || used + 1 >= capacity) return 0;\n        dst[used++] = (char)value;\n    }\n    dst[used] = '\\0';\n    return used != 0;\n}\n\nstatic int wc_opts_proxy_has_rir_override(const wc_opts_t* opts)\n{\n    return opts->rir_pref_iana != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_arin != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_ripe != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_apnic != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_lacnic != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_afrinic != WC_RIR_IP_PREF_UNSET ||\n        opts->rir_pref_verisign != WC_RIR_IP_PREF_UNSET;\n}\n\nint wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out)\n{\n    const char* url = NULL;\n    const char* authority;\n    const char* scheme_end;\n    const char* at;\n    const char* host_begin;\n    const char* port_text = NULL;\n    const char* dedicated_user = env ? env->whois_proxy_user : NULL;\n    const char* dedicated_password = env ? env->whois_proxy_password : NULL;\n    char authority_buffer[512];\n    char userinfo[257];\n    char host[256];\n    char* colon;\n    char* port_end = NULL;\n    size_t authority_length;\n    long port = 0;\n    int from_cli = 0;\n    int literal;\n\n    if (!opts || !out) return 0;\n    wc_opts_proxy_clear(out);\n    out->scheme = WC_PROXY_SCHEME_DIRECT;\n    out->family = WC_PROXY_FAMILY_AUTO;\n    out->source = WC_PROXY_SOURCE_NONE;\n    out->proxy_env_enabled = opts->proxy_env ? 1 : 0;\n    out->allow_insecure_auth = opts->proxy_allow_insecure_auth ? 1 : 0;\n\n    if ((dedicated_user == NULL) != (dedicated_password == NULL) ||\n        (dedicated_user && (!*dedicated_user || !*dedicated_password))) {\n        fprintf(stderr, \"Error: WHOIS_PROXY_USER and WHOIS_PROXY_PASSWORD must both be non-empty\\n\");\n        goto fail;\n    }\n\n    if (opts->proxy_url) {\n        if (!*opts->proxy_url) { fprintf(stderr, \"Error: --proxy requires a non-empty URL\\n\"); goto fail; }\n        url = opts->proxy_url;\n        out->source = WC_PROXY_SOURCE_CLI;\n        from_cli = 1;\n    } else if (env && env->whois_proxy && *env->whois_proxy) {\n        url = env->whois_proxy;\n        out->source = WC_PROXY_SOURCE_WHOIS_PROXY;\n    } else if (opts->proxy_env && env && env->all_proxy && *env->all_proxy) {\n        url = env->all_proxy;\n        out->source = WC_PROXY_SOURCE_ALL_PROXY;\n    } else if (opts->proxy_env && env && env->all_proxy_lower && *env->all_proxy_lower) {\n        url = env->all_proxy_lower;\n        out->source = WC_PROXY_SOURCE_ALL_PROXY_LOWER;\n    }\n    if (!url) return 1;\n    out->configured = 1;\n    out->routing_enabled = 0;\n\n    if (!wc_opts_proxy_percent_well_formed(url)) { fprintf(stderr, \"Error: malformed percent escape in proxy URL\\n\"); goto fail; }\n    if (strchr(url, '?') || strchr(url, '#')) { fprintf(stderr, \"Error: proxy URL query/fragment is not allowed\\n\"); goto fail; }\n    scheme_end = strstr(url, \"://\");\n    if (!scheme_end || scheme_end == url) { fprintf(stderr, \"Error: proxy URL must be absolute\\n\"); goto fail; }\n    if ((size_t)(scheme_end - url) == 4 && strncasecmp(url, \"http\", 4) == 0) {\n        out->scheme = WC_PROXY_SCHEME_HTTP;\n        port = 8080;\n    } else if ((size_t)(scheme_end - url) == 6 && strncasecmp(url, \"socks5\", 6) == 0) {\n        out->scheme = WC_PROXY_SCHEME_SOCKS5;\n        port = 1080;\n    } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, \"socks5h\", 7) == 0) {\n        out->scheme = WC_PROXY_SCHEME_SOCKS5H;\n        port = 1080;\n    } else {\n        fprintf(stderr, \"Error: unsupported proxy scheme\\n\");\n        goto fail;\n    }\n\n    authority = scheme_end + 3;\n    if (!*authority || strchr(authority, '/')) { fprintf(stderr, \"Error: proxy URL must contain authority only\\n\"); goto fail; }\n    authority_length = strlen(authority);\n    if (authority_length >= sizeof(authority_buffer)) { fprintf(stderr, \"Error: proxy authority is too long\\n\"); goto fail; }\n    memcpy(authority_buffer, authority, authority_length + 1);\n    at = strchr(authority_buffer, '@');\n    if (at && strchr(at + 1, '@')) { fprintf(stderr, \"Error: proxy URL contains multiple userinfo separators\\n\"); goto fail; }\n    host_begin = authority_buffer;\n    if (at) {\n        size_t userinfo_length = (size_t)(at - authority_buffer);\n        if (from_cli) { fprintf(stderr, \"Error: CLI proxy URL userinfo is forbidden\\n\"); goto fail; }\n        if (dedicated_user) { fprintf(stderr, \"Error: proxy URL userinfo conflicts with dedicated credentials\\n\"); goto fail; }\n        if (userinfo_length == 0 || userinfo_length >= sizeof(userinfo)) { fprintf(stderr, \"Error: invalid proxy URL userinfo\\n\"); goto fail; }\n        memcpy(userinfo, authority_buffer, userinfo_length);\n        userinfo[userinfo_length] = '\\0';\n        colon = strchr(userinfo, ':');\n        if (!colon) { fprintf(stderr, \"Error: proxy URL userinfo requires user and password\\n\"); goto fail; }\n        *colon++ = '\\0';\n        if (!wc_opts_proxy_decode(out->username, sizeof(out->username), userinfo) ||\n            !wc_opts_proxy_decode(out->password, sizeof(out->password), colon)) {\n            fprintf(stderr, \"Error: proxy URL userinfo must decode to non-empty credentials\\n\");\n            goto fail;\n        }\n        out->has_credentials = 1;\n        host_begin = at + 1;\n    }\n\n    if (*host_begin == '[') {\n        const char* close = strchr(host_begin + 1, ']');\n        size_t host_length;\n        if (!close || close == host_begin + 1) { fprintf(stderr, \"Error: invalid bracketed proxy IPv6 literal\\n\"); goto fail; }\n        host_length = (size_t)(close - host_begin - 1);\n        if (host_length >= sizeof(host)) { fprintf(stderr, \"Error: proxy host is too long\\n\"); goto fail; }\n        memcpy(host, host_begin + 1, host_length);\n        host[host_length] = '\\0';\n        if (close[1] == ':') port_text = close + 2;\n        else if (close[1] != '\\0') { fprintf(stderr, \"Error: invalid proxy authority suffix\\n\"); goto fail; }\n        if (!wc_dns_is_ip_literal(host) || !strchr(host, ':')) { fprintf(stderr, \"Error: brackets require an IPv6 literal\\n\"); goto fail; }\n    } else {\n        const char* first_colon = strchr(host_begin, ':');\n        const char* last_colon = strrchr(host_begin, ':');\n        size_t host_length;\n        if (first_colon && first_colon != last_colon) { fprintf(stderr, \"Error: IPv6 proxy literals must use brackets\\n\"); goto fail; }\n        if (last_colon) {\n            host_length = (size_t)(last_colon - host_begin);\n            port_text = last_colon + 1;\n        } else {\n            host_length = strlen(host_begin);\n        }\n        if (host_length == 0 || host_length >= sizeof(host)) { fprintf(stderr, \"Error: invalid proxy host\\n\"); goto fail; }\n        memcpy(host, host_begin, host_length);\n        host[host_length] = '\\0';\n    }\n    if (strchr(host, '%') || strpbrk(host, \" \\t\\r\\n\")) { fprintf(stderr, \"Error: invalid proxy host\\n\"); goto fail; }\n    if (port_text) {\n        const unsigned char* digit = (const unsigned char*)port_text;\n        if (!*digit) { fprintf(stderr, \"Error: proxy port is empty\\n\"); goto fail; }\n        while (*digit) { if (!isdigit(*digit++)) { fprintf(stderr, \"Error: proxy port must be numeric\\n\"); goto fail; } }\n        port = strtol(port_text, &port_end, 10);\n        if (!port_end || *port_end || port < 1 || port > 65535) { fprintf(stderr, \"Error: proxy port is out of range\\n\"); goto fail; }\n    }\n    if (!wc_opts_proxy_copy(out->endpoint_host, sizeof(out->endpoint_host), host)) { fprintf(stderr, \"Error: proxy host is too long\\n\"); goto fail; }\n    out->endpoint_port = (int)port;\n\n    if (!opts->proxy_family || !*opts->proxy_family || strcasecmp(opts->proxy_family, \"auto\") == 0) out->family = WC_PROXY_FAMILY_AUTO;\n    else if (strcasecmp(opts->proxy_family, \"v4\") == 0) out->family = WC_PROXY_FAMILY_V4;\n    else if (strcasecmp(opts->proxy_family, \"v6\") == 0) out->family = WC_PROXY_FAMILY_V6;\n    else { fprintf(stderr, \"Error: invalid --proxy-family (expected auto|v4|v6)\\n\"); goto fail; }\n    literal = wc_dns_is_ip_literal(host);\n    if (literal && ((out->family == WC_PROXY_FAMILY_V4 && strchr(host, ':')) ||\n        (out->family == WC_PROXY_FAMILY_V6 && !strchr(host, ':')))) {\n        fprintf(stderr, \"Error: proxy-family conflicts with numeric proxy endpoint\\n\");\n        goto fail;\n    }\n\n    if (dedicated_user) {\n        if (!wc_opts_proxy_copy(out->username, sizeof(out->username), dedicated_user) ||\n            !wc_opts_proxy_copy(out->password, sizeof(out->password), dedicated_password)) {\n            fprintf(stderr, \"Error: dedicated proxy credentials are too long\\n\");\n            goto fail;\n        }\n        out->has_credentials = 1;\n    }\n    if (out->scheme == WC_PROXY_SCHEME_HTTP && out->has_credentials && !out->allow_insecure_auth) {\n        fprintf(stderr, \"Error: cleartext HTTP proxy credentials require --proxy-allow-insecure-auth\\n\");\n        goto fail;\n    }\n    if (out->scheme == WC_PROXY_SCHEME_SOCKS5H &&\n        (opts->ipv4_only || opts->ipv6_only || opts->dns_family_mode_set ||\n         opts->dns_family_mode_first_set || opts->dns_family_mode_next_set ||\n         opts->no_dns_known_fallback || opts->no_dns_force_ipv4_fallback ||\n         opts->no_iana_pivot || opts->dns_no_fallback || wc_opts_proxy_has_rir_override(opts))) {\n        fprintf(stderr, \"Error: socks5h conflicts with target-family, fallback, or RIR override controls\\n\");\n        goto fail;\n    }\n    return 1;\n\nfail:\n    wc_opts_proxy_clear(out);\n    return 0;\n}\n\nstatic size_t parse_size_with_unit_local(const char* str) {",
+          "idempotentContains": ["int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out)"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    o->hide_failure_body = 0;\n}",
+          "replacement": "    o->hide_failure_body = 0;\n    o->proxy_url = NULL;\n    o->proxy_env = 0;\n    o->proxy_family = \"auto\";\n    o->proxy_allow_insecure_auth = 0;\n}",
+          "idempotentContains": ["o->proxy_family = \"auto\";"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "            case 1327: o->stats = 1; break;\n            case 1325: \\{",
+          "replacement": "            case 1327: o->stats = 1; break;\n            case 1328: o->proxy_url = optarg; break;\n            case 1329: o->proxy_env = 1; break;\n            case 1330: o->proxy_family = optarg; break;\n            case 1331: o->proxy_allow_insecure_auth = 1; break;\n            case 1325: {",
+          "idempotentContains": ["case 1331: o->proxy_allow_insecure_auth = 1; break;"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    }\n\n    // Allow -P/--plain placed after the query \\(common when users append flags\\).",
+          "replacement": "    }\n\n    {\n        wc_proxy_env_t proxy_env = {\n            getenv(\"WHOIS_PROXY\"),\n            getenv(\"ALL_PROXY\"),\n            getenv(\"all_proxy\"),\n            getenv(\"WHOIS_PROXY_USER\"),\n            getenv(\"WHOIS_PROXY_PASSWORD\")\n        };\n        if (!wc_opts_proxy_resolve(o, &proxy_env, &o->proxy)) return 37;\n        if (o->proxy.configured) {\n            wc_opts_proxy_clear(&o->proxy);\n            fprintf(stderr, \"Error: Proxy configured, but this build contains only 13B-2 A preflight; HTTP CONNECT and per-hop NO_PROXY routing require the B prerequisite build\\n\");\n            return 37;\n        }\n    }\n\n    // Preserve late -P/--plain handling for options appended after the query.",
+          "idempotentContains": ["Proxy configured, but this build contains only 13B-2 A preflight"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "void wc_opts_free\\(wc_opts_t\\* o\\) \\{\n    if \\(!o\\) return;\n    if \\(o->fold_sep\\) \\{ free\\(\\(char\\*\\)o->fold_sep\\); o->fold_sep = NULL; \\}\n    free\\(o->pick_keys\\); o->pick_keys = NULL;\n}",
+          "replacement": "void wc_opts_free(wc_opts_t* o) {\n    if (!o) return;\n    if (o->fold_sep) { free((char*)o->fold_sep); o->fold_sep = NULL; }\n    free(o->pick_keys); o->pick_keys = NULL;\n    wc_opts_proxy_clear(&o->proxy);\n}",
+          "idempotentContains": ["free(o->pick_keys); o->pick_keys = NULL;\n    wc_opts_proxy_clear(&o->proxy);"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d2-dns-include-one", "target": "opts_source", "pattern": "13B-2 A proxy literal validation", "expectedCount": 1 },
+        { "name": "d2-resolver-definition-one", "target": "opts_source", "pattern": "int wc_opts_proxy_resolve\\(", "expectedCount": 1 },
+        { "name": "d2-no-http-proxy-read", "target": "opts_source", "pattern": "getenv\\(\"HTTPS?_PROXY\"\\)", "expectedCount": 0 },
+        { "name": "d2-production-env-adapter-one", "target": "opts_source", "pattern": "wc_proxy_env_t proxy_env =", "expectedCount": 1 },
+        { "name": "d2-production-resolve-call-one", "target": "opts_source", "pattern": "wc_opts_proxy_resolve\\(o, &proxy_env, &o->proxy\\)", "expectedCount": 1 },
+        { "name": "d2-a-routing-never-enabled", "target": "opts_source", "pattern": "routing_enabled = 1", "expectedCount": 0 },
+        { "name": "d2-fail-closed-message-one", "target": "opts_source", "pattern": "HTTP CONNECT and per-hop NO_PROXY routing require the B prerequisite build", "expectedCount": 1 },
+        { "name": "d2-clear-definition-one", "target": "opts_source", "pattern": "void wc_opts_proxy_clear\\(", "expectedCount": 1 },
+        { "name": "d2-free-clear-one", "target": "opts_source", "pattern": "free\\(o->pick_keys\\); o->pick_keys = NULL;\\n    wc_opts_proxy_clear\\(&o->proxy\\);", "expectedCount": 1 }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Map the resolved 13B-2 A preflight state, initialize every new field, and document supported precedence without claiming that A routes proxy traffic.",
+      "idempotentContainsByTarget": {
+        "client_meta_source": ["13B-2 A preflight mapping"],
+        "client_runner_source": [".configured = 0,", ".source = WC_PROXY_SOURCE_NONE,"],
+        "meta_source": ["--proxy URL           Validate proxy configuration (13B-2 A preflight only)", "HTTP_PROXY/HTTPS_PROXY are never read", "configured proxy fails closed until the B routing prerequisite is present"]
+      },
+      "operations": [
+        {
+          "target": "client_meta_source",
+          "pattern": "\tcfg->batch_strategy = opts->batch_strategy;\n\tcfg->fold_output = opts->fold;",
+          "replacement": "\tcfg->batch_strategy = opts->batch_strategy;\n\tcfg->proxy = opts->proxy;       // 13B-2 A preflight mapping\n\tcfg->fold_output = opts->fold;",
+          "idempotentContains": ["13B-2 A preflight mapping"]
+        },
+        {
+          "target": "client_runner_source",
+          "pattern": "    \\.batch_strategy = NULL,\n};",
+          "replacement": "    .batch_strategy = NULL,\n    .proxy = {\n        .configured = 0,\n        .routing_enabled = 0,\n        .proxy_env_enabled = 0,\n        .allow_insecure_auth = 0,\n        .has_credentials = 0,\n        .scheme = WC_PROXY_SCHEME_DIRECT,\n        .family = WC_PROXY_FAMILY_AUTO,\n        .source = WC_PROXY_SOURCE_NONE,\n        .endpoint_port = 0,\n        .endpoint_host = \"\",\n        .username = \"\",\n        .password = \"\"\n    },\n};",
+          "idempotentContains": [".source = WC_PROXY_SOURCE_NONE,"]
+        },
+        {
+          "target": "meta_source",
+          "pattern": "    printf\\(\"  -h, --host HOST           Start from specific whois server \\(name\\|domain\\|ip\\)\\\\n\"\\);\n    printf\\(\"  -p, --port PORT           Whois server port \\(default: %d\\)\\\\n\", default_port\\);",
+          "replacement": "    printf(\"  -h, --host HOST           Start from specific whois server (name|domain|ip)\\n\");\n    printf(\"      --proxy URL           Validate proxy configuration (13B-2 A preflight only)\\n\");\n    printf(\"      --proxy-env           Opt in to ALL_PROXY/all_proxy fallback\\n\");\n    printf(\"      --proxy-family MODE   Proxy endpoint family auto|v4|v6 (default: auto)\\n\");\n    printf(\"      --proxy-allow-insecure-auth  Permit credentials on cleartext HTTP proxy URLs\\n\");\n    printf(\"  -p, --port PORT           Whois server port (default: %d)\\n\", default_port);",
+          "idempotentContains": ["--proxy URL           Validate proxy configuration (13B-2 A preflight only)"]
+        },
+        {
+          "target": "meta_source",
+          "pattern": "    print_usage_section\\(&k_conditional_output_section\\);\n    print_usage_section\\(&k_diagnostics_section\\);",
+          "replacement": "    print_usage_section(&k_conditional_output_section);\n    printf(\"Proxy configuration preflight (13B-2 A):\\n\");\n    printf(\"      Priority: --proxy > WHOIS_PROXY > (--proxy-env only) ALL_PROXY > all_proxy > direct\\n\");\n    printf(\"      HTTP_PROXY/HTTPS_PROXY are never read; HTTP CONNECT and per-hop NO_PROXY belong to B\\n\");\n    printf(\"      A validates configuration only; a configured proxy fails closed until the B routing prerequisite is present\\n\\n\");\n    print_usage_section(&k_diagnostics_section);",
+          "idempotentContains": ["configured proxy fails closed until the B routing prerequisite is present"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d3-map-config-one", "target": "client_meta_source", "pattern": "cfg->proxy = opts->proxy;", "expectedCount": 1 },
+        { "name": "d3-config-default-one", "target": "client_runner_source", "pattern": "\\.configured = 0,", "expectedCount": 1 },
+        { "name": "d3-routing-default-one", "target": "client_runner_source", "pattern": "\\.routing_enabled = 0,", "expectedCount": 1 },
+        { "name": "d3-usage-option-one", "target": "meta_source", "pattern": "--proxy URL           Validate proxy configuration", "expectedCount": 1 },
+        { "name": "d3-usage-priority-one", "target": "meta_source", "pattern": "Priority: --proxy > WHOIS_PROXY", "expectedCount": 1 },
+        { "name": "d3-usage-http-env-one", "target": "meta_source", "pattern": "HTTP_PROXY/HTTPS_PROXY are never read", "expectedCount": 1 },
+        { "name": "d3-no-routing-claim", "target": "meta_source", "pattern": "proxy connection is established", "expectedCount": 0 }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Add an env-independent matrix over the public resolver for precedence, URL grammar, credentials, family controls, socks5h restrictions, and volatile zeroization without printing secrets.",
+      "idempotentContainsByTarget": {
+        "selftest_source": ["selftest_proxy_preflight_matrix", "http-proxy-api-absence", "proxy-clear-zeroization", "failed |= selftest_proxy_preflight_matrix();"]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "    wc_net_context_shutdown\\(&context\\);\n    return failed;\n}\n\nstatic int selftest_injection_view_fallback\\(void\\) \\{",
+          "replacement": "    wc_net_context_shutdown(&context);\n    return failed;\n}\n\nstatic int selftest_proxy_expect(const char* name, int condition)\n{\n    fprintf(stderr, \"[SELFTEST] proxy-preflight-%s: %s\\n\", name, condition ? \"PASS\" : \"FAIL\");\n    return condition ? 0 : 1;\n}\n\nstatic int selftest_proxy_preflight_matrix(void)\n{\n    wc_opts_t opts;\n    wc_proxy_env_t env;\n    wc_proxy_config_t proxy;\n    int failed_local = 0;\n    size_t index;\n    const unsigned char* bytes;\n\n    memset(&env, 0, sizeof(env));\n    wc_opts_init_defaults(&opts);\n    failed_local |= selftest_proxy_expect(\"default-direct\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured && !proxy.routing_enabled);\n\n    env.whois_proxy = \"socks5://env.example:9000\";\n    opts.proxy_url = \"http://cli.example:8081\";\n    failed_local |= selftest_proxy_expect(\"cli-precedence\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_CLI &&\n        proxy.scheme == WC_PROXY_SCHEME_HTTP && strcmp(proxy.endpoint_host, \"cli.example\") == 0);\n    opts.proxy_url = NULL;\n    failed_local |= selftest_proxy_expect(\"whois-proxy\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_WHOIS_PROXY);\n\n    env.whois_proxy = NULL;\n    env.all_proxy = \"socks5://upper.example\";\n    env.all_proxy_lower = \"socks5://lower.example\";\n    failed_local |= selftest_proxy_expect(\"all-proxy-ignored\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured);\n    opts.proxy_env = 1;\n    failed_local |= selftest_proxy_expect(\"all-proxy-opt-in\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_ALL_PROXY);\n    env.all_proxy = NULL;\n    failed_local |= selftest_proxy_expect(\"all-proxy-lower\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_ALL_PROXY_LOWER);\n    memset(&env, 0, sizeof(env));\n    opts.proxy_env = 0;\n    failed_local |= selftest_proxy_expect(\"http-proxy-api-absence\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured);\n\n    opts.proxy_url = \"http://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"http-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 8080);\n    opts.proxy_url = \"socks5://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"socks-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080);\n    opts.proxy_url = \"socks5://[2001:db8::1]:1081\";\n    failed_local |= selftest_proxy_expect(\"ipv6-bracket\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && strcmp(proxy.endpoint_host, \"2001:db8::1\") == 0 && proxy.endpoint_port == 1081);\n    opts.proxy_url = \"socks5://2001:db8::1\";\n    failed_local |= selftest_proxy_expect(\"ipv6-unbracketed\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"socks5://proxy.example:0\";\n    failed_local |= selftest_proxy_expect(\"port-range\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n\n    opts.proxy_url = \"ftp://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"unknown-scheme\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"http://proxy.example/path\";\n    failed_local |= selftest_proxy_expect(\"path-rejected\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"http://proxy.example?q=1\";\n    failed_local |= selftest_proxy_expect(\"query-rejected\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"http://proxy.example#frag\";\n    failed_local |= selftest_proxy_expect(\"fragment-rejected\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"http://proxy.example/%GG\";\n    failed_local |= selftest_proxy_expect(\"malformed-percent\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_url = \"http://user:pass@proxy.example\";\n    failed_local |= selftest_proxy_expect(\"cli-userinfo\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n\n    opts.proxy_url = NULL;\n    env.whois_proxy = \"socks5://u%73er:p%61ss@proxy.example\";\n    failed_local |= selftest_proxy_expect(\"env-userinfo-decode\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.has_credentials &&\n        strcmp(proxy.username, \"user\") == 0 && strcmp(proxy.password, \"pass\") == 0);\n    env.whois_proxy = \"socks5://proxy.example\";\n    env.whois_proxy_user = \"dedicated-user\";\n    env.whois_proxy_password = \"dedicated-password\";\n    failed_local |= selftest_proxy_expect(\"dedicated-pair\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.has_credentials);\n    env.whois_proxy_password = NULL;\n    failed_local |= selftest_proxy_expect(\"dedicated-missing\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    env.whois_proxy_password = \"\";\n    failed_local |= selftest_proxy_expect(\"dedicated-empty\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    env.whois_proxy = \"socks5://url-user:url-pass@proxy.example\";\n    env.whois_proxy_password = \"dedicated-password\";\n    failed_local |= selftest_proxy_expect(\"credential-conflict\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n\n    env.whois_proxy = \"http://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"cleartext-auth-gate\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_allow_insecure_auth = 1;\n    failed_local |= selftest_proxy_expect(\"cleartext-auth-explicit\", wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_allow_insecure_auth = 0;\n    env.whois_proxy_user = NULL;\n    env.whois_proxy_password = NULL;\n\n    opts.proxy_url = \"socks5://127.0.0.1\";\n    opts.proxy_family = \"v6\";\n    failed_local |= selftest_proxy_expect(\"family-literal-conflict\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_family = \"auto\";\n    opts.proxy_url = \"socks5h://proxy.example\";\n    opts.ipv4_only = 1;\n    failed_local |= selftest_proxy_expect(\"socks5h-target-family\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.ipv4_only = 0;\n    opts.no_dns_known_fallback = 1;\n    failed_local |= selftest_proxy_expect(\"socks5h-fallback\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.no_dns_known_fallback = 0;\n    opts.rir_pref_arin = WC_RIR_IP_PREF_V4;\n    failed_local |= selftest_proxy_expect(\"socks5h-rir-override\", !wc_opts_proxy_resolve(&opts, &env, &proxy));\n\n    memset(&proxy, 0x5a, sizeof(proxy));\n    wc_opts_proxy_clear(&proxy);\n    bytes = (const unsigned char*)&proxy;\n    for (index = 0; index < sizeof(proxy) && bytes[index] == 0; ++index) { }\n    failed_local |= selftest_proxy_expect(\"proxy-clear-zeroization\", index == sizeof(proxy));\n    wc_opts_free(&opts);\n    return failed_local;\n}\n\nstatic int selftest_injection_view_fallback(void) {",
+          "idempotentContains": ["static int selftest_proxy_preflight_matrix(void)"]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    failed \\|= selftest_dns_fallback_toggles\\(\\);\n    failed \\|= selftest_injection_view_fallback\\(\\);",
+          "replacement": "    failed |= selftest_dns_fallback_toggles();\n    failed |= selftest_proxy_preflight_matrix();\n    failed |= selftest_injection_view_fallback();",
+          "idempotentContains": ["failed |= selftest_proxy_preflight_matrix();"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d4-matrix-definition-one", "target": "selftest_source", "pattern": "static int selftest_proxy_preflight_matrix\\(void\\)", "expectedCount": 1 },
+        { "name": "d4-matrix-hook-one", "target": "selftest_source", "pattern": "failed \\|= selftest_proxy_preflight_matrix\\(\\);", "expectedCount": 1 },
+        { "name": "d4-direct-case-one", "target": "selftest_source", "pattern": "default-direct", "expectedCount": 1 },
+        { "name": "d4-http-api-absence-one", "target": "selftest_source", "pattern": "http-proxy-api-absence", "expectedCount": 1 },
+        { "name": "d4-credential-conflict-one", "target": "selftest_source", "pattern": "credential-conflict", "expectedCount": 1 },
+        { "name": "d4-socks5h-controls-three", "target": "selftest_source", "pattern": "socks5h-(target-family|fallback|rir-override)", "expectedCount": 3 },
+        { "name": "d4-zeroization-one", "target": "selftest_source", "pattern": "proxy-clear-zeroization", "expectedCount": 1 },
+        { "name": "d4-no-secret-output", "target": "selftest_source", "pattern": "fprintf\\([^;]*(dedicated-password|url-pass|p%61ss)", "expectedCount": 0 }
+      ]
+    }
+  }
+}

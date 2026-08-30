@@ -1,0 +1,461 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13b2-b-http-connect-no-proxy-20270715-20270721",
+  "targetFile": "src/core/proxy.c",
+  "targetFiles": [
+    { "id": "config_header", "file": "include/wc/wc_config.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_header", "file": "include/wc/wc_opts.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_source", "file": "src/core/opts.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "client_meta_source", "file": "src/core/client_meta.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "client_runner_source", "file": "src/core/client_runner.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "meta_source", "file": "src/core/meta.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "selftest_source", "file": "src/core/selftest.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "net_header", "file": "include/wc/wc_net.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "net_source", "file": "src/core/net.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "proxy_header", "file": "include/wc/wc_proxy.h", "kind": "c-header", "lifecycle": "create" },
+    { "id": "proxy_source", "file": "src/core/proxy.c", "kind": "c-source", "lifecycle": "create" },
+    { "id": "lookup_header", "file": "include/wc/wc_lookup.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "lookup_connect", "file": "src/core/lookup_exec_connect.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "lookup_empty", "file": "src/core/lookup_exec_empty.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "lookup_loop", "file": "src/core/lookup_exec_loop.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "client_flow", "file": "src/core/client_flow.c", "kind": "c-source", "lifecycle": "existing" }
+  ],
+  "defaultTarget": "proxy_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Extend the frozen A-stage configuration with copied NO_PROXY state and create the public proxy and absolute-deadline contracts before any implementation or caller wiring.",
+      "idempotentContainsByTarget": {
+        "config_header": ["char no_proxy[1024];"],
+        "opts_header": ["const char* no_proxy_lower;"],
+        "net_header": ["uint64_t wc_net_deadline_after(int timeout_ms);\nint wc_net_dial_endpoint_until(wc_net_context_t* ctx,"],
+        "proxy_header": ["int wc_proxy_dial_hop("]
+      },
+      "operations": [
+        {
+          "target": "config_header",
+          "pattern": "    char password\\[128\\];\n} wc_proxy_config_t;",
+          "replacement": "    char password[128];\n    char no_proxy[1024];       // copied NO_PROXY/no_proxy value for per-hop matching\n} wc_proxy_config_t;",
+          "idempotentContains": ["char no_proxy[1024];       // copied NO_PROXY/no_proxy value for per-hop matching"]
+        },
+        {
+          "target": "opts_header",
+          "pattern": "    const char\\* whois_proxy_password;\n} wc_proxy_env_t;",
+          "replacement": "    const char* whois_proxy_password;\n    const char* no_proxy;\n    const char* no_proxy_lower;\n} wc_proxy_env_t;",
+          "idempotentContains": ["const char* no_proxy_lower;"]
+        },
+        {
+          "target": "net_header",
+          "pattern": "void wc_net_dial_policy_init\\(wc_net_dial_policy_t\\* policy\\);\nint wc_net_dial_endpoint\\(",
+          "replacement": "void wc_net_dial_policy_init(wc_net_dial_policy_t* policy);\nuint64_t wc_net_deadline_after(int timeout_ms);\nint wc_net_dial_endpoint_until(wc_net_context_t* ctx,\n                               const char* host,\n                               uint16_t port,\n                               uint64_t deadline_ms,\n                               int retries,\n                               const wc_net_dial_policy_t* policy,\n                               struct wc_net_info* out);\nint wc_net_dial_endpoint(",
+          "idempotentContains": ["uint64_t wc_net_deadline_after(int timeout_ms);\nint wc_net_dial_endpoint_until(wc_net_context_t* ctx,"]
+        },
+        {
+          "type": "create-file",
+          "target": "proxy_header",
+          "content": "#ifndef WC_PROXY_H\n#define WC_PROXY_H\n\n#include <stdint.h>\n\n#include \"wc_config.h\"\n#include \"wc_net.h\"\n#include \"wc_transport.h\"\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\ntypedef enum wc_proxy_result {\n    WC_PROXY_RESULT_SUCCEEDED = 0,\n    WC_PROXY_RESULT_TCP_FAILURE,\n    WC_PROXY_RESULT_TIMEOUT,\n    WC_PROXY_RESULT_AUTH_REQUIRED,\n    WC_PROXY_RESULT_REJECTED,\n    WC_PROXY_RESULT_UPSTREAM_FAILURE,\n    WC_PROXY_RESULT_PROTOCOL_FAILURE,\n    WC_PROXY_RESULT_UNSUPPORTED\n} wc_proxy_result_t;\n\nint wc_proxy_should_proxy(const Config* config,\n                          const char* target_host,\n                          const char* target_address,\n                          int target_port);\nint wc_proxy_http_connect_transport(wc_transport_t* transport,\n                                    const wc_proxy_config_t* proxy,\n                                    const char* target_address,\n                                    uint16_t target_port,\n                                    uint64_t deadline_ms,\n                                    int* status_code);\nint wc_proxy_dial_hop(const Config* config,\n                      wc_net_context_t* net_ctx,\n                      const char* target_host,\n                      const char* target_address,\n                      uint16_t target_port,\n                      int timeout_ms,\n                      int retries,\n                      struct wc_net_info* out,\n                      int* used_proxy,\n                      wc_proxy_result_t* proxy_result);\nconst char* wc_proxy_result_name(wc_proxy_result_t result);\nint wc_proxy_selftest(void);\n\n#ifdef __cplusplus\n}\n#endif\n\n#endif // WC_PROXY_H\n",
+          "contentSha256": "40bc43d8a0699bed09fc76ace9aeb0703072c4381ca3d1b581c99ebfe315e9b1",
+          "existingPolicy": "skip",
+          "idempotentContains": ["#define WC_PROXY_H"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d1-config-no-proxy-buffer-one", "target": "config_header", "pattern": "char no_proxy\\[1024\\];", "expectedCount": 1 },
+        { "name": "d1-env-no-proxy-fields-two", "target": "opts_header", "pattern": "const char\\* no_proxy(?:_lower)?;", "expectedCount": 2 },
+        { "name": "d1-deadline-api-declared-one", "target": "net_header", "pattern": "int wc_net_dial_endpoint_until\\(", "expectedCount": 1 },
+        { "name": "d1-proxy-dial-declaration-one", "target": "proxy_header", "pattern": "int wc_proxy_dial_hop\\(", "expectedCount": 1 },
+        { "name": "d1-http-transport-declaration-one", "target": "proxy_header", "pattern": "int wc_proxy_http_connect_transport\\(", "expectedCount": 1 }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Enable only HTTP routing after A validation, copy generic NO_PROXY state under --proxy-env, and create the bounded CONNECT parser with Basic-auth buffer zeroization and deterministic fake-transport tests.",
+      "idempotentContainsByTarget": {
+        "opts_source": ["out->routing_enabled = (out->scheme == WC_PROXY_SCHEME_HTTP);", "getenv(\"no_proxy\")"],
+        "client_runner_source": [".no_proxy = \"\""],
+        "proxy_source": ["// proxy.c - HTTP CONNECT and per-hop NO_PROXY routing", "int wc_proxy_selftest(void)"]
+      },
+      "operations": [
+        {
+          "target": "opts_source",
+          "pattern": "    const char\\* dedicated_password = env \\? env->whois_proxy_password : NULL;\n    char authority_buffer",
+          "replacement": "    const char* dedicated_password = env ? env->whois_proxy_password : NULL;\n    const char* no_proxy_value = NULL;\n    char authority_buffer",
+          "idempotentContains": ["const char* no_proxy_value = NULL;"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    if \\(!url\\) return 1;\n    out->configured = 1;\n    out->routing_enabled = 0;\n\n    if \\(!wc_opts_proxy_percent_well_formed\\(url\\)\\)",
+          "replacement": "    if (!url) return 1;\n    out->configured = 1;\n    out->routing_enabled = 0;\n    if (opts->proxy_env && env) {\n        no_proxy_value = (env->no_proxy && *env->no_proxy) ? env->no_proxy : env->no_proxy_lower;\n        if (no_proxy_value && *no_proxy_value &&\n            !wc_opts_proxy_copy(out->no_proxy, sizeof(out->no_proxy), no_proxy_value)) {\n            fprintf(stderr, \"Error: NO_PROXY value is too long\\n\");\n            goto fail;\n        }\n    }\n\n    if (!wc_opts_proxy_percent_well_formed(url))",
+          "idempotentContains": ["fprintf(stderr, \"Error: NO_PROXY value is too long\\n\");"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    if \\(out->scheme == WC_PROXY_SCHEME_SOCKS5H &&\n        \\(opts->ipv4_only \\|\\| opts->ipv6_only \\|\\| opts->dns_family_mode_set \\|\\|\n         opts->dns_family_mode_first_set \\|\\| opts->dns_family_mode_next_set \\|\\|\n         opts->no_dns_known_fallback \\|\\| opts->no_dns_force_ipv4_fallback \\|\\|\n         opts->no_iana_pivot \\|\\| opts->dns_no_fallback \\|\\| wc_opts_proxy_has_rir_override\\(opts\\)\\)\\) \\{\n        fprintf\\(stderr, \"Error: socks5h conflicts with target-family, fallback, or RIR override controls\\\\n\"\\);\n        goto fail;\n    \\}\n    return 1;",
+          "replacement": "    if (out->scheme == WC_PROXY_SCHEME_SOCKS5H &&\n        (opts->ipv4_only || opts->ipv6_only || opts->dns_family_mode_set ||\n         opts->dns_family_mode_first_set || opts->dns_family_mode_next_set ||\n         opts->no_dns_known_fallback || opts->no_dns_force_ipv4_fallback ||\n         opts->no_iana_pivot || opts->dns_no_fallback || wc_opts_proxy_has_rir_override(opts))) {\n        fprintf(stderr, \"Error: socks5h conflicts with target-family, fallback, or RIR override controls\\n\");\n        goto fail;\n    }\n    out->routing_enabled = (out->scheme == WC_PROXY_SCHEME_HTTP);\n    return 1;",
+          "idempotentContains": ["out->routing_enabled = (out->scheme == WC_PROXY_SCHEME_HTTP);"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "            getenv\\(\"WHOIS_PROXY_USER\"\\),\n            getenv\\(\"WHOIS_PROXY_PASSWORD\"\\)\n        \\};\n        if \\(!wc_opts_proxy_resolve\\(o, &proxy_env, &o->proxy\\)\\) return 37;\n        if \\(o->proxy.configured\\) \\{\n            wc_opts_proxy_clear\\(&o->proxy\\);\n            fprintf\\(stderr, \"Error: Proxy configured, but this build contains only 13B-2 A preflight; HTTP CONNECT and per-hop NO_PROXY routing require the B prerequisite build\\\\n\"\\);\n            return 37;\n        \\}",
+          "replacement": "            getenv(\"WHOIS_PROXY_USER\"),\n            getenv(\"WHOIS_PROXY_PASSWORD\"),\n            getenv(\"NO_PROXY\"),\n            getenv(\"no_proxy\")\n        };\n        if (!wc_opts_proxy_resolve(o, &proxy_env, &o->proxy)) return 37;\n        if (o->proxy.configured && !o->proxy.routing_enabled) {\n            wc_opts_proxy_clear(&o->proxy);\n            fprintf(stderr, \"Error: Configured proxy scheme is not available in the HTTP CONNECT build\\n\");\n            return 37;\n        }",
+          "idempotentContains": ["getenv(\"no_proxy\")"]
+        },
+        {
+          "target": "client_runner_source",
+          "pattern": "        \\.password = \"\"\n    \\},",
+          "replacement": "        .password = \"\",\n        .no_proxy = \"\"\n    },",
+          "idempotentContains": [".no_proxy = \"\""]
+        },
+        {
+          "type": "create-file",
+          "target": "proxy_source",
+          "content": "// SPDX-License-Identifier: MIT\n// proxy.c - HTTP CONNECT and per-hop NO_PROXY routing\n\n#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n\n#include \"wc/wc_proxy.h\"\n\n#include <ctype.h>\n#include <errno.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\n#include \"wc/wc_strings.h\"\n#include \"wc/wc_util.h\"\n\n#define WC_PROXY_RESPONSE_LIMIT 8192\n\nstatic void wc_proxy_secure_clear(void* value, size_t length)\n{\n    volatile unsigned char* cursor = (volatile unsigned char*)value;\n    while (cursor && length-- > 0) *cursor++ = 0;\n}\n\nstatic int wc_proxy_parse_port(const char* text, int* port)\n{\n    long value = 0;\n    const unsigned char* cursor = (const unsigned char*)text;\n    if (!cursor || !*cursor || !port) return 0;\n    while (*cursor) {\n        if (!isdigit(*cursor)) return 0;\n        value = value * 10 + (*cursor++ - '0');\n        if (value > 65535) return 0;\n    }\n    if (value < 1) return 0;\n    *port = (int)value;\n    return 1;\n}\n\nstatic int wc_proxy_host_equal(const char* left, const char* right)\n{\n    return left && right && strcasecmp(left, right) == 0;\n}\n\nstatic int wc_proxy_suffix_match(const char* host, const char* suffix)\n{\n    size_t host_length;\n    size_t suffix_length;\n    if (!host || !suffix || suffix[0] != '.') return 0;\n    host_length = strlen(host);\n    suffix_length = strlen(suffix);\n    if (host_length + 1 == suffix_length) return strcasecmp(host, suffix + 1) == 0;\n    return host_length >= suffix_length &&\n        strcasecmp(host + host_length - suffix_length, suffix) == 0;\n}\n\nstatic int wc_proxy_token_matches(const char* begin, size_t length,\n                                  const char* target, int target_port)\n{\n    char token[320];\n    char* host = token;\n    char* end;\n    char* port_text = NULL;\n    int token_port = 0;\n    size_t colon_count = 0;\n    if (!target || !*target || length == 0 || length >= sizeof(token)) return 0;\n    memcpy(token, begin, length);\n    token[length] = '\\0';\n    while (*host && isspace((unsigned char)*host)) ++host;\n    end = host + strlen(host);\n    while (end > host && isspace((unsigned char)end[-1])) *--end = '\\0';\n    if (!*host || strchr(host, '/') || (strchr(host, '*') && strcmp(host, \"*\") != 0)) return 0;\n    if (strcmp(host, \"*\") == 0) return 1;\n    if (*host == '[') {\n        char* close = strchr(host + 1, ']');\n        if (!close) return 0;\n        *close = '\\0';\n        host++;\n        if (close[1] == ':') port_text = close + 2;\n        else if (close[1] != '\\0') return 0;\n    } else {\n        char* cursor;\n        for (cursor = host; *cursor; ++cursor) if (*cursor == ':') colon_count++;\n        if (colon_count == 1) {\n            port_text = strrchr(host, ':');\n            *port_text++ = '\\0';\n        }\n    }\n    if (port_text && (!wc_proxy_parse_port(port_text, &token_port) || token_port != target_port)) return 0;\n    return host[0] == '.' ? wc_proxy_suffix_match(target, host) : wc_proxy_host_equal(target, host);\n}\n\nstatic int wc_proxy_list_matches(const char* list, const char* target, int target_port)\n{\n    const char* cursor = list;\n    if (!cursor || !*cursor) return 0;\n    while (*cursor) {\n        const char* comma = strchr(cursor, ',');\n        size_t length = comma ? (size_t)(comma - cursor) : strlen(cursor);\n        if (wc_proxy_token_matches(cursor, length, target, target_port)) return 1;\n        if (!comma) break;\n        cursor = comma + 1;\n    }\n    return 0;\n}\n\nint wc_proxy_should_proxy(const Config* config,\n                          const char* target_host,\n                          const char* target_address,\n                          int target_port)\n{\n    if (!config || !config->proxy.configured || !config->proxy.routing_enabled) return 0;\n    if (wc_proxy_list_matches(config->proxy.no_proxy, target_host, target_port)) return 0;\n    if (target_address && (!target_host || strcasecmp(target_address, target_host) != 0) &&\n        wc_proxy_list_matches(config->proxy.no_proxy, target_address, target_port)) return 0;\n    return 1;\n}\n\nstatic size_t wc_proxy_base64(char* output, size_t capacity, const unsigned char* input, size_t length)\n{\n    static const char alphabet[] = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";\n    size_t in_index = 0;\n    size_t out_index = 0;\n    if (!output || !input || capacity < ((length + 2) / 3) * 4 + 1) return 0;\n    while (in_index < length) {\n        unsigned int value = (unsigned int)input[in_index++] << 16;\n        int remaining = (int)(length - in_index);\n        if (remaining >= 0 && in_index < length) value |= (unsigned int)input[in_index++] << 8;\n        if (in_index < length) value |= input[in_index++];\n        output[out_index++] = alphabet[(value >> 18) & 63];\n        output[out_index++] = alphabet[(value >> 12) & 63];\n        output[out_index++] = remaining >= 0 ? alphabet[(value >> 6) & 63] : '=';\n        output[out_index++] = remaining > 0 ? alphabet[value & 63] : '=';\n    }\n    output[out_index] = '\\0';\n    return out_index;\n}\n\nstatic wc_proxy_result_t wc_proxy_http_classify(int status)\n{\n    if (status >= 200 && status <= 299) return WC_PROXY_RESULT_SUCCEEDED;\n    if (status == 407) return WC_PROXY_RESULT_AUTH_REQUIRED;\n    if (status >= 400 && status <= 499) return WC_PROXY_RESULT_REJECTED;\n    if (status >= 500 && status <= 599) return WC_PROXY_RESULT_UPSTREAM_FAILURE;\n    return WC_PROXY_RESULT_PROTOCOL_FAILURE;\n}\n\nint wc_proxy_http_connect_transport(wc_transport_t* transport,\n                                    const wc_proxy_config_t* proxy,\n                                    const char* target_address,\n                                    uint16_t target_port,\n                                    uint64_t deadline_ms,\n                                    int* status_code)\n{\n    char authority[320];\n    char credential[260];\n    char encoded[352];\n    char request[1024];\n    char response[WC_PROXY_RESPONSE_LIMIT + 1];\n    size_t response_used = 0;\n    int request_length;\n    int status = 0;\n    int result = WC_PROXY_RESULT_PROTOCOL_FAILURE;\n    if (status_code) *status_code = 0;\n    if (!transport || !proxy || !target_address || !*target_address || target_port == 0) return WC_PROXY_RESULT_PROTOCOL_FAILURE;\n    if (strchr(target_address, ':')) request_length = snprintf(authority, sizeof(authority), \"[%s]:%u\", target_address, (unsigned)target_port);\n    else request_length = snprintf(authority, sizeof(authority), \"%s:%u\", target_address, (unsigned)target_port);\n    if (request_length < 0 || (size_t)request_length >= sizeof(authority)) return WC_PROXY_RESULT_PROTOCOL_FAILURE;\n    encoded[0] = '\\0';\n    credential[0] = '\\0';\n    if (proxy->has_credentials) {\n        request_length = snprintf(credential, sizeof(credential), \"%s:%s\", proxy->username, proxy->password);\n        if (request_length < 0 || (size_t)request_length >= sizeof(credential) ||\n            wc_proxy_base64(encoded, sizeof(encoded), (const unsigned char*)credential, (size_t)request_length) == 0) goto cleanup;\n        request_length = snprintf(request, sizeof(request),\n            \"CONNECT %s HTTP/1.1\\r\\nHost: %s\\r\\nProxy-Connection: keep-alive\\r\\nProxy-Authorization: Basic %s\\r\\n\\r\\n\",\n            authority, authority, encoded);\n    } else {\n        request_length = snprintf(request, sizeof(request),\n            \"CONNECT %s HTTP/1.1\\r\\nHost: %s\\r\\nProxy-Connection: keep-alive\\r\\n\\r\\n\", authority, authority);\n    }\n    if (request_length < 0 || (size_t)request_length >= sizeof(request)) goto cleanup;\n    if (wc_transport_send_all_until(transport, request, (size_t)request_length, deadline_ms) < 0) {\n        result = WC_PROXY_RESULT_TIMEOUT;\n        goto cleanup;\n    }\n    wc_proxy_secure_clear(credential, sizeof(credential));\n    wc_proxy_secure_clear(encoded, sizeof(encoded));\n    wc_proxy_secure_clear(request, sizeof(request));\n    while (response_used < WC_PROXY_RESPONSE_LIMIT) {\n        int ready = wc_transport_wait_until(transport, WC_TRANSPORT_WAIT_READ, deadline_ms);\n        int received;\n        if (ready <= 0) { result = WC_PROXY_RESULT_TIMEOUT; goto cleanup; }\n        received = wc_transport_read(transport, response + response_used, WC_PROXY_RESPONSE_LIMIT - response_used);\n        if (received < 0 && errno == EINTR) continue;\n        if (received <= 0) goto cleanup;\n        response_used += (size_t)received;\n        response[response_used] = '\\0';\n        if (strstr(response, \"\\r\\n\\r\\n\")) break;\n    }\n    if (response_used == WC_PROXY_RESPONSE_LIMIT || strncmp(response, \"HTTP/\", 5) != 0) goto cleanup;\n    {\n        const char* space = strchr(response, ' ');\n        if (!space || !isdigit((unsigned char)space[1]) || !isdigit((unsigned char)space[2]) ||\n            !isdigit((unsigned char)space[3])) goto cleanup;\n        status = (space[1] - '0') * 100 + (space[2] - '0') * 10 + (space[3] - '0');\n    }\n    if (status_code) *status_code = status;\n    result = wc_proxy_http_classify(status);\ncleanup:\n    wc_proxy_secure_clear(credential, sizeof(credential));\n    wc_proxy_secure_clear(encoded, sizeof(encoded));\n    wc_proxy_secure_clear(request, sizeof(request));\n    wc_proxy_secure_clear(response, sizeof(response));\n    return result;\n}\n\nconst char* wc_proxy_result_name(wc_proxy_result_t result)\n{\n    switch (result) {\n        case WC_PROXY_RESULT_SUCCEEDED: return \"succeeded\";\n        case WC_PROXY_RESULT_TCP_FAILURE: return \"proxy-tcp-failure\";\n        case WC_PROXY_RESULT_TIMEOUT: return \"proxy-timeout\";\n        case WC_PROXY_RESULT_AUTH_REQUIRED: return \"proxy-auth-required\";\n        case WC_PROXY_RESULT_REJECTED: return \"proxy-rejected\";\n        case WC_PROXY_RESULT_UPSTREAM_FAILURE: return \"proxy-upstream-failure\";\n        case WC_PROXY_RESULT_UNSUPPORTED: return \"proxy-unsupported\";\n        default: return \"proxy-protocol-failure\";\n    }\n}\n\nint wc_proxy_dial_hop(const Config* config,\n                      wc_net_context_t* net_ctx,\n                      const char* target_host,\n                      const char* target_address,\n                      uint16_t target_port,\n                      int timeout_ms,\n                      int retries,\n                      struct wc_net_info* out,\n                      int* used_proxy,\n                      wc_proxy_result_t* proxy_result)\n{\n    wc_net_dial_policy_t policy;\n    struct wc_net_info endpoint;\n    wc_transport_t transport;\n    uint64_t deadline_ms;\n    int status = 0;\n    wc_proxy_result_t result;\n    if (used_proxy) *used_proxy = 0;\n    if (proxy_result) *proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n    if (!config || !target_address || !out) return WC_ERR_INVALID;\n    if (!wc_proxy_should_proxy(config, target_host, target_address, (int)target_port))\n        return wc_dial_43(net_ctx, target_address, target_port, timeout_ms, retries, out);\n    if (used_proxy) *used_proxy = 1;\n    if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP) {\n        if (proxy_result) *proxy_result = WC_PROXY_RESULT_UNSUPPORTED;\n        return WC_ERR_INVALID;\n    }\n    deadline_ms = wc_net_deadline_after(timeout_ms);\n    wc_net_dial_policy_init(&policy);\n    if (config->proxy.family == WC_PROXY_FAMILY_V4) policy.family = WC_NET_ENDPOINT_FAMILY_IPV4;\n    else if (config->proxy.family == WC_PROXY_FAMILY_V6) policy.family = WC_NET_ENDPOINT_FAMILY_IPV6;\n    policy.record_dns_health = 0;\n    if (wc_net_dial_endpoint_until(net_ctx, config->proxy.endpoint_host,\n            (uint16_t)config->proxy.endpoint_port, deadline_ms, retries, &policy, &endpoint) != WC_OK ||\n        !endpoint.connected || endpoint.fd < 0) {\n        if (out) *out = endpoint;\n        if (proxy_result) *proxy_result = WC_PROXY_RESULT_TCP_FAILURE;\n        return WC_ERR_IO;\n    }\n    wc_transport_init(&transport, &endpoint.fd);\n    result = (wc_proxy_result_t)wc_proxy_http_connect_transport(&transport, &config->proxy,\n        target_address, target_port, deadline_ms, &status);\n    if (result != WC_PROXY_RESULT_SUCCEEDED) {\n        wc_transport_close(&transport, \"wc_proxy_connect_fail\", config->debug);\n        endpoint.connected = 0;\n        endpoint.err = WC_ERR_IO;\n        endpoint.last_errno = (result == WC_PROXY_RESULT_TIMEOUT) ? ETIMEDOUT : EPROTO;\n    } else {\n        snprintf(endpoint.ip, sizeof(endpoint.ip), \"%s\", target_address);\n    }\n    if ((config->debug || config->retry_metrics) && result != WC_PROXY_RESULT_SUCCEEDED)\n        fprintf(stderr, \"[PROXY] scheme=http phase=connect port=%u result=%s status=%d\\n\",\n            (unsigned)config->proxy.endpoint_port, wc_proxy_result_name(result), status);\n    *out = endpoint;\n    if (proxy_result) *proxy_result = result;\n    return result == WC_PROXY_RESULT_SUCCEEDED ? WC_OK : WC_ERR_IO;\n}\n\ntypedef struct wc_proxy_fake {\n    const char* response;\n    size_t response_offset;\n    char request[1024];\n    size_t request_used;\n} wc_proxy_fake_t;\n\nstatic int wc_proxy_fake_read(void* context, char* buffer, size_t length)\n{\n    wc_proxy_fake_t* fake = (wc_proxy_fake_t*)context;\n    size_t remaining = strlen(fake->response) - fake->response_offset;\n    if (remaining == 0) return 0;\n    if (length > remaining) length = remaining;\n    memcpy(buffer, fake->response + fake->response_offset, length);\n    fake->response_offset += length;\n    return (int)length;\n}\n\nstatic int wc_proxy_fake_write(void* context, const char* data, size_t length)\n{\n    wc_proxy_fake_t* fake = (wc_proxy_fake_t*)context;\n    if (fake->request_used + length >= sizeof(fake->request)) return -1;\n    memcpy(fake->request + fake->request_used, data, length);\n    fake->request_used += length;\n    fake->request[fake->request_used] = '\\0';\n    return (int)length;\n}\n\nstatic int wc_proxy_fake_wait(void* context, int events, uint64_t deadline_ms)\n{\n    (void)context; (void)events; (void)deadline_ms;\n    return 1;\n}\n\nstatic void wc_proxy_fake_close(void* context, const char* reason, int debug_enabled)\n{\n    (void)context; (void)reason; (void)debug_enabled;\n}\n\nstatic int wc_proxy_test_report(const char* name, int pass)\n{\n    fprintf(stderr, \"[SELFTEST] proxy-routing-%s: %s\\n\", name, pass ? \"PASS\" : \"FAIL\");\n    return pass ? 0 : 1;\n}\n\nint wc_proxy_selftest(void)\n{\n    static const wc_transport_ops_t operations = { wc_proxy_fake_read, wc_proxy_fake_write, wc_proxy_fake_wait, wc_proxy_fake_close };\n    Config config;\n    wc_proxy_fake_t fake;\n    wc_transport_t transport;\n    int failed = 0;\n    int status = 0;\n    memset(&config, 0, sizeof(config));\n    config.proxy.configured = 1;\n    config.proxy.routing_enabled = 1;\n    config.proxy.scheme = WC_PROXY_SCHEME_HTTP;\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"localhost,.example.net,192.0.2.7:43,[2001:db8::7]:4343\");\n    failed |= wc_proxy_test_report(\"no-proxy-exact\", !wc_proxy_should_proxy(&config, \"localhost\", \"127.0.0.1\", 43));\n    failed |= wc_proxy_test_report(\"no-proxy-suffix\", !wc_proxy_should_proxy(&config, \"whois.example.net\", \"192.0.2.8\", 43));\n    failed |= wc_proxy_test_report(\"no-proxy-port\", wc_proxy_should_proxy(&config, \"other.test\", \"192.0.2.7\", 4343));\n    failed |= wc_proxy_test_report(\"no-proxy-ipv6\", !wc_proxy_should_proxy(&config, \"other.test\", \"2001:db8::7\", 4343));\n    failed |= wc_proxy_test_report(\"proxy-required\", wc_proxy_should_proxy(&config, \"whois.example.org\", \"192.0.2.9\", 43));\n    memset(&fake, 0, sizeof(fake));\n    fake.response = \"HTTP/1.1 204 No Content\\r\\nX-Test: yes\\r\\n\\r\\n\";\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"http-2xx\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"2001:db8::9\", 4343, UINT64_MAX, &status) == WC_PROXY_RESULT_SUCCEEDED &&\n        status == 204 && strstr(fake.request, \"CONNECT [2001:db8::9]:4343 HTTP/1.1\\r\\nHost: [2001:db8::9]:4343\\r\\n\") != NULL);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = \"HTTP/1.1 407 Proxy Authentication Required\\r\\n\\r\\n\";\n    config.proxy.has_credentials = 1;\n    snprintf(config.proxy.username, sizeof(config.proxy.username), \"user\");\n    snprintf(config.proxy.password, sizeof(config.proxy.password), \"pass\");\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"http-basic-407\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.10\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_AUTH_REQUIRED &&\n        status == 407 && strstr(fake.request, \"Proxy-Authorization: Basic dXNlcjpwYXNz\\r\\n\") != NULL);\n    wc_proxy_secure_clear(&fake, sizeof(fake));\n    wc_proxy_secure_clear(&config.proxy, sizeof(config.proxy));\n    return failed;\n}\n",
+          "contentSha256": "be826cbf596ee8612d1cd3417f65d60dbd2ccd3332a8b9fd1695099e7259a151",
+          "existingPolicy": "skip",
+          "idempotentContains": ["// proxy.c - HTTP CONNECT and per-hop NO_PROXY routing"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d2-routing-enabled-http-only", "target": "opts_source", "pattern": "out->routing_enabled = \\(out->scheme == WC_PROXY_SCHEME_HTTP\\);", "expectedCount": 1 },
+        { "name": "d2-no-proxy-env-read-once", "target": "opts_source", "pattern": "getenv\\(\"NO_PROXY\"\\)", "expectedCount": 1 },
+        { "name": "d2-old-a-fail-closed-removed", "target": "opts_source", "pattern": "this build contains only 13B-2 A preflight", "expectedCount": 0 },
+        { "name": "d2-connect-parser-one", "target": "proxy_source", "pattern": "int wc_proxy_http_connect_transport\\(", "expectedCount": 1 },
+        { "name": "d2-proxy-dial-one", "target": "proxy_source", "pattern": "int wc_proxy_dial_hop\\(", "expectedCount": 1 },
+        { "name": "d2-auth-header-one", "target": "proxy_source", "pattern": "Proxy-Authorization: Basic %s", "expectedCount": 1 },
+        { "name": "d2-secret-clear-calls", "target": "proxy_source", "pattern": "wc_proxy_secure_clear\\(", "expectedCount": 10 }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Add the absolute-deadline endpoint API and route every primary, override, forced-IPv4, known-IP, and empty-response reconnect through HTTP CONNECT without recording proxy failures as target health.",
+      "idempotentContainsByTarget": {
+        "net_source": ["uint64_t wc_net_deadline_after(int timeout_ms)", "return wc_net_dial_endpoint_until(ctx, host, port, wc_net_deadline_after(timeout_ms), retries, policy, out);"],
+        "proxy_source": ["output[out_index++] = remaining > 1 ? alphabet[value & 63] : '=';", "if (colon_count > 1) return 0;", "wc_proxy_test_report(\"no-proxy-unbracketed-ipv6-rejected\"", "Proxy-Authorization: Basic dTpwcA==\\r\\n"],
+        "lookup_header": ["int proxy_failure;"],
+        "lookup_connect": ["#include \"wc/wc_proxy.h\"", "wc_proxy_dial_hop(cfg, net_ctx, current_host, target"],
+        "lookup_empty": ["#include \"wc/wc_proxy.h\"", "wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf"],
+        "lookup_loop": ["int empty_action = wc_lookup_exec_handle_empty_body(&empty_ctx);"],
+        "client_flow": ["if (!res.meta.proxy_failure)", "if ((lookup_succeeded || !res.meta.proxy_failure) && wc_client_is_batch_strategy_enabled())"]
+      },
+      "operations": [
+        {
+          "target": "proxy_source",
+          "pattern": "        output\\[out_index\\+\\+\\] = remaining >= 0 \\? alphabet\\[\\(value >> 6\\) & 63\\] : '=';\\n        output\\[out_index\\+\\+\\] = remaining > 0 \\? alphabet\\[value & 63\\] : '=';",
+          "replacement": "        output[out_index++] = remaining > 0 ? alphabet[(value >> 6) & 63] : '=';\n        output[out_index++] = remaining > 1 ? alphabet[value & 63] : '=';",
+          "idempotentContains": ["output[out_index++] = remaining > 1 ? alphabet[value & 63] : '=';"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "        for \\(cursor = host; \\*cursor; \\+\\+cursor\\) if \\(\\*cursor == ':'\\) colon_count\\+\\+;\\n        if \\(colon_count == 1\\) \\{\\n            port_text = strrchr\\(host, ':'\\);",
+          "replacement": "        for (cursor = host; *cursor; ++cursor) if (*cursor == ':') colon_count++;\n        if (colon_count > 1) return 0;\n        if (colon_count == 1) {\n            port_text = strrchr(host, ':');",
+          "idempotentContains": ["if (colon_count > 1) return 0;"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"no-proxy-ipv6\", !wc_proxy_should_proxy\\(&config, \"other\\.test\", \"2001:db8::7\", 4343\\)\\);\\n    failed \\|= wc_proxy_test_report\\(\"proxy-required\"",
+          "replacement": "    failed |= wc_proxy_test_report(\"no-proxy-ipv6\", !wc_proxy_should_proxy(&config, \"other.test\", \"2001:db8::7\", 4343));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"2001:db8::7\");\n    failed |= wc_proxy_test_report(\"no-proxy-unbracketed-ipv6-rejected\",\n        wc_proxy_should_proxy(&config, \"other.test\", \"2001:db8::7\", 43));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"localhost,.example.net,192.0.2.7:43,[2001:db8::7]:4343\");\n    failed |= wc_proxy_test_report(\"proxy-required\"",
+          "idempotentContains": ["wc_proxy_test_report(\"no-proxy-unbracketed-ipv6-rejected\""]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"http-basic-407\",\\n        wc_proxy_http_connect_transport\\(&transport, &config\\.proxy, \"192\\.0\\.2\\.10\", 43, UINT64_MAX, &status\\) == WC_PROXY_RESULT_AUTH_REQUIRED &&\\n        status == 407 && strstr\\(fake\\.request, \"Proxy-Authorization: Basic dXNlcjpwYXNz\\\\r\\\\n\"\\) != NULL\\);\\n    wc_proxy_secure_clear\\(&fake, sizeof\\(fake\\)\\);",
+          "replacement": "    failed |= wc_proxy_test_report(\"http-basic-407\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.10\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_AUTH_REQUIRED &&\n        status == 407 && strstr(fake.request, \"Proxy-Authorization: Basic dXNlcjpwYXNz\\r\\n\") != NULL);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = \"HTTP/1.1 200 Connection Established\\r\\n\\r\\n\";\n    snprintf(config.proxy.username, sizeof(config.proxy.username), \"u\");\n    snprintf(config.proxy.password, sizeof(config.proxy.password), \"pp\");\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"http-basic-padding\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.11\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_SUCCEEDED &&\n        strstr(fake.request, \"Proxy-Authorization: Basic dTpwdw==\\r\\n\") != NULL);\n    wc_proxy_secure_clear(&fake, sizeof(fake));",
+          "idempotentContains": ["wc_proxy_test_report(\"http-basic-padding\""]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "Proxy-Authorization: Basic dTpwdw==\\\\r\\\\n",
+          "replacement": "Proxy-Authorization: Basic dTpwcA==\\r\\n",
+          "idempotentContains": ["Proxy-Authorization: Basic dTpwcA==\\r\\n"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "static void wc_net_info_init\\(struct wc_net_info\\* n\\)\\{ if\\(n\\)\\{ n->fd=-1; n->ip\\[0\\]='\\\\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; \\}\\}\n\nstatic void wc_net_sync_fault_profile",
+          "replacement": "static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; }}\n\nstatic uint64_t wc_net_now_ms(void)\n{\n#if defined(_WIN32) || defined(__MINGW32__)\n    return (uint64_t)GetTickCount64();\n#else\n    struct timespec now;\n    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;\n    return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_nsec / 1000000U;\n#endif\n}\n\nuint64_t wc_net_deadline_after(int timeout_ms)\n{\n    uint64_t now = wc_net_now_ms();\n    return timeout_ms > 0 ? now + (uint64_t)timeout_ms : now;\n}\n\nstatic int wc_net_deadline_remaining(uint64_t deadline_ms)\n{\n    uint64_t now = wc_net_now_ms();\n    uint64_t remaining = deadline_ms > now ? deadline_ms - now : 0;\n    return remaining > (uint64_t)INT_MAX ? INT_MAX : (int)remaining;\n}\n\nstatic void wc_net_sync_fault_profile",
+          "idempotentContains": ["uint64_t wc_net_deadline_after(int timeout_ms)"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "int wc_net_dial_endpoint\\(wc_net_context_t\\* ctx,\n                         const char\\* host,\n                         uint16_t port,\n                         int timeout_ms,\n                         int retries,\n                         const wc_net_dial_policy_t\\* policy,\n                         struct wc_net_info\\* out\\) \\{\n    wc_net_context_t\\* net_ctx = wc_net_resolve_context\\(ctx\\);",
+          "replacement": "int wc_net_dial_endpoint_until(wc_net_context_t* ctx,\n                               const char* host,\n                               uint16_t port,\n                               uint64_t deadline_ms,\n                               int retries,\n                               const wc_net_dial_policy_t* policy,\n                               struct wc_net_info* out) {\n    wc_net_context_t* net_ctx = wc_net_resolve_context(ctx);",
+          "idempotentContains": ["int wc_net_dial_endpoint_until(wc_net_context_t* ctx,"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "    if \\(timeout_ms <= 0\\) \\{\n        if \\(out\\) \\{\n            wc_net_info_init\\(out\\);\n            out->err = WC_ERR_INVALID;\n            out->last_errno = EINVAL;\n        \\}\n        return WC_ERR_INVALID;\n    \\}",
+          "replacement": "    if (wc_net_deadline_remaining(deadline_ms) <= 0) {\n        if (out) {\n            wc_net_info_init(out);\n            out->err = WC_ERR_IO;\n            out->last_errno = ETIMEDOUT;\n        }\n        return WC_ERR_IO;\n    }",
+          "idempotentContains": ["if (wc_net_deadline_remaining(deadline_ms) <= 0) {"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "                fd_set wfds; FD_ZERO\\(&wfds\\); FD_SET\\(WC_NET_NATIVE_SOCKET\\(fd\\), &wfds\\);\n                struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = \\(timeout_ms%1000\\)\\*1000;",
+          "replacement": "                int attempt_timeout_ms = wc_net_deadline_remaining(deadline_ms);\n                fd_set wfds; FD_ZERO(&wfds); FD_SET(WC_NET_NATIVE_SOCKET(fd), &wfds);\n                if (attempt_timeout_ms <= 0) { errno = ETIMEDOUT; out->last_errno = errno; goto connect_wait_done; }\n                struct timeval tv; tv.tv_sec = attempt_timeout_ms/1000; tv.tv_usec = (attempt_timeout_ms%1000)*1000;",
+          "idempotentContains": ["int attempt_timeout_ms = wc_net_deadline_remaining(deadline_ms);"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "            \\} else \\{ out->last_errno = errno; \\}\n            if \\(connected_now\\)",
+          "replacement": "            } else { out->last_errno = errno; }\nconnect_wait_done:\n            if (connected_now)",
+          "idempotentContains": ["connect_wait_done:\n            if (connected_now)"]
+        },
+        {
+          "target": "net_source",
+          "pattern": "    return out->err;\n\\}\n\nint wc_dial_43\\(wc_net_context_t\\* ctx,\n               const char\\* host,",
+          "replacement": "    return out->err;\n}\n\nint wc_net_dial_endpoint(wc_net_context_t* ctx,\n                         const char* host,\n                         uint16_t port,\n                         int timeout_ms,\n                         int retries,\n                         const wc_net_dial_policy_t* policy,\n                         struct wc_net_info* out)\n{\n    if (timeout_ms <= 0) {\n        wc_net_info_init(out);\n        if (out) { out->err = WC_ERR_INVALID; out->last_errno = EINVAL; }\n        return WC_ERR_INVALID;\n    }\n    return wc_net_dial_endpoint_until(ctx, host, port, wc_net_deadline_after(timeout_ms), retries, policy, out);\n}\n\nint wc_dial_43(wc_net_context_t* ctx,\n               const char* host,",
+          "idempotentContains": ["return wc_net_dial_endpoint_until(ctx, host, port, wc_net_deadline_after(timeout_ms), retries, policy, out);"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "#include \"wc/wc_net.h\"\n#include \"wc/wc_selftest.h\"",
+          "replacement": "#include \"wc/wc_net.h\"\n#include \"wc/wc_proxy.h\"\n#include \"wc/wc_selftest.h\"",
+          "idempotentContains": ["#include \"wc/wc_net.h\"\n#include \"wc/wc_proxy.h\"\n#include \"wc/wc_selftest.h\""]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "        int rc = wc_dial_43\\(net_ctx, target, \\(uint16_t\\)ctx->current_port,\n            dial_timeout_ms, dial_retries, &ni\\);\n        host_attempts\\+\\+;\n        int attempt_success = \\(rc == 0 && ni.connected\\);\n        wc_lookup_record_backoff_result\\(cfg, target, candidate_family, attempt_success\\);",
+          "replacement": "        int used_proxy = 0;\n        int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, target,\n            (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, NULL);\n        host_attempts++;\n        int attempt_success = (rc == 0 && ni.connected);\n        if (!used_proxy) wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, current_host, target,"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "            int rc = wc_dial_43\\(net_ctx, override_targets\\[oi\\], \\(uint16_t\\)ctx->current_port,\n                dial_timeout_ms, dial_retries, &ni\\);\n            host_attempts\\+\\+;\n            int attempt_success = \\(rc == 0 && ni.connected\\);\n            wc_lookup_record_backoff_result\\(cfg, override_targets\\[oi\\], override_families\\[oi\\], attempt_success\\);",
+          "replacement": "            int used_proxy = 0;\n            int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, override_targets[oi],\n                (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, NULL);\n            host_attempts++;\n            int attempt_success = (rc == 0 && ni.connected);\n            if (!used_proxy) wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, current_host, override_targets[oi],"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                                    rc4 = wc_dial_43\\(net_ctx, ipbuf, \\(uint16_t\\)ctx->current_port,\n                                        zopts->timeout_sec \\* 1000, zopts->retries, &ni4\\);\n                                    host_attempts\\+\\+;\n                                    forced_ipv4_attempted = 1;\n                                    snprintf\\(forced_ipv4_target, sizeof\\(forced_ipv4_target\\), \"%s\", ipbuf\\);\n                                    int backoff_success = \\(rc4 == 0 && ni4.connected\\);\n                                    wc_lookup_record_backoff_result\\(cfg, ipbuf, AF_INET, backoff_success\\);",
+          "replacement": "                                    int used_proxy = 0;\n                                    rc4 = wc_proxy_dial_hop(cfg, net_ctx, domain_for_ipv4, ipbuf,\n                                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                                        &ni4, &used_proxy, NULL);\n                                    host_attempts++;\n                                    forced_ipv4_attempted = 1;\n                                    snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), \"%s\", ipbuf);\n                                    int backoff_success = (rc4 == 0 && ni4.connected);\n                                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, backoff_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, domain_for_ipv4, ipbuf,"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                    rc2 = wc_dial_43\\(net_ctx, kip, \\(uint16_t\\)ctx->current_port,\n                        zopts->timeout_sec \\* 1000, zopts->retries, &ni2\\);\n                    int known_backoff_success = \\(rc2 == 0 && ni2.connected\\);\n                    wc_lookup_record_backoff_result\\(cfg, kip, AF_UNSPEC, known_backoff_success\\);",
+          "replacement": "                    int used_proxy = 0;\n                    rc2 = wc_proxy_dial_hop(cfg, net_ctx, domain_for_known, kip,\n                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                        &ni2, &used_proxy, NULL);\n                    int known_backoff_success = (rc2 == 0 && ni2.connected);\n                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, known_backoff_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, domain_for_known, kip,"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "#include \"wc/wc_net.h\"\n#include \"wc/wc_selftest.h\"",
+          "replacement": "#include \"wc/wc_net.h\"\n#include \"wc/wc_proxy.h\"\n\n#include \"wc/wc_selftest.h\"",
+          "idempotentContains": ["#include \"wc/wc_net.h\"\n#include \"wc/wc_proxy.h\"\n\n#include \"wc/wc_selftest.h\""]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                            rc4 = wc_dial_43\\(net_ctx, ipbuf, \\(uint16_t\\)ctx->current_port,\n                                zopts->timeout_sec \\* 1000, zopts->retries, &ni4\\);\n                            empty_ipv4_attempted = 1;\n                            int empty_backoff_success = \\(rc4 == 0 && ni4.connected\\);\n                            wc_lookup_record_backoff_result\\(cfg, ipbuf, AF_INET, empty_backoff_success\\);",
+          "replacement": "                            int used_proxy = 0;\n                            rc4 = wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf,\n                                (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                                &ni4, &used_proxy, NULL);\n                            empty_ipv4_attempted = 1;\n                            int empty_backoff_success = (rc4 == 0 && ni4.connected);\n                            if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf,"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                    rc2 = wc_dial_43\\(net_ctx, kip, \\(uint16_t\\)ctx->current_port,\n                        zopts->timeout_sec \\* 1000, zopts->retries, &ni2\\);\n                    int empty_known_success = \\(rc2 == 0 && ni2.connected\\);\n                    wc_lookup_record_backoff_result\\(cfg, kip, AF_UNSPEC, empty_known_success\\);",
+          "replacement": "                    int used_proxy = 0;\n                    rc2 = wc_proxy_dial_hop(cfg, net_ctx, current_host, kip,\n                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                        &ni2, &used_proxy, NULL);\n                    int empty_known_success = (rc2 == 0 && ni2.connected);\n                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);",
+          "idempotentContains": ["wc_proxy_dial_hop(cfg, net_ctx, current_host, kip,"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "static int wc_proxy_token_matches\\(const char\\* begin, size_t length,\n                                  const char\\* target, int target_port\\)",
+          "replacement": "static int wc_proxy_token_matches(const char* begin, size_t length,\n                                  const char* target, int target_port,\n                                  int allow_domain_suffix)",
+          "idempotentContains": ["const char* target, int target_port,\n                                  int allow_domain_suffix)"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    return host\\[0\\] == '\\.' \\? wc_proxy_suffix_match\\(target, host\\) : wc_proxy_host_equal\\(target, host\\);\n}\\n\\nstatic int wc_proxy_list_matches\\(const char\\* list, const char\\* target, int target_port\\)",
+          "replacement": "    if (host[0] == '.') return allow_domain_suffix && wc_proxy_suffix_match(target, host);\n    return wc_proxy_host_equal(target, host);\n}\n\nstatic int wc_proxy_list_matches(const char* list, const char* target, int target_port,\n                                 int allow_domain_suffix)",
+          "idempotentContains": ["return allow_domain_suffix && wc_proxy_suffix_match(target, host);"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "        if \\(wc_proxy_token_matches\\(cursor, length, target, target_port\\)\\) return 1;",
+          "replacement": "        if (wc_proxy_token_matches(cursor, length, target, target_port, allow_domain_suffix)) return 1;",
+          "idempotentContains": ["wc_proxy_token_matches(cursor, length, target, target_port, allow_domain_suffix)"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    if \\(wc_proxy_list_matches\\(config->proxy.no_proxy, target_host, target_port\\)\\) return 0;\n    if \\(target_address && \\(!target_host \\|\\| strcasecmp\\(target_address, target_host\\) != 0\\) &&\n        wc_proxy_list_matches\\(config->proxy.no_proxy, target_address, target_port\\)\\) return 0;",
+          "replacement": "    if (wc_proxy_list_matches(config->proxy.no_proxy, target_host, target_port, 1)) return 0;\n    if (target_address && (!target_host || strcasecmp(target_address, target_host) != 0) &&\n        wc_proxy_list_matches(config->proxy.no_proxy, target_address, target_port, 0)) return 0;",
+          "idempotentContains": ["wc_proxy_list_matches(config->proxy.no_proxy, target_address, target_port, 0)"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    if \\(response_used == WC_PROXY_RESPONSE_LIMIT \\|\\| strncmp\\(response, \"HTTP/\", 5\\) != 0\\) goto cleanup;\n    \\{\n        const char\\* space = strchr\\(response, ' '\\);\n        if \\(!space \\|\\| !isdigit\\(\\(unsigned char\\)space\\[1\\]\\) \\|\\| !isdigit\\(\\(unsigned char\\)space\\[2\\]\\) \\|\\|\n            !isdigit\\(\\(unsigned char\\)space\\[3\\]\\)\\) goto cleanup;\n        status = \\(space\\[1\\] - '0'\\) \\* 100 \\+ \\(space\\[2\\] - '0'\\) \\* 10 \\+ \\(space\\[3\\] - '0'\\);\n    \\}",
+          "replacement": "    if (response_used == WC_PROXY_RESPONSE_LIMIT ||\n        (strncmp(response, \"HTTP/1.0 \", 9) != 0 && strncmp(response, \"HTTP/1.1 \", 9) != 0) ||\n        !isdigit((unsigned char)response[9]) || !isdigit((unsigned char)response[10]) ||\n        !isdigit((unsigned char)response[11]) || (response[12] != ' ' && response[12] != '\\r')) goto cleanup;\n    status = (response[9] - '0') * 100 + (response[10] - '0') * 10 + (response[11] - '0');",
+          "idempotentContains": ["strncmp(response, \"HTTP/1.0 \", 9) != 0"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"no-proxy-suffix\", !wc_proxy_should_proxy\\(&config, \"whois\\.example\\.net\", \"192\\.0\\.2\\.8\", 43\\)\\);\n    failed \\|= wc_proxy_test_report\\(\"no-proxy-port\"",
+          "replacement": "    failed |= wc_proxy_test_report(\"no-proxy-suffix\", !wc_proxy_should_proxy(&config, \"whois.example.net\", \"192.0.2.8\", 43));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \".7\");\n    failed |= wc_proxy_test_report(\"no-proxy-suffix-not-address\",\n        wc_proxy_should_proxy(&config, \"other.test\", \"192.0.2.7\", 43));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"localhost,.example.net,192.0.2.7:43,[2001:db8::7]:4343\");\n    failed |= wc_proxy_test_report(\"no-proxy-port\"",
+          "idempotentContains": ["wc_proxy_test_report(\"no-proxy-suffix-not-address\""]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"http-basic-padding\",\n        wc_proxy_http_connect_transport\\(&transport, &config.proxy, \"192\\.0\\.2\\.11\", 43, UINT64_MAX, &status\\) == WC_PROXY_RESULT_SUCCEEDED &&\n        strstr\\(fake.request, \"Proxy-Authorization: Basic dTpwcA==\\\\r\\\\n\"\\) != NULL\\);\n    wc_proxy_secure_clear\\(&fake, sizeof\\(fake\\)\\);",
+          "replacement": "    failed |= wc_proxy_test_report(\"http-basic-padding\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.11\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_SUCCEEDED &&\n        strstr(fake.request, \"Proxy-Authorization: Basic dTpwcA==\\r\\n\") != NULL);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = \"HTTP/1.1\\r\\nX-Test: 200\\r\\n\\r\\n\";\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"http-malformed-missing-status\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.12\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = \"HTTP/1.1 200X Invalid\\r\\n\\r\\n\";\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"http-malformed-status-delimiter\",\n        wc_proxy_http_connect_transport(&transport, &config.proxy, \"192.0.2.13\", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);\n    wc_proxy_secure_clear(&fake, sizeof(fake));",
+          "idempotentContains": ["wc_proxy_test_report(\"http-malformed-status-delimiter\""]
+        },
+        {
+          "target": "net_source",
+          "pattern": "        if \\(gerr == EAI_AGAIN && gai_tries < 2\\) \\{\n            wc_sleep_ms\\(100U\\);\n        \\}\n        gai_tries\\++;\n    \\} while \\(gerr == EAI_AGAIN && gai_tries < 3\\);",
+          "replacement": "        if (gerr == EAI_AGAIN && gai_tries < 2) {\n            int remaining_ms = wc_net_deadline_remaining(deadline_ms);\n            if (remaining_ms <= 0) break;\n            wc_sleep_ms((unsigned int)(remaining_ms < 100 ? remaining_ms : 100));\n        }\n        gai_tries++;\n    } while (gerr == EAI_AGAIN && gai_tries < 3 && wc_net_deadline_remaining(deadline_ms) > 0);",
+          "idempotentContains": ["remaining_ms < 100 ? remaining_ms : 100"]
+        },
+        {
+          "target": "lookup_header",
+          "pattern": "    int failure_emitted;        // stderr error already emitted inside lookup\n};",
+          "replacement": "    int failure_emitted;        // stderr error already emitted inside lookup\n    int proxy_failure;          // failure originated from proxy routing, not target DNS/address health\n};",
+          "idempotentContains": ["int proxy_failure;          // failure originated from proxy routing"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "    int primary_attempts = 0;\n    int penalized_skipped = 0;",
+          "replacement": "    int primary_attempts = 0;\n    int proxy_terminal_failure = 0;\n    int penalized_skipped = 0;",
+          "idempotentContains": ["int proxy_terminal_failure = 0;"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "        int used_proxy = 0;\n        int rc = wc_proxy_dial_hop\\(cfg, net_ctx, current_host, target,\n            \\(uint16_t\\)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, NULL\\);\n        host_attempts\\++;\n        int attempt_success = \\(rc == 0 && ni.connected\\);\n        if \\(!used_proxy\\) wc_lookup_record_backoff_result\\(cfg, target, candidate_family, attempt_success\\);",
+          "replacement": "        int used_proxy = 0;\n        wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n        int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, target,\n            (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, &proxy_result);\n        host_attempts++;\n        int attempt_success = (rc == 0 && ni.connected);\n        if (!used_proxy) wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);\n        if (attempt_success) out->meta.proxy_failure = 0;\n        else if (used_proxy) {\n            out->meta.proxy_failure = 1;\n            proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||\n                proxy_result == WC_PROXY_RESULT_UNSUPPORTED;\n        }",
+          "idempotentContains": ["wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "        \\} else \\{\n            if \\(order_idx == 0\\) first_conn_rc = rc;\n        \\}\n    \\}\n\n    if \\(arin_candidate_order\\)",
+          "replacement": "        } else {\n            if (order_idx == 0) first_conn_rc = rc;\n            if (proxy_terminal_failure) break;\n        }\n    }\n\n    if (arin_candidate_order)",
+          "idempotentContains": ["if (proxy_terminal_failure) break;"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "            int used_proxy = 0;\n            int rc = wc_proxy_dial_hop\\(cfg, net_ctx, current_host, override_targets\\[oi\\],\n                \\(uint16_t\\)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, NULL\\);\n            host_attempts\\++;\n            int attempt_success = \\(rc == 0 && ni.connected\\);\n            if \\(!used_proxy\\) wc_lookup_record_backoff_result\\(cfg, override_targets\\[oi\\], override_families\\[oi\\], attempt_success\\);",
+          "replacement": "            int used_proxy = 0;\n            wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n            int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, override_targets[oi],\n                (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, &proxy_result);\n            host_attempts++;\n            int attempt_success = (rc == 0 && ni.connected);\n            if (!used_proxy) wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);\n            if (attempt_success) out->meta.proxy_failure = 0;\n            else if (used_proxy) {\n                out->meta.proxy_failure = 1;\n                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||\n                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;\n            }",
+          "idempotentContains": ["wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n            int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, override_targets[oi]"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "            \\} else if \\(first_conn_rc == 0\\) \\{\n                first_conn_rc = rc;\n            \\}\n        \\}\n    \\}\n\n    if \\(!connected_ok\\) \\{",
+          "replacement": "            } else if (first_conn_rc == 0) {\n                first_conn_rc = rc;\n            }\n            if (proxy_terminal_failure) break;\n        }\n    }\n\n    if (!connected_ok && !proxy_terminal_failure) {",
+          "idempotentContains": ["if (!connected_ok && !proxy_terminal_failure) {"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                            int used_proxy = 0;\n                            rc4 = wc_proxy_dial_hop\\(cfg, net_ctx, current_host, ipbuf,\n                                \\(uint16_t\\)ctx->current_port, zopts->timeout_sec \\* 1000, zopts->retries,\n                                &ni4, &used_proxy, NULL\\);\n                            empty_ipv4_attempted = 1;\n                            int empty_backoff_success = \\(rc4 == 0 && ni4.connected\\);\n                            if \\(!used_proxy\\) wc_lookup_record_backoff_result\\(cfg, ipbuf, AF_INET, empty_backoff_success\\);",
+          "replacement": "                            int used_proxy = 0;\n                            wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n                            rc4 = wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf,\n                                (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                                &ni4, &used_proxy, &proxy_result);\n                            empty_ipv4_attempted = 1;\n                            int empty_backoff_success = (rc4 == 0 && ni4.connected);\n                            if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);\n                            else if (!empty_backoff_success) {\n                                out->meta.proxy_failure = 1;\n                                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||\n                                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;\n                            }",
+          "idempotentContains": ["proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                                    proxy_result == WC_PROXY_RESULT_REJECTED"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                    int used_proxy = 0;\n                    rc2 = wc_proxy_dial_hop\\(cfg, net_ctx, current_host, kip,\n                        \\(uint16_t\\)ctx->current_port, zopts->timeout_sec \\* 1000, zopts->retries,\n                        &ni2, &used_proxy, NULL\\);\n                    int empty_known_success = \\(rc2 == 0 && ni2.connected\\);\n                    if \\(!used_proxy\\) wc_lookup_record_backoff_result\\(cfg, kip, AF_UNSPEC, empty_known_success\\);",
+          "replacement": "                    int used_proxy = 0;\n                    wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n                    rc2 = wc_proxy_dial_hop(cfg, net_ctx, current_host, kip,\n                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,\n                        &ni2, &used_proxy, &proxy_result);\n                    int empty_known_success = (rc2 == 0 && ni2.connected);\n                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);\n                    else if (!empty_known_success) {\n                        out->meta.proxy_failure = 1;\n                        proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                            proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||\n                            proxy_result == WC_PROXY_RESULT_UNSUPPORTED;\n                    }",
+          "idempotentContains": ["proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||\n                            proxy_result == WC_PROXY_RESULT_REJECTED"]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "        wc_client_penalize_batch_failure\\(cfg, start_host, rc,\n            res.meta.last_connect_errno\\);",
+          "replacement": "        if (!res.meta.proxy_failure)\n            wc_client_penalize_batch_failure(cfg, start_host, rc,\n                res.meta.last_connect_errno);",
+          "idempotentContains": ["if (!res.meta.proxy_failure)\n            wc_client_penalize_batch_failure"]
+        },
+        {
+          "target": "client_flow",
+          "pattern": "    if \\(wc_client_is_batch_strategy_enabled\\(\\)\\) \\{\n        wc_batch_strategy_result_t strat_result = \\{",
+          "replacement": "    if ((lookup_succeeded || !res.meta.proxy_failure) && wc_client_is_batch_strategy_enabled()) {\n        wc_batch_strategy_result_t strat_result = {",
+          "idempotentContains": ["if ((lookup_succeeded || !res.meta.proxy_failure) && wc_client_is_batch_strategy_enabled())"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "    int arin_banner_only = 0;\n    int persistent_empty_local = 0;",
+          "replacement": "    int arin_banner_only = 0;\n    int proxy_terminal_failure = 0;\n    int persistent_empty_local = 0;",
+          "idempotentContains": ["int arin_banner_only = 0;\n    int proxy_terminal_failure = 0;"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "        if \\(!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only\\) \\{",
+          "replacement": "        if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {",
+          "idempotentContains": ["if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && !cfg->no_dns_known_fallback"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "        if \\(!handled_empty && allow_empty_retry && \\*ctx->empty_retry == 0\\) \\{",
+          "replacement": "        if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && *ctx->empty_retry == 0) {",
+          "idempotentContains": ["if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && *ctx->empty_retry == 0)"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                                   pref_label, net_ctx, cfg\\);\n        \\}\n\n        if \\(handled_empty\\) \\{\n            out->meta.fallback_flags \\|= 0x2; // empty_retry",
+          "replacement": "                                   pref_label, net_ctx, cfg);\n        }\n\n        if (proxy_terminal_failure) {\n            if (body) free(body);\n            *ctx->body = NULL;\n            *ctx->blen = 0;\n            out->err = WC_ERR_IO;\n            return -1;\n        }\n        if (handled_empty) {\n            out->meta.fallback_flags |= 0x2; // empty_retry",
+          "idempotentContains": ["out->err = WC_ERR_IO;\n            return -1;"]
+        },
+        {
+          "target": "lookup_loop",
+          "pattern": "        if \\(wc_lookup_exec_handle_empty_body\\(&empty_ctx\\)\\) \\{\n            continue;\n        \\}",
+          "replacement": "        int empty_action = wc_lookup_exec_handle_empty_body(&empty_ctx);\n        if (empty_action < 0) break;\n        if (empty_action > 0) continue;",
+          "idempotentContains": ["int empty_action = wc_lookup_exec_handle_empty_body(&empty_ctx);"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d3-deadline-api-defined-one", "target": "net_source", "pattern": "int wc_net_dial_endpoint_until\\(", "expectedCount": 1 },
+        { "name": "d3-relative-wrapper-defined-one", "target": "net_source", "pattern": "int wc_net_dial_endpoint\\(", "expectedCount": 1 },
+        { "name": "d3-connect-proxy-dials-four", "target": "lookup_connect", "pattern": "wc_proxy_dial_hop\\(", "expectedCount": 4 },
+        { "name": "d3-connect-direct-dials-zero", "target": "lookup_connect", "pattern": "wc_dial_43\\(", "expectedCount": 0 },
+        { "name": "d3-empty-proxy-dials-two", "target": "lookup_empty", "pattern": "wc_proxy_dial_hop\\(", "expectedCount": 2 },
+        { "name": "d3-empty-direct-dials-zero", "target": "lookup_empty", "pattern": "wc_dial_43\\(", "expectedCount": 0 },
+        { "name": "d3-health-isolation-six", "target": "lookup_connect", "pattern": "if \\(!used_proxy\\) wc_lookup_record_backoff_result", "expectedCount": 4 },
+        { "name": "d3-base64-padding-fixed", "target": "proxy_source", "pattern": "remaining > 1 \\? alphabet\\[value & 63\\] : '=';", "expectedCount": 1 },
+        { "name": "d3-unbracketed-ipv6-rejected", "target": "proxy_source", "pattern": "if \\(colon_count > 1\\) return 0;", "expectedCount": 1 },
+        { "name": "d3-base64-padding-test-one", "target": "proxy_source", "pattern": "wc_proxy_test_report\\(\"http-basic-padding\"", "expectedCount": 1 },
+        { "name": "d3-no-proxy-suffix-address-isolated", "target": "proxy_source", "pattern": "wc_proxy_list_matches\\(config->proxy.no_proxy, target_address, target_port, 0\\)", "expectedCount": 1 },
+        { "name": "d3-strict-status-parser-one", "target": "proxy_source", "pattern": "strncmp\\(response, \"HTTP/1.0 \", 9\\)", "expectedCount": 1 },
+        { "name": "d3-deadline-bounded-dns-sleep-one", "target": "net_source", "pattern": "remaining_ms < 100 \\? remaining_ms : 100", "expectedCount": 1 },
+        { "name": "d3-proxy-failure-meta-one", "target": "lookup_header", "pattern": "int proxy_failure;", "expectedCount": 1 },
+        { "name": "d3-terminal-proxy-breaks-two", "target": "lookup_connect", "pattern": "if \\(proxy_terminal_failure\\) break;", "expectedCount": 2 },
+        { "name": "d3-proxy-failure-records-four", "target": "lookup_connect", "pattern": "out->meta.proxy_failure = 1;", "expectedCount": 2 },
+        { "name": "d3-empty-proxy-failure-records-two", "target": "lookup_empty", "pattern": "out->meta.proxy_failure = 1;", "expectedCount": 2 },
+        { "name": "d3-empty-terminal-classifiers-two", "target": "lookup_empty", "pattern": "proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED", "expectedCount": 2 },
+        { "name": "d3-empty-terminal-return-one", "target": "lookup_empty", "pattern": "out->err = WC_ERR_IO;\n            return -1;", "expectedCount": 1 },
+        { "name": "d3-empty-loop-tristate-one", "target": "lookup_loop", "pattern": "int empty_action = wc_lookup_exec_handle_empty_body\\(&empty_ctx\\);", "expectedCount": 1 },
+        { "name": "d3-batch-penalty-proxy-guard-one", "target": "client_flow", "pattern": "if \\(!res.meta.proxy_failure\\)\n            wc_client_penalize_batch_failure", "expectedCount": 1 },
+        { "name": "d3-batch-strategy-proxy-guard-one", "target": "client_flow", "pattern": "if \\(\\(lookup_succeeded \\|\\| !res.meta.proxy_failure\\) && wc_client_is_batch_strategy_enabled\\(\\)\\)", "expectedCount": 1 }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Expose the shipped HTTP CONNECT and per-hop bypass behavior in help, wire deterministic protocol tests into the built-in selftest, and remove all A-stage preflight-only wording.",
+      "idempotentContainsByTarget": {
+        "meta_source": ["Proxy routing (HTTP CONNECT):", "NO_PROXY/no_proxy is evaluated for every WHOIS hop"],
+        "selftest_source": ["#include \"wc/wc_proxy.h\"", "failed |= wc_proxy_selftest();"]
+      },
+      "operations": [
+        {
+          "target": "meta_source",
+          "pattern": "    printf\\(\"Proxy configuration preflight \\(13B-2 A\\):\\\\n\"\\);\n    printf\\(\"      Priority: --proxy > WHOIS_PROXY > \\(--proxy-env only\\) ALL_PROXY > all_proxy > direct\\\\n\"\\);\n    printf\\(\"      HTTP_PROXY/HTTPS_PROXY are never read; HTTP CONNECT and per-hop NO_PROXY belong to B\\\\n\"\\);\n    printf\\(\"      A validates configuration only; a configured proxy fails closed until the B routing prerequisite is present\\\\n\\\\n\"\\);",
+          "replacement": "    printf(\"Proxy routing (HTTP CONNECT):\\n\");\n    printf(\"      Priority: --proxy > WHOIS_PROXY > (--proxy-env only) ALL_PROXY > all_proxy > direct\\n\");\n    printf(\"      --proxy-env also enables NO_PROXY/no_proxy; HTTP_PROXY/HTTPS_PROXY are never read\\n\");\n    printf(\"      NO_PROXY/no_proxy is evaluated for every WHOIS hop; SOCKS and HTTPS proxy remain unavailable\\n\\n\");",
+          "idempotentContains": ["printf(\"Proxy routing (HTTP CONNECT):\\n\");"]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "#include \"wc/wc_opts.h\"\n#include \"wc/wc_fold.h\"",
+          "replacement": "#include \"wc/wc_opts.h\"\n#include \"wc/wc_proxy.h\"\n#include \"wc/wc_fold.h\"",
+          "idempotentContains": ["#include \"wc/wc_opts.h\"\n#include \"wc/wc_proxy.h\"\n#include \"wc/wc_fold.h\""]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    failed \\|= selftest_net_dial_policy\\(\\);\n    failed \\|= selftest_dns_fallback_toggles\\(\\);",
+          "replacement": "    failed |= selftest_net_dial_policy();\n    failed |= wc_proxy_selftest();\n    failed |= selftest_dns_fallback_toggles();",
+          "idempotentContains": ["failed |= wc_proxy_selftest();"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d4-help-http-connect-one", "target": "meta_source", "pattern": "Proxy routing \\(HTTP CONNECT\\):", "expectedCount": 1 },
+        { "name": "d4-help-per-hop-no-proxy-one", "target": "meta_source", "pattern": "NO_PROXY/no_proxy is evaluated for every WHOIS hop", "expectedCount": 1 },
+        { "name": "d4-old-preflight-help-zero", "target": "meta_source", "pattern": "Proxy configuration preflight \\(13B-2 A\\)", "expectedCount": 0 },
+        { "name": "d4-proxy-selftest-call-one", "target": "selftest_source", "pattern": "failed \\|= wc_proxy_selftest\\(\\);", "expectedCount": 1 }
+      ]
+    }
+  }
+}

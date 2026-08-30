@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13B-1 已完成；WP-13B-2 前置门禁已通过 / WP-13B-1 complete; WP-13B-2 entry gates passed.
+状态 / Status：WP-13B-1 已完成；WP-13B-2 准备完成，待启动授权 / WP-13B-1 complete; WP-13B-2 ready, awaiting launch authorization.
 
 # 中文版
 
@@ -213,6 +213,42 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处）。
 - 未经用户明确授权，不执行提交或推送。
 
+## 11. WP-13B-2 下次开工清单
+
+状态：**准备完成，待启动授权**。计划窗口 `2027-07-08 ~ 2027-07-21`，使用 `schemaVersion=vx-draft`、`strict-enforce`、event-only 串行 A/B；active start-file 为 `testdata/unattended_start/active/unattended_ab_start_20270708-20270721.md`。主归属文档为本 RFC，无协同文档。
+
+共享门禁：A/B 严格串行；B 仅在 A 最终 PASS、A 成功快照完整且 B 启动门禁通过后启动，否则保持 `blocked-by-a`。启动前不提交、不推送、不预填执行结果。
+
+### 11.1 Checklist A：配置、CLI 与环境预检
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270708_20270714.json`；D1-D4 + V1-V4；`defaultTarget=opts_source`。
+- 目标：冻结代理配置结构、CLI/env 优先级、authority-only URL、凭据与 family 冲突规则，并提供确定性 resolver/selftest；A 阶段配置代理时 fail closed，不路由代理流量。
+- 非目标：不执行 HTTP CONNECT、SOCKS、TLS 或 per-hop `NO_PROXY` 路由；不改变默认直连、stdout、RIR referral、DNS-health、batch strategy 或 retry metrics 契约。
+- 冻结 target set：`config_header`=`include/wc/wc_config.h`、`opts_header`=`include/wc/wc_opts.h`、`opts_source`=`src/core/opts.c`、`client_meta_source`=`src/core/client_meta.c`、`client_runner_source`=`src/core/client_runner.c`、`meta_source`=`src/core/meta.c`、`selftest_source`=`src/core/selftest.c`，均为 existing。
+- `target_set_sha256=150b6f49ab217b65e2c048f407023d8d74dc69feaf670ccfeb5db71ad52a099b`；任务定义 SHA-256 `df34348b618e8f6a3c164c85dd1f0649ce2a0744a91a586d02026411d2b56f5b`。
+
+编制期门禁：TODO-free/编码、SyntaxOnly、D1-D4、无 RoundTag 全定义严格检查、Vx 专项安全回归与 A effective payload hash 均 PASS。
+
+### 11.2 Checklist B：HTTP CONNECT 与 per-hop bypass
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270715_20270721.json`；D1-D4 + V1-V4；`defaultTarget=proxy_source`。
+- 目标：实现 HTTP CONNECT、Basic auth 明文授权门禁、绝对单调 deadline、`NO_PROXY` per-hop 判断，以及 primary/override/fallback/empty-response 全连接路径接入；代理失败保持 terminal 且不污染目标 DNS-health 或 batch strategy。
+- 非目标：不实现 SOCKS4/4a、SOCKS5/5h 数据面、HTTPS 代理 TLS、连接复用或静默直连回退。
+- 冻结 target set：继承 A 的 7 个 target；新增 `net_header`=`include/wc/wc_net.h`、`net_source`=`src/core/net.c`、`proxy_header`=`include/wc/wc_proxy.h`（create）、`proxy_source`=`src/core/proxy.c`（create）、`lookup_header`=`include/wc/wc_lookup.h`、`lookup_connect`=`src/core/lookup_exec_connect.c`、`lookup_empty`=`src/core/lookup_exec_empty.c`、`lookup_loop`=`src/core/lookup_exec_loop.c`、`client_flow`=`src/core/client_flow.c`，其余均为 existing。
+- `target_set_sha256=3808d4e86be49df0170add303e6acdf7e9fe7178cd526d0a445d73ac94c7d8e3`；任务定义 SHA-256 `4464717b6090f69a881c0abb3aa8f6afe6a30e6f4f91508a1ffaed3fbc594404`。
+
+编制期门禁：SyntaxOnly、D1-D4、以 A 为 prerequisite 的链式全定义严格检查、Vx 专项安全回归均 PASS。A+B effective tree 的 16/16 target hash 与绑定 manifest 一致；九架构 `lto-auto` 编译、9/9 产物 hash、Linux/QEMU 与 win32/win64 smoke/selftest、Golden、三起点 referral 均 PASS（`tmp/wp13b2-b-effective-tree/out/artifacts/20260830-053710`）。Step47 preflight 5/5 PASS（`tmp/wp13b2-step47-script-validation/20260830-055709`），preclass table guard PASS（`tmp/wp13b2-b-effective-tree/out/artifacts/preclass_table_guard/20260830-061317`）。
+
+### 11.3 启动前联合确认
+
+- [x] 两份任务定义已完成初始编制完整验收，无 TODO 或占位符。
+- [x] A/B schema、target registry、target set hash 与 prerequisite 顺序已冻结。
+- [x] A+B effective source 已完成编译、运行、Golden/referral、Step47 与 table guard 验证。
+- [x] active start-file 已生成并通过字段同步、编码和 launch-ready dry-run 检查。
+- [ ] 用户已检查任务定义、清单和 start-file，并明确授权启动。
+
+执行回填：A/B final status、时间、run_dir、绑定 artifact/snapshot、事故/自愈/重启摘要均为 `PENDING`，仅在实际运行后填写。
+
 # English Version
 
 ## 1. Purpose
@@ -423,3 +459,39 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and e
 - WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) remain gated by section 9 readiness gates.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file).
 - No commit or push without explicit user authorization.
+
+## 11. WP-13B-2 next-start checklist
+
+Status: **ready, awaiting launch authorization**. The planned window is `2027-07-08 ~ 2027-07-21`, using `schemaVersion=vx-draft`, `strict-enforce`, and serial event-only A/B. The active start file is `testdata/unattended_start/active/unattended_ab_start_20270708-20270721.md`. This RFC is the sole authoritative document.
+
+Shared gates: A and B run serially. B remains `blocked-by-a` until A passes, its success snapshot is complete, and B's launch gate passes. No commit, push, or execution-result backfill occurs before launch.
+
+### 11.1 Checklist A: configuration, CLI, and environment preflight
+
+- Definition: `testdata/autopilot_code_step_tasks_20270708_20270714.json`; D1-D4 + V1-V4; `defaultTarget=opts_source`.
+- Goal: freeze proxy configuration, CLI/environment precedence, authority-only URLs, credential and family conflicts, plus deterministic resolver/selftests. A fails closed when a proxy is configured and does not route proxy traffic.
+- Excluded: HTTP CONNECT, SOCKS, TLS, and per-hop `NO_PROXY` routing. Default direct mode, stdout, RIR referrals, DNS health, batch strategy, and retry metrics remain unchanged.
+- Frozen targets: `config_header`, `opts_header`, `opts_source`, `client_meta_source`, `client_runner_source`, `meta_source`, and `selftest_source`, all existing targets at the paths declared in the task definition.
+- `target_set_sha256=150b6f49ab217b65e2c048f407023d8d74dc69feaf670ccfeb5db71ad52a099b`; task-definition SHA-256 `df34348b618e8f6a3c164c85dd1f0649ce2a0744a91a586d02026411d2b56f5b`.
+
+TODO/encoding, SyntaxOnly, D1-D4, full-definition checking without RoundTag, Vx safety regressions, and the A effective-payload hash all pass.
+
+### 11.2 Checklist B: HTTP CONNECT and per-hop bypass
+
+- Definition: `testdata/autopilot_code_step_tasks_20270715_20270721.json`; D1-D4 + V1-V4; `defaultTarget=proxy_source`.
+- Goal: implement HTTP CONNECT, the explicit cleartext Basic-auth gate, absolute monotonic deadlines, per-hop `NO_PROXY`, and all primary/override/fallback/empty-response connection paths. Proxy failures remain terminal and do not affect target DNS health or batch strategy.
+- Excluded: SOCKS4/4a, the SOCKS5/5h data plane, HTTPS-proxy TLS, connection reuse, and silent direct fallback.
+- Frozen targets: the seven A targets plus `net_header`, `net_source`, `proxy_header` (create), `proxy_source` (create), `lookup_header`, `lookup_connect`, `lookup_empty`, `lookup_loop`, and `client_flow`; all non-create targets are existing.
+- `target_set_sha256=3808d4e86be49df0170add303e6acdf7e9fe7178cd526d0a445d73ac94c7d8e3`; task-definition SHA-256 `4464717b6090f69a881c0abb3aa8f6afe6a30e6f4f91508a1ffaed3fbc594404`.
+
+SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and Vx safety regressions pass. The A+B effective tree matches all 16 manifest-bound target hashes and passes nine-architecture `lto-auto` compilation, 9/9 artifact hashes, Linux/QEMU and win32/win64 smoke/selftests, Golden, and three-origin referral checks (`tmp/wp13b2-b-effective-tree/out/artifacts/20260830-053710`). Step47 preflight passes 5/5 (`tmp/wp13b2-step47-script-validation/20260830-055709`), and the preclass table guard passes (`tmp/wp13b2-b-effective-tree/out/artifacts/preclass_table_guard/20260830-061317`).
+
+### 11.3 Joint pre-launch confirmation
+
+- [x] Both definitions passed complete initial-authoring validation with no TODOs or placeholders.
+- [x] A/B schemas, target registries, target-set hashes, and prerequisite ordering are frozen.
+- [x] A+B effective source passed compilation, runtime, Golden/referral, Step47, and table-guard validation.
+- [x] The active start file is generated and passes field-sync, encoding, and launch-ready dry-run checks.
+- [ ] The user reviewed the definitions, checklist, and start file and explicitly authorized launch.
+
+Execution backfill: A/B final status, timestamps, run directories, bound artifacts/snapshots, and incident/self-heal/restart summaries are `PENDING` until the actual run.

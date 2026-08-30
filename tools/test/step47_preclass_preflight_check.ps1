@@ -189,7 +189,7 @@ $results += (Invoke-Case -Name "gate-enabled-missing-threshold" -CaseArgs ($comm
     "-RunPreclassP1Gate",
     "-PreclassGroupThresholdFile", "testdata/not_exists_thresholds.txt"
 )) -ExpectPass $false -MustMatchRegex @(
-    'Preclass group threshold\s*file not found'
+    'Preclass\s+group\s+threshold\s+file\s+not\s+found'
 ) | Select-Object -Last 1)
 
 $results += (Invoke-Case -Name "gate-enabled-missing-case-list" -CaseArgs ($common + @(
@@ -197,7 +197,7 @@ $results += (Invoke-Case -Name "gate-enabled-missing-case-list" -CaseArgs ($comm
     "-PreclassCaseListFile", "testdata/not_exists_cases.txt",
     "-PreclassGroupThresholdFile", $PreclassThresholdFile
 )) -ExpectPass $false -MustMatchRegex @(
-    'Preclass case list\s*file not found'
+    'Preclass\s+case\s+list\s+file\s+not\s+found'
 ) | Select-Object -Last 1)
 
 $summaryCsv = Join-Path $outDir "summary.csv"
