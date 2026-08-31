@@ -339,6 +339,7 @@ static int wc_proxy_test_report(const char* name, int pass)
 int wc_proxy_selftest(void)
 {
     static const wc_transport_ops_t operations = { wc_proxy_fake_read, wc_proxy_fake_write, wc_proxy_fake_wait, wc_proxy_fake_close };
+    const uint64_t no_deadline = ~(uint64_t)0;
     Config config;
     wc_proxy_fake_t fake;
     wc_transport_t transport;
@@ -366,7 +367,7 @@ int wc_proxy_selftest(void)
     fake.response = "HTTP/1.1 204 No Content\r\nX-Test: yes\r\n\r\n";
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-2xx",
-        wc_proxy_http_connect_transport(&transport, &config.proxy, "2001:db8::9", 4343, UINT64_MAX, &status) == WC_PROXY_RESULT_SUCCEEDED &&
+        wc_proxy_http_connect_transport(&transport, &config.proxy, "2001:db8::9", 4343, no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED &&
         status == 204 && strstr(fake.request, "CONNECT [2001:db8::9]:4343 HTTP/1.1\r\nHost: [2001:db8::9]:4343\r\n") != NULL);
     memset(&fake, 0, sizeof(fake));
     fake.response = "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n";
@@ -375,7 +376,7 @@ int wc_proxy_selftest(void)
     snprintf(config.proxy.password, sizeof(config.proxy.password), "pass");
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-basic-407",
-        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.10", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_AUTH_REQUIRED &&
+        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.10", 43, no_deadline, &status) == WC_PROXY_RESULT_AUTH_REQUIRED &&
         status == 407 && strstr(fake.request, "Proxy-Authorization: Basic dXNlcjpwYXNz\r\n") != NULL);
     memset(&fake, 0, sizeof(fake));
     fake.response = "HTTP/1.1 200 Connection Established\r\n\r\n";
@@ -383,18 +384,18 @@ int wc_proxy_selftest(void)
     snprintf(config.proxy.password, sizeof(config.proxy.password), "pp");
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-basic-padding",
-        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.11", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_SUCCEEDED &&
+        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.11", 43, no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED &&
         strstr(fake.request, "Proxy-Authorization: Basic dTpwcA==\r\n") != NULL);
     memset(&fake, 0, sizeof(fake));
     fake.response = "HTTP/1.1\r\nX-Test: 200\r\n\r\n";
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-malformed-missing-status",
-        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.12", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);
+        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.12", 43, no_deadline, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);
     memset(&fake, 0, sizeof(fake));
     fake.response = "HTTP/1.1 200X Invalid\r\n\r\n";
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-malformed-status-delimiter",
-        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.13", 43, UINT64_MAX, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);
+        wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.13", 43, no_deadline, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);
     wc_proxy_secure_clear(&fake, sizeof(fake));
     wc_proxy_secure_clear(&config.proxy, sizeof(config.proxy));
     return failed;
