@@ -41,6 +41,8 @@
 
 查询规则契约（新增）：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
 
+WP-13B-2 HTTP CONNECT 代理与 per-hop bypass 完成（2026-08-31）：Vx A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260830-133709`，B run=`out/artifacts/dev_verify_multiround/20260831-032025`，A/B 合计 `0d 18:51:00`）；B 首跑 D1 后 `runtime-fail` 经 3 处编排脚本修复与 A 快照锚点恢复后重启续跑 8/8 收敛。最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）。默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约不变；WP-13C/13D 按代理 RFC 第 9 节 Ready 门禁继续。
+
 WP-13B-1 transport 基线与最终制品复核（2026-08-30）：endpoint dialer policy 已保持 `wc_dial_43` 默认直连与目标 DNS-health 语义；lookup 收发已通过可注入 `read/write/wait/close` transport adapter 执行，并支持共享绝对单调 deadline。确定性 transport 合同与 endpoint family/health 隔离 selftest 已跨 Linux/Windows PASS（`out/artifacts/20260830-010926`、`20260830-012006`）。代码调整后的最终 Strict `lto-auto` 九架构同步轮无编译/LTO 告警，九个 SHA-256 独立复算、Golden、三起点 referral 与默认 smoke 全 PASS（`out/artifacts/20260830-014939`，241s）；本轮默认 smoke 未启用 `--selftest`，不替代前述专项证据。当前公开 CLI 与默认输出契约不变。
 
 post-3.3.0 修复验证（2026-08-24）：`injection-view-fallback` standalone selftest 的反向返回值断言已修正，生产查询逻辑与输出契约不变；core golden 现要求 PASS 且禁止 FAIL。最终 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 hash、Golden、三起点 referral 与 Strict standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s），同步制品哈希一致。

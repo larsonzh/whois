@@ -21,6 +21,8 @@
 #include "wc/wc_dns.h"
 #include "wc/wc_server.h"
 #include "wc/wc_net.h"
+#include "wc/wc_proxy.h"
+
 #include "wc/wc_selftest.h"
 #include "wc/wc_util.h"
 #include "lookup_internal.h"
@@ -44,6 +46,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
     size_t blen = *ctx->blen;
 
     int arin_banner_only = 0;
+    int proxy_terminal_failure = 0;
     int persistent_empty_local = 0;
 
     if (blen > 0) {
@@ -149,11 +152,20 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             ni4.connected = 0;
                             ni4.fd = -1;
                             ni4.ip[0] = '\0';
-                            rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)ctx->current_port,
-                                zopts->timeout_sec * 1000, zopts->retries, &ni4);
+                            int used_proxy = 0;
+                            wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
+                            rc4 = wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf,
+                                (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,
+                                &ni4, &used_proxy, &proxy_result);
                             empty_ipv4_attempted = 1;
                             int empty_backoff_success = (rc4 == 0 && ni4.connected);
-                            wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
+                            if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
+                            else if (!empty_backoff_success) {
+                                out->meta.proxy_failure = 1;
+                                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
+                                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
+                                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+                            }
                             if (empty_backoff_success) {
                                 char ts[32];
                                 wc_lookup_format_time(ts, sizeof(ts));
@@ -201,7 +213,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
         }
 
         // Unified fallback extension: try known IPv4 mapping if still unhandled
-        if (!handled_empty && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {
+        if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && !cfg->no_dns_known_fallback && !cfg->ipv6_only) {
             const char* domain_for_known = NULL;
             if (!wc_dns_is_ip_literal(current_host)) domain_for_known = current_host; else {
                 const char* ch = wc_dns_canonical_host_for_rir(rir_empty);
@@ -216,10 +228,19 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                     ni2.connected = 0;
                     ni2.fd = -1;
                     ni2.ip[0] = '\0';
-                    rc2 = wc_dial_43(net_ctx, kip, (uint16_t)ctx->current_port,
-                        zopts->timeout_sec * 1000, zopts->retries, &ni2);
+                    int used_proxy = 0;
+                    wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
+                    rc2 = wc_proxy_dial_hop(cfg, net_ctx, current_host, kip,
+                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,
+                        &ni2, &used_proxy, &proxy_result);
                     int empty_known_success = (rc2 == 0 && ni2.connected);
-                    wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
+                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
+                    else if (!empty_known_success) {
+                        out->meta.proxy_failure = 1;
+                        proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
+                            proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
+                            proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+                    }
                     if (empty_known_success) {
                         char ts[32];
                         wc_lookup_format_time(ts, sizeof(ts));
@@ -258,7 +279,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
             }
         }
 
-        if (!handled_empty && allow_empty_retry && *ctx->empty_retry == 0) {
+        if (!handled_empty && !proxy_terminal_failure && allow_empty_retry && *ctx->empty_retry == 0) {
             // last resort: once per host
             char ts[32];
             wc_lookup_format_time(ts, sizeof(ts));
@@ -278,6 +299,13 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                                    pref_label, net_ctx, cfg);
         }
 
+        if (proxy_terminal_failure) {
+            if (body) free(body);
+            *ctx->body = NULL;
+            *ctx->blen = 0;
+            out->err = WC_ERR_IO;
+            return -1;
+        }
         if (handled_empty) {
             out->meta.fallback_flags |= 0x2; // empty_retry
             if (body) free(body);

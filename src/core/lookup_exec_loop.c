@@ -756,9 +756,9 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
             .blen = &blen,
             .persistent_empty = &persistent_empty
         };
-        if (wc_lookup_exec_handle_empty_body(&empty_ctx)) {
-            continue;
-        }
+        int empty_action = wc_lookup_exec_handle_empty_body(&empty_ctx);
+        if (empty_action < 0) break;
+        if (empty_action > 0) continue;
         if (current_hop_is_original_query && persistent_empty) {
             wc_lookup_exec_failure_debt_mark(
                 failure_debt_slots,

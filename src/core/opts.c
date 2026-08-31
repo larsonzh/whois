@@ -20,6 +20,7 @@
 #include <ctype.h>
 
 #include "wc/wc_strings.h"
+#include "wc/wc_dns.h" /* 13B-2 A proxy literal validation */
 
 #if defined(_WIN32) || defined(__MINGW32__)
 /* Minimal getopt shim for Windows/MinGW hosts (no system getopt.h). */
@@ -289,6 +290,264 @@ static int wc_opts_parse_rir_pref_list(wc_opts_t* o, const char* value) {
 }
 
 // Local helpers ----------------------------------------------------------------
+void wc_opts_proxy_clear(wc_proxy_config_t* proxy)
+{
+    volatile unsigned char* cursor;
+    size_t index;
+    if (!proxy) return;
+    cursor = (volatile unsigned char*)proxy;
+    for (index = 0; index < sizeof(*proxy); ++index) cursor[index] = 0;
+}
+
+static int wc_opts_proxy_copy(char* dst, size_t capacity, const char* src)
+{
+    size_t length;
+    if (!dst || capacity == 0 || !src) return 0;
+    length = strlen(src);
+    if (length >= capacity) return 0;
+    memcpy(dst, src, length + 1);
+    return 1;
+}
+
+static int wc_opts_proxy_hex(unsigned char value)
+{
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static int wc_opts_proxy_percent_well_formed(const char* text)
+{
+    const unsigned char* cursor = (const unsigned char*)text;
+    if (!cursor) return 0;
+    while (*cursor) {
+        if (*cursor == '%') {
+            if (!cursor[1] || !cursor[2] || wc_opts_proxy_hex(cursor[1]) < 0 ||
+                wc_opts_proxy_hex(cursor[2]) < 0) return 0;
+            cursor += 3;
+        } else {
+            ++cursor;
+        }
+    }
+    return 1;
+}
+
+static int wc_opts_proxy_decode(char* dst, size_t capacity, const char* src)
+{
+    size_t used = 0;
+    const unsigned char* cursor = (const unsigned char*)src;
+    if (!dst || capacity == 0 || !cursor) return 0;
+    while (*cursor) {
+        unsigned char value = *cursor++;
+        if (value == '%') {
+            int high = wc_opts_proxy_hex(cursor[0]);
+            int low = wc_opts_proxy_hex(cursor[1]);
+            if (high < 0 || low < 0) return 0;
+            value = (unsigned char)((high << 4) | low);
+            cursor += 2;
+        }
+        if (value == 0 || value < 0x20 || value == 0x7f || used + 1 >= capacity) return 0;
+        dst[used++] = (char)value;
+    }
+    dst[used] = '\0';
+    return used != 0;
+}
+
+static int wc_opts_proxy_has_rir_override(const wc_opts_t* opts)
+{
+    return opts->rir_pref_iana != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_arin != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_ripe != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_apnic != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_lacnic != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_afrinic != WC_RIR_IP_PREF_UNSET ||
+        opts->rir_pref_verisign != WC_RIR_IP_PREF_UNSET;
+}
+
+int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out)
+{
+    const char* url = NULL;
+    const char* authority;
+    const char* scheme_end;
+    const char* at;
+    const char* host_begin;
+    const char* port_text = NULL;
+    const char* dedicated_user = env ? env->whois_proxy_user : NULL;
+    const char* dedicated_password = env ? env->whois_proxy_password : NULL;
+    const char* no_proxy_value = NULL;
+    char authority_buffer[512];
+    char userinfo[257];
+    char host[256];
+    char* colon;
+    char* port_end = NULL;
+    size_t authority_length;
+    long port = 0;
+    int from_cli = 0;
+    int literal;
+
+    if (!opts || !out) return 0;
+    wc_opts_proxy_clear(out);
+    out->scheme = WC_PROXY_SCHEME_DIRECT;
+    out->family = WC_PROXY_FAMILY_AUTO;
+    out->source = WC_PROXY_SOURCE_NONE;
+    out->proxy_env_enabled = opts->proxy_env ? 1 : 0;
+    out->allow_insecure_auth = opts->proxy_allow_insecure_auth ? 1 : 0;
+
+    if ((dedicated_user == NULL) != (dedicated_password == NULL) ||
+        (dedicated_user && (!*dedicated_user || !*dedicated_password))) {
+        fprintf(stderr, "Error: WHOIS_PROXY_USER and WHOIS_PROXY_PASSWORD must both be non-empty\n");
+        goto fail;
+    }
+
+    if (opts->proxy_url) {
+        if (!*opts->proxy_url) { fprintf(stderr, "Error: --proxy requires a non-empty URL\n"); goto fail; }
+        url = opts->proxy_url;
+        out->source = WC_PROXY_SOURCE_CLI;
+        from_cli = 1;
+    } else if (env && env->whois_proxy && *env->whois_proxy) {
+        url = env->whois_proxy;
+        out->source = WC_PROXY_SOURCE_WHOIS_PROXY;
+    } else if (opts->proxy_env && env && env->all_proxy && *env->all_proxy) {
+        url = env->all_proxy;
+        out->source = WC_PROXY_SOURCE_ALL_PROXY;
+    } else if (opts->proxy_env && env && env->all_proxy_lower && *env->all_proxy_lower) {
+        url = env->all_proxy_lower;
+        out->source = WC_PROXY_SOURCE_ALL_PROXY_LOWER;
+    }
+    if (!url) return 1;
+    out->configured = 1;
+    out->routing_enabled = 0;
+    if (opts->proxy_env && env) {
+        no_proxy_value = (env->no_proxy && *env->no_proxy) ? env->no_proxy : env->no_proxy_lower;
+        if (no_proxy_value && *no_proxy_value &&
+            !wc_opts_proxy_copy(out->no_proxy, sizeof(out->no_proxy), no_proxy_value)) {
+            fprintf(stderr, "Error: NO_PROXY value is too long\n");
+            goto fail;
+        }
+    }
+
+    if (!wc_opts_proxy_percent_well_formed(url)) { fprintf(stderr, "Error: malformed percent escape in proxy URL\n"); goto fail; }
+    if (strchr(url, '?') || strchr(url, '#')) { fprintf(stderr, "Error: proxy URL query/fragment is not allowed\n"); goto fail; }
+    scheme_end = strstr(url, "://");
+    if (!scheme_end || scheme_end == url) { fprintf(stderr, "Error: proxy URL must be absolute\n"); goto fail; }
+    if ((size_t)(scheme_end - url) == 4 && strncasecmp(url, "http", 4) == 0) {
+        out->scheme = WC_PROXY_SCHEME_HTTP;
+        port = 8080;
+    } else if ((size_t)(scheme_end - url) == 6 && strncasecmp(url, "socks5", 6) == 0) {
+        out->scheme = WC_PROXY_SCHEME_SOCKS5;
+        port = 1080;
+    } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, "socks5h", 7) == 0) {
+        out->scheme = WC_PROXY_SCHEME_SOCKS5H;
+        port = 1080;
+    } else {
+        fprintf(stderr, "Error: unsupported proxy scheme\n");
+        goto fail;
+    }
+
+    authority = scheme_end + 3;
+    if (!*authority || strchr(authority, '/')) { fprintf(stderr, "Error: proxy URL must contain authority only\n"); goto fail; }
+    authority_length = strlen(authority);
+    if (authority_length >= sizeof(authority_buffer)) { fprintf(stderr, "Error: proxy authority is too long\n"); goto fail; }
+    memcpy(authority_buffer, authority, authority_length + 1);
+    at = strchr(authority_buffer, '@');
+    if (at && strchr(at + 1, '@')) { fprintf(stderr, "Error: proxy URL contains multiple userinfo separators\n"); goto fail; }
+    host_begin = authority_buffer;
+    if (at) {
+        size_t userinfo_length = (size_t)(at - authority_buffer);
+        if (from_cli) { fprintf(stderr, "Error: CLI proxy URL userinfo is forbidden\n"); goto fail; }
+        if (dedicated_user) { fprintf(stderr, "Error: proxy URL userinfo conflicts with dedicated credentials\n"); goto fail; }
+        if (userinfo_length == 0 || userinfo_length >= sizeof(userinfo)) { fprintf(stderr, "Error: invalid proxy URL userinfo\n"); goto fail; }
+        memcpy(userinfo, authority_buffer, userinfo_length);
+        userinfo[userinfo_length] = '\0';
+        colon = strchr(userinfo, ':');
+        if (!colon) { fprintf(stderr, "Error: proxy URL userinfo requires user and password\n"); goto fail; }
+        *colon++ = '\0';
+        if (!wc_opts_proxy_decode(out->username, sizeof(out->username), userinfo) ||
+            !wc_opts_proxy_decode(out->password, sizeof(out->password), colon)) {
+            fprintf(stderr, "Error: proxy URL userinfo must decode to non-empty credentials\n");
+            goto fail;
+        }
+        out->has_credentials = 1;
+        host_begin = at + 1;
+    }
+
+    if (*host_begin == '[') {
+        const char* close = strchr(host_begin + 1, ']');
+        size_t host_length;
+        if (!close || close == host_begin + 1) { fprintf(stderr, "Error: invalid bracketed proxy IPv6 literal\n"); goto fail; }
+        host_length = (size_t)(close - host_begin - 1);
+        if (host_length >= sizeof(host)) { fprintf(stderr, "Error: proxy host is too long\n"); goto fail; }
+        memcpy(host, host_begin + 1, host_length);
+        host[host_length] = '\0';
+        if (close[1] == ':') port_text = close + 2;
+        else if (close[1] != '\0') { fprintf(stderr, "Error: invalid proxy authority suffix\n"); goto fail; }
+        if (!wc_dns_is_ip_literal(host) || !strchr(host, ':')) { fprintf(stderr, "Error: brackets require an IPv6 literal\n"); goto fail; }
+    } else {
+        const char* first_colon = strchr(host_begin, ':');
+        const char* last_colon = strrchr(host_begin, ':');
+        size_t host_length;
+        if (first_colon && first_colon != last_colon) { fprintf(stderr, "Error: IPv6 proxy literals must use brackets\n"); goto fail; }
+        if (last_colon) {
+            host_length = (size_t)(last_colon - host_begin);
+            port_text = last_colon + 1;
+        } else {
+            host_length = strlen(host_begin);
+        }
+        if (host_length == 0 || host_length >= sizeof(host)) { fprintf(stderr, "Error: invalid proxy host\n"); goto fail; }
+        memcpy(host, host_begin, host_length);
+        host[host_length] = '\0';
+    }
+    if (strchr(host, '%') || strpbrk(host, " \t\r\n")) { fprintf(stderr, "Error: invalid proxy host\n"); goto fail; }
+    if (port_text) {
+        const unsigned char* digit = (const unsigned char*)port_text;
+        if (!*digit) { fprintf(stderr, "Error: proxy port is empty\n"); goto fail; }
+        while (*digit) { if (!isdigit(*digit++)) { fprintf(stderr, "Error: proxy port must be numeric\n"); goto fail; } }
+        port = strtol(port_text, &port_end, 10);
+        if (!port_end || *port_end || port < 1 || port > 65535) { fprintf(stderr, "Error: proxy port is out of range\n"); goto fail; }
+    }
+    if (!wc_opts_proxy_copy(out->endpoint_host, sizeof(out->endpoint_host), host)) { fprintf(stderr, "Error: proxy host is too long\n"); goto fail; }
+    out->endpoint_port = (int)port;
+
+    if (!opts->proxy_family || !*opts->proxy_family || strcasecmp(opts->proxy_family, "auto") == 0) out->family = WC_PROXY_FAMILY_AUTO;
+    else if (strcasecmp(opts->proxy_family, "v4") == 0) out->family = WC_PROXY_FAMILY_V4;
+    else if (strcasecmp(opts->proxy_family, "v6") == 0) out->family = WC_PROXY_FAMILY_V6;
+    else { fprintf(stderr, "Error: invalid --proxy-family (expected auto|v4|v6)\n"); goto fail; }
+    literal = wc_dns_is_ip_literal(host);
+    if (literal && ((out->family == WC_PROXY_FAMILY_V4 && strchr(host, ':')) ||
+        (out->family == WC_PROXY_FAMILY_V6 && !strchr(host, ':')))) {
+        fprintf(stderr, "Error: proxy-family conflicts with numeric proxy endpoint\n");
+        goto fail;
+    }
+
+    if (dedicated_user) {
+        if (!wc_opts_proxy_copy(out->username, sizeof(out->username), dedicated_user) ||
+            !wc_opts_proxy_copy(out->password, sizeof(out->password), dedicated_password)) {
+            fprintf(stderr, "Error: dedicated proxy credentials are too long\n");
+            goto fail;
+        }
+        out->has_credentials = 1;
+    }
+    if (out->scheme == WC_PROXY_SCHEME_HTTP && out->has_credentials && !out->allow_insecure_auth) {
+        fprintf(stderr, "Error: cleartext HTTP proxy credentials require --proxy-allow-insecure-auth\n");
+        goto fail;
+    }
+    if (out->scheme == WC_PROXY_SCHEME_SOCKS5H &&
+        (opts->ipv4_only || opts->ipv6_only || opts->dns_family_mode_set ||
+         opts->dns_family_mode_first_set || opts->dns_family_mode_next_set ||
+         opts->no_dns_known_fallback || opts->no_dns_force_ipv4_fallback ||
+         opts->no_iana_pivot || opts->dns_no_fallback || wc_opts_proxy_has_rir_override(opts))) {
+        fprintf(stderr, "Error: socks5h conflicts with target-family, fallback, or RIR override controls\n");
+        goto fail;
+    }
+    out->routing_enabled = (out->scheme == WC_PROXY_SCHEME_HTTP);
+    return 1;
+
+fail:
+    wc_opts_proxy_clear(out);
+    return 0;
+}
+
 static size_t parse_size_with_unit_local(const char* str) {
     if (!str || !*str) return 0;
     char* end = NULL;
@@ -381,6 +640,10 @@ void wc_opts_init_defaults(wc_opts_t* o) {
     o->show_non_auth_body = 0;
     o->show_post_marker_body = 0;
     o->hide_failure_body = 0;
+    o->proxy_url = NULL;
+    o->proxy_env = 0;
+    o->proxy_family = "auto";
+    o->proxy_allow_insecure_auth = 0;
 }
 
 static struct option wc_long_options[] = {
@@ -489,6 +752,10 @@ static struct option wc_long_options[] = {
     {"dns-cache-stats", no_argument, 0, 1213},
     {"dns-no-fallback", no_argument, 0, 1214},
     {"cache-counter-sampling", no_argument, 0, 1217},
+    {"proxy", required_argument, 0, 1328},
+    {"proxy-env", no_argument, 0, 1329},
+    {"proxy-family", required_argument, 0, 1330},
+    {"proxy-allow-insecure-auth", no_argument, 0, 1331},
     {"batch-strategy", required_argument, 0, 1300},
     /* language option removed */
     {0,0,0,0}
@@ -593,6 +860,10 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
             case 1323: o->print_meta = 1; break;
             case 1324: o->print_chain = 1; break;
             case 1327: o->stats = 1; break;
+            case 1328: o->proxy_url = optarg; break;
+            case 1329: o->proxy_env = 1; break;
+            case 1330: o->proxy_family = optarg; break;
+            case 1331: o->proxy_allow_insecure_auth = 1; break;
             case 1325: {
                 char* parsed = NULL;
                 if (wc_pick_parse_keys(optarg, &parsed) != 0)
@@ -829,7 +1100,25 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         }
     }
 
-    // Allow -P/--plain placed after the query (common when users append flags).
+    {
+        wc_proxy_env_t proxy_env = {
+            getenv("WHOIS_PROXY"),
+            getenv("ALL_PROXY"),
+            getenv("all_proxy"),
+            getenv("WHOIS_PROXY_USER"),
+            getenv("WHOIS_PROXY_PASSWORD"),
+            getenv("NO_PROXY"),
+            getenv("no_proxy")
+        };
+        if (!wc_opts_proxy_resolve(o, &proxy_env, &o->proxy)) return 37;
+        if (o->proxy.configured && !o->proxy.routing_enabled) {
+            wc_opts_proxy_clear(&o->proxy);
+            fprintf(stderr, "Error: Configured proxy scheme is not available in the HTTP CONNECT build\n");
+            return 37;
+        }
+    }
+
+    // Preserve late -P/--plain handling for options appended after the query.
     wc_opts_apply_late_plain(o, argc, argv, optind + 1);
 
     if (o->print_meta && o->plain_mode) {
@@ -876,4 +1165,5 @@ void wc_opts_free(wc_opts_t* o) {
     if (!o) return;
     if (o->fold_sep) { free((char*)o->fold_sep); o->fold_sep = NULL; }
     free(o->pick_keys); o->pick_keys = NULL;
+    wc_opts_proxy_clear(&o->proxy);
 }

@@ -7,6 +7,7 @@
 #include "lookup_exec_terminal_retry.h"
 #include "wc/wc_preclass.h"
 #include "wc/wc_opts.h"
+#include "wc/wc_proxy.h"
 #include "wc/wc_fold.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_server.h"
@@ -279,6 +280,127 @@ static int selftest_net_dial_policy(void)
 
     wc_net_context_shutdown(&context);
     return failed;
+}
+
+static int selftest_proxy_expect(const char* name, int condition)
+{
+    fprintf(stderr, "[SELFTEST] proxy-preflight-%s: %s\n", name, condition ? "PASS" : "FAIL");
+    return condition ? 0 : 1;
+}
+
+static int selftest_proxy_preflight_matrix(void)
+{
+    wc_opts_t opts;
+    wc_proxy_env_t env;
+    wc_proxy_config_t proxy;
+    int failed_local = 0;
+    size_t index;
+    const unsigned char* bytes;
+
+    memset(&env, 0, sizeof(env));
+    wc_opts_init_defaults(&opts);
+    failed_local |= selftest_proxy_expect("default-direct",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured && !proxy.routing_enabled);
+
+    env.whois_proxy = "socks5://env.example:9000";
+    opts.proxy_url = "http://cli.example:8081";
+    failed_local |= selftest_proxy_expect("cli-precedence",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_CLI &&
+        proxy.scheme == WC_PROXY_SCHEME_HTTP && strcmp(proxy.endpoint_host, "cli.example") == 0);
+    opts.proxy_url = NULL;
+    failed_local |= selftest_proxy_expect("whois-proxy",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_WHOIS_PROXY);
+
+    env.whois_proxy = NULL;
+    env.all_proxy = "socks5://upper.example";
+    env.all_proxy_lower = "socks5://lower.example";
+    failed_local |= selftest_proxy_expect("all-proxy-ignored",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured);
+    opts.proxy_env = 1;
+    failed_local |= selftest_proxy_expect("all-proxy-opt-in",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_ALL_PROXY);
+    env.all_proxy = NULL;
+    failed_local |= selftest_proxy_expect("all-proxy-lower",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.source == WC_PROXY_SOURCE_ALL_PROXY_LOWER);
+    memset(&env, 0, sizeof(env));
+    opts.proxy_env = 0;
+    failed_local |= selftest_proxy_expect("http-proxy-api-absence",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && !proxy.configured);
+
+    opts.proxy_url = "http://proxy.example";
+    failed_local |= selftest_proxy_expect("http-default-port",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 8080);
+    opts.proxy_url = "socks5://proxy.example";
+    failed_local |= selftest_proxy_expect("socks-default-port",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080);
+    opts.proxy_url = "socks5://[2001:db8::1]:1081";
+    failed_local |= selftest_proxy_expect("ipv6-bracket",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && strcmp(proxy.endpoint_host, "2001:db8::1") == 0 && proxy.endpoint_port == 1081);
+    opts.proxy_url = "socks5://2001:db8::1";
+    failed_local |= selftest_proxy_expect("ipv6-unbracketed", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "socks5://proxy.example:0";
+    failed_local |= selftest_proxy_expect("port-range", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+
+    opts.proxy_url = "ftp://proxy.example";
+    failed_local |= selftest_proxy_expect("unknown-scheme", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "http://proxy.example/path";
+    failed_local |= selftest_proxy_expect("path-rejected", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "http://proxy.example?q=1";
+    failed_local |= selftest_proxy_expect("query-rejected", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "http://proxy.example#frag";
+    failed_local |= selftest_proxy_expect("fragment-rejected", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "http://proxy.example/%GG";
+    failed_local |= selftest_proxy_expect("malformed-percent", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_url = "http://user:pass@proxy.example";
+    failed_local |= selftest_proxy_expect("cli-userinfo", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+
+    opts.proxy_url = NULL;
+    env.whois_proxy = "socks5://u%73er:p%61ss@proxy.example";
+    failed_local |= selftest_proxy_expect("env-userinfo-decode",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.has_credentials &&
+        strcmp(proxy.username, "user") == 0 && strcmp(proxy.password, "pass") == 0);
+    env.whois_proxy = "socks5://proxy.example";
+    env.whois_proxy_user = "dedicated-user";
+    env.whois_proxy_password = "dedicated-password";
+    failed_local |= selftest_proxy_expect("dedicated-pair",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.has_credentials);
+    env.whois_proxy_password = NULL;
+    failed_local |= selftest_proxy_expect("dedicated-missing", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    env.whois_proxy_password = "";
+    failed_local |= selftest_proxy_expect("dedicated-empty", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    env.whois_proxy = "socks5://url-user:url-pass@proxy.example";
+    env.whois_proxy_password = "dedicated-password";
+    failed_local |= selftest_proxy_expect("credential-conflict", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+
+    env.whois_proxy = "http://proxy.example";
+    failed_local |= selftest_proxy_expect("cleartext-auth-gate", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_allow_insecure_auth = 1;
+    failed_local |= selftest_proxy_expect("cleartext-auth-explicit", wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_allow_insecure_auth = 0;
+    env.whois_proxy_user = NULL;
+    env.whois_proxy_password = NULL;
+
+    opts.proxy_url = "socks5://127.0.0.1";
+    opts.proxy_family = "v6";
+    failed_local |= selftest_proxy_expect("family-literal-conflict", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.proxy_family = "auto";
+    opts.proxy_url = "socks5h://proxy.example";
+    opts.ipv4_only = 1;
+    failed_local |= selftest_proxy_expect("socks5h-target-family", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.ipv4_only = 0;
+    opts.no_dns_known_fallback = 1;
+    failed_local |= selftest_proxy_expect("socks5h-fallback", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.no_dns_known_fallback = 0;
+    opts.rir_pref_arin = WC_RIR_IP_PREF_V4;
+    failed_local |= selftest_proxy_expect("socks5h-rir-override", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+
+    memset(&proxy, 0x5a, sizeof(proxy));
+    wc_opts_proxy_clear(&proxy);
+    bytes = (const unsigned char*)&proxy;
+    for (index = 0; index < sizeof(proxy) && bytes[index] == 0; ++index) { }
+    failed_local |= selftest_proxy_expect("proxy-clear-zeroization", index == sizeof(proxy));
+    wc_opts_free(&opts);
+    return failed_local;
 }
 
 static int selftest_injection_view_fallback(void) {
@@ -1269,7 +1391,9 @@ int wc_selftest_run(void) {
     selftest_dns_negative_flag();
     failed |= selftest_dns_family_controls();
     failed |= selftest_net_dial_policy();
+    failed |= wc_proxy_selftest();
     failed |= selftest_dns_fallback_toggles();
+    failed |= selftest_proxy_preflight_matrix();
     failed |= selftest_injection_view_fallback();
 
     return failed ? 1 : 0;

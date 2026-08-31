@@ -242,6 +242,7 @@ function Restore-ASuccessSnapshotAbsentTargets {
         [string]$SnapshotDir,
         [string]$DestinationRoot,
         [string[]]$AllowedPaths = @(),
+        [string[]]$AdditionalAbsentPaths = @(),
         [AllowEmptyString()][string]$ExpectedTargetSetSha256 = ''
     )
 
@@ -258,7 +259,15 @@ function Restore-ASuccessSnapshotAbsentTargets {
 
     $destinationRootFull = [System.IO.Path]::GetFullPath($DestinationRoot).TrimEnd('\') + '\'
     $absentPaths = New-Object 'System.Collections.Generic.List[string]'
+    $manifestPaths = @{}
+    foreach ($entry in @($manifest.files)) {
+        $manifestPath = ConvertTo-ASnapshotRelativePath -Path ([string]$entry.path)
+        if (-not [string]::IsNullOrWhiteSpace($manifestPath)) {
+            $manifestPaths[$manifestPath.ToLowerInvariant()] = $true
+        }
+    }
     $removedCount = 0
+    $additionalAbsentCount = 0
     foreach ($entry in @($manifest.files)) {
         if (-not ($entry.PSObject.Properties.Name -contains 'exists') -or [bool]$entry.exists) {
             continue
@@ -282,8 +291,36 @@ function Restore-ASuccessSnapshotAbsentTargets {
         [void]$absentPaths.Add($relativePath)
     }
 
+    foreach ($additionalPath in @($AdditionalAbsentPaths)) {
+        $relativePath = ConvertTo-ASnapshotRelativePath -Path ([string]$additionalPath)
+        if ([string]::IsNullOrWhiteSpace($relativePath)) {
+            throw "A snapshot additional absent target path is invalid: $additionalPath"
+        }
+        if ($manifestPaths.ContainsKey($relativePath.ToLowerInvariant()) -or $absentPaths.Contains($relativePath)) {
+            continue
+        }
+
+        $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $DestinationRoot $relativePath.Replace('/', '\')))
+        if (-not $destinationPath.StartsWith($destinationRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "A snapshot additional absent target escaped destination root: $relativePath"
+        }
+        if (Test-Path -LiteralPath $destinationPath -PathType Container) {
+            throw "A snapshot additional absent target is a directory: $relativePath"
+        }
+        if (Test-Path -LiteralPath $destinationPath -PathType Leaf) {
+            Remove-Item -LiteralPath $destinationPath -Force -ErrorAction Stop
+            $removedCount++
+        }
+        if (Test-Path -LiteralPath $destinationPath) {
+            throw "A snapshot additional absent target restore failed: $relativePath"
+        }
+        [void]$absentPaths.Add($relativePath)
+        $additionalAbsentCount++
+    }
+
     return [pscustomobject]@{
         RemovedCount = $removedCount
+        AdditionalAbsentCount = $additionalAbsentCount
         AbsentPaths = @($absentPaths)
     }
 }

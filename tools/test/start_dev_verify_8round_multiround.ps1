@@ -1487,7 +1487,7 @@ function Invoke-RoundTaskStaticGate {
 
     $invokeResult = Invoke-StreamingCapture -Action { & $ScriptPath @staticCheckArgs } -EmitToConsole:$false
     $exitCode = if ($null -eq $invokeResult.ExitCode) { 0 } else { [int]$invokeResult.ExitCode }
-    $lines = ConvertTo-NormalizedLine -Raw $invokeResult.Raw
+    $lines = @(ConvertTo-NormalizedLine -Raw $invokeResult.Raw)
     $result.Lines = @($lines)
     $result.ExitCode = $exitCode
 

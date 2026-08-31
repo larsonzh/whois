@@ -107,6 +107,14 @@ typedef struct wc_net_dial_policy {
 } wc_net_dial_policy_t;
 
 void wc_net_dial_policy_init(wc_net_dial_policy_t* policy);
+uint64_t wc_net_deadline_after(int timeout_ms);
+int wc_net_dial_endpoint_until(wc_net_context_t* ctx,
+                               const char* host,
+                               uint16_t port,
+                               uint64_t deadline_ms,
+                               int retries,
+                               const wc_net_dial_policy_t* policy,
+                               struct wc_net_info* out);
 int wc_net_dial_endpoint(wc_net_context_t* ctx,
                          const char* host,
                          uint16_t port,

@@ -5,7 +5,7 @@
 > - 明确“已完成的历史拆分”和“当前维护状态”，便于长期维护和断点续作；
 > - 保证在任何时刻，都能回答：当前 master 上 `whois_client.c` 的形态与目标状态之间还差多少。
 
-**当前状态（截至 2026-08-25）**：
+**当前状态（截至 2026-08-31）**：
 
 - `whois_client.c` 已收敛为参数入口与前端调度薄层；客户端拆分主线完成，不再以文件行数、helper 数量或 A/B 轮次作为继续拆分依据。
 - Address-Space 前置分类器的功能开发、默认放量、回退路径、契约验证与 literal 收敛均已完成；剩余 6 个多调用或带 prototype 的 literal helper 作为命名常量有意保留。
@@ -14,6 +14,7 @@
 
 **当前维护状态（唯一状态入口）**：
 
+- 2026-08-31 WP-13B-2 无人值守 A/B 已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260830-133709`（8/8 一轮通过，`2026-08-30 13:36:33` → `18:46:02`），B run=`out/artifacts/dev_verify_multiround/20260831-032025`（首跑 D1 后 `runtime-fail`，修复 3 处编排脚本与 A 快照锚点后 stage-window 重启续跑 8/8，`2026-08-31 01:30:36` → `08:27:32`，B elapsed `0d 06:56:57`）；A/B 合计 `0d 18:51:00`。最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）。代理功能落地细节以 `docs/RFC-proxy-access.md` 11.x 回填为准；WP-13C（SOCKS4/4a）/WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续。
 - post-3.3.0 开发已按 `docs/RFC-post-3.3.0-development-plan.md` 推进，WP-01–WP-10 均已完成（done）；WP-11 保持证据触发的 proposed，后续工作包状态以该 RFC 为唯一入口。
 - 2026-08-24 已修复 `injection-view-fallback` standalone selftest 的反向返回值断言，生产查询逻辑与输出契约不变；Strict `lto-auto` 默认轮九架构、hash、Golden、referral 与 standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s）；2026-08-25 真实 one-click 演练完成（v3.3.1，tag 指向最终静态产物提交 `4357c6a0`），WP-01 关闭（done）。
 - 2026-08-24 WP-05 已完成：`wc_pick` 独立承载精确标题字段抽取，pipeline 顺序固定为 title -> grep -> pick -> fold/body，查询执行结果独立记录有序 logical hop。最终 Strict `lto-auto` 九架构零编译/LTO 告警，artifact 与双发布目录 SHA-256 `9/9` 一致，Linux/QEMU/native 与 Windows Wine smoke 零告警，Golden/三起点 referral PASS（`out/artifacts/20260824-170256`，351s）。
@@ -25,6 +26,7 @@
 - 核心模块局部治理与性能优化不设常驻优先级或排期；仅在测试覆盖和可复现实测基线证明收益后，以新事项启动。
 
 **快速索引（轻整理，摘要版）**：
+- 2026-08-31：串行 WP-13B-2“无人值守 A/B”已完成执行回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`（A run=`out/artifacts/dev_verify_multiround/20260830-133709`，B run=`out/artifacts/dev_verify_multiround/20260831-032025`，A/B 合计 `0d 18:51:00`，session start=2026-08-30 13:36:33）；B 首跑 D1 后 `runtime-fail`（.Count 属性异常）触发 3 处编排脚本根因修复（multiround 单行输出数组化、Vx artifact 目录移动有限重试、guard A 快照锚点保护/重载）与 start-file A 快照锚点恢复，经标准 stop/reset/launch-ready 后 stage-window 重启（B pid 13396、guard 15324、trigger 24908）从 D1 续跑 8/8 收敛；事件票 `T20260831-024551167-8db236de`、`T20260831-024556280-6af52afe`、`chat-final-20260831-082732`（handled_at 2026-08-31 08:28:44）闭环；最终 Strict 远程构建冒烟同步 + 黄金校验（`lto-auto`）无告警通过（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）（详见 `docs/RFC-proxy-access.md` 11.x 执行回填）。
 - 2026-08-24：WP-01 `injection-view-fallback` 遗留项完成修复与重建复核。测试改用天然可疑输入区分 injection view fallback 与普通阻断，并按 handler 既有返回契约断言；core golden 新增 PASS 必须出现、FAIL 禁止出现。最终 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 Local hash `9/9`、Golden 与三起点 referral 全 PASS（`out/artifacts/20260824-081341`，281s）；Linux/win32/win64 smoke 为 `18/3/3` 条完整查询且无硬错误，Strict win64 standalone selftest exit=0，双同步目录九架构哈希一致。
 - 2026-08-23：响应分类修复后的发布候选完整复核通过。Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 清单实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`，292s；`20260823-152347`，281s）；Batch 四策略全 `[golden] PASS`（`152928/153443/154054/154744`，1,356.781s）；Selftest 四策略及独立 core golden 全 PASS（`155355/155909/160500/161048`，1,298.199s），core 报告逐项命中 `redirect-invalid-key-priority`、`redirect-denied-priority`、`redirect-rate-limit-priority`、`redirect-semantic-empty-priority` PASS 且禁止对应 FAIL。12x6 authority 空表、`errors=(no errors found)`（`out/artifacts/redirect_matrix_10x6/20260823-161855`）；CIDR body `4/4`、draft matrix `9/9`、bundle exit 0（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍含既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不属于 golden 门禁全绿声明，也不是本轮回归；本轮无需代码修复。
 - 2026-08-23：RFC 状态治理与 A/B 检查点 Phase 1 收口完成：完整 `status_ticket_mini_regression.ps1` 实跑 `72/72 PASS`（`failed_cases=0`），其中 `round-checkpoint-phase1`、`fast-pass-resume-matrix` 均 PASS；证据 `out/artifacts/status_ticket_mini_regression/20260823-144058`。顶部唯一状态入口不再保留已完成的 P0/P1；Phase 1 固定为观测元数据，恢复继续使用 fast-pass，direct resume 不启用，Phase 2/3 保持关闭。

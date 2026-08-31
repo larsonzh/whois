@@ -97,6 +97,7 @@ void wc_client_apply_opts_to_config(const wc_opts_t* opts, Config* cfg) {
 	cfg->batch_interval_ms = opts->batch_interval_ms;
 	cfg->batch_jitter_ms = opts->batch_jitter_ms;
 	cfg->batch_strategy = opts->batch_strategy;
+	cfg->proxy = opts->proxy;       // 13B-2 A preflight mapping
 	cfg->fold_output = opts->fold;
 	cfg->fold_upper = opts->fold_upper;
 	cfg->fold_unique = opts->fold_unique;

@@ -11,6 +11,43 @@
 // between whois_client.c and core helpers.
 typedef struct Config Config;
 
+typedef enum wc_proxy_scheme {
+    WC_PROXY_SCHEME_DIRECT = 0,
+    WC_PROXY_SCHEME_HTTP = 1,
+    WC_PROXY_SCHEME_SOCKS5 = 2,
+    WC_PROXY_SCHEME_SOCKS5H = 3
+} wc_proxy_scheme_t;
+
+typedef enum wc_proxy_family {
+    WC_PROXY_FAMILY_AUTO = 0,
+    WC_PROXY_FAMILY_V4 = 4,
+    WC_PROXY_FAMILY_V6 = 6
+} wc_proxy_family_t;
+
+typedef enum wc_proxy_source {
+    WC_PROXY_SOURCE_NONE = 0,
+    WC_PROXY_SOURCE_CLI = 1,
+    WC_PROXY_SOURCE_WHOIS_PROXY = 2,
+    WC_PROXY_SOURCE_ALL_PROXY = 3,
+    WC_PROXY_SOURCE_ALL_PROXY_LOWER = 4
+} wc_proxy_source_t;
+
+typedef struct wc_proxy_config {
+    int configured;
+    int routing_enabled;
+    int proxy_env_enabled;
+    int allow_insecure_auth;
+    int has_credentials;
+    wc_proxy_scheme_t scheme;
+    wc_proxy_family_t family;
+    wc_proxy_source_t source;
+    int endpoint_port;
+    char endpoint_host[256];
+    char username[128];
+    char password[128];
+    char no_proxy[1024];       // copied NO_PROXY/no_proxy value for per-hop matching
+} wc_proxy_config_t;
+
 struct Config {
 	int whois_port;                // WHOIS server port
 	size_t buffer_size;            // Response buffer size
@@ -97,6 +134,7 @@ struct Config {
 	int batch_interval_ms;         // sleep between batch queries in ms (0 = disable)
 	int batch_jitter_ms;           // add random 0..J ms to batch interval
 	const char* batch_strategy;    // batch accelerator/strategy selection
+	wc_proxy_config_t proxy;       // 13B-2 A preflight state; routing remains disabled
 };
 
 // Validates mandatory bounds in the configuration structure.

@@ -29,6 +29,28 @@ function Get-VxRegexOccurrenceCount {
     return $count
 }
 
+function Move-VxArtifactDirectory {
+    param([string]$Staging, [string]$Destination)
+
+    $retryDelaysMs = @(50, 100, 200)
+    for ($attempt = 1; $attempt -le ($retryDelaysMs.Count + 1); $attempt++) {
+        try {
+            [IO.Directory]::Move($Staging, $Destination)
+            return
+        }
+        catch {
+            if (Test-Path -LiteralPath $Destination) {
+                throw "validated artifact directory already exists: $Destination"
+            }
+            if ($attempt -gt $retryDelaysMs.Count) {
+                throw
+            }
+            Add-InfoIssue ("vx artifact publish retry attempt={0} destination={1} detail={2}" -f $attempt, $Destination, $_.Exception.Message)
+            [Threading.Thread]::Sleep($retryDelaysMs[$attempt - 1])
+        }
+    }
+}
+
 function Publish-VxArtifact {
     param([string]$Directory, [object]$Registry, [hashtable]$Slots, [object]$Touched, [string]$Round, [int]$OperationCount)
 
@@ -74,7 +96,7 @@ function Publish-VxArtifact {
         $temporaryManifest = Join-Path $staging 'manifest.json.tmp'
         [IO.File]::WriteAllText($temporaryManifest, ($manifest | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
         [IO.File]::Move($temporaryManifest, (Join-Path $staging 'manifest.json'))
-        [IO.Directory]::Move($staging, $destination)
+        Move-VxArtifactDirectory -Staging $staging -Destination $destination
         Add-InfoIssue "vx artifact published directory=$destination"
     }
     finally {

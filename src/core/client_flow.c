@@ -656,8 +656,9 @@ static int wc_client_handle_batch_query(const Config* cfg,
         wc_pipeline_render(cfg, render_opts,
             query, start_host, &res, 1);
     } else {
-        wc_client_penalize_batch_failure(cfg, start_host, rc,
-            res.meta.last_connect_errno);
+        if (!res.meta.proxy_failure)
+            wc_client_penalize_batch_failure(cfg, start_host, rc,
+                res.meta.last_connect_errno);
         wc_report_query_failure(cfg, query, start_host,
             res.meta.last_connect_errno, &res);
     }
@@ -678,7 +679,7 @@ static int wc_client_handle_batch_query(const Config* cfg,
         free(mapped_host);
     }
 
-    if (wc_client_is_batch_strategy_enabled()) {
+    if ((lookup_succeeded || !res.meta.proxy_failure) && wc_client_is_batch_strategy_enabled()) {
         wc_batch_strategy_result_t strat_result = {
             .start_host = start_host,
             .authoritative_host = (res.meta.authoritative_host[0]

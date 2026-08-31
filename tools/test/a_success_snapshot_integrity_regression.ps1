@@ -93,6 +93,8 @@ try {
     $vxExistingDestination = Join-Path $vxDestinationDir $vxExistingRelative.Replace('/', '\')
     $vxMissingSnapshot = Join-Path $vxSourceDir $vxMissingRelative.Replace('/', '\')
     $vxMissingDestination = Join-Path $vxDestinationDir $vxMissingRelative.Replace('/', '\')
+    $vxBOnlyRelative = $caseRoot.Substring((Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path.Length).TrimStart('\').Replace('\', '/') + '/vx-b-only.txt'
+    $vxBOnlyDestination = Join-Path $vxDestinationDir $vxBOnlyRelative.Replace('/', '\')
     $vxTaskDefinition = Join-Path $caseRoot 'vx-task.json'
     Write-Utf8NoBom -Path $vxExistingSource -Text "VX_EXISTING`n"
     Write-Utf8NoBom -Path $vxExistingSnapshot -Text "VX_EXISTING`n"
@@ -136,12 +138,24 @@ try {
     Assert-IntegrityResult -Name 'vx-missing-target-no-placeholder' -Result $vxValid -ExpectedPass $true
 
     Write-Utf8NoBom -Path $vxMissingDestination -Text "stale destination`n"
+    Write-Utf8NoBom -Path $vxBOnlyDestination -Text "stale B-only destination`n"
     $vxAbsentRestore = Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $vxSnapshotDir -DestinationRoot $vxDestinationDir `
-        -AllowedPaths $vxAllowedPaths -ExpectedTargetSetSha256 $vxRegistry.TargetSetSha256
-    if ([int]$vxAbsentRestore.RemovedCount -ne 1 -or (Test-Path -LiteralPath $vxMissingDestination)) {
-        throw 'Vx snapshot exists=false restore did not remove stale destination'
+        -AllowedPaths $vxAllowedPaths -AdditionalAbsentPaths @($vxBOnlyRelative) -ExpectedTargetSetSha256 $vxRegistry.TargetSetSha256
+    if ([int]$vxAbsentRestore.RemovedCount -ne 2 -or (Test-Path -LiteralPath $vxMissingDestination) -or (Test-Path -LiteralPath $vxBOnlyDestination)) {
+        throw 'Vx snapshot absent restore did not remove manifest-absent and B-only stale destinations'
     }
-    Write-Output '[A-SNAPSHOT-INTEGRITY-REGRESSION] case=vx-missing-target-restore-removes-stale-destination status=pass'
+    Write-Output '[A-SNAPSHOT-INTEGRITY-REGRESSION] case=vx-missing-and-b-only-target-restore-removes-stale-destinations status=pass'
+
+    $bCreateContent = "B_CREATE_EXACT`n"
+    $bCreateExpectedSha256 = ([System.BitConverter]::ToString(
+        [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.UTF8Encoding]::new($false).GetBytes($bCreateContent))
+    )).Replace('-', '').ToLowerInvariant()
+    Write-Utf8NoBom -Path $vxBOnlyDestination -Text $bCreateContent
+    $bCreateActualSha256 = (Get-FileHash -LiteralPath $vxBOnlyDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($bCreateActualSha256 -ne $bCreateExpectedSha256) {
+        throw "Vx B-only target recreation hash mismatch expected=$bCreateExpectedSha256 actual=$bCreateActualSha256"
+    }
+    Write-Output '[A-SNAPSHOT-INTEGRITY-REGRESSION] case=vx-b-only-target-recreates-with-exact-hash status=pass'
 
     Write-Utf8NoBom -Path $vxMissingSnapshot -Text "unexpected placeholder`n"
     $vxPlaceholder = Test-ASuccessSnapshotIntegrity -SnapshotDir $vxSnapshotDir -AllowedPaths $vxAllowedPaths `

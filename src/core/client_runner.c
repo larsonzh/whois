@@ -95,6 +95,21 @@ static Config g_client_config = {
     .batch_interval_ms = 0,
     .batch_jitter_ms = 0,
     .batch_strategy = NULL,
+    .proxy = {
+        .configured = 0,
+        .routing_enabled = 0,
+        .proxy_env_enabled = 0,
+        .allow_insecure_auth = 0,
+        .has_credentials = 0,
+        .scheme = WC_PROXY_SCHEME_DIRECT,
+        .family = WC_PROXY_FAMILY_AUTO,
+        .source = WC_PROXY_SOURCE_NONE,
+        .endpoint_port = 0,
+        .endpoint_host = "",
+        .username = "",
+        .password = "",
+        .no_proxy = ""
+    },
 };
 
 int wc_is_debug_enabled(void)

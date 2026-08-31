@@ -3782,6 +3782,7 @@ $script:DevRecoveryLastAttemptAt = @{}
 $script:AgentTicketLastSignature = ''
 $script:AgentTicketLastId = ''
 $script:AgentTicketLastEvent = ''
+$script:BAutoLaunchBlocked = $false
 
 function Get-APassConclusionPersistedSignature {
     param([System.Collections.IDictionary]$Settings)
@@ -5799,8 +5800,36 @@ try {
                 break
             }
 
-            # A success snapshot capture (before B starts)
-            if ($aStatus -eq 'PASS' -and [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $runDirAnchor -ne 'unknown' -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
+            # Rehydrate the immutable A snapshot anchor before considering a new capture.
+            if ($aStatus -eq 'PASS' -and [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $settings.Contains('A_SUCCESS_SNAPSHOT_FINAL_STATUS')) {
+                $existingSnapshotFinal = Resolve-RepoPathAllowMissing -Path ([string]$settings.A_SUCCESS_SNAPSHOT_FINAL_STATUS)
+                if (-not [string]::IsNullOrWhiteSpace($existingSnapshotFinal) -and (Test-Path -LiteralPath $existingSnapshotFinal -PathType Leaf)) {
+                    $existingSnapshotDir = Join-Path (Split-Path -Parent $existingSnapshotFinal) 'a_success_snapshot'
+                    if (Test-Path -LiteralPath $existingSnapshotDir -PathType Container) {
+                        $aTaskDefinitionRaw = if ($settings.Contains('A_TASK_DEFINITION')) { [string]$settings.A_TASK_DEFINITION } else { '' }
+                        $aTaskDefinitionPath = Resolve-RepoPathAllowMissing -Path $aTaskDefinitionRaw
+                        try {
+                            $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath -RepositoryRoot $script:RepoRoot
+                            $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
+                            $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+                            $existingSnapshotIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $existingSnapshotDir -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
+                            if ($existingSnapshotIntegrity.Pass) {
+                                $aSuccessSnapshotDir = $existingSnapshotDir
+                                Write-GuardLog ("a_snapshot_rehydrated dir={0} verified_files={1}" -f $aSuccessSnapshotDir, [int]$existingSnapshotIntegrity.FileCount)
+                            }
+                            else {
+                                Write-GuardLog ("a_snapshot_rehydrate_rejected dir={0} errors={1}" -f $existingSnapshotDir, ($existingSnapshotIntegrity.Errors -join ','))
+                            }
+                        }
+                        catch {
+                            Write-GuardLog ("a_snapshot_rehydrate_rejected dir={0} detail={1}" -f $existingSnapshotDir, (Convert-ToSingleLineText -Text $_.Exception.Message))
+                        }
+                    }
+                }
+            }
+
+            # A success snapshot capture is only valid before B starts. A B run_dir must never replace this anchor.
+            if ($aStatus -eq 'PASS' -and $bStatus -eq 'NOT_RUN' -and [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $runDirAnchor -ne 'unknown' -and -not [string]::IsNullOrWhiteSpace($runDirAnchor)) {
                 $resolvedSnapshotRunDir = Resolve-RepoPathAllowMissing -Path $runDirAnchor
                 if (-not [string]::IsNullOrWhiteSpace($resolvedSnapshotRunDir) -and (Test-Path -LiteralPath $resolvedSnapshotRunDir)) {
                     $aTaskDefinitionRaw = if ($settings.Contains('A_TASK_DEFINITION')) { [string]$settings.A_TASK_DEFINITION } else { '' }
@@ -5821,11 +5850,13 @@ try {
             }
 
             # Auto-launch B after A PASS with snapshot captured
-            if ($aStatus -eq 'PASS' -and -not [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $bStatus -eq 'NOT_RUN' -and ($sessionStatus -eq 'RUNNING' -or $sessionStatus -eq 'NOT_RUN')) {
+            if ($aStatus -eq 'PASS' -and -not [string]::IsNullOrWhiteSpace($aSuccessSnapshotDir) -and $bStatus -eq 'NOT_RUN' -and ($sessionStatus -eq 'RUNNING' -or $sessionStatus -eq 'NOT_RUN') -and -not $script:BAutoLaunchBlocked) {
                 $bLauncher = Join-Path $script:RepoRoot 'tools\test\open_unattended_ab_stage_window.ps1'
                 $powershellPath = Join-Path $PSHOME 'powershell.exe'
                 if (-not (Test-Path -LiteralPath $powershellPath)) { $powershellPath = 'powershell.exe' }
                 Write-GuardLog ("b_auto_launch_start launcher={0}" -f (Convert-ToRepoRelativePath -Path $bLauncher))
+                $bLaunchExitCode = 1
+                $bLaunchOutput = @()
                 $parentGuardEnv = @{}
                 foreach ($envName in @('AUTO_PARENT_GUARD_PID', 'AUTO_PARENT_GUARD_START_FILE', 'AUTO_PARENT_GUARD_LOG')) {
                     $parentGuardEnv[$envName] = [System.Environment]::GetEnvironmentVariable($envName, 'Process')
@@ -5835,6 +5866,7 @@ try {
                     [System.Environment]::SetEnvironmentVariable('AUTO_PARENT_GUARD_START_FILE', [string]$script:StartFilePath, 'Process')
                     [System.Environment]::SetEnvironmentVariable('AUTO_PARENT_GUARD_LOG', [string](Convert-ToRepoRelativePath -Path $script:GuardLogPath), 'Process')
                     $bLaunchOutput = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $bLauncher -Stage B -StartFile $script:StartFilePath -StartMonitors 2>&1 | ForEach-Object { [string]$_ })
+                    $bLaunchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
                 }
                 finally {
                     foreach ($envName in @('AUTO_PARENT_GUARD_PID', 'AUTO_PARENT_GUARD_START_FILE', 'AUTO_PARENT_GUARD_LOG')) {
@@ -5845,7 +5877,20 @@ try {
                 if ($bLaunchLines.Count -gt 0) {
                     foreach ($bLine in $bLaunchLines) { Write-GuardLog ("b_auto_launch_output {0}" -f $bLine) }
                 }
-                Write-GuardLog ("b_auto_launch_done")
+                $bLaunchFailureResult = @($bLaunchLines | Where-Object { $_ -match '\[AB-UNATTENDED-RESULT\].*\bresult=FAIL\b' } | Select-Object -Last 1)
+                if ($bLaunchExitCode -eq 0 -and $bLaunchFailureResult.Count -eq 1) {
+                    $bLaunchExitCode = if ($bLaunchFailureResult[0] -match '\bexit_code=([1-9][0-9]*)\b') { [int]$Matches[1] } else { 1 }
+                }
+                if ($bLaunchExitCode -eq 0) {
+                    Write-GuardLog ("b_auto_launch_done exit_code=0")
+                }
+                else {
+                    $script:BAutoLaunchBlocked = $true
+                    $bLaunchDetail = Convert-ToBoundedSingleLineText -Text ($bLaunchLines -join ' | ') -MaxChars 360
+                    Write-GuardLog ("b_auto_launch_failed exit_code={0} action=blocked detail={1}" -f $bLaunchExitCode, $bLaunchDetail)
+                    $bLaunchTicketDetail = "B auto-launch failed with exit code {0}: {1}" -f $bLaunchExitCode, $bLaunchDetail
+                    $null = Add-AgentTicket -Enabled $agentQueueEnabled -QueuePath $agentQueuePath -EventName 'incident-captured' -Severity 'high' -RequiresConfirmation $false -SessionStatus $sessionStatus -AStatus $aStatus -BStatus $bStatus -RunDirAnchor $runDirAnchor -IncidentDir '' -Detail $bLaunchTicketDetail -DedupSuffix ("b-auto-launch-failed|exit={0}" -f $bLaunchExitCode) -RecommendedAction 'Inspect the B stage launcher failure and repair the unattended script chain before a guarded B restart.' -PreferredStage 'B' -MainRound '' -FailurePhase 'script' -FailureKind 'script-failure' -FailureCategory 'script-fault' -FailureSource 'tools/test/open_unattended_ab_stage_window.ps1' -FailureEvidence $bLaunchDetail -SelfHealable $true -NonRecoverableEnv $false
+                }
                 # Force re-read settings on next iteration
                 $statusRefresh = Read-SessionStatusRefresh -StartFilePath $script:StartFilePath
                 $settings = $statusRefresh.Settings

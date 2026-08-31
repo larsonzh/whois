@@ -2041,21 +2041,32 @@ $null = Resolve-RepoPath -Path $taskDefinitionRelative
 # ── Pre-source baseline: restore target file before static precheck ──
 $taskDefPath = Resolve-RepoPath -Path $taskDefinitionRelative
 $taskTargetFile = ''
+$taskTargetLifecycle = 'existing'
 if (Test-Path -LiteralPath $taskDefPath) {
     try {
         $taskDefJson = Get-Content -LiteralPath $taskDefPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
         if ($null -ne $taskDefJson -and ($taskDefJson.PSObject.Properties.Name -contains 'targetFile')) {
             $taskTargetFile = [string]$taskDefJson.targetFile
+            if ($taskDefJson.PSObject.Properties.Name -contains 'targetFiles') {
+                $taskTarget = @($taskDefJson.targetFiles | Where-Object { [string]$_.file -eq $taskTargetFile } | Select-Object -First 1)
+                if ($taskTarget.Count -eq 1 -and ($taskTarget[0].PSObject.Properties.Name -contains 'lifecycle')) {
+                    $taskTargetLifecycle = [string]$taskTarget[0].lifecycle
+                }
+            }
         }
     }
     catch {
         $taskTargetFile = ''
+        $taskTargetLifecycle = 'existing'
     }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($taskTargetFile)) {
-    $resolvedTargetFile = Resolve-RepoPath -Path $taskTargetFile
-    if (-not [string]::IsNullOrWhiteSpace($resolvedTargetFile) -and (Test-Path -LiteralPath $resolvedTargetFile)) {
+    $resolvedTargetFile = Resolve-RepoPath -Path $taskTargetFile -MustExist ($taskTargetLifecycle -ne 'create')
+    if ($taskTargetLifecycle -eq 'create') {
+        Write-Output ("[OPEN-AB-STAGE] source_restore stage={0} target={1} action=create-target-skip exists={2}" -f $Stage, $taskTargetFile, (Test-Path -LiteralPath $resolvedTargetFile))
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($resolvedTargetFile) -and (Test-Path -LiteralPath $resolvedTargetFile)) {
         if ($Stage -eq 'A') {
             # Stage A: restore target file to git baseline (clean any residual changes from prior runs)
             & git -C $repoRoot checkout -- $resolvedTargetFile 2>$null

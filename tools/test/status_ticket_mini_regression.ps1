@@ -119,6 +119,8 @@ $taskStaticCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools
 $takeoverRouteGuardText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/check_takeover_route_guard.ps1') -Raw -Encoding utf8
 $statusOnlyAutoflowText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/run_unattended_status_only_autoflow.ps1') -Raw -Encoding utf8
 $multiRoundText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/start_dev_verify_8round_multiround.ps1') -Raw -Encoding utf8
+$vxCheckerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/task_definition_vx_checker.ps1') -Raw -Encoding utf8
+$vxPrerequisiteUnionText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/task_definition_vx_prerequisite_union.ps1') -Raw -Encoding utf8
 $recheckText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/autopilot_dev_recheck_8round.ps1') -Raw -Encoding utf8
 $chatPolicyCompilerText = Get-Content -LiteralPath (Resolve-RepoPath -Path 'tools/test/chat_dispatch_policy_compiler.ps1') -Raw -Encoding utf8
 $codeChangeWrapperPath = Resolve-RepoPath -Path 'tools/test/start_autopilot_8round_code_change.ps1'
@@ -807,6 +809,13 @@ $guardWaitsForMainExit = $sessionGuardText.Contains('task_definition_repair_wait
 $staticRepairWaitPass = ($stageWindowUsesSyntaxOnly -and $stageWindowDoesNotPrecheckD1Op -and $multiRoundRunsStaticBeforeCodeStep -and $codeStepConsumesBoundArtifact -and $runnerPersistsCodeStepCategory -and $guardPrefersStructuredCategory -and $multiRoundDoesNotQueueStaticTicket -and $guardWaitsForMainExit)
 $staticRepairWaitReason = if ($staticRepairWaitPass) { 'task-static-bound-artifact-contract-present' } else { 'missing-task-static-bound-artifact-contract' }
 [void]$results.Add((Get-CaseResult -Name 'task-static-bound-artifact-contract' -Pass $staticRepairWaitPass -Reason $staticRepairWaitReason))
+
+$taskStaticSingleLineSafe = $multiRoundText.Contains('$lines = @(ConvertTo-NormalizedLine -Raw $invokeResult.Raw)')
+$vxArtifactPublishRetry = $vxCheckerText.Contains('function Move-VxArtifactDirectory') -and $vxCheckerText.Contains('vx artifact publish retry attempt=') -and $vxCheckerText.Contains('Move-VxArtifactDirectory -Staging $staging -Destination $destination') -and $vxPrerequisiteUnionText.Contains('Move-VxArtifactDirectory -Staging $staging -Destination $destination')
+$guardPreservesASnapshotDuringB = $sessionGuardText.Contains('a_snapshot_rehydrated dir=') -and $sessionGuardText.Contains('$existingSnapshotIntegrity = Test-ASuccessSnapshotIntegrity') -and $sessionGuardText.Contains("`$aStatus -eq 'PASS' -and `$bStatus -eq 'NOT_RUN' -and [string]::IsNullOrWhiteSpace(`$aSuccessSnapshotDir)")
+$taskStaticNoncodeResiliencePass = ($taskStaticSingleLineSafe -and $vxArtifactPublishRetry -and $guardPreservesASnapshotDuringB)
+$taskStaticNoncodeResilienceReason = if ($taskStaticNoncodeResiliencePass) { 'task-static-noncode-resilience-present' } else { 'missing-task-static-noncode-resilience' }
+[void]$results.Add((Get-CaseResult -Name 'task-static-noncode-resilience' -Pass $taskStaticNoncodeResiliencePass -Reason $taskStaticNoncodeResilienceReason))
 
 # Every fault-handling or self-heal ticket must wait until all A/B business processes stop.
 $guardHasFaultBranchGate = $sessionGuardText.Contains('fault_processing_wait reason=main-process-still-running') -and $sessionGuardText.Contains('fault_processing_ready reason=all-main-processes-stopped')

@@ -129,7 +129,8 @@ function Get-BSnapshotRestoreDecision {
 function Restore-AStageSnapshotSource {
     param(
         [string]$RepoRoot,
-        [System.Collections.IDictionary]$StartSettings
+        [System.Collections.IDictionary]$StartSettings,
+        [string]$BTaskDefinitionFile
     )
 
     if ($null -eq $StartSettings) {
@@ -151,12 +152,19 @@ function Restore-AStageSnapshotSource {
     $aSnapshotRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $aTaskDefinitionPath -RepositoryRoot $RepoRoot
     $allowedSnapshotPaths = @($aSnapshotRegistry.Targets | ForEach-Object { [string]$_.File })
     $expectedTargetSetSha256 = if ($aSnapshotRegistry.SchemaVersion -eq 'vx-draft') { [string]$aSnapshotRegistry.TargetSetSha256 } else { '' }
+    $bTaskRegistry = Get-ASnapshotTaskTargetRegistry -TaskDefinitionFile $BTaskDefinitionFile -RepositoryRoot $RepoRoot
+    $bCreateTargetPaths = @(
+        $bTaskRegistry.Targets |
+            Where-Object { ([string]$_.Lifecycle).Trim().ToLowerInvariant() -eq 'create' } |
+            ForEach-Object { [string]$_.File }
+    )
     $preRestoreIntegrity = Test-ASuccessSnapshotIntegrity -SnapshotDir $snapshotDir -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
     if (-not $preRestoreIntegrity.Pass) {
         throw "A snapshot restore blocked by integrity check: $($preRestoreIntegrity.Errors -join ',')"
     }
 
-    $absentRestore = Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $snapshotDir -DestinationRoot $RepoRoot -AllowedPaths $allowedSnapshotPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
+    $absentRestore = Restore-ASuccessSnapshotAbsentTargets -SnapshotDir $snapshotDir -DestinationRoot $RepoRoot -AllowedPaths $allowedSnapshotPaths `
+        -AdditionalAbsentPaths $bCreateTargetPaths -ExpectedTargetSetSha256 $expectedTargetSetSha256
     $absentSnapshotPaths = @{}
     foreach ($absentPath in @($absentRestore.AbsentPaths)) {
         $absentSnapshotPaths[([string]$absentPath).ToLowerInvariant()] = $true
@@ -303,6 +311,8 @@ function Restore-AStageSnapshotSource {
         UnsafeCount = $unsafeCount
         UnsafeDetails = @($unsafeDetails)
         VerifiedCount = [int]$postRestoreIntegrity.FileCount
+        RemovedAbsentCount = [int]$absentRestore.RemovedCount
+        BOnlyCreateAbsentCount = [int]$absentRestore.AdditionalAbsentCount
     }
 }
 
@@ -512,8 +522,8 @@ try {
     Write-Output ("[FASTMODE-B] stage_banner stage=B reset_policy=state-only restart_baseline=a-success-snapshot restore_from_a_snapshot={0} stage_window_only=true" -f [string]$snapshotRestoreDecision.Enabled)
     if ([bool]$snapshotRestoreDecision.Enabled) {
         Write-Output ("[FASTMODE-B] restore_from_a_snapshot enabled=true reason={0}" -f [string]$snapshotRestoreDecision.Reason)
-        $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings
-        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) -RepoRoot $repoRoot), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount)
+        $snapshotRestoreResult = Restore-AStageSnapshotSource -RepoRoot $repoRoot -StartSettings $snapshotRestoreDecision.StartSettings -BTaskDefinitionFile $taskDefinitionAbsolute
+        Write-Output ("[FASTMODE-B] restore_from_a_snapshot snapshot_dir={0} mode={1} restored_files={2} missing_files={3} unsafe_entries={4} removed_absent={5} b_only_create_absent={6}" -f (Convert-ToRepoRelativePath -Path ([string]$snapshotRestoreResult.SnapshotDir) -RepoRoot $repoRoot), [string]$snapshotRestoreResult.RestoreMode, [int]$snapshotRestoreResult.RestoredCount, [int]$snapshotRestoreResult.MissingCount, [int]$snapshotRestoreResult.UnsafeCount, [int]$snapshotRestoreResult.RemovedAbsentCount, [int]$snapshotRestoreResult.BOnlyCreateAbsentCount)
         if ([int]$snapshotRestoreResult.UnsafeCount -gt 0 -and $snapshotRestoreResult.PSObject.Properties.Name -contains 'UnsafeDetails') {
             Write-Output ("[FASTMODE-B] restore_from_a_snapshot unsafe_detail={0}" -f (Convert-ToSingleLineText -Text (($snapshotRestoreResult.UnsafeDetails -join ' | '))))
         }

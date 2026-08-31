@@ -235,7 +235,7 @@ function Publish-VxUnionArtifact {
         }
         [IO.File]::WriteAllText((Join-Path $staging 'manifest.json.tmp'), ($manifest | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
         [IO.File]::Move((Join-Path $staging 'manifest.json.tmp'), (Join-Path $staging 'manifest.json'))
-        [IO.Directory]::Move($staging, $destination)
+        Move-VxArtifactDirectory -Staging $staging -Destination $destination
         Add-InfoIssue "vx artifact published directory=$destination"
     }
     finally { if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue } }

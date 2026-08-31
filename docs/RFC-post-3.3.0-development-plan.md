@@ -658,7 +658,7 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - `ready` 门禁：13A 的契约与 spike 完成、目标文件/依赖闭包和执行方式明确后，13B/13C/13D 分别评审；不得因 WP-13 总体已登记而一次性视为全部批准。
 - 暂缓项联动：本工作包不改变网络读取早停、并发批量、RIR DNS 候选排序、健康/回退决策或权威判定（见 5.6 / 11.6）。
 
-#### 12.2.8 WP-13A 与 WP-13B-1 实施记录（2026-08-29 至 2026-08-30）
+#### 12.2.8 WP-13A、WP-13B-1 与 WP-13B-2 实施记录（2026-08-29 至 2026-08-31）
 
 - 新增专用双语契约 `docs/RFC-proxy-access.md`，冻结默认直连、显式代理优先级、每 hop current host/port、HTTP CONNECT 数值目标、SOCKS5/5h DNS 所有权、代理失败与 RIR 健康/权威隔离、单调 deadline、缓存默认禁用、日志脱敏、凭据来源及 `--proxy-family` 边界，不提前改变生产网络行为。
 - 新增标准库 loopback fake proxy `tools/test/proxy_protocol_spike.py`，不依赖公网、不修改产品代码；覆盖 9 项 HTTP CONNECT/SOCKS5 协议案例和 12 项代理来源、凭据、family 配置案例。
@@ -671,6 +671,7 @@ WP-08 与 WP-09 完成后进行一次轻量复审：依据新基线、sanitizer 
 - 新增 `tools/test/transport_contract_test.ps1` 确定性覆盖 adapter 分派、partial write、read、wait deadline、timeout、close 与无效 transport；现有 selftest 增加 policy 默认 health-off、非法 endpoint family、数值地址 family 冲突及 DNS-health hook 隔离。2026-08-30 复核后九架构 `lto-auto` build/smoke/selftest、9/9 hash、Golden 与三起点 referral 全部 PASS（275s，`out/artifacts/20260830-010926`），未同步 release 目录。
 - DNS-health 隔离通过可观测自测计数器直接证明：`record_dns_health=0` 不调用目标 health hook，`record_dns_health=1` 对照路径会调用。x86_64、win64、win32 smoke/selftest 与 local hash 均 PASS（143s，`out/artifacts/20260830-012006`）。至此 WP-13B-2 前置 transport/policy 门禁闭环，可进入配置/CLI/env、HTTP CONNECT 与每 hop bypass 的 Vx 任务定义编制；九架构 Strict、Golden/referral 和 Step47 仍是实施后的完整验收门禁。
 - 代码与测试文件调整后的最终同步产物轮（2026-08-30）再次通过 Strict Version `lto-auto` 九架构 build、默认 smoke、Local hash、Golden、三起点 referral 与双目录同步，零编译/LTO 告警（241s，`out/artifacts/20260830-014939`）。九个归档二进制独立 SHA-256 复算全匹配，仓库 release 清单与归档逐字一致；默认 smoke 输出契约稳定，IANA/ARIN/AFRINIC 起点均零失败收敛 AFRINIC。本轮未传 `--selftest`，不替代 `010926`/`012006` 的专项证据；审计无需代码修复，WP-13B-2 前置门禁状态保持通过。
+- WP-13B-2 第二对 Vx A/B 已完成（2026-08-30 至 2026-08-31）：A 为 `testdata/autopilot_code_step_tasks_20270708_20270714.json`（target set `150b6f49ab217b65e2c048f407023d8d74dc69feaf670ccfeb5db71ad52a099b`），B 为 `testdata/autopilot_code_step_tasks_20270715_20270721.json`（target set `3808d4e86be49df0170add303e6acdf7e9fe7178cd526d0a445d73ac94c7d8e3`）。A 8/8 一轮通过（run=`out/artifacts/dev_verify_multiround/20260830-133709`）；B 首跑 D1 后 `runtime-fail`（`.Count` 属性异常）触发 3 处编排脚本根因修复（`start_dev_verify_8round_multiround.ps1` 单行输出数组化、`task_definition_vx_checker.ps1`/`task_definition_vx_prerequisite_union.ps1` 的 Vx artifact 目录移动有限重试、`unattended_ab_session_guard.ps1` A 快照锚点保护/重载）并恢复 start-file `A_SUCCESS_SNAPSHOT_*` 锚点，经标准 stop/reset/launch-ready 后 stage-window 重启（B pid 13396）从 D1 续跑 8/8 收敛（run=`out/artifacts/dev_verify_multiround/20260831-032025`）；SESSION=PASS，A/B 合计 `0d 18:51:00`（session start 2026-08-30 13:36:33）。事件票 `T20260831-024551167-8db236de`、`T20260831-024556280-6af52afe`、`chat-final-20260831-082732`（handled_at 2026-08-31 08:28:44）闭环。运行后九架构 Strict `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）。默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约不变；权威双语回填见 `docs/RFC-proxy-access.md` 第 11 节。WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续。
 
 ### 12.3 发布顺序提醒
 

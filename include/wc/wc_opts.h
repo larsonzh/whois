@@ -7,6 +7,17 @@
 
 #include "wc/wc_ip_pref.h"
 #include "wc/wc_dns_family_mode.h"
+#include "wc/wc_config.h"
+
+typedef struct wc_proxy_env_s {
+    const char* whois_proxy;
+    const char* all_proxy;
+    const char* all_proxy_lower;
+    const char* whois_proxy_user;
+    const char* whois_proxy_password;
+    const char* no_proxy;
+    const char* no_proxy_lower;
+} wc_proxy_env_t;
 
 typedef struct wc_opts_s {
     // High level flags (presentation / meta)
@@ -37,6 +48,10 @@ typedef struct wc_opts_s {
     int show_non_auth_body;       // --show-non-auth-body (include non-authoritative bodies)
     int show_post_marker_body;    // --show-post-marker-body (keep bodies after ERX/IANA marker)
     int hide_failure_body;         // --hide-failure-body (filter rate-limit/denied body lines)
+    const char* proxy_url;         // --proxy authority-only URL
+    int proxy_env;                 // --proxy-env enables ALL_PROXY/all_proxy fallback
+    const char* proxy_family;      // --proxy-family auto|v4|v6
+    int proxy_allow_insecure_auth; // explicit cleartext HTTP credential gate
     int debug;                   // -D enable debug prints
     int cidr_strip_query;        // --cidr-strip (strip /mask when sending CIDR queries)
     int cidr_erx_recheck;        // Internal switch for CIDR ERX/IANA baseline recheck (CLI override removed)
@@ -147,13 +162,22 @@ typedef struct wc_opts_s {
 
     // DNS strategy debug switch (Phase 2 D)
     int dns_no_fallback;         // --dns-no-fallback: disable extra DNS fallback paths (forced IPv4 / known IPv4)
+
+    wc_proxy_config_t proxy;       // resolved A-stage preflight state
 } wc_opts_t;
 
 // Initialize defaults into opts (does not allocate strings).
 void wc_opts_init_defaults(wc_opts_t* opts);
 
-// Parse CLI options, populate opts and adjust global modules (title/grep/fold/seclog).
-// Returns 0 on success, non-zero on error (usage already printed).
+// Resolve proxy configuration from explicit CLI state and a deterministic env view.
+// Returns non-zero on success. A-stage always leaves routing_enabled cleared.
+int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out);
+
+// Volatile-clear all proxy state, including fixed credential buffers.
+void wc_opts_proxy_clear(wc_proxy_config_t* proxy);
+
+// Parse production CLI state and apply option-owned modules.
+// A non-zero result is a stable usage/configuration failure.
 int wc_opts_parse(int argc, char* argv[], wc_opts_t* opts);
 
 // Free any heap allocations inside opts (currently fold_sep if set).

@@ -457,6 +457,30 @@ static void wc_net_sleep_between_attempts_if_enabled(wc_net_context_t* ctx, int 
 
 static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; }}
 
+static uint64_t wc_net_now_ms(void)
+{
+#if defined(_WIN32) || defined(__MINGW32__)
+    return (uint64_t)GetTickCount64();
+#else
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_nsec / 1000000U;
+#endif
+}
+
+uint64_t wc_net_deadline_after(int timeout_ms)
+{
+    uint64_t now = wc_net_now_ms();
+    return timeout_ms > 0 ? now + (uint64_t)timeout_ms : now;
+}
+
+static int wc_net_deadline_remaining(uint64_t deadline_ms)
+{
+    uint64_t now = wc_net_now_ms();
+    uint64_t remaining = deadline_ms > now ? deadline_ms - now : 0;
+    return remaining > (uint64_t)INT_MAX ? INT_MAX : (int)remaining;
+}
+
 static void wc_net_sync_fault_profile(wc_net_context_t* ctx)
 {
     if (!ctx)
@@ -492,13 +516,13 @@ void wc_net_dial_policy_init(wc_net_dial_policy_t* policy)
     policy->record_dns_health = 0;
 }
 
-int wc_net_dial_endpoint(wc_net_context_t* ctx,
-                         const char* host,
-                         uint16_t port,
-                         int timeout_ms,
-                         int retries,
-                         const wc_net_dial_policy_t* policy,
-                         struct wc_net_info* out) {
+int wc_net_dial_endpoint_until(wc_net_context_t* ctx,
+                               const char* host,
+                               uint16_t port,
+                               uint64_t deadline_ms,
+                               int retries,
+                               const wc_net_dial_policy_t* policy,
+                               struct wc_net_info* out) {
     wc_net_context_t* net_ctx = wc_net_resolve_context(ctx);
     if (!net_ctx) {
         if (out) {
@@ -526,13 +550,13 @@ int wc_net_dial_endpoint(wc_net_context_t* ctx,
         return out->err;
     }
     wc_net_sync_fault_profile(net_ctx);
-    if (timeout_ms <= 0) {
+    if (wc_net_deadline_remaining(deadline_ms) <= 0) {
         if (out) {
             wc_net_info_init(out);
-            out->err = WC_ERR_INVALID;
-            out->last_errno = EINVAL;
+            out->err = WC_ERR_IO;
+            out->last_errno = ETIMEDOUT;
         }
-        return WC_ERR_INVALID;
+        return WC_ERR_IO;
     }
     wc_net_info_init(out);
     wc_net_maybe_register_atexit();
@@ -567,10 +591,12 @@ int wc_net_dial_endpoint(wc_net_context_t* ctx,
     do {
         gerr = getaddrinfo(host, portbuf, &hints, &res);
         if (gerr == EAI_AGAIN && gai_tries < 2) {
-            wc_sleep_ms(100U);
+            int remaining_ms = wc_net_deadline_remaining(deadline_ms);
+            if (remaining_ms <= 0) break;
+            wc_sleep_ms((unsigned int)(remaining_ms < 100 ? remaining_ms : 100));
         }
         gai_tries++;
-    } while (gerr == EAI_AGAIN && gai_tries < 3);
+    } while (gerr == EAI_AGAIN && gai_tries < 3 && wc_net_deadline_remaining(deadline_ms) > 0);
     if (wc_signal_should_terminate()) {
         if (res) {
             freeaddrinfo(res);
@@ -704,8 +730,10 @@ retry_socket:
             int connected_now = 0;
             if (c_rc == 0) { connected_now = 1; out->last_errno=0; }
             else if (errno == EINPROGRESS) {
+                int attempt_timeout_ms = wc_net_deadline_remaining(deadline_ms);
                 fd_set wfds; FD_ZERO(&wfds); FD_SET(WC_NET_NATIVE_SOCKET(fd), &wfds);
-                struct timeval tv; tv.tv_sec = timeout_ms/1000; tv.tv_usec = (timeout_ms%1000)*1000;
+                if (attempt_timeout_ms <= 0) { errno = ETIMEDOUT; out->last_errno = errno; goto connect_wait_done; }
+                struct timeval tv; tv.tv_sec = attempt_timeout_ms/1000; tv.tv_usec = (attempt_timeout_ms%1000)*1000;
                 int sel = select(fd+1, NULL, &wfds, NULL, &tv);
                 if (sel == 1 && FD_ISSET(WC_NET_NATIVE_SOCKET(fd), &wfds)) {
 #ifdef _WIN32
@@ -728,6 +756,7 @@ retry_socket:
                     errno = (sel==0?ETIMEDOUT:errno); out->last_errno = errno;
                 }
             } else { out->last_errno = errno; }
+connect_wait_done:
             if (connected_now) {
                 /* restore blocking mode */
 #ifndef _WIN32
@@ -790,6 +819,22 @@ retry_socket:
     }
     if (!out->connected) { out->err = WC_ERR_IO; }
     return out->err;
+}
+
+int wc_net_dial_endpoint(wc_net_context_t* ctx,
+                         const char* host,
+                         uint16_t port,
+                         int timeout_ms,
+                         int retries,
+                         const wc_net_dial_policy_t* policy,
+                         struct wc_net_info* out)
+{
+    if (timeout_ms <= 0) {
+        wc_net_info_init(out);
+        if (out) { out->err = WC_ERR_INVALID; out->last_errno = EINVAL; }
+        return WC_ERR_INVALID;
+    }
+    return wc_net_dial_endpoint_until(ctx, host, port, wc_net_deadline_after(timeout_ms), retries, policy, out);
 }
 
 int wc_dial_43(wc_net_context_t* ctx,

@@ -22,6 +22,7 @@
 #include "wc/wc_ip_pref.h"
 #include "wc/wc_known_ips.h"
 #include "wc/wc_net.h"
+#include "wc/wc_proxy.h"
 #include "wc/wc_selftest.h"
 #include "wc/wc_server.h"
 #include "wc/wc_util.h"
@@ -133,6 +134,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
     }
 
     int primary_attempts = 0;
+    int proxy_terminal_failure = 0;
     int penalized_skipped = 0;
     char penalized_first_target[128]; penalized_first_target[0] = '\0';
     int penalized_first_family = AF_UNSPEC;
@@ -184,11 +186,20 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
         int dial_retries = zopts->retries;
         if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
         primary_attempts++;
-        int rc = wc_dial_43(net_ctx, target, (uint16_t)ctx->current_port,
-            dial_timeout_ms, dial_retries, &ni);
+        int used_proxy = 0;
+        wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
+        int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, target,
+            (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, &proxy_result);
         host_attempts++;
         int attempt_success = (rc == 0 && ni.connected);
-        wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);
+        if (!used_proxy) wc_lookup_record_backoff_result(cfg, target, candidate_family, attempt_success);
+        if (attempt_success) out->meta.proxy_failure = 0;
+        else if (used_proxy) {
+            out->meta.proxy_failure = 1;
+            proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
+                proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
+                proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+        }
         if (wc_lookup_should_trace_dns(net_ctx, cfg) && i > 0) {
             wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,
                                    target, attempt_success ? "success" : "fail",
@@ -204,6 +215,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             break;
         } else {
             if (order_idx == 0) first_conn_rc = rc;
+            if (proxy_terminal_failure) break;
         }
     }
 
@@ -234,11 +246,20 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             (void)wc_dns_should_skip_logged(cfg, current_host, override_targets[oi],
                 override_families[oi], "force-override",
                 log_snap_ptr, net_ctx);
-            int rc = wc_dial_43(net_ctx, override_targets[oi], (uint16_t)ctx->current_port,
-                dial_timeout_ms, dial_retries, &ni);
+            int used_proxy = 0;
+            wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
+            int rc = wc_proxy_dial_hop(cfg, net_ctx, current_host, override_targets[oi],
+                (uint16_t)ctx->current_port, dial_timeout_ms, dial_retries, &ni, &used_proxy, &proxy_result);
             host_attempts++;
             int attempt_success = (rc == 0 && ni.connected);
-            wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);
+            if (!used_proxy) wc_lookup_record_backoff_result(cfg, override_targets[oi], override_families[oi], attempt_success);
+            if (attempt_success) out->meta.proxy_failure = 0;
+            else if (used_proxy) {
+                out->meta.proxy_failure = 1;
+                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
+                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
+                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+            }
             if (wc_lookup_should_trace_dns(net_ctx, cfg)) {
                 wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,
                                        override_targets[oi], attempt_success ? "success" : "fail",
@@ -255,10 +276,11 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             } else if (first_conn_rc == 0) {
                 first_conn_rc = rc;
             }
+            if (proxy_terminal_failure) break;
         }
     }
 
-    if (!connected_ok) {
+    if (!connected_ok && !proxy_terminal_failure) {
         if (host_attempt_cap > 0 && host_attempts >= host_attempt_cap) {
             *ctx->attempt_cap_hit = 1;
         }
@@ -339,13 +361,15 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                                     ni4.connected = 0;
                                     ni4.fd = -1;
                                     ni4.ip[0] = '\0';
-                                    rc4 = wc_dial_43(net_ctx, ipbuf, (uint16_t)ctx->current_port,
-                                        zopts->timeout_sec * 1000, zopts->retries, &ni4);
+                                    int used_proxy = 0;
+                                    rc4 = wc_proxy_dial_hop(cfg, net_ctx, domain_for_ipv4, ipbuf,
+                                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,
+                                        &ni4, &used_proxy, NULL);
                                     host_attempts++;
                                     forced_ipv4_attempted = 1;
                                     snprintf(forced_ipv4_target, sizeof(forced_ipv4_target), "%s", ipbuf);
                                     int backoff_success = (rc4 == 0 && ni4.connected);
-                                    wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, backoff_success);
+                                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, backoff_success);
                                     if (backoff_success) {
                                         ni = ni4;
                                         connected_ok = 1;
@@ -416,10 +440,12 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                     ni2.ip[0] = '\0';
                     known_ip_attempted = 1;
                     known_ip_target = kip;
-                    rc2 = wc_dial_43(net_ctx, kip, (uint16_t)ctx->current_port,
-                        zopts->timeout_sec * 1000, zopts->retries, &ni2);
+                    int used_proxy = 0;
+                    rc2 = wc_proxy_dial_hop(cfg, net_ctx, domain_for_known, kip,
+                        (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,
+                        &ni2, &used_proxy, NULL);
                     int known_backoff_success = (rc2 == 0 && ni2.connected);
-                    wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, known_backoff_success);
+                    if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, known_backoff_success);
                     if (rc2 == 0 && ni2.connected) {
                         ni = ni2;
                         connected_ok = 1;

@@ -118,6 +118,10 @@ void wc_meta_print_usage(
     printf("      --batch-interval-ms M  Sleep M ms between batch queries (default: 0)\n");
     printf("      --batch-jitter-ms J    Add random 0..J ms to batch interval (default: 0)\n");
     printf("  -h, --host HOST           Start from specific whois server (name|domain|ip)\n");
+    printf("      --proxy URL           Validate proxy configuration (13B-2 A preflight only)\n");
+    printf("      --proxy-env           Opt in to ALL_PROXY/all_proxy fallback\n");
+    printf("      --proxy-family MODE   Proxy endpoint family auto|v4|v6 (default: auto)\n");
+    printf("      --proxy-allow-insecure-auth  Permit credentials on cleartext HTTP proxy URLs\n");
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
     printf("  -R, --max-hops N          Max referral hops (default: %d)\n", default_max_redirects);
@@ -177,6 +181,10 @@ void wc_meta_print_usage(
     printf("      (Legacy resolver already reuses wc_dns candidates; shim stats remain visible via --debug)\n\n");
 
     print_usage_section(&k_conditional_output_section);
+    printf("Proxy routing (HTTP CONNECT):\n");
+    printf("      Priority: --proxy > WHOIS_PROXY > (--proxy-env only) ALL_PROXY > all_proxy > direct\n");
+    printf("      --proxy-env also enables NO_PROXY/no_proxy; HTTP_PROXY/HTTPS_PROXY are never read\n");
+    printf("      NO_PROXY/no_proxy is evaluated for every WHOIS hop; SOCKS and HTTPS proxy remain unavailable\n\n");
     print_usage_section(&k_diagnostics_section);
 
     printf("Examples:\n");
