@@ -53,6 +53,16 @@ def recv_until(conn: socket.socket, marker: bytes, limit: int = 8192) -> bytes:
     return bytes(data)
 
 
+def recv_cstring(conn: socket.socket, limit: int = 255) -> bytes:
+    data = bytearray()
+    while len(data) <= limit:
+        value = recv_exact(conn, 1)
+        if value == b"\x00":
+            return bytes(data)
+        data.extend(value)
+    raise ValueError("SOCKS4 string exceeds test limit")
+
+
 class OneShotProxy:
     def __init__(self, handler: Callable[[socket.socket], None]) -> None:
         self._handler = handler
@@ -228,6 +238,67 @@ def socks5_handler(
     return handle
 
 
+def socks4_connect(
+    port: int,
+    host: str,
+    target_port: int,
+    *,
+    remote_dns: bool = False,
+    user_id: str = "",
+) -> int:
+    encoded_user = user_id.encode("utf-8")
+    if len(encoded_user) > 255 or b"\x00" in encoded_user:
+        raise ValueError("SOCKS4 USERID is invalid")
+    if remote_dns:
+        encoded_host = host.encode("idna")
+        if not encoded_host or len(encoded_host) > 255 or b"\x00" in encoded_host:
+            raise ValueError("SOCKS4a domain is invalid")
+        address = b"\x00\x00\x00\x01"
+        suffix = encoded_host + b"\x00"
+    else:
+        parsed = ipaddress.ip_address(host)
+        if parsed.version != 4:
+            raise ValueError("SOCKS4 requires an IPv4 target")
+        address = parsed.packed
+        suffix = b""
+    request = b"\x04\x01" + struct.pack("!H", target_port) + address + encoded_user + b"\x00" + suffix
+    with connect_local(port) as conn:
+        conn.sendall(request)
+        version, reply = recv_exact(conn, 2)
+        recv_exact(conn, 6)
+    if version != 0:
+        raise ValueError("malformed SOCKS4 response")
+    return reply
+
+
+def socks4_handler(
+    expected_host: str,
+    expected_port: int,
+    *,
+    remote_dns: bool = False,
+    expected_user_id: str = "",
+    reply: int = 90,
+) -> Callable[[socket.socket], None]:
+    def handle(conn: socket.socket) -> None:
+        version, command = recv_exact(conn, 2)
+        port = struct.unpack("!H", recv_exact(conn, 2))[0]
+        address = recv_exact(conn, 4)
+        user_id = recv_cstring(conn).decode("utf-8")
+        if (version, command) != (4, 1):
+            raise AssertionError("unexpected SOCKS4 CONNECT header")
+        if remote_dns:
+            if address != b"\x00\x00\x00\x01":
+                raise AssertionError("SOCKS4a request must use 0.0.0.1")
+            host = recv_cstring(conn).decode("idna")
+        else:
+            host = str(ipaddress.ip_address(address))
+        if host != expected_host or port != expected_port or user_id != expected_user_id:
+            raise AssertionError(f"unexpected SOCKS4 target: {host}:{port} userid={user_id!r}")
+        conn.sendall(b"\x00" + bytes([reply]) + struct.pack("!H", port) + address)
+
+    return handle
+
+
 def run_case(name: str, operation: Callable[[], None]) -> CaseResult:
     try:
         operation()
@@ -271,7 +342,7 @@ def resolve_proxy_config(
         port = parsed.port
     except ValueError as exc:
         raise ValueError("invalid proxy URL") from exc
-    if parsed.scheme not in {"http", "socks5", "socks5h"} or not parsed.hostname:
+    if parsed.scheme not in {"http", "socks4", "socks4a", "socks5", "socks5h"} or not parsed.hostname:
         raise ValueError("invalid proxy URL")
     if parsed.path or parsed.query or parsed.fragment:
         raise ValueError("proxy URL has unsupported components")
@@ -303,7 +374,7 @@ def resolve_proxy_config(
         expected_family = "v4" if endpoint_ip.version == 4 else "v6"
         if proxy_family != "auto" and proxy_family != expected_family:
             raise ValueError("proxy literal conflicts with endpoint family")
-    if parsed.scheme == "socks5h" and restrictive_target_controls:
+    if parsed.scheme in {"socks4a", "socks5h"} and restrictive_target_controls:
         raise ValueError("remote DNS conflicts with target family controls")
 
     return ProxyDecision(source, parsed.scheme, proxy_family, dedicated_present or url_has_userinfo)
@@ -379,6 +450,42 @@ def main() -> int:
                 )
 
         cases.append((name, socks_operation))
+
+    for name, host, target_port, remote_dns, user_id, reply in (
+        ("socks4-ipv4", "192.0.2.70", 43, False, "", 90),
+        ("socks4-userid", "192.0.2.71", 4343, False, "test-user", 90),
+        ("socks4a-domain", "whois.example.test", 43, True, "test-user", 90),
+        ("socks4-target-rejected", "192.0.2.72", 43, False, "", 91),
+    ):
+
+        def socks4_operation(
+            host: str = host,
+            target_port: int = target_port,
+            remote_dns: bool = remote_dns,
+            user_id: str = user_id,
+            reply: int = reply,
+        ) -> None:
+            with OneShotProxy(
+                socks4_handler(
+                    host,
+                    target_port,
+                    remote_dns=remote_dns,
+                    expected_user_id=user_id,
+                    reply=reply,
+                )
+            ) as proxy:
+                assert_equal(
+                    socks4_connect(
+                        proxy.port,
+                        host,
+                        target_port,
+                        remote_dns=remote_dns,
+                        user_id=user_id,
+                    ),
+                    reply,
+                )
+
+        cases.append((name, socks4_operation))
 
     cases.extend(
         (
@@ -487,6 +594,22 @@ def main() -> int:
                 lambda: expect_config_error(
                     lambda: resolve_proxy_config(
                         cli_proxy="socks5h://proxy.example.test:1080",
+                        restrictive_target_controls=True,
+                    )
+                ),
+            ),
+            (
+                "config-socks4-supported",
+                lambda: assert_equal(
+                    resolve_proxy_config(cli_proxy="socks4://proxy.example.test:1080"),
+                    ProxyDecision("cli", "socks4", "auto", False),
+                ),
+            ),
+            (
+                "config-socks4a-target-controls-rejected",
+                lambda: expect_config_error(
+                    lambda: resolve_proxy_config(
+                        cli_proxy="socks4a://proxy.example.test:1080",
                         restrictive_target_controls=True,
                     )
                 ),

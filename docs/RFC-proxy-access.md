@@ -126,7 +126,7 @@ WP-13B 首先抽取无业务副作用的 endpoint dialer，以及具有 close、
 python tools/test/proxy_protocol_spike.py
 ```
 
-该探针仅使用 IPv4 loopback，验证精确 HTTP CONNECT authority、HTTP 状态保留、SOCKS5 IPv4/IPv6/domain 编码、username/password 协商、自定义端口和 REP 保留，并写入 `out/artifacts/proxy_protocol_spike/<timestamp>/report.json`。
+该探针仅使用 IPv4 loopback，验证精确 HTTP CONNECT authority、HTTP 状态保留、SOCKS5 IPv4/IPv6/domain 编码、username/password 协商、自定义端口和 REP 保留，以及 SOCKS4 IPv4/USERID、SOCKS4a domain 和响应码保留，并写入 `out/artifacts/proxy_protocol_spike/<timestamp>/report.json`。
 
 为每个远程编译器提供目标 OpenSSL 参数后，分别运行 TLS 静态链接探针：
 
@@ -302,6 +302,17 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 带 release 同步的最终轮（2026-08-31）：Strict Version `lto-auto` 远程编译冒烟同步 + 黄金校验复核无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS，用时 284s（`out/artifacts/20260831-114158`）；release 双目录（`lzispro/release/lzispro/whois` 与 `whois/release/lzispro/whois`）文件与 `SHA256SUMS-static.txt` 逐字一致，本地 `Get-FileHash` 复核 9/9 匹配。
 - WP-13C（SOCKS4/4a）尚未实施；WP-13D（HTTPS proxy TLS）仍受第 9 节门禁约束。
 
+## 13. WP-13C SOCKS4/4a 开工评审
+
+状态：**ready，待独立 Vx A/B 初始编制与完整验收**（2026-08-31）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
+
+- 确定性 loopback spike 已增加 SOCKS4 IPv4、自定义端口、USERID、SOCKS4a domain、CD=91 拒绝响应，以及 `socks4`/`socks4a` 配置门禁，原有 HTTP/SOCKS5 案例无回归；合计 27/27 PASS（`out/artifacts/proxy_protocol_spike/20260831-043917`）。
+- 冻结语义：`socks4://` 只向代理发送本地解析的 IPv4 候选；`socks4a://` 发送逻辑 hostname，并与 `socks5h://` 共用远程 DNS、目标 family/fallback/RIR override 冲突门禁和健康隔离。SOCKS4a 不声明或推断代理最终使用 IPv6。
+- USERID 使用已解析凭据中的 username；password 不进入 SOCKS4/4a 帧，且 USERID 不视为强认证。既有成对非空凭据来源与秘密清理规则保持不变，诊断和产物不得输出 USERID 或 password。
+- 冻结生产 target closure：`include/wc/wc_config.h`、`src/core/opts.c`、`src/core/selftest.c`、`include/wc/wc_proxy.h`、`src/core/proxy.c`、`src/core/lookup_exec_connect.c`；`src/core/lookup_exec_empty.c` 作为远程 DNS/IPv4-only 继承路径纳入检查闭包但不预设源码改动。
+- D1 增加 scheme/解析与配置自测；D2 增加 SOCKS4/4a transport handshake、CD 分类和 fake transport 字节合同；D3 接入 dial 分派、脱敏指标与 terminal policy；D4 在主候选构建中冻结 SOCKS4 IPv4-only 和 SOCKS4a hostname-only 路径，并验证默认直连、per-hop bypass 与目标健康隔离不变。
+- 实施定义使用 `schemaVersion=vx-draft`，独立窗口从 `2027-07-22` 开始；生成 start-file 前仍须完成 TODO-free、SyntaxOnly、D1-D4、Vx 专项安全回归、全定义检查，以及完整 target set 的聚焦编译、Golden/referral、Step47 验证。
+
 # English Version
 
 ## 1. Purpose
@@ -426,7 +437,7 @@ Run the deterministic protocol spike:
 python tools/test/proxy_protocol_spike.py
 ```
 
-It uses IPv4 loopback only and validates exact HTTP CONNECT authorities, HTTP status preservation, SOCKS5 IPv4/IPv6/domain encoding, username/password negotiation, custom ports, and REP preservation. It writes `out/artifacts/proxy_protocol_spike/<timestamp>/report.json`.
+It uses IPv4 loopback only and validates exact HTTP CONNECT authorities, HTTP status preservation, SOCKS5 IPv4/IPv6/domain encoding, username/password negotiation, custom ports, REP preservation, SOCKS4 IPv4/USERID framing, SOCKS4a domains, and SOCKS4 reply-code preservation. It writes `out/artifacts/proxy_protocol_spike/<timestamp>/report.json`.
 
 Run the TLS static-link probe once per remote compiler after supplying that target's OpenSSL flags:
 
@@ -601,3 +612,14 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 - The final Strict Version `lto-auto` nine-architecture build has no compiler/LTO warnings. All 9 SHA-256 checks, POSIX/QEMU and win32/win64 smoke, Golden, and three-origin IANA/ARIN/AFRINIC referral checks pass (`out/artifacts/20260831-112633`, 436s). Release directories were not synchronized.
 - Final run with release synchronization (2026-08-31): Strict Version `lto-auto` remote build + smoke sync + Golden re-check pass with no warnings, no LTO warnings, and Local hash verify/Golden/referral all PASS in 284s (`out/artifacts/20260831-114158`). Both release directories (`lzispro/release/lzispro/whois` and `whois/release/lzispro/whois`) match `SHA256SUMS-static.txt` byte-for-byte; local `Get-FileHash` recheck matches 9/9.
 - WP-13C (SOCKS4/4a) is not implemented. WP-13D (HTTPS-proxy TLS) remains gated by section 9.
+
+## 13. WP-13C SOCKS4/4a readiness review
+
+Status: **ready for independent Vx A/B initial authoring and complete validation** (2026-08-31). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
+
+- The deterministic loopback spike now covers SOCKS4 IPv4, custom ports, USERID, SOCKS4a domains, CD=91 rejection, and `socks4`/`socks4a` configuration gates without regressing the existing HTTP/SOCKS5 cases; all 27/27 cases pass (`out/artifacts/proxy_protocol_spike/20260831-043917`).
+- Frozen semantics: `socks4://` sends only locally resolved IPv4 candidates. `socks4a://` sends the logical hostname and shares the `socks5h://` remote-DNS conflicts for target-family, fallback, and RIR overrides, plus its target-health isolation. SOCKS4a neither claims nor infers that the proxy selected IPv6.
+- USERID is the resolved credential username. The password is never sent in a SOCKS4/4a frame, and USERID is not strong authentication. Existing paired non-empty credential-source and secret-clearing rules remain unchanged; diagnostics and artifacts must not print USERID or password.
+- Frozen production target closure: `include/wc/wc_config.h`, `src/core/opts.c`, `src/core/selftest.c`, `include/wc/wc_proxy.h`, `src/core/proxy.c`, and `src/core/lookup_exec_connect.c`; `src/core/lookup_exec_empty.c` is included in the checked closure as the inherited remote-DNS/IPv4-only path without a presumed source edit.
+- D1 adds schemes, parsing, and configuration selftests. D2 adds the SOCKS4/4a transport handshake, CD classification, and byte-exact fake-transport contracts. D3 wires dial dispatch, redacted metrics, and terminal policy. D4 freezes SOCKS4 IPv4-only and SOCKS4a hostname-only candidate construction while proving default direct routing, per-hop bypass, and target-health isolation remain unchanged.
+- The implementation definition uses `schemaVersion=vx-draft` in an independent window beginning `2027-07-22`. Before start-file generation it must still pass TODO-free, SyntaxOnly, D1-D4, Vx safety regressions, full-definition checks, focused compilation for the complete target set, Golden/referral, and Step47 validation.
