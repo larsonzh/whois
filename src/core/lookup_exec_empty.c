@@ -66,7 +66,8 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
         int handled_empty = 0;
         int arin_mode = (rir_empty && strcasecmp(rir_empty, "arin") == 0);
         int retry_budget = arin_mode ? 2 : 1; // ARIN allows more tolerance; others once
-        int allow_empty_retry = (*ctx->empty_retry < retry_budget);
+        int proxy_remote_dns = wc_proxy_uses_remote_dns(cfg, current_host, ctx->current_port);
+        int allow_empty_retry = !proxy_remote_dns && (*ctx->empty_retry < retry_budget);
 
         if (allow_empty_retry) {
             // Rebuild candidates and pick a different one than current_host and last connected ip
@@ -162,9 +163,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
                             else if (!empty_backoff_success) {
                                 out->meta.proxy_failure = 1;
-                                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
-                                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
-                                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+                                proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
                             }
                             if (empty_backoff_success) {
                                 char ts[32];
@@ -237,9 +236,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                     if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                     else if (!empty_known_success) {
                         out->meta.proxy_failure = 1;
-                        proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
-                            proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
-                            proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+                        proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
                     }
                     if (empty_known_success) {
                         char ts[32];

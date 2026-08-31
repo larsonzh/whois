@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13B-1 已完成；WP-13B-2 已完成（Vx A/B SESSION=PASS，Strict Version `lto-auto` 冒烟同步 + 黄金校验 PASS）/ WP-13B-1 complete; WP-13B-2 complete (Vx A/B SESSION=PASS; Strict Version `lto-auto` smoke sync + Golden check PASS).
+状态 / Status：WP-13B-1、WP-13B-2、WP-13B-3 已完成；HTTP CONNECT 与 SOCKS5/5h 数据面均通过 Strict Version `lto-auto` 九架构、Golden 与 referral 门禁，release 双目录已同步并逐字一致 / WP-13B-1, WP-13B-2, and WP-13B-3 complete; HTTP CONNECT and SOCKS5/5h data planes pass the Strict Version `lto-auto` nine-architecture, Golden, and referral gates, with both release directories synchronized byte-for-byte.
 
 # 中文版
 
@@ -292,6 +292,16 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 执行回填：已完成，见 11.1/11.2 的 Checklist A/B 回填与最终收口（2026-08-31）。
 
+## 12. WP-13B-3 SOCKS5/5h 实施记录
+
+- 已实现 SOCKS5 method negotiation、RFC 1929 username/password、CONNECT 的 IPv4/IPv6/domain ATYP 编码、完整 REP 分类和统一 terminal failure policy。
+- `socks5://` 保留本地目标 DNS 候选；未被 per-hop `NO_PROXY` 绕过的 `socks5h://` 直接使用逻辑 hostname 候选，不调用本地目标 DNS、目标 DNS-health/backoff 或 empty-response IP fallback。被 host 规则绕过时仍走原本地 DNS/直连路径。
+- SOCKS5H 成功后目标 IP 保持 unknown，不把代理端点或未观测的远端解析结果写入标题、权威尾行或目标健康状态。默认直连、stdout、RIR referral、batch strategy 与 retry metrics 契约不变。
+- 确定性 fake transport 覆盖认证、ATYP、REP 与远程 DNS policy；loopback 协议/配置探针 21/21 PASS（`out/artifacts/proxy_protocol_spike/20260831-030507`）。严格 ISO C11 clang 检查零诊断；首轮远程检查发现并修复 loongarch64 下 `strdup` 隐式声明，改用标准 `malloc` + `memcpy`。
+- 最终 Strict Version `lto-auto` 九架构构建无编译/LTO 告警，9/9 SHA-256、POSIX/QEMU 与 win32/win64 smoke、Golden 和 IANA/ARIN/AFRINIC 三起点 referral 全 PASS（`out/artifacts/20260831-112633`，436s）。未同步 release 目录。
+- 带 release 同步的最终轮（2026-08-31）：Strict Version `lto-auto` 远程编译冒烟同步 + 黄金校验复核无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS，用时 284s（`out/artifacts/20260831-114158`）；release 双目录（`lzispro/release/lzispro/whois` 与 `whois/release/lzispro/whois`）文件与 `SHA256SUMS-static.txt` 逐字一致，本地 `Get-FileHash` 复核 9/9 匹配。
+- WP-13C（SOCKS4/4a）尚未实施；WP-13D（HTTPS proxy TLS）仍受第 9 节门禁约束。
+
 # English Version
 
 ## 1. Purpose
@@ -581,3 +591,13 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and V
 - [x] The user reviewed the definitions, checklist, and start file and explicitly authorized launch (actual run 2026-08-31).
 
 Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up in sections 11.1/11.2 (2026-08-31).
+
+## 12. WP-13B-3 SOCKS5/5h implementation record
+
+- Implements SOCKS5 method negotiation, RFC 1929 username/password authentication, CONNECT IPv4/IPv6/domain ATYP encoding, complete REP classification, and a shared terminal-failure policy.
+- `socks5://` preserves local target-DNS candidates. An unbypassed `socks5h://` hop uses one logical hostname candidate and does not invoke local target DNS, target DNS-health/backoff, or empty-response IP fallback. A host-level per-hop `NO_PROXY` match preserves the existing local-DNS/direct path.
+- After SOCKS5H succeeds, the target IP remains unknown; neither the proxy endpoint nor an unobserved remote resolution is written into titles, authoritative trailers, or target-health state. Default direct mode, stdout, RIR referrals, batch strategy, and retry-metrics contracts are unchanged.
+- Deterministic fake transports cover authentication, ATYP, REP, and remote-DNS policy. The loopback protocol/configuration spike passes 21/21 cases (`out/artifacts/proxy_protocol_spike/20260831-030507`). Strict ISO C11 clang validation is clean; an initial remote run exposed and fixed an implicit `strdup` declaration on loongarch64 by using standard `malloc` plus `memcpy`.
+- The final Strict Version `lto-auto` nine-architecture build has no compiler/LTO warnings. All 9 SHA-256 checks, POSIX/QEMU and win32/win64 smoke, Golden, and three-origin IANA/ARIN/AFRINIC referral checks pass (`out/artifacts/20260831-112633`, 436s). Release directories were not synchronized.
+- Final run with release synchronization (2026-08-31): Strict Version `lto-auto` remote build + smoke sync + Golden re-check pass with no warnings, no LTO warnings, and Local hash verify/Golden/referral all PASS in 284s (`out/artifacts/20260831-114158`). Both release directories (`lzispro/release/lzispro/whois` and `whois/release/lzispro/whois`) match `SHA256SUMS-static.txt` byte-for-byte; local `Get-FileHash` recheck matches 9/9.
+- WP-13C (SOCKS4/4a) is not implemented. WP-13D (HTTPS-proxy TLS) remains gated by section 9.

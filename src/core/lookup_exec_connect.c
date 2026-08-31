@@ -99,8 +99,29 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
     }
     *ctx->cfg_for_dns = cfg_for_dns;
 
-    int dns_build_rc = wc_dns_build_candidates(cfg_for_dns, current_host, rir, hop_prefers_v4,
-        ctx->hops, &candidates, net_ctx ? net_ctx->injection : NULL);
+    int proxy_remote_dns = wc_proxy_uses_remote_dns(cfg, current_host, ctx->current_port);
+    int dns_build_rc;
+    if (proxy_remote_dns) {
+        size_t current_host_len = strlen(current_host) + 1;
+        candidates.items = (char**)calloc(1, sizeof(*candidates.items));
+        candidates.origins = (unsigned char*)calloc(1, sizeof(*candidates.origins));
+        candidates.families = (unsigned char*)calloc(1, sizeof(*candidates.families));
+        if (!candidates.items || !candidates.origins || !candidates.families ||
+            !(candidates.items[0] = (char*)malloc(current_host_len))) {
+            wc_dns_candidate_list_free(&candidates);
+            out->err = -1;
+            return -1;
+        }
+        memcpy(candidates.items[0], current_host, current_host_len);
+        candidates.origins[0] = WC_DNS_ORIGIN_INPUT;
+        candidates.families[0] = WC_DNS_FAMILY_HOST;
+        candidates.count = 1;
+        candidates.capacity = 1;
+        dns_build_rc = 0;
+    } else {
+        dns_build_rc = wc_dns_build_candidates(cfg_for_dns, current_host, rir, hop_prefers_v4,
+            ctx->hops, &candidates, net_ctx ? net_ctx->injection : NULL);
+    }
     if (candidates.last_error != 0) {
         wc_lookup_log_dns_error(current_host,
             ctx->canonical_host[0] ? ctx->canonical_host : current_host,
@@ -109,8 +130,10 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             net_ctx,
             cfg);
     }
-    wc_lookup_log_dns_health(ctx->canonical_host[0] ? ctx->canonical_host : current_host, AF_INET, net_ctx, cfg);
-    wc_lookup_log_dns_health(ctx->canonical_host[0] ? ctx->canonical_host : current_host, AF_INET6, net_ctx, cfg);
+    if (!proxy_remote_dns) {
+        wc_lookup_log_dns_health(ctx->canonical_host[0] ? ctx->canonical_host : current_host, AF_INET, net_ctx, cfg);
+        wc_lookup_log_dns_health(ctx->canonical_host[0] ? ctx->canonical_host : current_host, AF_INET6, net_ctx, cfg);
+    }
     if (dns_build_rc != 0) {
         out->err = -1;
         wc_dns_candidate_list_free(&candidates);
@@ -162,7 +185,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             target);
         int is_last_candidate = (order_idx == candidates.count - 1);
         wc_dns_health_snapshot_t backoff_snap;
-        int penalized = wc_dns_should_skip_logged(cfg, current_host, target,
+        int penalized = proxy_remote_dns ? 0 : wc_dns_should_skip_logged(cfg, current_host, target,
             candidate_family,
             is_last_candidate ? "force-last" : "skip",
             &backoff_snap, net_ctx);
@@ -196,9 +219,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
         if (attempt_success) out->meta.proxy_failure = 0;
         else if (used_proxy) {
             out->meta.proxy_failure = 1;
-            proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
-                proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
-                proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+            proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
         }
         if (wc_lookup_should_trace_dns(net_ctx, cfg) && i > 0) {
             wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,
@@ -256,9 +277,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             if (attempt_success) out->meta.proxy_failure = 0;
             else if (used_proxy) {
                 out->meta.proxy_failure = 1;
-                proxy_terminal_failure = proxy_result == WC_PROXY_RESULT_AUTH_REQUIRED ||
-                    proxy_result == WC_PROXY_RESULT_REJECTED || proxy_result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
-                    proxy_result == WC_PROXY_RESULT_UNSUPPORTED;
+                proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
             }
             if (wc_lookup_should_trace_dns(net_ctx, cfg)) {
                 wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,

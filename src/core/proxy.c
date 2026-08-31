@@ -12,7 +12,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
 
+#include "wc/wc_dns.h"
 #include "wc/wc_strings.h"
 #include "wc/wc_util.h"
 
@@ -122,6 +129,15 @@ int wc_proxy_should_proxy(const Config* config,
     return 1;
 }
 
+int wc_proxy_uses_remote_dns(const Config* config,
+                             const char* target_host,
+                             int target_port)
+{
+    return config && config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H &&
+        target_host && !wc_dns_is_ip_literal(target_host) &&
+        wc_proxy_should_proxy(config, target_host, target_host, target_port);
+}
+
 static size_t wc_proxy_base64(char* output, size_t capacity, const unsigned char* input, size_t length)
 {
     static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -149,6 +165,145 @@ static wc_proxy_result_t wc_proxy_http_classify(int status)
     if (status >= 400 && status <= 499) return WC_PROXY_RESULT_REJECTED;
     if (status >= 500 && status <= 599) return WC_PROXY_RESULT_UPSTREAM_FAILURE;
     return WC_PROXY_RESULT_PROTOCOL_FAILURE;
+}
+
+static int wc_proxy_recv_exact_until(wc_transport_t* transport, unsigned char* buffer,
+                                     size_t length, uint64_t deadline_ms)
+{
+    size_t received_total = 0;
+    while (received_total < length) {
+        int ready = wc_transport_wait_until(transport, WC_TRANSPORT_WAIT_READ, deadline_ms);
+        int received;
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0) return -1;
+        if (ready == 0) return 0;
+        received = wc_transport_read(transport, (char*)buffer + received_total, length - received_total);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) return -1;
+        received_total += (size_t)received;
+    }
+    return 1;
+}
+
+static wc_proxy_result_t wc_proxy_socks5_classify(unsigned char reply)
+{
+    switch (reply) {
+        case 0x00: return WC_PROXY_RESULT_SUCCEEDED;
+        case 0x01: return WC_PROXY_RESULT_GENERAL_FAILURE;
+        case 0x02: return WC_PROXY_RESULT_RULESET_DENIED;
+        case 0x03: return WC_PROXY_RESULT_NETWORK_UNREACHABLE;
+        case 0x04: return WC_PROXY_RESULT_HOST_UNREACHABLE;
+        case 0x05: return WC_PROXY_RESULT_CONNECTION_REFUSED;
+        case 0x06: return WC_PROXY_RESULT_TTL_EXPIRED;
+        case 0x07: return WC_PROXY_RESULT_COMMAND_UNSUPPORTED;
+        case 0x08: return WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED;
+        default: return WC_PROXY_RESULT_UNKNOWN_REPLY;
+    }
+}
+
+int wc_proxy_socks5_connect_transport(wc_transport_t* transport,
+                                      const wc_proxy_config_t* proxy,
+                                      const char* target,
+                                      uint16_t target_port,
+                                      int remote_dns,
+                                      uint64_t deadline_ms,
+                                      int* reply_code)
+{
+    unsigned char request[300];
+    unsigned char response[260];
+    size_t request_length;
+    size_t address_length;
+    int address_family = 0;
+    int receive_result;
+    wc_proxy_result_t result = WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    if (reply_code) *reply_code = 0;
+    if (!transport || !proxy || !target || !*target || target_port == 0) return result;
+
+    request[0] = 0x05;
+    request[1] = proxy->has_credentials ? 0x02 : 0x01;
+    request[2] = 0x00;
+    if (proxy->has_credentials) request[3] = 0x02;
+    request_length = proxy->has_credentials ? 4U : 3U;
+    if (wc_transport_send_all_until(transport, (const char*)request, request_length, deadline_ms) < 0)
+        return WC_PROXY_RESULT_TIMEOUT;
+    receive_result = wc_proxy_recv_exact_until(transport, response, 2, deadline_ms);
+    if (receive_result <= 0)
+        return receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    if (response[0] != 0x05) return result;
+    if (response[1] == 0xff) return WC_PROXY_RESULT_AUTH_REQUIRED;
+    if (response[1] == 0x02) {
+        size_t username_length;
+        size_t password_length;
+        if (!proxy->has_credentials) return WC_PROXY_RESULT_AUTH_REQUIRED;
+        username_length = strlen(proxy->username);
+        password_length = strlen(proxy->password);
+        if (username_length == 0 || username_length > 255 || password_length == 0 || password_length > 255)
+            return result;
+        request[0] = 0x01;
+        request[1] = (unsigned char)username_length;
+        memcpy(request + 2, proxy->username, username_length);
+        request[2 + username_length] = (unsigned char)password_length;
+        memcpy(request + 3 + username_length, proxy->password, password_length);
+        request_length = 3 + username_length + password_length;
+        if (wc_transport_send_all_until(transport, (const char*)request, request_length, deadline_ms) < 0) {
+            wc_proxy_secure_clear(request, request_length);
+            return WC_PROXY_RESULT_TIMEOUT;
+        }
+        receive_result = wc_proxy_recv_exact_until(transport, response, 2, deadline_ms);
+        wc_proxy_secure_clear(request, request_length);
+        if (receive_result <= 0)
+            return receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;
+        if (response[0] != 0x01) return result;
+        if (response[1] != 0x00) return WC_PROXY_RESULT_AUTH_REQUIRED;
+    } else if (response[1] != 0x00) {
+        return result;
+    }
+
+    request[0] = 0x05;
+    request[1] = 0x01;
+    request[2] = 0x00;
+    if (remote_dns) {
+        address_length = strlen(target);
+        if (address_length == 0 || address_length > 255) return result;
+        request[3] = 0x03;
+        request[4] = (unsigned char)address_length;
+        memcpy(request + 5, target, address_length);
+        request_length = 5 + address_length;
+    } else if (inet_pton(AF_INET, target, request + 4) == 1) {
+        request[3] = 0x01;
+        request_length = 8;
+    } else if (inet_pton(AF_INET6, target, request + 4) == 1) {
+        request[3] = 0x04;
+        request_length = 20;
+    } else {
+        return WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED;
+    }
+    request[request_length++] = (unsigned char)(target_port >> 8);
+    request[request_length++] = (unsigned char)(target_port & 0xff);
+    if (wc_transport_send_all_until(transport, (const char*)request, request_length, deadline_ms) < 0)
+        return WC_PROXY_RESULT_TIMEOUT;
+    receive_result = wc_proxy_recv_exact_until(transport, response, 4, deadline_ms);
+    if (receive_result <= 0)
+        return receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    if (response[0] != 0x05 || response[2] != 0x00) return result;
+    if (reply_code) *reply_code = response[1];
+    result = wc_proxy_socks5_classify(response[1]);
+    address_family = response[3];
+    if (address_family == 0x01) address_length = 4;
+    else if (address_family == 0x04) address_length = 16;
+    else if (address_family == 0x03) {
+        receive_result = wc_proxy_recv_exact_until(transport, response, 1, deadline_ms);
+        if (receive_result <= 0)
+            return receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;
+        address_length = response[0];
+        if (address_length == 0) return WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    } else {
+        return WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    }
+    receive_result = wc_proxy_recv_exact_until(transport, response, address_length + 2, deadline_ms);
+    if (receive_result <= 0)
+        return receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;
+    return result;
 }
 
 int wc_proxy_http_connect_transport(wc_transport_t* transport,
@@ -229,8 +384,30 @@ const char* wc_proxy_result_name(wc_proxy_result_t result)
         case WC_PROXY_RESULT_REJECTED: return "proxy-rejected";
         case WC_PROXY_RESULT_UPSTREAM_FAILURE: return "proxy-upstream-failure";
         case WC_PROXY_RESULT_UNSUPPORTED: return "proxy-unsupported";
+        case WC_PROXY_RESULT_NETWORK_UNREACHABLE: return "network-unreachable";
+        case WC_PROXY_RESULT_HOST_UNREACHABLE: return "host-unreachable";
+        case WC_PROXY_RESULT_CONNECTION_REFUSED: return "connection-refused";
+        case WC_PROXY_RESULT_TTL_EXPIRED: return "ttl-expired";
+        case WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED: return "address-type-unsupported";
+        case WC_PROXY_RESULT_UNKNOWN_REPLY: return "unknown-reply";
+        case WC_PROXY_RESULT_GENERAL_FAILURE: return "general-failure";
+        case WC_PROXY_RESULT_RULESET_DENIED: return "ruleset-denied";
+        case WC_PROXY_RESULT_COMMAND_UNSUPPORTED: return "command-unsupported";
         default: return "proxy-protocol-failure";
     }
+}
+
+int wc_proxy_result_is_terminal(wc_proxy_result_t result)
+{
+    return result == WC_PROXY_RESULT_AUTH_REQUIRED ||
+        result == WC_PROXY_RESULT_REJECTED ||
+        result == WC_PROXY_RESULT_PROTOCOL_FAILURE ||
+        result == WC_PROXY_RESULT_UNSUPPORTED ||
+        result == WC_PROXY_RESULT_GENERAL_FAILURE ||
+        result == WC_PROXY_RESULT_RULESET_DENIED ||
+        result == WC_PROXY_RESULT_COMMAND_UNSUPPORTED ||
+        result == WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED ||
+        result == WC_PROXY_RESULT_UNKNOWN_REPLY;
 }
 
 int wc_proxy_dial_hop(const Config* config,
@@ -256,7 +433,9 @@ int wc_proxy_dial_hop(const Config* config,
     if (!wc_proxy_should_proxy(config, target_host, target_address, (int)target_port))
         return wc_dial_43(net_ctx, target_address, target_port, timeout_ms, retries, out);
     if (used_proxy) *used_proxy = 1;
-    if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP) {
+    if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP &&
+        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5 &&
+        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5H) {
         if (proxy_result) *proxy_result = WC_PROXY_RESULT_UNSUPPORTED;
         return WC_ERR_INVALID;
     }
@@ -273,18 +452,29 @@ int wc_proxy_dial_hop(const Config* config,
         return WC_ERR_IO;
     }
     wc_transport_init(&transport, &endpoint.fd);
-    result = (wc_proxy_result_t)wc_proxy_http_connect_transport(&transport, &config->proxy,
-        target_address, target_port, deadline_ms, &status);
+    if (config->proxy.scheme == WC_PROXY_SCHEME_HTTP) {
+        result = (wc_proxy_result_t)wc_proxy_http_connect_transport(&transport, &config->proxy,
+            target_address, target_port, deadline_ms, &status);
+    } else {
+        const char* socks_target = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? target_host : target_address;
+        result = (wc_proxy_result_t)wc_proxy_socks5_connect_transport(&transport, &config->proxy,
+            socks_target, target_port, config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H,
+            deadline_ms, &status);
+    }
     if (result != WC_PROXY_RESULT_SUCCEEDED) {
         wc_transport_close(&transport, "wc_proxy_connect_fail", config->debug);
         endpoint.connected = 0;
         endpoint.err = WC_ERR_IO;
         endpoint.last_errno = (result == WC_PROXY_RESULT_TIMEOUT) ? ETIMEDOUT : EPROTO;
+    } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H) {
+        endpoint.ip[0] = '\0';
     } else {
         snprintf(endpoint.ip, sizeof(endpoint.ip), "%s", target_address);
     }
     if ((config->debug || config->retry_metrics) && result != WC_PROXY_RESULT_SUCCEEDED)
-        fprintf(stderr, "[PROXY] scheme=http phase=connect port=%u result=%s status=%d\n",
+        fprintf(stderr, "[PROXY] scheme=%s phase=connect port=%u result=%s status=%d\n",
+            config->proxy.scheme == WC_PROXY_SCHEME_HTTP ? "http" :
+                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? "socks5h" : "socks5"),
             (unsigned)config->proxy.endpoint_port, wc_proxy_result_name(result), status);
     *out = endpoint;
     if (proxy_result) *proxy_result = result;
@@ -293,6 +483,7 @@ int wc_proxy_dial_hop(const Config* config,
 
 typedef struct wc_proxy_fake {
     const char* response;
+    size_t response_length;
     size_t response_offset;
     char request[1024];
     size_t request_used;
@@ -301,7 +492,8 @@ typedef struct wc_proxy_fake {
 static int wc_proxy_fake_read(void* context, char* buffer, size_t length)
 {
     wc_proxy_fake_t* fake = (wc_proxy_fake_t*)context;
-    size_t remaining = strlen(fake->response) - fake->response_offset;
+    size_t total = fake->response_length ? fake->response_length : strlen(fake->response);
+    size_t remaining = total - fake->response_offset;
     if (remaining == 0) return 0;
     if (length > remaining) length = remaining;
     memcpy(buffer, fake->response + fake->response_offset, length);
@@ -339,6 +531,29 @@ static int wc_proxy_test_report(const char* name, int pass)
 int wc_proxy_selftest(void)
 {
     static const wc_transport_ops_t operations = { wc_proxy_fake_read, wc_proxy_fake_write, wc_proxy_fake_wait, wc_proxy_fake_close };
+    static const unsigned char socks5_ipv4_response[] = {
+        0x05, 0x00,
+        0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38
+    };
+    static const unsigned char socks5_auth_domain_response[] = {
+        0x05, 0x02,
+        0x01, 0x00,
+        0x05, 0x00, 0x00, 0x03, 0x03, 'f', 'o', 'o', 0x04, 0x38
+    };
+    static const unsigned char socks5_refused_response[] = {
+        0x05, 0x00,
+        0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0
+    };
+    static const unsigned char socks5_ipv6_response[] = {
+        0x05, 0x00,
+        0x05, 0x00, 0x00, 0x04,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        0x04, 0x38
+    };
+    static const unsigned char socks5_auth_rejected_response[] = {
+        0x05, 0x02,
+        0x01, 0x01
+    };
     const uint64_t no_deadline = ~(uint64_t)0;
     Config config;
     wc_proxy_fake_t fake;
@@ -363,6 +578,14 @@ int wc_proxy_selftest(void)
         wc_proxy_should_proxy(&config, "other.test", "2001:db8::7", 43));
     snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), "localhost,.example.net,192.0.2.7:43,[2001:db8::7]:4343");
     failed |= wc_proxy_test_report("proxy-required", wc_proxy_should_proxy(&config, "whois.example.org", "192.0.2.9", 43));
+    config.proxy.scheme = WC_PROXY_SCHEME_SOCKS5H;
+    failed |= wc_proxy_test_report("socks5h-remote-dns",
+        wc_proxy_uses_remote_dns(&config, "whois.example.org", 43));
+    failed |= wc_proxy_test_report("socks5h-no-proxy-local-dns",
+        !wc_proxy_uses_remote_dns(&config, "whois.example.net", 43));
+    failed |= wc_proxy_test_report("socks5h-ip-literal",
+        !wc_proxy_uses_remote_dns(&config, "192.0.2.9", 43));
+    config.proxy.scheme = WC_PROXY_SCHEME_HTTP;
     memset(&fake, 0, sizeof(fake));
     fake.response = "HTTP/1.1 204 No Content\r\nX-Test: yes\r\n\r\n";
     wc_transport_init_with_ops(&transport, &operations, &fake);
@@ -396,6 +619,66 @@ int wc_proxy_selftest(void)
     wc_transport_init_with_ops(&transport, &operations, &fake);
     failed |= wc_proxy_test_report("http-malformed-status-delimiter",
         wc_proxy_http_connect_transport(&transport, &config.proxy, "192.0.2.13", 43, no_deadline, &status) == WC_PROXY_RESULT_PROTOCOL_FAILURE);
+    memset(&fake, 0, sizeof(fake));
+    fake.response = (const char*)socks5_ipv4_response;
+    fake.response_length = sizeof(socks5_ipv4_response);
+    config.proxy.has_credentials = 0;
+    wc_transport_init_with_ops(&transport, &operations, &fake);
+    failed |= wc_proxy_test_report("socks5-ipv4",
+        wc_proxy_socks5_connect_transport(&transport, &config.proxy, "192.0.2.20", 43, 0,
+            no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED && status == 0 &&
+        fake.request_used == 13 &&
+        memcmp(fake.request, "\x05\x01\x00\x05\x01\x00\x01\xc0\x00\x02\x14\x00\x2b", 13) == 0);
+    memset(&fake, 0, sizeof(fake));
+    fake.response = (const char*)socks5_auth_domain_response;
+    fake.response_length = sizeof(socks5_auth_domain_response);
+    config.proxy.has_credentials = 1;
+    snprintf(config.proxy.username, sizeof(config.proxy.username), "user");
+    snprintf(config.proxy.password, sizeof(config.proxy.password), "pass");
+    wc_transport_init_with_ops(&transport, &operations, &fake);
+    failed |= wc_proxy_test_report("socks5h-auth-domain",
+        wc_proxy_socks5_connect_transport(&transport, &config.proxy, "whois.example", 43, 1,
+            no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED && status == 0 &&
+        fake.request_used == 35 &&
+        memcmp(fake.request, "\x05\x02\x00\x02\x01\x04user\x04pass\x05\x01\x00\x03\x0dwhois.example\x00\x2b", 35) == 0);
+    memset(&fake, 0, sizeof(fake));
+    fake.response = (const char*)socks5_refused_response;
+    fake.response_length = sizeof(socks5_refused_response);
+    config.proxy.has_credentials = 0;
+    wc_transport_init_with_ops(&transport, &operations, &fake);
+    failed |= wc_proxy_test_report("socks5-reply-refused",
+        wc_proxy_socks5_connect_transport(&transport, &config.proxy, "2001:db8::20", 43, 0,
+            no_deadline, &status) == WC_PROXY_RESULT_CONNECTION_REFUSED && status == 5);
+    memset(&fake, 0, sizeof(fake));
+    fake.response = (const char*)socks5_ipv6_response;
+    fake.response_length = sizeof(socks5_ipv6_response);
+    wc_transport_init_with_ops(&transport, &operations, &fake);
+    failed |= wc_proxy_test_report("socks5-ipv6",
+        wc_proxy_socks5_connect_transport(&transport, &config.proxy, "2001:db8::20", 43, 0,
+            no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED && status == 0 &&
+        fake.request_used == 25 && (unsigned char)fake.request[6] == 0x04 &&
+        (unsigned char)fake.request[23] == 0x00 && (unsigned char)fake.request[24] == 0x2b);
+    memset(&fake, 0, sizeof(fake));
+    fake.response = (const char*)socks5_auth_rejected_response;
+    fake.response_length = sizeof(socks5_auth_rejected_response);
+    config.proxy.has_credentials = 1;
+    wc_transport_init_with_ops(&transport, &operations, &fake);
+    failed |= wc_proxy_test_report("socks5-auth-rejected",
+        wc_proxy_socks5_connect_transport(&transport, &config.proxy, "192.0.2.21", 43, 0,
+            no_deadline, &status) == WC_PROXY_RESULT_AUTH_REQUIRED);
+    failed |= wc_proxy_test_report("socks5-reply-classes",
+        wc_proxy_socks5_classify(0x00) == WC_PROXY_RESULT_SUCCEEDED &&
+        wc_proxy_socks5_classify(0x01) == WC_PROXY_RESULT_GENERAL_FAILURE &&
+        wc_proxy_socks5_classify(0x02) == WC_PROXY_RESULT_RULESET_DENIED &&
+        wc_proxy_socks5_classify(0x03) == WC_PROXY_RESULT_NETWORK_UNREACHABLE &&
+        wc_proxy_socks5_classify(0x04) == WC_PROXY_RESULT_HOST_UNREACHABLE &&
+        wc_proxy_socks5_classify(0x05) == WC_PROXY_RESULT_CONNECTION_REFUSED &&
+        wc_proxy_socks5_classify(0x06) == WC_PROXY_RESULT_TTL_EXPIRED &&
+        wc_proxy_socks5_classify(0x07) == WC_PROXY_RESULT_COMMAND_UNSUPPORTED &&
+        wc_proxy_socks5_classify(0x08) == WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED &&
+        wc_proxy_socks5_classify(0x09) == WC_PROXY_RESULT_UNKNOWN_REPLY &&
+        wc_proxy_result_is_terminal(WC_PROXY_RESULT_RULESET_DENIED) &&
+        !wc_proxy_result_is_terminal(WC_PROXY_RESULT_CONNECTION_REFUSED));
     wc_proxy_secure_clear(&fake, sizeof(fake));
     wc_proxy_secure_clear(&config.proxy, sizeof(config.proxy));
     return failed;

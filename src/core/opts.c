@@ -540,7 +540,9 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
         fprintf(stderr, "Error: socks5h conflicts with target-family, fallback, or RIR override controls\n");
         goto fail;
     }
-    out->routing_enabled = (out->scheme == WC_PROXY_SCHEME_HTTP);
+    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||
+        out->scheme == WC_PROXY_SCHEME_SOCKS5 ||
+        out->scheme == WC_PROXY_SCHEME_SOCKS5H;
     return 1;
 
 fail:
