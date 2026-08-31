@@ -1,0 +1,118 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13c-a-socks4-config-preflight-20270722-20270728",
+  "targetFile": "src/core/opts.c",
+  "targetFiles": [
+    { "id": "config_header", "file": "include/wc/wc_config.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_source", "file": "src/core/opts.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "selftest_source", "file": "src/core/selftest.c", "kind": "c-source", "lifecycle": "existing" }
+  ],
+  "defaultTarget": "opts_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare stable SOCKS4 and SOCKS4a schemes without enabling production routing.",
+      "idempotentContainsByTarget": {
+        "config_header": ["WC_PROXY_SCHEME_SOCKS4A = 5"]
+      },
+      "operations": [
+        {
+          "target": "config_header",
+          "pattern": "    WC_PROXY_SCHEME_SOCKS5 = 2,\n    WC_PROXY_SCHEME_SOCKS5H = 3\n} wc_proxy_scheme_t;",
+          "replacement": "    WC_PROXY_SCHEME_SOCKS5 = 2,\n    WC_PROXY_SCHEME_SOCKS5H = 3,\n    WC_PROXY_SCHEME_SOCKS4 = 4,\n    WC_PROXY_SCHEME_SOCKS4A = 5\n} wc_proxy_scheme_t;",
+          "idempotentContains": ["WC_PROXY_SCHEME_SOCKS4A = 5"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d1-socks4-schemes-two", "target": "config_header", "pattern": "WC_PROXY_SCHEME_SOCKS4A? = [45]", "expectedCount": 2 },
+        { "name": "d1-socks5-schemes-preserved-two", "target": "config_header", "pattern": "WC_PROXY_SCHEME_SOCKS5H? = [23]", "expectedCount": 2 }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Parse SOCKS4 and SOCKS4a URLs while keeping both schemes fail-closed until the B-stage data plane is present.",
+      "idempotentContainsByTarget": {
+        "opts_source": ["size_t value_length = strlen(value);", "char* token = copy;", "strncasecmp(url, \"socks4a\", 7) == 0", "out->scheme == WC_PROXY_SCHEME_SOCKS4A ||\n         out->scheme == WC_PROXY_SCHEME_SOCKS5H"]
+      },
+      "operations": [
+        {
+          "target": "opts_source",
+          "pattern": "    char\\* copy = strdup\\(value\\);\n    if \\(!copy\\) return -1;",
+          "replacement": "    size_t value_length = strlen(value);\n    char* copy = (char*)malloc(value_length + 1);\n    if (!copy) return -1;\n    memcpy(copy, value, value_length + 1);",
+          "idempotentContains": ["size_t value_length = strlen(value);"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    char\\* token = strtok\\(copy, \",\"\\);\n    while \\(token\\) \\{\n        char\\* item = wc_opts_trim_local\\(token\\);\n        if \\(!item \\|\\| !\\*item\\) \\{ token = strtok\\(NULL, \",\"\\); continue; \\}\n        char\\* eq = strchr\\(item, '='\\);\n        if \\(!eq\\) \\{ rc = -1; break; \\}\n        \\*eq = '\\\\0';\n        char\\* key = wc_opts_trim_local\\(item\\);\n        char\\* val = wc_opts_trim_local\\(eq \\+ 1\\);\n        if \\(!key \\|\\| !\\*key \\|\\| !val \\|\\| !\\*val\\) \\{ rc = -1; break; \\}\n        if \\(wc_opts_apply_rir_pref\\(o, key, val\\) != 0\\) \\{ rc = -1; break; \\}\n        token = strtok\\(NULL, \",\"\\);\n    \\}",
+          "replacement": "    char* token = copy;\n    while (token) {\n        char* next = strchr(token, ',');\n        if (next) *next++ = '\\0';\n        char* item = wc_opts_trim_local(token);\n        if (!item || !*item) { token = next; continue; }\n        char* eq = strchr(item, '=');\n        if (!eq) { rc = -1; break; }\n        *eq = '\\0';\n        char* key = wc_opts_trim_local(item);\n        char* val = wc_opts_trim_local(eq + 1);\n        if (!key || !*key || !val || !*val) { rc = -1; break; }\n        if (wc_opts_apply_rir_pref(o, key, val) != 0) { rc = -1; break; }\n        token = next;\n    }",
+          "idempotentContains": ["char* token = copy;"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    } else if \\(\\(size_t\\)\\(scheme_end - url\\) == 7 && strncasecmp\\(url, \"socks5h\", 7\\) == 0\\) \\{\n        out->scheme = WC_PROXY_SCHEME_SOCKS5H;\n        port = 1080;\n    } else \\{",
+          "replacement": "    } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, \"socks5h\", 7) == 0) {\n        out->scheme = WC_PROXY_SCHEME_SOCKS5H;\n        port = 1080;\n    } else if ((size_t)(scheme_end - url) == 6 && strncasecmp(url, \"socks4\", 6) == 0) {\n        out->scheme = WC_PROXY_SCHEME_SOCKS4;\n        port = 1080;\n    } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, \"socks4a\", 7) == 0) {\n        out->scheme = WC_PROXY_SCHEME_SOCKS4A;\n        port = 1080;\n    } else {",
+          "idempotentContains": ["strncasecmp(url, \"socks4a\", 7) == 0"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    if \\(out->scheme == WC_PROXY_SCHEME_SOCKS5H &&\n        \\(opts->ipv4_only \\|\\| opts->ipv6_only \\|\\| opts->dns_family_mode_set \\|\\|",
+          "replacement": "    if ((out->scheme == WC_PROXY_SCHEME_SOCKS4A ||\n         out->scheme == WC_PROXY_SCHEME_SOCKS5H) &&\n        (opts->ipv4_only || opts->ipv6_only || opts->dns_family_mode_set ||",
+          "idempotentContains": ["out->scheme == WC_PROXY_SCHEME_SOCKS4A ||\n         out->scheme == WC_PROXY_SCHEME_SOCKS5H"]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "        fprintf\\(stderr, \"Error: socks5h conflicts with target-family, fallback, or RIR override controls\\\\n\"\\);",
+          "replacement": "        fprintf(stderr, \"Error: remote-DNS proxy conflicts with target-family, fallback, or RIR override controls\\n\");",
+          "idempotentContains": ["Error: remote-DNS proxy conflicts with target-family, fallback, or RIR override controls"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d2-posix-strdup-removed", "target": "opts_source", "pattern": "strdup\\(value\\)", "expectedCount": 0 },
+        { "name": "d2-unsafe-strtok-removed", "target": "opts_source", "pattern": "strtok\\(", "expectedCount": 0 },
+        { "name": "d2-portable-copy-one", "target": "opts_source", "pattern": "size_t value_length = strlen\\(value\\);", "expectedCount": 1 },
+        { "name": "d2-socks4-parser-one", "target": "opts_source", "pattern": "strncasecmp\\(url, \"socks4\", 6\\) == 0", "expectedCount": 1 },
+        { "name": "d2-socks4a-parser-one", "target": "opts_source", "pattern": "strncasecmp\\(url, \"socks4a\", 7\\) == 0", "expectedCount": 1 },
+        { "name": "d2-remote-dns-gate-three", "target": "opts_source", "pattern": "out->scheme == WC_PROXY_SCHEME_(?:SOCKS4A|SOCKS5H)", "expectedCount": 3 },
+        { "name": "d2-a-stage-routing-excludes-socks4", "target": "opts_source", "pattern": "out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5H;", "expectedCount": 1 }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Extend the deterministic configuration matrix for SOCKS4 defaults and SOCKS4a remote-DNS conflicts without printing credentials.",
+      "idempotentContainsByTarget": {
+        "selftest_source": ["selftest_proxy_expect(\"socks4-default-port\"", "selftest_proxy_expect(\"socks4a-target-family\""]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "    opts.proxy_url = \"socks5://proxy.example\";\n    failed_local \\|= selftest_proxy_expect\\(\"socks-default-port\",\n        wc_opts_proxy_resolve\\(&opts, &env, &proxy\\) && proxy.endpoint_port == 1080 && proxy.routing_enabled\\);\n    opts.proxy_url = \"socks5://\\[2001:db8::1\\]:1081\";",
+          "replacement": "    opts.proxy_url = \"socks5://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"socks-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 && proxy.routing_enabled);\n    opts.proxy_url = \"socks4://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"socks4-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 &&\n        proxy.scheme == WC_PROXY_SCHEME_SOCKS4 && !proxy.routing_enabled);\n    opts.proxy_url = \"socks4a://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"socks4a-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 &&\n        proxy.scheme == WC_PROXY_SCHEME_SOCKS4A && !proxy.routing_enabled);\n    opts.proxy_url = \"socks5://[2001:db8::1]:1081\";",
+          "idempotentContains": ["selftest_proxy_expect(\"socks4-default-port\""]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    opts.proxy_family = \"auto\";\n    opts.proxy_url = \"socks5h://proxy.example\";\n    failed_local \\|= selftest_proxy_expect\\(\"socks5h-routing-enabled\",",
+          "replacement": "    opts.proxy_family = \"auto\";\n    opts.proxy_url = \"socks4a://proxy.example\";\n    opts.ipv4_only = 1;\n    failed_local |= selftest_proxy_expect(\"socks4a-target-family\",\n        !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.ipv4_only = 0;\n    opts.proxy_url = \"socks5h://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"socks5h-routing-enabled\",",
+          "idempotentContains": ["selftest_proxy_expect(\"socks4a-target-family\""]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d3-socks4-default-port-one", "target": "selftest_source", "pattern": "selftest_proxy_expect\\(\"socks4-default-port\"", "expectedCount": 1 },
+        { "name": "d3-socks4a-default-port-one", "target": "selftest_source", "pattern": "selftest_proxy_expect\\(\"socks4a-default-port\"", "expectedCount": 1 },
+        { "name": "d3-socks4a-control-one", "target": "selftest_source", "pattern": "selftest_proxy_expect\\(\"socks4a-target-family\"", "expectedCount": 1 },
+        { "name": "d3-secret-case-names-absent", "target": "selftest_source", "pattern": "socks4(?:a)?-(?:default-port|target-family)-password", "expectedCount": 0 }
+      ]
+    },
+    "D4": {
+      "type": "noop",
+      "description": "No additional A-stage source change: data-plane routing remains intentionally fail-closed for the prerequisite snapshot."
+    }
+  }
+}

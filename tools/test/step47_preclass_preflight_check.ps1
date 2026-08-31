@@ -197,7 +197,7 @@ $results += (Invoke-Case -Name "gate-enabled-missing-case-list" -CaseArgs ($comm
     "-PreclassCaseListFile", "testdata/not_exists_cases.txt",
     "-PreclassGroupThresholdFile", $PreclassThresholdFile
 )) -ExpectPass $false -MustMatchRegex @(
-    'Preclass\s+case\s+list\s+file\s+not\s+found'
+    'Preclass\s+case\s+list\s*file\s+not\s+found'
 ) | Select-Object -Last 1)
 
 $summaryCsv = Join-Path $outDir "summary.csv"

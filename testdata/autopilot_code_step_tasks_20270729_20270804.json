@@ -1,0 +1,193 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13c-b-socks4-data-plane-20270729-20270804",
+  "targetFile": "src/core/proxy.c",
+  "targetFiles": [
+    { "id": "config_header", "file": "include/wc/wc_config.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "opts_source", "file": "src/core/opts.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "selftest_source", "file": "src/core/selftest.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "proxy_header", "file": "include/wc/wc_proxy.h", "kind": "c-header", "lifecycle": "existing" },
+    { "id": "proxy_source", "file": "src/core/proxy.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "lookup_connect", "file": "src/core/lookup_exec_connect.c", "kind": "c-source", "lifecycle": "existing" },
+    { "id": "lookup_empty", "file": "src/core/lookup_exec_empty.c", "kind": "c-source", "lifecycle": "existing" }
+  ],
+  "defaultTarget": "proxy_source",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare SOCKS4 transport and target-support policy before enabling the A-stage schemes in production routing.",
+      "idempotentContainsByTarget": {
+        "proxy_header": ["int wc_proxy_socks4_connect_transport(", "int wc_proxy_target_supported("],
+        "opts_source": ["out->scheme == WC_PROXY_SCHEME_SOCKS4A;"]
+      },
+      "operations": [
+        {
+          "target": "proxy_header",
+          "pattern": "int wc_proxy_socks5_connect_transport\\(wc_transport_t\\* transport,\n                                      const wc_proxy_config_t\\* proxy,\n                                      const char\\* target,\n                                      uint16_t target_port,\n                                      int remote_dns,\n                                      uint64_t deadline_ms,\n                                      int\\* reply_code\\);\nint wc_proxy_dial_hop\\(",
+          "replacement": "int wc_proxy_socks5_connect_transport(wc_transport_t* transport,\n                                      const wc_proxy_config_t* proxy,\n                                      const char* target,\n                                      uint16_t target_port,\n                                      int remote_dns,\n                                      uint64_t deadline_ms,\n                                      int* reply_code);\nint wc_proxy_socks4_connect_transport(wc_transport_t* transport,\n                                      const wc_proxy_config_t* proxy,\n                                      const char* target,\n                                      uint16_t target_port,\n                                      int remote_dns,\n                                      uint64_t deadline_ms,\n                                      int* reply_code);\nint wc_proxy_target_supported(const Config* config,\n                              const char* target_host,\n                              const char* target_address,\n                              int target_port);\nint wc_proxy_dial_hop(",
+          "idempotentContains": ["int wc_proxy_socks4_connect_transport("]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5H;",
+          "replacement": "    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 ||\n        out->scheme == WC_PROXY_SCHEME_SOCKS5H ||\n        out->scheme == WC_PROXY_SCHEME_SOCKS4 ||\n        out->scheme == WC_PROXY_SCHEME_SOCKS4A;",
+          "idempotentContains": ["out->scheme == WC_PROXY_SCHEME_SOCKS4A;"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d1-socks4-transport-declaration-one", "target": "proxy_header", "pattern": "int wc_proxy_socks4_connect_transport\\(", "expectedCount": 1 },
+        { "name": "d1-target-policy-declaration-one", "target": "proxy_header", "pattern": "int wc_proxy_target_supported\\(", "expectedCount": 1 },
+        { "name": "d1-routing-block-one", "target": "opts_source", "pattern": "out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS5H \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS4 \\|\\|\n        out->scheme == WC_PROXY_SCHEME_SOCKS4A;", "expectedCount": 1 }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Implement the byte-exact SOCKS4/4a CONNECT handshake with IPv4 or remote-domain targets, optional USERID, reply preservation, and request zeroization.",
+      "idempotentContainsByTarget": {
+        "proxy_source": ["static wc_proxy_result_t wc_proxy_socks4_classify(unsigned char reply)", "int wc_proxy_socks4_connect_transport(wc_transport_t* transport,"]
+      },
+      "operations": [
+        {
+          "target": "proxy_source",
+          "pattern": "    return 1;\n\\}\n\nstatic wc_proxy_result_t wc_proxy_socks5_classify\\(unsigned char reply\\)",
+          "replacement": "    return 1;\n}\n\nstatic wc_proxy_result_t wc_proxy_socks4_classify(unsigned char reply)\n{\n    switch (reply) {\n        case 0x5a: return WC_PROXY_RESULT_SUCCEEDED;\n        case 0x5b: return WC_PROXY_RESULT_REJECTED;\n        case 0x5c:\n        case 0x5d: return WC_PROXY_RESULT_AUTH_REQUIRED;\n        default: return WC_PROXY_RESULT_UNKNOWN_REPLY;\n    }\n}\n\nint wc_proxy_socks4_connect_transport(wc_transport_t* transport,\n                                      const wc_proxy_config_t* proxy,\n                                      const char* target,\n                                      uint16_t target_port,\n                                      int remote_dns,\n                                      uint64_t deadline_ms,\n                                      int* reply_code)\n{\n    unsigned char request[512];\n    unsigned char response[8];\n    size_t username_length;\n    size_t target_length = 0;\n    size_t request_length;\n    int receive_result;\n    wc_proxy_result_t result = WC_PROXY_RESULT_PROTOCOL_FAILURE;\n    if (reply_code) *reply_code = 0;\n    if (!transport || !proxy || !target || !*target || target_port == 0) return result;\n    username_length = proxy->has_credentials ? strlen(proxy->username) : 0;\n    if (username_length > 255) return result;\n    request[0] = 0x04;\n    request[1] = 0x01;\n    request[2] = (unsigned char)(target_port >> 8);\n    request[3] = (unsigned char)(target_port & 0xff);\n    if (remote_dns) {\n        target_length = strlen(target);\n        if (target_length == 0 || target_length > 255) return result;\n        request[4] = 0x00;\n        request[5] = 0x00;\n        request[6] = 0x00;\n        request[7] = 0x01;\n    } else if (inet_pton(AF_INET, target, request + 4) != 1) {\n        return WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED;\n    }\n    if (username_length > 0) memcpy(request + 8, proxy->username, username_length);\n    request[8 + username_length] = 0x00;\n    request_length = 9 + username_length;\n    if (remote_dns) {\n        memcpy(request + request_length, target, target_length);\n        request_length += target_length;\n        request[request_length++] = 0x00;\n    }\n    if (wc_transport_send_all_until(transport, (const char*)request, request_length, deadline_ms) < 0) {\n        result = WC_PROXY_RESULT_TIMEOUT;\n        goto cleanup;\n    }\n    receive_result = wc_proxy_recv_exact_until(transport, response, sizeof(response), deadline_ms);\n    if (receive_result <= 0) {\n        result = receive_result == 0 ? WC_PROXY_RESULT_TIMEOUT : WC_PROXY_RESULT_PROTOCOL_FAILURE;\n        goto cleanup;\n    }\n    if (response[0] != 0x00) goto cleanup;\n    if (reply_code) *reply_code = response[1];\n    result = wc_proxy_socks4_classify(response[1]);\ncleanup:\n    wc_proxy_secure_clear(request, sizeof(request));\n    wc_proxy_secure_clear(response, sizeof(response));\n    return result;\n}\n\nstatic wc_proxy_result_t wc_proxy_socks5_classify(unsigned char reply)",
+          "idempotentContains": ["static wc_proxy_result_t wc_proxy_socks4_classify(unsigned char reply)"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d2-socks4-classifier-one", "target": "proxy_source", "pattern": "static wc_proxy_result_t wc_proxy_socks4_classify\\(", "expectedCount": 1 },
+        { "name": "d2-socks4-transport-one", "target": "proxy_source", "pattern": "int wc_proxy_socks4_connect_transport\\(", "expectedCount": 1 },
+        { "name": "d2-socks4a-sentinel-one", "target": "proxy_source", "pattern": "request\\[7\\] = 0x01;", "expectedCount": 1 },
+        { "name": "d2-userid-copy-one", "target": "proxy_source", "pattern": "memcpy\\(request \\+ 8, proxy->username, username_length\\)", "expectedCount": 1 },
+        { "name": "d2-request-buffer-clears-three", "target": "proxy_source", "pattern": "wc_proxy_secure_clear\\(request, sizeof\\(request\\)\\);", "expectedCount": 3 }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Wire SOCKS4/4a into remote-DNS policy and proxy dialing, preserve unknown remote target addresses, emit redacted scheme names, and add byte-exact fake-transport tests.",
+      "idempotentContainsByTarget": {
+        "proxy_source": ["config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||", "wc_proxy_socks4_connect_transport(&transport, &config->proxy,", "wc_proxy_test_report(\"socks4a-userid-domain\""]
+      },
+      "operations": [
+        {
+          "target": "proxy_source",
+          "pattern": "    return config && config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H &&\n        target_host && !wc_dns_is_ip_literal\\(target_host\\) &&",
+          "replacement": "    return config &&\n        (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||\n         config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H) &&\n        target_host && !wc_dns_is_ip_literal(target_host) &&",
+          "idempotentContains": ["config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    if \\(config->proxy.scheme != WC_PROXY_SCHEME_HTTP &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5H\\) \\{",
+          "replacement": "    if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5H &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4A) {",
+          "idempotentContains": ["config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4A) {"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    if \\(config->proxy.scheme == WC_PROXY_SCHEME_HTTP\\) \\{\n        result = \\(wc_proxy_result_t\\)wc_proxy_http_connect_transport\\(&transport, &config->proxy,\n            target_address, target_port, deadline_ms, &status\\);\n    \\} else \\{\n        const char\\* socks_target = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H \\? target_host : target_address;\n        result = \\(wc_proxy_result_t\\)wc_proxy_socks5_connect_transport\\(&transport, &config->proxy,\n            socks_target, target_port, config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H,\n            deadline_ms, &status\\);\n    \\}",
+          "replacement": "    if (config->proxy.scheme == WC_PROXY_SCHEME_HTTP) {\n        result = (wc_proxy_result_t)wc_proxy_http_connect_transport(&transport, &config->proxy,\n            target_address, target_port, deadline_ms, &status);\n    } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4 ||\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A) {\n        const int remote_dns = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A;\n        const char* socks_target = remote_dns ? target_host : target_address;\n        result = (wc_proxy_result_t)wc_proxy_socks4_connect_transport(&transport, &config->proxy,\n            socks_target, target_port, remote_dns, deadline_ms, &status);\n    } else {\n        const char* socks_target = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? target_host : target_address;\n        result = (wc_proxy_result_t)wc_proxy_socks5_connect_transport(&transport, &config->proxy,\n            socks_target, target_port, config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H,\n            deadline_ms, &status);\n    }",
+          "idempotentContains": ["wc_proxy_socks4_connect_transport(&transport, &config->proxy,"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    \\} else if \\(config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H\\) \\{\n        endpoint.ip\\[0\\] = '\\\\0';",
+          "replacement": "    } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H) {\n        endpoint.ip[0] = '\\0';",
+          "idempotentContains": ["config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "            config->proxy.scheme == WC_PROXY_SCHEME_HTTP \\? \"http\" :\n                \\(config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H \\? \"socks5h\" : \"socks5\"\\),",
+          "replacement": "            config->proxy.scheme == WC_PROXY_SCHEME_HTTP ? \"http\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? \"socks5h\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5 ? \"socks5\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ? \"socks4a\" : \"socks4\"))),",
+          "idempotentContains": ["config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ? \"socks4a\" : \"socks4\""]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    static const unsigned char socks5_auth_rejected_response\\[\\] = \\{\n        0x05, 0x02,\n        0x01, 0x01\n    \\};\n    const uint64_t no_deadline",
+          "replacement": "    static const unsigned char socks5_auth_rejected_response[] = {\n        0x05, 0x02,\n        0x01, 0x01\n    };\n    static const unsigned char socks4_success_response[] = {\n        0x00, 0x5a, 0x00, 0x2b, 192, 0, 2, 70\n    };\n    static const unsigned char socks4_rejected_response[] = {\n        0x00, 0x5b, 0x00, 0x2b, 0, 0, 0, 0\n    };\n    const uint64_t no_deadline",
+          "idempotentContains": ["static const unsigned char socks4_rejected_response[]"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"socks5-auth-rejected\",\n        wc_proxy_socks5_connect_transport\\(&transport, &config.proxy, \"192\\.0\\.2\\.21\", 43, 0,\n            no_deadline, &status\\) == WC_PROXY_RESULT_AUTH_REQUIRED\\);\n    failed \\|= wc_proxy_test_report\\(\"socks5-reply-classes\",",
+          "replacement": "    failed |= wc_proxy_test_report(\"socks5-auth-rejected\",\n        wc_proxy_socks5_connect_transport(&transport, &config.proxy, \"192.0.2.21\", 43, 0,\n            no_deadline, &status) == WC_PROXY_RESULT_AUTH_REQUIRED);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = (const char*)socks4_success_response;\n    fake.response_length = sizeof(socks4_success_response);\n    config.proxy.has_credentials = 0;\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"socks4-ipv4\",\n        wc_proxy_socks4_connect_transport(&transport, &config.proxy, \"192.0.2.70\", 43, 0,\n            no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED && status == 0x5a &&\n        fake.request_used == 9 &&\n        memcmp(fake.request, \"\\x04\\x01\\x00\\x2b\\xc0\\x00\\x02\\x46\\x00\", 9) == 0);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = (const char*)socks4_success_response;\n    fake.response_length = sizeof(socks4_success_response);\n    config.proxy.has_credentials = 1;\n    snprintf(config.proxy.username, sizeof(config.proxy.username), \"user\");\n    snprintf(config.proxy.password, sizeof(config.proxy.password), \"not-sent\");\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"socks4a-userid-domain\",\n        wc_proxy_socks4_connect_transport(&transport, &config.proxy, \"whois.example\", 4343, 1,\n            no_deadline, &status) == WC_PROXY_RESULT_SUCCEEDED && status == 0x5a &&\n        fake.request_used == 27 &&\n        memcmp(fake.request + 8, \"user\\0whois.example\\0\", 19) == 0 &&\n        strstr(fake.request, \"not-sent\") == NULL);\n    memset(&fake, 0, sizeof(fake));\n    fake.response = (const char*)socks4_rejected_response;\n    fake.response_length = sizeof(socks4_rejected_response);\n    config.proxy.has_credentials = 0;\n    wc_transport_init_with_ops(&transport, &operations, &fake);\n    failed |= wc_proxy_test_report(\"socks4-rejected\",\n        wc_proxy_socks4_connect_transport(&transport, &config.proxy, \"192.0.2.71\", 43, 0,\n            no_deadline, &status) == WC_PROXY_RESULT_REJECTED && status == 0x5b);\n    failed |= wc_proxy_test_report(\"socks4-reply-classes\",\n        wc_proxy_socks4_classify(0x5a) == WC_PROXY_RESULT_SUCCEEDED &&\n        wc_proxy_socks4_classify(0x5b) == WC_PROXY_RESULT_REJECTED &&\n        wc_proxy_socks4_classify(0x5c) == WC_PROXY_RESULT_AUTH_REQUIRED &&\n        wc_proxy_socks4_classify(0x5d) == WC_PROXY_RESULT_AUTH_REQUIRED &&\n        wc_proxy_socks4_classify(0x01) == WC_PROXY_RESULT_UNKNOWN_REPLY);\n    failed |= wc_proxy_test_report(\"socks5-reply-classes\",",
+          "idempotentContains": ["wc_proxy_test_report(\"socks4a-userid-domain\""]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d3-remote-dns-schemes-two", "target": "proxy_source", "pattern": "config->proxy.scheme == WC_PROXY_SCHEME_(?:SOCKS4A|SOCKS5H)\\) &&", "expectedCount": 1 },
+        { "name": "d3-socks4-dispatch-one", "target": "proxy_source", "pattern": "wc_proxy_socks4_connect_transport\\(&transport, &config->proxy,", "expectedCount": 1 },
+        { "name": "d3-socks4-selftests-four", "target": "proxy_source", "pattern": "wc_proxy_test_report\\(\"socks4(?:a)?-(?:ipv4|userid-domain|rejected|reply-classes)\"", "expectedCount": 4 },
+        { "name": "d3-password-not-used-as-socks4-userid", "target": "proxy_source", "pattern": "memcpy\\(request \\+ 8, proxy->password", "expectedCount": 0 },
+        { "name": "d3-remote-success-unknown-one", "target": "proxy_source", "pattern": "WC_PROXY_SCHEME_SOCKS4A \\|\\|\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H", "expectedCount": 1 }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Apply a shared per-candidate SOCKS4 IPv4 policy across primary, override, known-IP, and empty-response paths while preserving address-level NO_PROXY IPv6 direct routing.",
+      "idempotentContainsByTarget": {
+        "proxy_source": ["int wc_proxy_target_supported(const Config* config,", "wc_proxy_test_report(\"socks4-no-proxy-ipv6\""],
+        "lookup_connect": ["if (!wc_proxy_target_supported(cfg, current_host, target, ctx->current_port)) continue;", "if (!wc_proxy_target_supported(cfg, current_host, override_targets[oi], ctx->current_port)) continue;", "wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port)"],
+        "lookup_empty": ["if (!wc_proxy_target_supported(cfg, current_host, t, ctx->current_port)) continue;", "wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port) &&\n                    kip && kip[0]"]
+      },
+      "operations": [
+        {
+          "target": "proxy_source",
+          "pattern": "    return 1;\n\\}\n\nint wc_proxy_uses_remote_dns\\(const Config\\* config,",
+          "replacement": "    return 1;\n}\n\nint wc_proxy_target_supported(const Config* config,\n                              const char* target_host,\n                              const char* target_address,\n                              int target_port)\n{\n    struct in_addr address;\n    if (!config || !target_address || !*target_address) return 0;\n    if (!wc_proxy_should_proxy(config, target_host, target_address, target_port)) return 1;\n    if (config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4) return 1;\n    return inet_pton(AF_INET, target_address, &address) == 1;\n}\n\nint wc_proxy_uses_remote_dns(const Config* config,",
+          "idempotentContains": ["int wc_proxy_target_supported(const Config* config,"]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    failed \\|= wc_proxy_test_report\\(\"proxy-required\", wc_proxy_should_proxy\\(&config, \"whois\\.example\\.org\", \"192\\.0\\.2\\.9\", 43\\)\\);\n    config.proxy.scheme = WC_PROXY_SCHEME_SOCKS5H;",
+          "replacement": "    failed |= wc_proxy_test_report(\"proxy-required\", wc_proxy_should_proxy(&config, \"whois.example.org\", \"192.0.2.9\", 43));\n    config.proxy.scheme = WC_PROXY_SCHEME_SOCKS4;\n    failed |= wc_proxy_test_report(\"socks4-ipv4-supported\",\n        wc_proxy_target_supported(&config, \"whois.example.org\", \"192.0.2.9\", 43));\n    failed |= wc_proxy_test_report(\"socks4-ipv6-rejected\",\n        !wc_proxy_target_supported(&config, \"whois.example.org\", \"2001:db8::9\", 43));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"[2001:db8::9]\");\n    failed |= wc_proxy_test_report(\"socks4-no-proxy-ipv6\",\n        wc_proxy_target_supported(&config, \"whois.example.org\", \"2001:db8::9\", 43));\n    snprintf(config.proxy.no_proxy, sizeof(config.proxy.no_proxy), \"localhost,.example.net,192.0.2.7:43,[2001:db8::7]:4343\");\n    config.proxy.scheme = WC_PROXY_SCHEME_SOCKS5H;",
+          "idempotentContains": ["wc_proxy_test_report(\"socks4-no-proxy-ipv6\""]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "            target\\);\n        int is_last_candidate = \\(order_idx == candidates.count - 1\\);",
+          "replacement": "            target);\n        if (!wc_proxy_target_supported(cfg, current_host, target, ctx->current_port)) continue;\n        int is_last_candidate = (order_idx == candidates.count - 1);",
+          "idempotentContains": ["if (!wc_proxy_target_supported(cfg, current_host, target, ctx->current_port)) continue;"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "            if \\(!override_targets\\[oi\\]\\) continue;\n            int dial_timeout_ms",
+          "replacement": "            if (!override_targets[oi]) continue;\n            if (!wc_proxy_target_supported(cfg, current_host, override_targets[oi], ctx->current_port)) continue;\n            int dial_timeout_ms",
+          "idempotentContains": ["if (!wc_proxy_target_supported(cfg, current_host, override_targets[oi], ctx->current_port)) continue;"]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                const char\\* kip = known_ip_literal_cached;\n                if \\(kip && kip\\[0\\]\\) \\{",
+          "replacement": "                const char* kip = known_ip_literal_cached;\n                if (kip && kip[0] &&\n                    wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port)) {",
+          "idempotentContains": ["const char* kip = known_ip_literal_cached;\n                if (kip && kip[0] &&\n                    wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port))"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                    const char\\* t = cands2.items\\[i\\];\n                    if \\(strcasecmp\\(t, current_host\\) == 0\\) continue;\n                    // Prefer IP literal that differs from last connected ip",
+          "replacement": "                    const char* t = cands2.items[i];\n                    if (strcasecmp(t, current_host) == 0) continue;\n                    if (!wc_proxy_target_supported(cfg, current_host, t, ctx->current_port)) continue;\n                    // Prefer IP literal that differs from last connected ip",
+          "idempotentContains": ["if (!wc_proxy_target_supported(cfg, current_host, t, ctx->current_port)) continue;"]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                if \\(kip && kip\\[0\\]\\) \\{\n                    struct wc_net_info ni2;",
+          "replacement": "                if (wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port) &&\n                    kip && kip[0]) {\n                    struct wc_net_info ni2;",
+          "idempotentContains": ["wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port) &&\n                    kip && kip[0]"]
+        }
+      ],
+      "postApplyAssertions": [
+        { "name": "d4-target-policy-definition-one", "target": "proxy_source", "pattern": "int wc_proxy_target_supported\\(", "expectedCount": 1 },
+        { "name": "d4-target-policy-selftests-three", "target": "proxy_source", "pattern": "wc_proxy_test_report\\(\"socks4-(?:ipv4-supported|ipv6-rejected|no-proxy-ipv6)\"", "expectedCount": 3 },
+        { "name": "d4-primary-policy-one", "target": "lookup_connect", "pattern": "wc_proxy_target_supported\\(cfg, current_host, target, ctx->current_port\\)", "expectedCount": 1 },
+        { "name": "d4-override-policy-one", "target": "lookup_connect", "pattern": "wc_proxy_target_supported\\(cfg, current_host, override_targets\\[oi\\], ctx->current_port\\)", "expectedCount": 1 },
+        { "name": "d4-connect-known-policy-one", "target": "lookup_connect", "pattern": "wc_proxy_target_supported\\(cfg, current_host, kip, ctx->current_port\\)", "expectedCount": 1 },
+        { "name": "d4-empty-candidate-policy-one", "target": "lookup_empty", "pattern": "wc_proxy_target_supported\\(cfg, current_host, t, ctx->current_port\\)", "expectedCount": 1 },
+        { "name": "d4-empty-known-policy-one", "target": "lookup_empty", "pattern": "wc_proxy_target_supported\\(cfg, current_host, kip, ctx->current_port\\)", "expectedCount": 1 }
+      ]
+    }
+  }
+}

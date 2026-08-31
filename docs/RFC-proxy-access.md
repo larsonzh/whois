@@ -304,7 +304,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 ## 13. WP-13C SOCKS4/4a 开工评审
 
-状态：**ready，待独立 Vx A/B 初始编制与完整验收**（2026-08-31）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
+状态：**独立 Vx A/B 初始编制与完整验收已完成，待用户启动授权**（2026-08-31）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
 
 - 确定性 loopback spike 已增加 SOCKS4 IPv4、自定义端口、USERID、SOCKS4a domain、CD=91 拒绝响应，以及 `socks4`/`socks4a` 配置门禁，原有 HTTP/SOCKS5 案例无回归；合计 27/27 PASS（`out/artifacts/proxy_protocol_spike/20260831-043917`）。
 - 冻结语义：`socks4://` 只向代理发送本地解析的 IPv4 候选；`socks4a://` 发送逻辑 hostname，并与 `socks5h://` 共用远程 DNS、目标 family/fallback/RIR override 冲突门禁和健康隔离。SOCKS4a 不声明或推断代理最终使用 IPv6。
@@ -312,6 +312,15 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 冻结生产 target closure：`include/wc/wc_config.h`、`src/core/opts.c`、`src/core/selftest.c`、`include/wc/wc_proxy.h`、`src/core/proxy.c`、`src/core/lookup_exec_connect.c`；`src/core/lookup_exec_empty.c` 作为远程 DNS/IPv4-only 继承路径纳入检查闭包但不预设源码改动。
 - D1 增加 scheme/解析与配置自测；D2 增加 SOCKS4/4a transport handshake、CD 分类和 fake transport 字节合同；D3 接入 dial 分派、脱敏指标与 terminal policy；D4 在主候选构建中冻结 SOCKS4 IPv4-only 和 SOCKS4a hostname-only 路径，并验证默认直连、per-hop bypass 与目标健康隔离不变。
 - 实施定义使用 `schemaVersion=vx-draft`，独立窗口从 `2027-07-22` 开始；生成 start-file 前仍须完成 TODO-free、SyntaxOnly、D1-D4、Vx 专项安全回归、全定义检查，以及完整 target set 的聚焦编译、Golden/referral、Step47 验证。
+
+### 13.1 启动清单
+
+- A 定义：`testdata/autopilot_code_step_tasks_20270722_20270728.json`；三目标 `config_header`、`opts_source`、`selftest_source`；`target_set_sha256=d60f26e6efbd732de60766306ec9d65a1a19cf2e32b9422c6514ace84ddd8eb7`；任务定义 SHA-256 `20382f3754b3b0a60f59572e75f547f5f04e1863a48c5922efa8fe7e818252cb`。
+- B 定义：`testdata/autopilot_code_step_tasks_20270729_20270804.json`；继承 A 三目标并增加 `proxy_header`、`proxy_source`、`lookup_connect`、`lookup_empty`；`target_set_sha256=adc9aea696e8a74705a52b5cd37362b37b4913b9075a2ac11f4ffbac9f554361`；任务定义 SHA-256 `5fcb2254396fb8902b0e88aafc2aa013f21f4838aa7a9b76439bcedfe0394fad`。
+- A/B 均通过 TODO-free、SyntaxOnly、D1-D4 链式检查、无 `RoundTag` 全定义检查及三项 Vx 基础设施安全回归；B 检查显式以 A 为 prerequisite，完整 target union 已冻结。
+- 隔离 effective tree 已用正式 checker artifact 与 code-step 顺序落盘 A.D1-D4、B.D1-D4。Strict Version `lto-auto` 九架构构建、9/9 hash、Linux/QEMU 与 win32/win64 smoke/selftest、Golden 和三起点 referral 均 PASS（`tmp/wp13c-effective-tree/out/artifacts/20260831-132412`）。
+- Windows Step47 preflight 显式使用 `release/lzispro/whois/whois-win64.exe`，5/5 PASS（`out/artifacts/step47_preclass_preflight/20260831-135424`）；`whois-x86_64` 仅供 Linux 环境使用。effective tree 的 preclass table guard 亦 PASS（`tmp/wp13c-effective-tree/out/artifacts/preclass_table_guard/20260831-141343`）。
+- active start-file：`testdata/unattended_start/active/unattended_ab_start_20270722-20270804.md`；event-only、strict-enforce、A/B 串行，`LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=false`。字段同步、A/B SyntaxOnly、增量编码及 A 阶段 launch-ready dry-run 均 PASS。未经用户明确授权，不启动、提交或推送。
 
 # English Version
 
@@ -615,7 +624,7 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 
 ## 13. WP-13C SOCKS4/4a readiness review
 
-Status: **ready for independent Vx A/B initial authoring and complete validation** (2026-08-31). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
+Status: **independent Vx A/B initial authoring and complete validation are finished; awaiting user launch authorization** (2026-08-31). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
 
 - The deterministic loopback spike now covers SOCKS4 IPv4, custom ports, USERID, SOCKS4a domains, CD=91 rejection, and `socks4`/`socks4a` configuration gates without regressing the existing HTTP/SOCKS5 cases; all 27/27 cases pass (`out/artifacts/proxy_protocol_spike/20260831-043917`).
 - Frozen semantics: `socks4://` sends only locally resolved IPv4 candidates. `socks4a://` sends the logical hostname and shares the `socks5h://` remote-DNS conflicts for target-family, fallback, and RIR overrides, plus its target-health isolation. SOCKS4a neither claims nor infers that the proxy selected IPv6.
@@ -623,3 +632,12 @@ Status: **ready for independent Vx A/B initial authoring and complete validation
 - Frozen production target closure: `include/wc/wc_config.h`, `src/core/opts.c`, `src/core/selftest.c`, `include/wc/wc_proxy.h`, `src/core/proxy.c`, and `src/core/lookup_exec_connect.c`; `src/core/lookup_exec_empty.c` is included in the checked closure as the inherited remote-DNS/IPv4-only path without a presumed source edit.
 - D1 adds schemes, parsing, and configuration selftests. D2 adds the SOCKS4/4a transport handshake, CD classification, and byte-exact fake-transport contracts. D3 wires dial dispatch, redacted metrics, and terminal policy. D4 freezes SOCKS4 IPv4-only and SOCKS4a hostname-only candidate construction while proving default direct routing, per-hop bypass, and target-health isolation remain unchanged.
 - The implementation definition uses `schemaVersion=vx-draft` in an independent window beginning `2027-07-22`. Before start-file generation it must still pass TODO-free, SyntaxOnly, D1-D4, Vx safety regressions, full-definition checks, focused compilation for the complete target set, Golden/referral, and Step47 validation.
+
+### 13.1 Launch checklist
+
+- A definition: `testdata/autopilot_code_step_tasks_20270722_20270728.json`; targets `config_header`, `opts_source`, and `selftest_source`; `target_set_sha256=d60f26e6efbd732de60766306ec9d65a1a19cf2e32b9422c6514ace84ddd8eb7`; definition SHA-256 `20382f3754b3b0a60f59572e75f547f5f04e1863a48c5922efa8fe7e818252cb`.
+- B definition: `testdata/autopilot_code_step_tasks_20270729_20270804.json`; the three A targets plus `proxy_header`, `proxy_source`, `lookup_connect`, and `lookup_empty`; `target_set_sha256=adc9aea696e8a74705a52b5cd37362b37b4913b9075a2ac11f4ffbac9f554361`; definition SHA-256 `5fcb2254396fb8902b0e88aafc2aa013f21f4838aa7a9b76439bcedfe0394fad`.
+- Both definitions pass TODO-free, SyntaxOnly, chained D1-D4, full-definition checks without `RoundTag`, and all three Vx infrastructure safety regressions. B explicitly uses A as its prerequisite, and the complete target union is frozen.
+- An isolated effective tree applied A.D1-D4 and B.D1-D4 through the production checker artifact and code-step flow. Strict Version `lto-auto` nine-architecture builds, 9/9 hashes, Linux/QEMU and win32/win64 smoke/selftests, Golden, and three-origin referral checks all pass (`tmp/wp13c-effective-tree/out/artifacts/20260831-132412`).
+- Windows Step47 preflight explicitly uses `release/lzispro/whois/whois-win64.exe` and passes 5/5 (`out/artifacts/step47_preclass_preflight/20260831-135424`); `whois-x86_64` is Linux-only. The effective-tree preclass table guard also passes (`tmp/wp13c-effective-tree/out/artifacts/preclass_table_guard/20260831-141343`).
+- Active start file: `testdata/unattended_start/active/unattended_ab_start_20270722-20270804.md`; event-only, strict-enforce, serial A/B, with `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=false`. Field sync, A/B SyntaxOnly, incremental encoding, and the stage-A launch-ready dry-run all pass. No launch, commit, or push occurs without explicit user authorization.

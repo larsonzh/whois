@@ -583,6 +583,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_r
 本阶段属于**初始任务编制**，尚未进入 A/B 运行期，也没有事故票或故障 op 边界。因此：
 
 - 可以创建并编辑新的正式 `testdata/autopilot_code_step_tasks_*.json`；代理必须使用 VS Code `apply_patch` 修改 JSON 语义。
+- **新建任务定义 JSON 的文件格式是硬契约**：文件创建落盘时必须规范化为 `UTF-8 with BOM` 编码和 `LF` 行尾，不得保留 UTF-8 无 BOM、ANSI、UTF-16 或 CRLF。该规范化必须在语义编辑前或创建后立即完成，并在生成 start-file 前通过 `tools/dev/enforce_utf8_bom_lf.ps1` 编码门禁确认。
 - 模板复制、文件命名和不改变 JSON 值/数组顺序/operation 结构的编码或换行规范化属于机械建档，可以使用下面的复制命令。
 - 禁止用终端内联 Python、PowerShell 字符串替换、here-string、重定向、通用文本替换或格式化器填写 `targetFile`、`rounds`、operation、marker 或断言。
 - 本阶段不使用 `task_definition_repair_transaction.ps1`。该事务要求已有正式任务定义、事故票 ID、stage/round/op 修复边界，专用于运行期自愈；不要为尚未启动的新任务伪造 ticket。
@@ -605,6 +606,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '$window = "20261031_2026
 - 去掉所有 TODO 占位
 - 保证描述与当前轮目标一致
 - 使用 `apply_patch` 完成所有任务定义语义编辑
+- 确认新建任务定义保持 `UTF-8 with BOM + LF`，并通过编码门禁
 - 依次完成 JSON/基础结构装载检查、目标轮或目标 op 的编制期快检、A/B 全定义静态验收和适用的编译/窄测试
 - 只有 A/B 两份正式任务定义均验收通过后，才进入 start-file 生成阶段
 
@@ -781,6 +783,7 @@ A/43 的实际任务定义 `testdata/autopilot_code_step_tasks_20270316_20270322
 5. 删除全部 TODO，先运行 `-SyntaxOnly`，确认正式文件可解析且基础结构完整，再运行专项安全回归。
 6. 编制过程中可使用 `-RoundTag <Dn>` 或 `-RoundTag <Dn> -OperationIndex <n>` 缩短反馈，但它们只是局部诊断；最终必须对完整任务定义运行不带 `-RoundTag`/`-OperationIndex` 的全轮静态检查。
 7. 对生成源码运行适用的编译、语法检查或窄测试。静态 checker 通过只证明变换安全条件，不替代 C 编译和业务验证。
+8. 完成本地全定义静态检查和 effective-C 语法门禁后，可按任务复杂度选择运行远程快速编译：涉及多个 C source/header、公共声明或调用链、平台条件编译、链接符号、新文件接入，或本地与远端工具链差异时建议运行；纯文档、纯数据或已被等价完整远程构建覆盖时可跳过，并记录理由。
 
 编制完成后的最小命令集：
 
@@ -792,6 +795,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/autopilot_code_st
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/task_definition_repair_transaction_vx_regression.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_static.ps1 -TaskDefinitionFile testdata/<TASK_DEFINITION>.json -Policy enforce -FailOnWarnings
 ```
+
+可选远程快速编译入口：
+
+```powershell
+# 单份定义；默认在 tmp 隔离副本中应用 D1-D4，再远程编译 x86_64 + win64
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_remote_quick.ps1 -TaskDefinitionFiles "testdata/<TASK_DEFINITION>.json"
+
+# A -> B 有序链；逗号前后不要加入空任务项
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/check_task_definition_remote_quick.ps1 -TaskDefinitionFiles "testdata/<A_TASK_DEFINITION>.json,testdata/<B_TASK_DEFINITION>.json"
+```
+
+该包装器复制当前工作树到 `tmp/task-definition-remote-quick/<timestamp>/workspace`，按参数顺序对每份定义执行 D1-D4 的正式 checker artifact + code-step，再固定调用 `tools/remote/remote_build_and_test.sh`。默认仅编译 `x86_64 win64`，设置 `-w 0 -r 0 -L 0`，不运行 smoke、Golden、referral、Step47，也不修改主工作树；需要显式 SSH key 时追加 `-SshKeyPath <path>`。可先加 `-PrepareOnly` 只验证隔离 effective tree，诊断时加 `-KeepWorkspace` 保留副本。远程快速编译只是复杂任务的早期反馈，不能替代任务要求的完整九架构 Strict、业务黄金、referral、Step47/preclass 或专项测试。
 
 ##### 禁止事项
 
