@@ -25,6 +25,9 @@ set -euo pipefail
 : "${RB_LTO_MODE:=}"
 : "${RB_LTO_SERIAL:=}"
 : "${RB_LTO_PARALLEL:=}"
+: "${WHOIS_TLS:=0}"
+: "${OPENSSL_STATIC_VERSION:=3.5.8}"
+: "${OPENSSL_STATIC_ROOT:=$HOME/.local/openssl-static}"
 # Smoke test behavior
 # Default to real network testing against actual queries; you can override queries via SMOKE_QUERIES
 : "${SMOKE_MODE:=net}"       # kept for backward compatibility; default is 'net'
@@ -222,6 +225,24 @@ build_one() {
   if (( ${#MAKE_LTO_ARGS[@]} > 0 )); then
     export "${MAKE_LTO_ARGS[@]}"
     MAKE_LTO_ARGS=()
+  fi
+  unset OPENSSL_CFLAGS OPENSSL_LIBS
+  if [[ "$WHOIS_TLS" == "1" || "$WHOIS_TLS" == "true" || "$WHOIS_TLS" == "TRUE" ||
+        "$WHOIS_TLS" == "yes" || "$WHOIS_TLS" == "YES" ]]; then
+    local openssl_prefix="$OPENSSL_STATIC_ROOT/$OPENSSL_STATIC_VERSION/$target"
+    local openssl_pkgconfig
+    local openssl_cflags
+    local openssl_libs
+    command -v pkg-config >/dev/null 2>&1 || { err "pkg-config is required for WHOIS_TLS=1"; return 1; }
+    openssl_pkgconfig="$(find "$openssl_prefix" -type d -path '*/pkgconfig' -print -quit 2>/dev/null)"
+    [[ -n "$openssl_pkgconfig" ]] || { err "OpenSSL pkg-config directory missing for target=$target prefix=$openssl_prefix"; return 1; }
+    openssl_cflags="$(PKG_CONFIG_PATH='' PKG_CONFIG_LIBDIR="$openssl_pkgconfig" pkg-config --cflags openssl)" || return 1
+    openssl_libs="$(PKG_CONFIG_PATH='' PKG_CONFIG_LIBDIR="$openssl_pkgconfig" pkg-config --static --libs openssl)" || return 1
+    [[ -n "$openssl_cflags" && -n "$openssl_libs" ]] || { err "OpenSSL static flags missing for target=$target"; return 1; }
+    export WHOIS_TLS=1 OPENSSL_CFLAGS="$openssl_cflags" OPENSSL_LIBS="$openssl_libs"
+    log "TLS backend: OpenSSL $OPENSSL_STATIC_VERSION target=$target prefix=$openssl_prefix"
+  else
+    export WHOIS_TLS=0
   fi
   local out=""
   case "$target" in

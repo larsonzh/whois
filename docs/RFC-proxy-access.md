@@ -151,6 +151,8 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - `tools/remote/bootstrap_openssl_static.sh` 从同一已验证源码在隔离 prefix 下构建 `aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64`，使用 `no-shared no-dso no-tests`；最终统一矩阵 9/9 PASS，证据为 `out/artifacts/proxy_tls_dependency_matrix/20260901-072331`。
 - 七个 POSIX 探针均无 ELF interpreter 或 `NEEDED`；win32/win64 PE 探针均无 `libssl`/`libcrypto` DLL 依赖。每个目标保存编译器与 Configure manifest、`configdata.pm --dump`、静态库和探针 SHA-256、平台依赖审计及 SPDX 2.3 文档。
 - 维护策略：每月复核 OpenSSL security advisories/CVE 与 3.5 LTS 最新补丁；出现影响所用 TLS client、X.509、证书/主机名验证或静态链接路径的安全发布时，升级固定版本并完整重跑九架构构建、探针、依赖审计、哈希和 SPDX 门禁。不得继续使用停止支持或存在未处置适用高严重度漏洞的版本。
+- 生产 CA 快照固定为 curl CA Extract 发布的 Mozilla bundle `2026-08-13`（121 张证书，SHA-256 `f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9`，MPL-2.0）。`tools/dev/generate_ca_bundle.py` 在摘要和证书计数均匹配后确定性生成 `src/core/ca_bundle_data.c`；来源与 Mozilla/Firefox name-constraints 不随 PEM 转换保留的边界记录于 `docs/registry-snapshots/mozilla-ca-2026-08-13.md`。
+- `WHOIS_TLS=1` 构建从每目标 OpenSSL 3.5.8 prefix 的隔离 pkg-config 元数据解析静态参数，默认构建继续无 OpenSSL 依赖。TLS/LTO 九架构构建与本地哈希复核 9/9 PASS（`out/artifacts/20260901-170601`）；win32/win64 为 full-static 且仅导入系统 DLL，loongarch64 仅保留既有 `libc.so.6` NEEDED，未发现动态 `libssl`/`libcrypto` 依赖。
 - 因此 TLS 依赖门禁已解除，WP-13D 可进入独立 Vx 任务定义设计与 ready 评审；这不表示 HTTPS proxy 已实现，也不替代下述生产验收。
 
 生产验收仍须通过 x86_64/win32/win64 聚焦合同、九架构 Strict 构建、Golden/referral、Batch/Selftest/CIDR/Redirect/Step47、默认直连输出冻结，并同步中英文使用文档。
