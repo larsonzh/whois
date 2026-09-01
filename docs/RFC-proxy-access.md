@@ -304,7 +304,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 ## 13. WP-13C SOCKS4/4a 开工评审
 
-状态：**独立 Vx A/B 初始编制与完整验收已完成，待用户启动授权**（2026-08-31）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
+状态：**本期已完成执行回填（SESSION=PASS / A=PASS / B=PASS）**（2026-09-01）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
 
 - 确定性 loopback spike 已增加 SOCKS4 IPv4、自定义端口、USERID、SOCKS4a domain、CD=91 拒绝响应，以及 `socks4`/`socks4a` 配置门禁，原有 HTTP/SOCKS5 案例无回归；合计 27/27 PASS（`out/artifacts/proxy_protocol_spike/20260831-043917`）。
 - 冻结语义：`socks4://` 只向代理发送本地解析的 IPv4 候选；`socks4a://` 发送逻辑 hostname，并与 `socks5h://` 共用远程 DNS、目标 family/fallback/RIR override 冲突门禁和健康隔离。SOCKS4a 不声明或推断代理最终使用 IPv6。
@@ -321,6 +321,44 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 隔离 effective tree 已用正式 checker artifact 与 code-step 顺序落盘 A.D1-D4、B.D1-D4。Strict Version `lto-auto` 九架构构建、9/9 hash、Linux/QEMU 与 win32/win64 smoke/selftest、Golden 和三起点 referral 均 PASS（`tmp/wp13c-effective-tree/out/artifacts/20260831-132412`）。
 - Windows Step47 preflight 显式使用 `release/lzispro/whois/whois-win64.exe`，5/5 PASS（`out/artifacts/step47_preclass_preflight/20260831-135424`）；`whois-x86_64` 仅供 Linux 环境使用。effective tree 的 preclass table guard 亦 PASS（`tmp/wp13c-effective-tree/out/artifacts/preclass_table_guard/20260831-141343`）。
 - active start-file：`testdata/unattended_start/active/unattended_ab_start_20270722-20270804.md`；event-only、strict-enforce、A/B 串行，`LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=false`。字段同步、A/B SyntaxOnly、增量编码及 A 阶段 launch-ready dry-run 均 PASS。未经用户明确授权，不启动、提交或推送。
+
+**执行回填（2026-08-31 ~ 2026-09-01 运行，2026-09-01 回填）**
+
+**Checklist A 回填**
+
+| 字段 | 实际值 |
+|---|---|
+| final status | PASS |
+| started_at / completed_at / elapsed | `2026-08-31 15:08:58` → `2026-08-31 20:51:29` / `0d 05:42:32` |
+| run_dir | `out/artifacts/dev_verify_multiround/20260831-150933` |
+| final result / summary | `out/artifacts/dev_verify_multiround/20260831-150933/final_status.json`（Result=pass, ExitCode=0, 8/8 轮, FailedRoundTags=[], GeneratedAt=20:49:36）、`summary.csv` |
+| task-static / code-step artifact | 各 D 轮独立 checker 与 code-step 哈希绑定产物（run_dir 内 `D*_validated_artifact/`）；无 task-definition repair transaction |
+| snapshot manifest / target set SHA-256 | `target_set_sha256=d60f26e6efbd732de60766306ec9d65a1a19cf2e32b9422c6514ace84ddd8eb7`；A 成功快照完整性通过 |
+| 事故、自愈、重启摘要 | NONE（无 incident、recovery_attempts=0、无重启） |
+| RFC 回填日期 | 2026-09-01 |
+
+**Checklist B 回填**
+
+| 字段 | 实际值 |
+|---|---|
+| A PASS 与 snapshot 门禁 | PASS（A final_status.json Result=pass, ExitCode=0） |
+| final status | PASS |
+| started_at / completed_at / elapsed | `2026-08-31 20:50:40` → `2026-09-01 03:10:37` / `0d 06:19:58` |
+| run_dir | `out/artifacts/dev_verify_multiround/20260831-205121` |
+| final result / summary | `out/artifacts/dev_verify_multiround/20260831-205121/final_status.json`（Result=pass, ExitCode=0, 8/8 轮, FailedRoundTags=[], GeneratedAt=03:09:28）、`summary.csv` |
+| task-static / code-step artifact | 各 D 轮独立 checker 与 code-step 哈希绑定产物（run_dir 内 `D*_validated_artifact/`）；无 task-definition repair transaction |
+| 事故、自愈、重启摘要 | NONE（无 incident、b_recovery_attempts=0、无重启） |
+| RFC 回填日期 | 2026-09-01 |
+
+**最终收口**
+
+- A/B 总结：A、B 均为一次通过（8/8 轮），无卡滞、无重启、无自动修复；`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`。事件票闭环：`T20260831-205129509-bb7b885e`（a-pass-conclusion-b-started，handled_at 2026-08-31 20:54:38）、`chat-final-20260901-031037`（chat-session-final-status，handled_at 2026-09-01 03:12:26）；event-only 模式无常规状态票。
+- A/B 合计用时：`0d 12:01:40`（session start `2026-08-31 15:08:58` → `2026-09-01 03:10:37`，含 launcher/preflight、A→B 交接间隔）。
+- 运行后 Strict 验证（2026-09-01）：`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → 无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS，退出码 0，用时 755s，日志目录 `out/artifacts/20260901-121843`。
+- 复核结论：默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约保持不变；无需追加代码修复。
+- 后续 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
+- 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处 + RELEASE_NOTES + RFC-whois-client-split）。
+- 未经用户明确授权，不执行提交或推送。
 
 # English Version
 
@@ -624,7 +662,7 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 
 ## 13. WP-13C SOCKS4/4a readiness review
 
-Status: **independent Vx A/B initial authoring and complete validation are finished; awaiting user launch authorization** (2026-08-31). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
+Status: **this run is complete and backfilled (SESSION=PASS / A=PASS / B=PASS)** (2026-09-01). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
 
 - The deterministic loopback spike now covers SOCKS4 IPv4, custom ports, USERID, SOCKS4a domains, CD=91 rejection, and `socks4`/`socks4a` configuration gates without regressing the existing HTTP/SOCKS5 cases; all 27/27 cases pass (`out/artifacts/proxy_protocol_spike/20260831-043917`).
 - Frozen semantics: `socks4://` sends only locally resolved IPv4 candidates. `socks4a://` sends the logical hostname and shares the `socks5h://` remote-DNS conflicts for target-family, fallback, and RIR overrides, plus its target-health isolation. SOCKS4a neither claims nor infers that the proxy selected IPv6.
@@ -641,3 +679,41 @@ Status: **independent Vx A/B initial authoring and complete validation are finis
 - An isolated effective tree applied A.D1-D4 and B.D1-D4 through the production checker artifact and code-step flow. Strict Version `lto-auto` nine-architecture builds, 9/9 hashes, Linux/QEMU and win32/win64 smoke/selftests, Golden, and three-origin referral checks all pass (`tmp/wp13c-effective-tree/out/artifacts/20260831-132412`).
 - Windows Step47 preflight explicitly uses `release/lzispro/whois/whois-win64.exe` and passes 5/5 (`out/artifacts/step47_preclass_preflight/20260831-135424`); `whois-x86_64` is Linux-only. The effective-tree preclass table guard also passes (`tmp/wp13c-effective-tree/out/artifacts/preclass_table_guard/20260831-141343`).
 - Active start file: `testdata/unattended_start/active/unattended_ab_start_20270722-20270804.md`; event-only, strict-enforce, serial A/B, with `LOCAL_GUARD_SCRIPT_SELF_HEAL_ENABLED=false`. Field sync, A/B SyntaxOnly, incremental encoding, and the stage-A launch-ready dry-run all pass. No launch, commit, or push occurs without explicit user authorization.
+
+**Execution backfill (run 2026-08-31 ~ 2026-09-01, filled 2026-09-01)**
+
+**Checklist A backfill**
+
+| Field | Actual value |
+|---|---|
+| Final status | PASS |
+| started_at / completed_at / elapsed | `2026-08-31 15:08:58` → `2026-08-31 20:51:29` / `0d 05:42:32` |
+| run_dir | `out/artifacts/dev_verify_multiround/20260831-150933` |
+| Final result / summary | `out/artifacts/dev_verify_multiround/20260831-150933/final_status.json` (Result=pass, ExitCode=0, 8/8 rounds, FailedRoundTags=[], GeneratedAt=20:49:36), `summary.csv` |
+| task-static / code-step artifact | Per-D-round hash-bound checker and code-step artifacts inside run_dir (`D*_validated_artifact/`); no task-definition repair transaction |
+| Snapshot manifest / target set SHA-256 | `target_set_sha256=d60f26e6efbd732de60766306ec9d65a1a19cf2e32b9422c6514ace84ddd8eb7`; A success snapshot integrity passed |
+| Incidents / self-heal / restart | NONE (no incidents, recovery_attempts=0, no restarts) |
+| RFC backfill date | 2026-09-01 |
+
+**Checklist B backfill**
+
+| Field | Actual value |
+|---|---|
+| A PASS & snapshot gate | PASS (A final_status.json Result=pass, ExitCode=0) |
+| Final status | PASS |
+| started_at / completed_at / elapsed | `2026-08-31 20:50:40` → `2026-09-01 03:10:37` / `0d 06:19:58` |
+| run_dir | `out/artifacts/dev_verify_multiround/20260831-205121` |
+| Final result / summary | `out/artifacts/dev_verify_multiround/20260831-205121/final_status.json` (Result=pass, ExitCode=0, 8/8 rounds, FailedRoundTags=[], GeneratedAt=03:09:28), `summary.csv` |
+| task-static / code-step artifact | Per-D-round hash-bound checker and code-step artifacts inside run_dir (`D*_validated_artifact/`); no task-definition repair transaction |
+| Incidents / self-heal / restart | NONE (no incidents, b_recovery_attempts=0, no restarts) |
+| RFC backfill date | 2026-09-01 |
+
+**Final wrap-up**
+
+- A/B summary: A and B both passed first try (8/8 rounds), with no stalls, restarts, or auto-fixes. `A_FINAL_STATUS=PASS`, `B_FINAL_STATUS=PASS`, `SESSION_FINAL_STATUS=PASS`. Event tickets closed: `T20260831-205129509-bb7b885e` (a-pass-conclusion-b-started, handled_at 2026-08-31 20:54:38) and `chat-final-20260901-031037` (chat-session-final-status, handled_at 2026-09-01 03:12:26); event-only mode emitted no routine status tickets.
+- Combined A/B elapsed: `0d 12:01:40` (session start `2026-08-31 15:08:58` → `2026-09-01 03:10:37`, including launcher/preflight and the A→B handover interval).
+- Post-run Strict validation (2026-09-01): `WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → no warnings + no lto warnings + Local hash verify: PASS + Golden PASS + referral check: PASS, exit code 0, 755s, log dir `out/artifacts/20260901-121843`.
+- Review conclusion: default direct connect, stdout, RIR referral, DNS health, batch strategy, and retry-metrics contracts remain unchanged; no further code fix is required.
+- WP-13D (HTTPS-proxy TLS) remains gated by section 9 readiness gates.
+- Backfill consistency across the authoritative document set: YES (CN/EN sections in this file + RELEASE_NOTES + RFC-whois-client-split).
+- No commit or push without explicit user authorization.

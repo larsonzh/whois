@@ -51,6 +51,17 @@ int wc_proxy_socks5_connect_transport(wc_transport_t* transport,
                                       int remote_dns,
                                       uint64_t deadline_ms,
                                       int* reply_code);
+int wc_proxy_socks4_connect_transport(wc_transport_t* transport,
+                                      const wc_proxy_config_t* proxy,
+                                      const char* target,
+                                      uint16_t target_port,
+                                      int remote_dns,
+                                      uint64_t deadline_ms,
+                                      int* reply_code);
+int wc_proxy_target_supported(const Config* config,
+                              const char* target_host,
+                              const char* target_address,
+                              int target_port);
 int wc_proxy_dial_hop(const Config* config,
                       wc_net_context_t* net_ctx,
                       const char* target_host,

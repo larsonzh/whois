@@ -333,6 +333,14 @@ static int selftest_proxy_preflight_matrix(void)
     opts.proxy_url = "socks5://proxy.example";
     failed_local |= selftest_proxy_expect("socks-default-port",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 && proxy.routing_enabled);
+    opts.proxy_url = "socks4://proxy.example";
+    failed_local |= selftest_proxy_expect("socks4-default-port",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 &&
+        proxy.scheme == WC_PROXY_SCHEME_SOCKS4 && !proxy.routing_enabled);
+    opts.proxy_url = "socks4a://proxy.example";
+    failed_local |= selftest_proxy_expect("socks4a-default-port",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 &&
+        proxy.scheme == WC_PROXY_SCHEME_SOCKS4A && !proxy.routing_enabled);
     opts.proxy_url = "socks5://[2001:db8::1]:1081";
     failed_local |= selftest_proxy_expect("ipv6-bracket",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && strcmp(proxy.endpoint_host, "2001:db8::1") == 0 && proxy.endpoint_port == 1081);
@@ -384,6 +392,11 @@ static int selftest_proxy_preflight_matrix(void)
     opts.proxy_family = "v6";
     failed_local |= selftest_proxy_expect("family-literal-conflict", !wc_opts_proxy_resolve(&opts, &env, &proxy));
     opts.proxy_family = "auto";
+    opts.proxy_url = "socks4a://proxy.example";
+    opts.ipv4_only = 1;
+    failed_local |= selftest_proxy_expect("socks4a-target-family",
+        !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    opts.ipv4_only = 0;
     opts.proxy_url = "socks5h://proxy.example";
     failed_local |= selftest_proxy_expect("socks5h-routing-enabled",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.routing_enabled);

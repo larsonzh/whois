@@ -269,13 +269,17 @@ static int wc_opts_apply_rir_pref(wc_opts_t* o, const char* key, const char* val
 
 static int wc_opts_parse_rir_pref_list(wc_opts_t* o, const char* value) {
     if (!o || !value || !*value) return -1;
-    char* copy = strdup(value);
+    size_t value_length = strlen(value);
+    char* copy = (char*)malloc(value_length + 1);
     if (!copy) return -1;
+    memcpy(copy, value, value_length + 1);
     int rc = 0;
-    char* token = strtok(copy, ",");
+    char* token = copy;
     while (token) {
+        char* next = strchr(token, ',');
+        if (next) *next++ = '\0';
         char* item = wc_opts_trim_local(token);
-        if (!item || !*item) { token = strtok(NULL, ","); continue; }
+        if (!item || !*item) { token = next; continue; }
         char* eq = strchr(item, '=');
         if (!eq) { rc = -1; break; }
         *eq = '\0';
@@ -283,7 +287,7 @@ static int wc_opts_parse_rir_pref_list(wc_opts_t* o, const char* value) {
         char* val = wc_opts_trim_local(eq + 1);
         if (!key || !*key || !val || !*val) { rc = -1; break; }
         if (wc_opts_apply_rir_pref(o, key, val) != 0) { rc = -1; break; }
-        token = strtok(NULL, ",");
+        token = next;
     }
     free(copy);
     return rc;
@@ -440,6 +444,12 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
     } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, "socks5h", 7) == 0) {
         out->scheme = WC_PROXY_SCHEME_SOCKS5H;
         port = 1080;
+    } else if ((size_t)(scheme_end - url) == 6 && strncasecmp(url, "socks4", 6) == 0) {
+        out->scheme = WC_PROXY_SCHEME_SOCKS4;
+        port = 1080;
+    } else if ((size_t)(scheme_end - url) == 7 && strncasecmp(url, "socks4a", 7) == 0) {
+        out->scheme = WC_PROXY_SCHEME_SOCKS4A;
+        port = 1080;
     } else {
         fprintf(stderr, "Error: unsupported proxy scheme\n");
         goto fail;
@@ -532,17 +542,20 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
         fprintf(stderr, "Error: cleartext HTTP proxy credentials require --proxy-allow-insecure-auth\n");
         goto fail;
     }
-    if (out->scheme == WC_PROXY_SCHEME_SOCKS5H &&
+    if ((out->scheme == WC_PROXY_SCHEME_SOCKS4A ||
+         out->scheme == WC_PROXY_SCHEME_SOCKS5H) &&
         (opts->ipv4_only || opts->ipv6_only || opts->dns_family_mode_set ||
          opts->dns_family_mode_first_set || opts->dns_family_mode_next_set ||
          opts->no_dns_known_fallback || opts->no_dns_force_ipv4_fallback ||
          opts->no_iana_pivot || opts->dns_no_fallback || wc_opts_proxy_has_rir_override(opts))) {
-        fprintf(stderr, "Error: socks5h conflicts with target-family, fallback, or RIR override controls\n");
+        fprintf(stderr, "Error: remote-DNS proxy conflicts with target-family, fallback, or RIR override controls\n");
         goto fail;
     }
     out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||
         out->scheme == WC_PROXY_SCHEME_SOCKS5 ||
-        out->scheme == WC_PROXY_SCHEME_SOCKS5H;
+        out->scheme == WC_PROXY_SCHEME_SOCKS5H ||
+        out->scheme == WC_PROXY_SCHEME_SOCKS4 ||
+        out->scheme == WC_PROXY_SCHEME_SOCKS4A;
     return 1;
 
 fail:

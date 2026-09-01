@@ -83,6 +83,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                 for (int i = 0; i < cands2.count; i++) {
                     const char* t = cands2.items[i];
                     if (strcasecmp(t, current_host) == 0) continue;
+                    if (!wc_proxy_target_supported(cfg, current_host, t, ctx->current_port)) continue;
                     // Prefer IP literal that differs from last connected ip
                     // Update last errno (0 if connected ok)
                     out->meta.last_connect_errno = ni && ni->connected ? 0 : (ni ? ni->last_errno : 0);
@@ -221,7 +222,8 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
             if (domain_for_known) {
                 wc_selftest_record_known_ip_attempt();
                 const char* kip = wc_dns_get_known_ip(domain_for_known);
-                if (kip && kip[0]) {
+                if (wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port) &&
+                    kip && kip[0]) {
                     struct wc_net_info ni2;
                     int rc2;
                     ni2.connected = 0;

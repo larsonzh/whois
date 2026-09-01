@@ -183,6 +183,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             (candidates.families && i < candidates.count) ?
                 candidates.families[i] : (unsigned char)WC_DNS_FAMILY_UNKNOWN,
             target);
+        if (!wc_proxy_target_supported(cfg, current_host, target, ctx->current_port)) continue;
         int is_last_candidate = (order_idx == candidates.count - 1);
         wc_dns_health_snapshot_t backoff_snap;
         int penalized = proxy_remote_dns ? 0 : wc_dns_should_skip_logged(cfg, current_host, target,
@@ -254,6 +255,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                 break;
             }
             if (!override_targets[oi]) continue;
+            if (!wc_proxy_target_supported(cfg, current_host, override_targets[oi], ctx->current_port)) continue;
             int dial_timeout_ms = zopts->timeout_sec * 1000;
             int dial_retries = zopts->retries;
             if (dial_timeout_ms <= 0) dial_timeout_ms = 1000;
@@ -444,7 +446,8 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                                        cfg);
             } else {
                 const char* kip = known_ip_literal_cached;
-                if (kip && kip[0]) {
+                if (kip && kip[0] &&
+                    wc_proxy_target_supported(cfg, current_host, kip, ctx->current_port)) {
                     wc_lookup_should_skip_fallback(current_host,
                                                    domain_for_known,
                                                    AF_UNSPEC,

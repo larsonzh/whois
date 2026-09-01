@@ -15,7 +15,9 @@ typedef enum wc_proxy_scheme {
     WC_PROXY_SCHEME_DIRECT = 0,
     WC_PROXY_SCHEME_HTTP = 1,
     WC_PROXY_SCHEME_SOCKS5 = 2,
-    WC_PROXY_SCHEME_SOCKS5H = 3
+    WC_PROXY_SCHEME_SOCKS5H = 3,
+    WC_PROXY_SCHEME_SOCKS4 = 4,
+    WC_PROXY_SCHEME_SOCKS4A = 5
 } wc_proxy_scheme_t;
 
 typedef enum wc_proxy_family {
