@@ -102,6 +102,8 @@ SOCKS4/4a 延后至 WP-13C。SOCKS4 仅支持 IPv4 目标；SOCKS4a 远程 DNS �
 
 HTTPS proxy 延后至 WP-13D。其含义是客户端到 HTTP 代理之间使用 TLS，再执行 CONNECT；隧道内的 WHOIS 仍为明文 TCP。证书与主机名验证是强制要求，不计划提供不安全验证模式。
 
+WP-13D 的默认信任源冻结为构建时固定并嵌入静态二进制的 Mozilla CA bundle；bundle 来源、版本日期、SHA-256 与许可证须进入构建清单和 release 审计。该设计保持九架构单文件分发，并避免交叉编译 OpenSSL 的 `OPENSSLDIR` 泄漏为运行时路径。非空 `SSL_CERT_FILE` 可显式覆盖嵌入 bundle，以支持企业代理私有 CA；覆盖文件无法读取、为空或不含可加载证书时必须在连接前 fail-close，不得回退到嵌入 bundle。未设置覆盖时只使用嵌入 bundle，不探测平台相关默认路径或 Windows 证书库。CA 更新至少每月检查一次；Mozilla CA 数据或适用安全公告变化时须更新固定摘要并重跑九架构 TLS、Golden/referral 与发布哈希门禁。
+
 ## 6. Transport 与超时边界
 
 WP-13B 首先抽取无业务副作用的 endpoint dialer，以及具有 close、wait、read、write 操作的 transport 接口。现有直连适配器保留当前指标与 DNS 健康语义；代理适配器拥有代理端点尝试，且不得调用目标健康 hook。
@@ -467,6 +469,8 @@ The required classes are `succeeded`, `general-failure`, `ruleset-denied`, `netw
 SOCKS4/4a are deferred to WP-13C. SOCKS4 supports IPv4 targets only; SOCKS4a remote DNS does not imply IPv6 support.
 
 HTTPS proxy is deferred to WP-13D. It means TLS between this client and the HTTP proxy, followed by CONNECT; WHOIS inside the tunnel remains plain TCP. Certificate and hostname verification are mandatory. No insecure verification mode is planned.
+
+WP-13D freezes its default trust source to a build-pinned Mozilla CA bundle embedded in each static binary. The bundle source, snapshot date, SHA-256, and license must be recorded in build manifests and release audits. This preserves single-file distribution on all nine targets and prevents a cross-compiled OpenSSL `OPENSSLDIR` from leaking into runtime behavior. A non-empty `SSL_CERT_FILE` explicitly overrides the embedded bundle for enterprise proxy private CAs. An unreadable, empty, or certificate-free override fails closed before connecting and never falls back to the embedded bundle. Without an override, only the embedded bundle is used; platform-specific default paths and the Windows certificate store are not probed. CA updates are reviewed at least monthly, and a Mozilla CA data change or applicable security advisory requires a pinned-digest update plus the full nine-target TLS, Golden/referral, and release-hash gates.
 
 ## 6. Transport and timeout boundary
 
