@@ -143,6 +143,14 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 本 RFC 与协议探针通过评审后，WP-13B-1 方可进入任务定义设计。代理端点 family 与 13B 凭据来源现已冻结；生产认证仍须由确定性配置测试覆盖后才可进入实现。仅当同一获批后端的 TLS 探针通过七个 POSIX 目标及 win32/win64，且其许可证、CVE 与更新策略均已记录后，WP-13D 才能解除 blocked。
 
+### 9.1 WP-13D TLS 依赖门禁回填（2026-09-01）
+
+- 获批后端为 OpenSSL 3.5.8 LTS，许可证 Apache-2.0；OpenSSL 3.5 LTS 官方支持至 2030-04-08。源码归档 SHA-256 为 `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`，发布签名验证链到固定 OpenSSL 主指纹 `B146647E45A7B33947AB226B2A2C87D161692D40`。
+- `tools/remote/bootstrap_openssl_static.sh` 从同一已验证源码在隔离 prefix 下构建 `aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64`，使用 `no-shared no-dso no-tests`；最终统一矩阵 9/9 PASS，证据为 `out/artifacts/proxy_tls_dependency_matrix/20260901-072331`。
+- 七个 POSIX 探针均无 ELF interpreter 或 `NEEDED`；win32/win64 PE 探针均无 `libssl`/`libcrypto` DLL 依赖。每个目标保存编译器与 Configure manifest、`configdata.pm --dump`、静态库和探针 SHA-256、平台依赖审计及 SPDX 2.3 文档。
+- 维护策略：每月复核 OpenSSL security advisories/CVE 与 3.5 LTS 最新补丁；出现影响所用 TLS client、X.509、证书/主机名验证或静态链接路径的安全发布时，升级固定版本并完整重跑九架构构建、探针、依赖审计、哈希和 SPDX 门禁。不得继续使用停止支持或存在未处置适用高严重度漏洞的版本。
+- 因此 TLS 依赖门禁已解除，WP-13D 可进入独立 Vx 任务定义设计与 ready 评审；这不表示 HTTPS proxy 已实现，也不替代下述生产验收。
+
 生产验收仍须通过 x86_64/win32/win64 聚焦合同、九架构 Strict 构建、Golden/referral、Batch/Selftest/CIDR/Redirect/Step47、默认直连输出冻结，并同步中英文使用文档。
 
 ## 10. WP-13B-1 下次开工清单
@@ -209,7 +217,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 复核后验证（2026-08-30）：本地 clang 严格聚焦语法检查与 transport contract PASS；九架构 `lto-auto` build/smoke/selftest、9/9 local hash、Golden 与三起点 referral PASS，用时 275s，证据目录 `out/artifacts/20260830-010926`，且未同步或改写 release 目录。
 - DNS-health 隔离专项（2026-08-30）：通过自测计数器直接证明 `record_dns_health=0` 不调用目标 health hook，并以 `record_dns_health=1` 对照确认同一路径可观测；x86_64、win64、win32 smoke/selftest 与 local hash 均 PASS（143s，`out/artifacts/20260830-012006`）。WP-13B-2 可进入配置/CLI/env、HTTP CONNECT 与每 hop bypass 的 Vx 任务定义编制，仍须遵守第 9 节完整验收门禁。
 - 最终同步产物审计（2026-08-30）：Strict Version `lto-auto` 九架构远程构建、默认查询 smoke、双目录同步与 Golden/referral 全部 PASS，无编译/LTO 告警，用时 241s（`out/artifacts/20260830-014939`）。归档九个二进制的 SHA-256 独立复算均与 `SHA256SUMS-static.txt` 匹配，仓库 release 清单与归档逐字一致；Linux/QEMU、win32、win64 默认 smoke 的 `8.8.8.8`/`1.1.1.1`/`10.0.0.8` 标题与权威尾行契约稳定。Golden 以 `8.8.8.8` 主 smoke 直接 PASS；IANA、ARIN、AFRINIC 三起点 referral 分别以 3/2/1 次成功连接、零失败收敛到 AFRINIC。该轮未启用 `--selftest`，专项 transport/policy/health-isolation 证据仍以上述 `010926`/`012006` 两轮为准；无需代码修复。
-- 后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
+- 后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续；WP-13D 的 TLS 依赖门禁现已通过，但仍不得在未经独立 ready 评审及生产门禁时开放。
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处）。
 - 未经用户明确授权，不执行提交或推送。
 
@@ -278,7 +286,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 编辑器 IntelliSense 兼容性修正（2026-08-31）：`wc_proxy_selftest` 内的 `UINT64_MAX` 在 VS Code C/C++ IntelliSense（`windows-msvc-x64` + clang-cl，工作区仅有默认 includePath）下触发“编号的预期结尾后有多余文本”（code 19）误报，真实 GCC/Clang C11 编译与远程九架构构建均无此问题。现改为自测局部 `const uint64_t no_deadline = ~(uint64_t)0;` 并复用，语义与 `UINT64_MAX` 完全等价（全 1 无超时），不依赖实现特定的整数后缀；仅 `src/core/proxy.c` 自测路径改动，生产 CONNECT/NO_PROXY 逻辑与输出契约零变化。
 - 修正后复核（2026-08-31）：Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验重跑无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS，退出码 0，用时 270s，日志目录 `out/artifacts/20260831-095325`（build_out 九架构产物；本地重算 9/9 SHA-256 与 `SHA256SUMS-static.txt` 完全一致；referral 链路 IANA → ARIN → AFRINIC 正常收敛）。
 - 复核结论：默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约保持不变；无需追加代码修复。
-- 后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
+- 后续 WP-13C（SOCKS4/4a）与 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续；WP-13D 的 TLS 依赖门禁现已通过，但仍不得在未经独立 ready 评审及生产门禁时开放。
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处 + RELEASE_NOTES + RFC-whois-client-split）。
 - 未经用户明确授权，不执行提交或推送。
 
@@ -300,11 +308,11 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 确定性 fake transport 覆盖认证、ATYP、REP 与远程 DNS policy；loopback 协议/配置探针 21/21 PASS（`out/artifacts/proxy_protocol_spike/20260831-030507`）。严格 ISO C11 clang 检查零诊断；首轮远程检查发现并修复 loongarch64 下 `strdup` 隐式声明，改用标准 `malloc` + `memcpy`。
 - 最终 Strict Version `lto-auto` 九架构构建无编译/LTO 告警，9/9 SHA-256、POSIX/QEMU 与 win32/win64 smoke、Golden 和 IANA/ARIN/AFRINIC 三起点 referral 全 PASS（`out/artifacts/20260831-112633`，436s）。未同步 release 目录。
 - 带 release 同步的最终轮（2026-08-31）：Strict Version `lto-auto` 远程编译冒烟同步 + 黄金校验复核无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS，用时 284s（`out/artifacts/20260831-114158`）；release 双目录（`lzispro/release/lzispro/whois` 与 `whois/release/lzispro/whois`）文件与 `SHA256SUMS-static.txt` 逐字一致，本地 `Get-FileHash` 复核 9/9 匹配。
-- WP-13C（SOCKS4/4a）尚未实施；WP-13D（HTTPS proxy TLS）仍受第 9 节门禁约束。
+- WP-13C（SOCKS4/4a）尚未实施；WP-13D（HTTPS proxy TLS）的 TLS 依赖门禁已通过，仍须独立 ready 评审及生产验收。
 
 ## 13. WP-13C SOCKS4/4a 开工评审
 
-状态：**本期已完成执行回填（SESSION=PASS / A=PASS / B=PASS）**（2026-09-01）。不得与仍受 TLS 依赖门禁阻断的 WP-13D 合并。
+状态：**本期已完成执行回填（SESSION=PASS / A=PASS / B=PASS）**（2026-09-01）。不得与 WP-13D 合并；其 TLS 依赖门禁已通过，但仍须独立 ready 评审及生产验收。
 
 - 确定性 loopback spike 已增加 SOCKS4 IPv4、自定义端口、USERID、SOCKS4a domain、CD=91 拒绝响应，以及 `socks4`/`socks4a` 配置门禁，原有 HTTP/SOCKS5 案例无回归；合计 27/27 PASS（`out/artifacts/proxy_protocol_spike/20260831-043917`）。
 - 冻结语义：`socks4://` 只向代理发送本地解析的 IPv4 候选；`socks4a://` 发送逻辑 hostname，并与 `socks5h://` 共用远程 DNS、目标 family/fallback/RIR override 冲突门禁和健康隔离。SOCKS4a 不声明或推断代理最终使用 IPv6。
@@ -356,7 +364,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - A/B 合计用时：`0d 12:01:40`（session start `2026-08-31 15:08:58` → `2026-09-01 03:10:37`，含 launcher/preflight、A→B 交接间隔）。
 - 运行后 Strict 验证（2026-09-01）：`WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → 无告警 + lto 无告警 + Local hash verify: PASS + Golden PASS + referral check: PASS，退出码 0，用时 755s，日志目录 `out/artifacts/20260901-121843`。
 - 复核结论：默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约保持不变；无需追加代码修复。
-- 后续 WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续，不得在未经评审/门禁时开放。
+- 后续 WP-13D（HTTPS 代理 TLS）的 TLS 依赖门禁已通过，仍按第 9 节完成独立 ready 评审及生产验收，不得提前开放。
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处 + RELEASE_NOTES + RFC-whois-client-split）。
 - 未经用户明确授权，不执行提交或推送。
 
@@ -501,6 +509,14 @@ The probe requires a fully static link and references TLS client setup, peer ver
 
 WP-13B-1 may enter task-definition design after this RFC and the protocol spike are reviewed. The proxy-endpoint family and 13B credential sources are now frozen; production authentication still requires deterministic configuration tests before implementation. WP-13D remains blocked until the TLS probe passes all seven POSIX targets plus win32 and win64 with one approved backend and its license/CVE/update policy documented.
 
+### 9.1 WP-13D TLS dependency gate backfill (2026-09-01)
+
+- The approved backend is OpenSSL 3.5.8 LTS under Apache-2.0; official support for OpenSSL 3.5 LTS ends on 2030-04-08. The source archive SHA-256 is `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`, and its release signature chains to the pinned OpenSSL primary fingerprint `B146647E45A7B33947AB226B2A2C87D161692D40`.
+- `tools/remote/bootstrap_openssl_static.sh` builds `aarch64/armv7/x86_64/x86/mipsel/mips64el/loongarch64/win32/win64` from that single verified source into isolated prefixes with `no-shared no-dso no-tests`. The final unified matrix passes 9/9 at `out/artifacts/proxy_tls_dependency_matrix/20260901-072331`.
+- All seven POSIX probes have no ELF interpreter or `NEEDED` entries. The win32/win64 PE probes have no `libssl` or `libcrypto` DLL dependency. Each target records its compiler and Configure manifest, `configdata.pm --dump`, static-library and probe SHA-256 values, platform dependency audit, and SPDX 2.3 document.
+- Maintenance policy: review OpenSSL security advisories/CVEs and the latest 3.5 LTS patch monthly. A security release affecting the used TLS client, X.509, certificate/hostname verification, or static-link path triggers a pinned-version update and a complete nine-target rebuild, probe, dependency audit, hash, and SPDX gate. An unsupported release or one with an unresolved applicable high-severity vulnerability is not acceptable.
+- The TLS dependency gate is therefore cleared and WP-13D may enter independent Vx task-definition design and readiness review. This does not mean that HTTPS proxy support is implemented and does not replace the production acceptance gates below.
+
 Production acceptance still requires focused x86_64/win32/win64 contracts, nine-architecture Strict builds, Golden/referral, Batch/Selftest/CIDR/Redirect/Step47, default-direct output freezing, and synchronized Chinese/English usage documentation.
 
 ## 10. WP-13B-1 next-start checklist
@@ -567,7 +583,7 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and e
 - Post-review validation (2026-08-30): focused strict clang syntax checks and the transport contract passed; nine-architecture `lto-auto` build/smoke/selftest, 9/9 local hashes, Golden, and three-origin referral checks passed in 275s. Evidence is under `out/artifacts/20260830-010926`; no release directory was synchronized or rewritten.
 - DNS-health isolation contract (2026-08-30): a selftest counter directly proves that `record_dns_health=0` does not call the target health hook, with `record_dns_health=1` as the positive control. x86_64, win64, and win32 smoke/selftest and local hashes passed in 143s (`out/artifacts/20260830-012006`). WP-13B-2 may proceed to Vx task-definition design for configuration/CLI/environment parsing, HTTP CONNECT, and per-hop bypass, subject to the full section 9 acceptance gates.
 - Final synchronized-artifact audit (2026-08-30): the Strict Version `lto-auto` nine-architecture remote build, default-query smoke, two-directory sync, Golden, and referral checks all passed with no compiler/LTO warnings in 241s (`out/artifacts/20260830-014939`). Independent SHA-256 recomputation for all nine archived binaries matches `SHA256SUMS-static.txt`, and the repository release manifest is byte-for-byte identical to the archive. Linux/QEMU, win32, and win64 default smoke preserves the query-header and authoritative-tail contracts for `8.8.8.8`, `1.1.1.1`, and `10.0.0.8`. Golden passed directly against the primary `8.8.8.8` smoke; IANA, ARIN, and AFRINIC referral origins converged to AFRINIC with 3/2/1 successful connection attempts and zero failures. This round did not enable `--selftest`; focused transport/policy/health-isolation evidence remains in the `010926`/`012006` rounds above. No code fix is required.
-- WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) remain gated by section 9 readiness gates.
+- WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) continue under section 9. WP-13D's TLS dependency gate is now cleared, but independent readiness review and production acceptance are still required.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file).
 - No commit or push without explicit user authorization.
 
@@ -636,7 +652,7 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and V
 - Editor IntelliSense compatibility fix (2026-08-31): `UINT64_MAX` inside `wc_proxy_selftest` produced a false positive “extra text after end of number” (code 19) under VS Code C/C++ IntelliSense (`windows-msvc-x64` with clang-cl and only the default workspace include path), while real GCC/Clang C11 builds and the remote nine-architecture build were unaffected. It is now replaced by a selftest-local `const uint64_t no_deadline = ~(uint64_t)0;` reused across all cases; the value is exactly equivalent to `UINT64_MAX` (all-ones, no timeout), does not depend on implementation-specific integer suffixes, and touches only the `src/core/proxy.c` selftest path. Production CONNECT/NO_PROXY logic and output contracts are unchanged.
 - Post-fix revalidation (2026-08-31): Strict Version `lto-auto` remote build + smoke sync + Golden check re-run passed with no warnings, no LTO warnings, Local hash verify PASS, Golden PASS, and referral check PASS (exit 0, 270s, log dir `out/artifacts/20260831-095325`; local recomputation of all 9 SHA-256 hashes matches `SHA256SUMS-static.txt`, and the IANA → ARIN → AFRINIC referral chain converges correctly).
 - Review conclusion: default direct connect, stdout, RIR referral, DNS health, batch strategy, and retry-metrics contracts remain unchanged; no further code fix is required.
-- WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) remain gated by section 9 readiness gates.
+- WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) continue under section 9. WP-13D's TLS dependency gate is now cleared, but independent readiness review and production acceptance are still required.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file + RELEASE_NOTES + RFC-whois-client-split).
 - No commit or push without explicit user authorization.
 
@@ -658,11 +674,11 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 - Deterministic fake transports cover authentication, ATYP, REP, and remote-DNS policy. The loopback protocol/configuration spike passes 21/21 cases (`out/artifacts/proxy_protocol_spike/20260831-030507`). Strict ISO C11 clang validation is clean; an initial remote run exposed and fixed an implicit `strdup` declaration on loongarch64 by using standard `malloc` plus `memcpy`.
 - The final Strict Version `lto-auto` nine-architecture build has no compiler/LTO warnings. All 9 SHA-256 checks, POSIX/QEMU and win32/win64 smoke, Golden, and three-origin IANA/ARIN/AFRINIC referral checks pass (`out/artifacts/20260831-112633`, 436s). Release directories were not synchronized.
 - Final run with release synchronization (2026-08-31): Strict Version `lto-auto` remote build + smoke sync + Golden re-check pass with no warnings, no LTO warnings, and Local hash verify/Golden/referral all PASS in 284s (`out/artifacts/20260831-114158`). Both release directories (`lzispro/release/lzispro/whois` and `whois/release/lzispro/whois`) match `SHA256SUMS-static.txt` byte-for-byte; local `Get-FileHash` recheck matches 9/9.
-- WP-13C (SOCKS4/4a) is not implemented. WP-13D (HTTPS-proxy TLS) remains gated by section 9.
+- WP-13C (SOCKS4/4a) is not implemented. WP-13D's TLS dependency gate is cleared, while its independent readiness review and production acceptance remain pending.
 
 ## 13. WP-13C SOCKS4/4a readiness review
 
-Status: **this run is complete and backfilled (SESSION=PASS / A=PASS / B=PASS)** (2026-09-01). It must not be combined with WP-13D, which remains blocked on the TLS dependency gate.
+Status: **this run is complete and backfilled (SESSION=PASS / A=PASS / B=PASS)** (2026-09-01). It must not be combined with WP-13D; the TLS dependency gate is cleared, but WP-13D still requires an independent readiness review and production acceptance.
 
 - The deterministic loopback spike now covers SOCKS4 IPv4, custom ports, USERID, SOCKS4a domains, CD=91 rejection, and `socks4`/`socks4a` configuration gates without regressing the existing HTTP/SOCKS5 cases; all 27/27 cases pass (`out/artifacts/proxy_protocol_spike/20260831-043917`).
 - Frozen semantics: `socks4://` sends only locally resolved IPv4 candidates. `socks4a://` sends the logical hostname and shares the `socks5h://` remote-DNS conflicts for target-family, fallback, and RIR overrides, plus its target-health isolation. SOCKS4a neither claims nor infers that the proxy selected IPv6.
@@ -714,6 +730,6 @@ Status: **this run is complete and backfilled (SESSION=PASS / A=PASS / B=PASS)**
 - Combined A/B elapsed: `0d 12:01:40` (session start `2026-08-31 15:08:58` → `2026-09-01 03:10:37`, including launcher/preflight and the A→B handover interval).
 - Post-run Strict validation (2026-09-01): `WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → no warnings + no lto warnings + Local hash verify: PASS + Golden PASS + referral check: PASS, exit code 0, 755s, log dir `out/artifacts/20260901-121843`.
 - Review conclusion: default direct connect, stdout, RIR referral, DNS health, batch strategy, and retry-metrics contracts remain unchanged; no further code fix is required.
-- WP-13D (HTTPS-proxy TLS) remains gated by section 9 readiness gates.
+- WP-13D's TLS dependency gate is cleared; independent readiness review and production acceptance under section 9 remain pending.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file + RELEASE_NOTES + RFC-whois-client-split).
 - No commit or push without explicit user authorization.
