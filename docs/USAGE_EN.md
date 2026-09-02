@@ -57,6 +57,10 @@ First, a quick glossary of terms used throughout this guide:
 - **Header and continuation lines** — WHOIS bodies look like `NetName: Foo`; indented lines under a header (until the next header) are its “block/continuation”. `-g`/`--grep` filter by this structure.
 - **Fold** — compress filtered output into one line (`<query> VALUE1 VALUE2 ... RIR`) for easy awk/grep aggregation.
 - **Batch** — one query per stdin line, each with independent output; great for `cat list | whois -B`.
+- **Preclassification (preclass)** — before going online, the client checks the built-in IANA special/reserved address table to classify the address (reserved, special-purpose, regular public, etc.), which decides whether to query at all, which RIR to try first, and whether it can return `unknown` up front.
+- **Phase A / B / C** — internal implementation stages (ordinary users need not care): A = **shadow mode** (only prints classification diagnostics, no behavior change); B = **default first-hop migration** (the classifier decides the starting RIR); C = **reserved/special early convergence** (high-confidence reserved/special addresses skip the network and emit `Address Status:` with `unknown @ unknown`).
+- **P0 / P1 / P2** — engineering step codes: P0 = **observe** (view classification results); P1 = **controlled actions** (under an off-by-default trial switch, run special behavior such as early `unknown` for a small candidate set, governed by tier/CSV); P2 = **ramp gate & rollback** (pre-release validation and one-click rollback). Ordinary users rarely touch these; they only affect whether some reserved/special addresses return early.
+- **Step 4.7** — a controlled capability item of the development roadmap (step 4.7 of 4.5/4.6/4.7), related to reserved early convergence; switches such as `--enable-step47-trial` are off by default and used for staged rollout validation.
 
 ### Output contract
 
@@ -331,16 +335,18 @@ printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 -B --no-body --print-chain --pick net
 | `--selftest-workbuf` | Long-line/CRLF/high-continuation stress (`[WORKBUF]*`) |
 | `--disable-address-preclass` | Hard-disable Step 4.7 preclass (legacy path) |
 | `--enable-preclass-actions` | Enable P1 controlled actions (default off; needs `--enable-step47-trial`) |
-| `--preclass-action-tier r0|r1` | P1 candidate tier (default `r0`) |
+| `--preclass-action-tier r0\|r1` | P1 candidate tier (default `r0`) |
 | `--preclass-action-list CSV` | Override the P1 candidate list |
 | `--enable-step47-trial` | Enable the Step 4.7 trial gate (default off) |
-| `--step47-trial-scope minimal|reserved|all` | Trial scope (default `minimal`) |
+| `--step47-trial-scope minimal\|reserved\|all` | Trial scope (default `minimal`) |
 | `--enable-step47-early-unknown` | Enable early-unknown trial (default off; `reserved` scope only) |
 | `--step47-early-unknown-list CSV` | Early-unknown candidate list |
 | `--enable-preclass-first-hop` | Phase B classifier-preferred first hop (implicit queries default on; explicit `-h` bypasses) |
 | `--enable-preclass-early-converge` | Phase C reserved/special early converge (default on; adds `Address Status:` and normalizes to `unknown @ unknown`) |
 
-Note: enabling any `--selftest-*` fault toggle auto-runs the lookup selftest suite once before real queries (stderr shows `[LOOKUP_SELFTEST]`). `[SELFTEST] action=force-*` tags are stderr-only and independent of `--debug`. Recommended debug capture:
+Note: if you are unfamiliar with preclassification/Phase/P0-P2/Step 4.7, see the glossary in §2 — they mostly affect whether reserved/special-purpose addresses return `unknown` without going online; ordinary public-address/domain queries are unaffected, and the default configuration is fine.
+
+Enabling any `--selftest-*` fault toggle auto-runs the lookup selftest suite once before real queries (stderr shows `[LOOKUP_SELFTEST]`). `[SELFTEST] action=force-*` tags are stderr-only and independent of `--debug`. Recommended debug capture:
 
 ```sh
 whois-x86_64 --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log

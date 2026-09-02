@@ -55,6 +55,10 @@ cat ip_list.txt | whois-x86_64 -B --host apnic
 - **标题行与续行** — WHOIS 正文形如 `NetName: Foo` 的字段行，其下以空格缩进直到下一个标题的行称为“块/续行”；`-g`/`--grep` 就是按这个结构过滤的。
 - **折叠（fold）** — 把筛选后的正文压缩为一行（`<query> 值1 值2 ... RIR`），方便 awk/grep 聚合。
 - **批量（batch）** — 每行一个查询，各自独立输出；适合 `cat 列表 | whois -B`。
+- **预分类（preclass）** — 联网查询前，客户端先对照内置的“IANA 特殊/保留地址表”判断该地址属于哪一类（保留、特殊用途、普通公网等），从而决定：要不要真去查、优先连哪家 RIR、能否提前直接给出 `unknown`。
+- **Phase A / B / C** — 内部实施阶段代号（普通用户无需关心）：A=**影子模式**（只打印分类诊断，不改变任何查询行为）；B=**默认首跳迁移**（让分类器决定先连哪家 RIR）；C=**保留/特殊地址早收敛**（对高置信的保留/特殊用途地址不再联网，直接输出 `Address Status:` 并收敛到 `unknown @ unknown`）。
+- **P0 / P1 / P2** — 工程化步骤代号：P0=**观测**（先看分类结果）；P1=**受控动作**（在默认关闭的试验开关下，对少量候选执行“提前返回 unknown”等特殊行为，可用候选列表/等级治理）；P2=**放量门禁与回退**（发布前验证与一键回退）。普通用户一般不会用到，它们只影响部分“保留/特殊地址”是否提前返回。
+- **Step 4.7** — 开发路线中的受控能力项（实施步骤 4.5/4.6/4.7 的第 4.7 步），与“reserved 早收敛”相关；`--enable-step47-trial` 等开关默认关闭，用于逐步放量验证。
 
 ### 头/尾与折叠契约
 
@@ -329,16 +333,18 @@ printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 -B --no-body --print-chain --pick net
 | `--selftest-workbuf` | 长行/CRLF/高续行压力自测（`[WORKBUF]*`） |
 | `--disable-address-preclass` | 一键关闭 Step 4.7 预分类（回退旧路径） |
 | `--enable-preclass-actions` | 开启 P1 受控动作（默认关闭，需 `--enable-step47-trial`） |
-| `--preclass-action-tier r0|r1` | P1 候选分层（默认 `r0`） |
+| `--preclass-action-tier r0\|r1` | P1 候选分层（默认 `r0`） |
 | `--preclass-action-list CSV` | 覆盖 P1 候选列表 |
 | `--enable-step47-trial` | 开启 Step 4.7 试验门（默认关闭） |
-| `--step47-trial-scope minimal|reserved|all` | 试验范围（默认 `minimal`） |
+| `--step47-trial-scope minimal\|reserved\|all` | 试验范围（默认 `minimal`） |
 | `--enable-step47-early-unknown` | 开启 early-unknown 试验（默认关闭，仅 `reserved` 生效） |
 | `--step47-early-unknown-list CSV` | early-unknown 候选列表 |
 | `--enable-preclass-first-hop` | Phase B 分类器优先首跳（隐式查询默认开启；显式 `-h` 旁路） |
 | `--enable-preclass-early-converge` | Phase C reserved/special 早收敛（默认开启；命中输出 `Address Status:` 并归一化 `unknown @ unknown`） |
 
-说明：开启任一 `--selftest-*` 故障旗标，会在真实查询前自动运行一次 lookup 自测（stderr 出现 `[LOOKUP_SELFTEST]`）。`[SELFTEST] action=force-*` 标签仅写 stderr，与 `--debug` 无关。调试收集推荐组合：
+说明：若你不熟悉 预分类/Phase/P0-P2/Step 4.7 等概念，请先看 §2 术语表——它们大多只影响“保留/特殊用途地址是否不联网直接返回 unknown”，普通公网/域名查询不受影响，保持默认配置即可。
+
+开启任一 `--selftest-*` 故障旗标，会在真实查询前自动运行一次 lookup 自测（stderr 出现 `[LOOKUP_SELFTEST]`）。`[SELFTEST] action=force-*` 标签仅写 stderr，与 `--debug` 无关。调试收集推荐组合：
 
 ```sh
 whois-x86_64 --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log
