@@ -1,4 +1,4 @@
-﻿# whois (v3.3.2)
+﻿# whois (v3.3.3)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -99,6 +99,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.3.3：发布说明 `RELEASE_NOTES.md#333` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.3 | Gitee Releases（查找 v3.3.3）: https://gitee.com/larsonzh/whois/releases
+		- v3.3.3: Release notes `RELEASE_NOTES.md#333` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.3 | Gitee Releases (find v3.3.3): https://gitee.com/larsonzh/whois/releases
 	- v3.3.2：发布说明 `RELEASE_NOTES.md#332` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.2 | Gitee Releases（查找 v3.3.2）: https://gitee.com/larsonzh/whois/releases
 		- v3.3.2: Release notes `RELEASE_NOTES.md#332` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.2 | Gitee Releases (find v3.3.2): https://gitee.com/larsonzh/whois/releases
 	- v3.3.1：发布说明 `RELEASE_NOTES.md#331` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.1 | Gitee Releases（查找 v3.3.1）: https://gitee.com/larsonzh/whois/releases
@@ -126,6 +128,15 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.3.3 速览 / What's new <a id="333"></a>
+
+- 许可证迁移（WP-12）：项目许可证由 GPL-3.0-or-later 改为 MIT；同时完成 Windows/跨平台可移植性收口（大小写比较、`ssize_t`、平台头、sleep、64 位毫秒计时）。
+	- License migration (WP-12): the project license changes from GPL-3.0-or-later to MIT; Windows/cross-platform portability closure also lands (case-insensitive comparison, `ssize_t`, platform headers, sleeps, 64-bit millisecond timing).
+- 代理访问 RIR（WP-13）：新增 HTTP/HTTPS CONNECT 与 SOCKS4/4a/5/5h；HTTPS 代理使用静态 OpenSSL 3.5.8 TLS（嵌入式 Mozilla CA `2026-08-13`，121 张证书，`SSL_CERT_FILE` 覆盖且 fail-close），官方静态制品默认 `WHOIS_TLS=1`，`--help` 报告 TLS backend。
+	- Proxy access to RIR (WP-13): adds HTTP/HTTPS CONNECT and SOCKS4/4a/5/5h; HTTPS proxies use static OpenSSL 3.5.8 TLS (embedded Mozilla CA 2026-08-13, 121 certificates, `SSL_CERT_FILE` override fails closed), official statics default to `WHOIS_TLS=1`, and `--help` reports the TLS backend.
+- 验证（2026-09-03）：WP-13A–13D 的 Vx A/B 各 8/8 PASS；最终 Strict `lto-auto` 九架构、9/9 哈希、Golden、三起点 referral、Batch 4/4、Selftest 5/5、12×6 redirect 72/72、CIDR body 4/4 + draft 9/9 全 PASS；默认 TLS 同步轮零告警（`out/artifacts/20260903-045122`，360s）。
+	- Verification (2026-09-03): WP-13A–13D Vx A/B pass 8/8 each; the final Strict `lto-auto` nine-architecture run, 9/9 hashes, Golden, three referral origins, Batch 4/4, Selftest 5/5, 12x6 redirect 72/72, and CIDR body 4/4 plus draft 9/9 all pass; the default-TLS synchronized round is warning-free (`out/artifacts/20260903-045122`, 360s).
 
 ## v3.3.2 速览 / What's new <a id="332"></a>
 
