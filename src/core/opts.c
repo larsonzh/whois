@@ -435,7 +435,10 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
     if (strchr(url, '?') || strchr(url, '#')) { fprintf(stderr, "Error: proxy URL query/fragment is not allowed\n"); goto fail; }
     scheme_end = strstr(url, "://");
     if (!scheme_end || scheme_end == url) { fprintf(stderr, "Error: proxy URL must be absolute\n"); goto fail; }
-    if ((size_t)(scheme_end - url) == 4 && strncasecmp(url, "http", 4) == 0) {
+    if ((size_t)(scheme_end - url) == 5 && strncasecmp(url, "https", 5) == 0) {
+        out->scheme = WC_PROXY_SCHEME_HTTPS;
+        port = 443;
+    } else if ((size_t)(scheme_end - url) == 4 && strncasecmp(url, "http", 4) == 0) {
         out->scheme = WC_PROXY_SCHEME_HTTP;
         port = 8080;
     } else if ((size_t)(scheme_end - url) == 6 && strncasecmp(url, "socks5", 6) == 0) {
@@ -551,7 +554,12 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
         fprintf(stderr, "Error: remote-DNS proxy conflicts with target-family, fallback, or RIR override controls\n");
         goto fail;
     }
+#ifdef WHOIS_TLS
+    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTPS ||
+        out->scheme == WC_PROXY_SCHEME_HTTP ||
+#else
     out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||
+#endif
         out->scheme == WC_PROXY_SCHEME_SOCKS5 ||
         out->scheme == WC_PROXY_SCHEME_SOCKS5H ||
         out->scheme == WC_PROXY_SCHEME_SOCKS4 ||
@@ -1127,8 +1135,11 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         };
         if (!wc_opts_proxy_resolve(o, &proxy_env, &o->proxy)) return 37;
         if (o->proxy.configured && !o->proxy.routing_enabled) {
+            if (o->proxy.scheme == WC_PROXY_SCHEME_HTTPS)
+                fprintf(stderr, "Error: HTTPS proxy requires a WHOIS_TLS=1 build\n");
+            else
+                fprintf(stderr, "Error: Configured proxy scheme is not available in this build\n");
             wc_opts_proxy_clear(&o->proxy);
-            fprintf(stderr, "Error: Configured proxy scheme is not available in the HTTP CONNECT build\n");
             return 37;
         }
     }

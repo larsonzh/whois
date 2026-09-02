@@ -5,7 +5,7 @@
 > - 明确“已完成的历史拆分”和“当前维护状态”，便于长期维护和断点续作；
 > - 保证在任何时刻，都能回答：当前 master 上 `whois_client.c` 的形态与目标状态之间还差多少。
 
-**当前状态（截至 2026-08-31）**：
+**当前状态（截至 2026-09-03）**：
 
 - `whois_client.c` 已收敛为参数入口与前端调度薄层；客户端拆分主线完成，不再以文件行数、helper 数量或 A/B 轮次作为继续拆分依据。
 - Address-Space 前置分类器的功能开发、默认放量、回退路径、契约验证与 literal 收敛均已完成；剩余 6 个多调用或带 prototype 的 literal helper 作为命名常量有意保留。
@@ -14,7 +14,7 @@
 
 **当前维护状态（唯一状态入口）**：
 
-- 2026-09-02 WP-13D HTTPS proxy TLS 的 Vx A/B 任务定义已完成编制期验收：A=`testdata/autopilot_code_step_tasks_20270805_20270811.json`（连接 transport 所有权），B=`testdata/autopilot_code_step_tasks_20270812_20270818.json`（HTTPS scheme/OpenSSL TLS/CA 与验证/CONNECT，运行时以 A 为 prerequisite）。A→B 全定义 `errors=0 warnings=0`，默认与 `WHOIS_TLS=1` 的 x86_64/win64 隔离快编译及哈希复核 PASS；九架构 Strict、完整合同、start-file 与运行尚未执行。权威开工清单见 `docs/RFC-proxy-access.md` 第 14 节。
+- 2026-09-03 WP-13D HTTPS proxy TLS 已完成：Vx A/B 各 8/8 PASS（A run=`out/artifacts/dev_verify_multiround/20260902-090840`，B run=`out/artifacts/dev_verify_multiround/20260902-160535`，合计 `0d 14:37:31`），无脚本故障、代码自愈或阶段重启；两轮 Strict 九架构/hash/Golden/referral、Batch 4/4、Selftest 5/5、12×6 redirect 72/72、CIDR 4/4+9/9 全 PASS。官方远程静态构建与 release 制品默认启用 `WHOIS_TLS=1`；本地普通 `make` 和显式 `WHOIS_TLS=0` 保留无 OpenSSL 兼容路径。权威回填见 `docs/RFC-proxy-access.md` 第 14 节。
 - 2026-09-01 WP-13C SOCKS4/4a 无人值守 A/B 已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A/B 均为 8/8 一轮通过、无事故/自愈/重启（recovery_attempts=0、b_recovery_attempts=0）；A run=`out/artifacts/dev_verify_multiround/20260831-150933`（`2026-08-31 15:08:58` → `20:51:29`，A elapsed `0d 05:42:32`），B run=`out/artifacts/dev_verify_multiround/20260831-205121`（`2026-08-31 20:50:40` → `2026-09-01 03:10:37`，B elapsed `0d 06:19:58`）；A/B 合计 `0d 12:01:40`。最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260901-121843`，755s；Local hash verify/Golden/referral 全 PASS）。代理功能落地细节以 `docs/RFC-proxy-access.md` 13.x 回填为准；WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续。
 - 2026-08-31 WP-13B-2 无人值守 A/B 已完成回填：`A_FINAL_STATUS=PASS`、`B_FINAL_STATUS=PASS`、`SESSION_FINAL_STATUS=PASS`；A run=`out/artifacts/dev_verify_multiround/20260830-133709`（8/8 一轮通过，`2026-08-30 13:36:33` → `18:46:02`），B run=`out/artifacts/dev_verify_multiround/20260831-032025`（首跑 D1 后 `runtime-fail`，修复 3 处编排脚本与 A 快照锚点后 stage-window 重启续跑 8/8，`2026-08-31 01:30:36` → `08:27:32`，B elapsed `0d 06:56:57`）；A/B 合计 `0d 18:51:00`。最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）。代理功能落地细节以 `docs/RFC-proxy-access.md` 11.x 回填为准；WP-13C（SOCKS4/4a）/WP-13D（HTTPS 代理 TLS）按第 9 节 Ready 门禁继续。
 - 2026-08-31 WP-13B-2 收尾：编辑器 IntelliSense 兼容性修正完成——`src/core/proxy.c` `wc_proxy_selftest` 的 `UINT64_MAX` 在 VS Code C/C++ IntelliSense（windows-msvc-x64 + clang-cl）报“编号的预期结尾后有多余文本”（code 19），改为自测局部 `const uint64_t no_deadline = ~(uint64_t)0;`（与 `UINT64_MAX` 完全等价，不依赖实现特定后缀）；仅自测路径改动，生产逻辑与输出契约不变。修正后 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验重跑无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS（`out/artifacts/20260831-095325`，270s；本地 9/9 SHA-256 与 `SHA256SUMS-static.txt` 一致）。

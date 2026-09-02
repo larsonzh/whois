@@ -87,13 +87,13 @@ if (( RUN_SMOKE==0 )) && [[ -n "$QUERIES" ]]; then
   log "RUN_SMOKE=0: smoke tests disabled; --queries '$QUERIES' will be ignored."
 fi
 CMD1=("$ROOT_DIR/tools/remote/remote_build_and_test.sh" -q "$QUERIES" -r "$RUN_SMOKE" -s "$SYNC_TO" -P 1)
-log "STEP1: ${CMD1[*]}"
+log "STEP1: WHOIS_TLS=1 ${CMD1[*]}"
 if (( DRY_RUN==0 )); then
   stamp="$(date +%Y%m%d-%H%M%S)"
   LOG_DIR="$ROOT_DIR/out/release_flow/$stamp"; mkdir -p "$LOG_DIR"
   LOG1="$LOG_DIR/step1_remote.log"
   set +e
-  "${CMD1[@]}" 2>&1 | tee "$LOG1"
+  WHOIS_TLS=1 "${CMD1[@]}" 2>&1 | tee "$LOG1"
   rc1=${PIPESTATUS[0]}
   set -e
   if (( rc1 != 0 )); then

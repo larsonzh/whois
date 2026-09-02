@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13B-1、WP-13B-2、WP-13B-3 与 WP-13C 已完成；WP-13D 的 CA/构建准备及 Vx A/B 任务定义已完成编制期验收，待生成 start-file、授权启动与生产验收 / WP-13B-1, WP-13B-2, WP-13B-3, and WP-13C are complete; WP-13D CA/build preparation and Vx A/B task definitions have passed authoring-time validation and await start-file generation, launch authorization, and production acceptance.
+状态 / Status：WP-13A、WP-13B-1/2/3、WP-13C 与 WP-13D 均已完成实施和生产验收；官方远程静态构建与 release 制品默认启用 `WHOIS_TLS=1`，本地普通 `make` 及显式 `WHOIS_TLS=0` 兼容构建仍可保持无 OpenSSL 依赖 / WP-13A, WP-13B-1/2/3, WP-13C, and WP-13D have completed implementation and production acceptance; official remote static builds and release artifacts default to `WHOIS_TLS=1`, while normal local `make` and explicit `WHOIS_TLS=0` compatibility builds may remain OpenSSL-free.
 
 # 中文版
 
@@ -374,7 +374,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 
 ## 14. WP-13D HTTPS proxy TLS 开工清单
 
-状态：**任务定义编制完成，待 start-file 与启动授权**。计划窗口 `2027-08-05 ~ 2027-08-18`，使用 `schemaVersion=vx-draft`、`strict-enforce`、event-only 串行 A/B。启动前不得回填执行结果，不得把编制期 x86_64/win64 快编译表述为九架构生产验收。
+状态：**已完成执行与生产验收（SESSION=PASS / A=PASS / B=PASS）**。计划窗口 `2027-08-05 ~ 2027-08-18`，实际运行于 2026-09-02，使用 `schemaVersion=vx-draft`、`strict-enforce`、event-only 串行 A/B。active start-file 为 `testdata/unattended_start/active/unattended_ab_start_20270805-20270818.md`。
 
 ### 14.1 Checklist A：连接 transport 所有权
 
@@ -390,12 +390,27 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 冻结 target set：继承 A 九目标；新增 `config_header`、`proxy_header`、`opts_source`（existing）及 `tls_header=include/wc/wc_tls.h`、`tls_source=src/core/tls.c`（create）；`target_set_sha256=4d171a4202c4c3bbec9d945aa884a44a0fcb72b3d619362eef590cb1d279af99`。
 - D1/D2 分别创建完整 TLS header/source；D3 增加 scheme、build gate 与 parser selftest；D4 在代理 TCP 后、CONNECT 前接入 TLS，转交 A 的 owner，并增加稳定分类与确定性 TLS selftest。
 
-### 14.3 编制期证据与启动前剩余门禁
+### 14.3 编制期证据与执行回填
 
 - A/B 均满足 UTF-8 BOM + LF、TODO-free、SyntaxOnly、D1-D4、三项 Vx 基础设施回归；B 带 A prerequisite 的全定义检查在官方 `WorkerTimeoutMs=120000` 预算下 `errors=0 warnings=0`，内部 regex timeout 与 operation safety policy 未放宽。
 - 隔离 effective tree 的默认 stub 路径和 `WHOIS_TLS=1` OpenSSL 路径均通过 x86_64/win64 远程编译；TLS 路径 win64 保持 full-static，本地制品哈希复核 PASS。该证据仅为编制期快速编译，不替代第 9 节生产验收。
-- 生成 start-file 前仍须完成完整 effective target set 的九架构 Strict `lto-auto`、TLS/非 TLS smoke/selftest、Golden/referral、Batch/CIDR/Redirect/Step47、默认直连输出冻结及 HTTPS loopback 证书/主机名/失败分类合同；全部通过后方可标记 launch-ready。
-- A/B 必须严格串行；B 仅在 A 最终 PASS、A success snapshot 完整且 prerequisite 门禁通过后启动。未经用户同轮明确授权，不生成或启动 active start-file，不提交或推送。
+- A run=`out/artifacts/dev_verify_multiround/20260902-090840`，B run=`out/artifacts/dev_verify_multiround/20260902-160535`；两阶段均 `Result=pass`、`ExitCode=0`、8/8 完成且无失败轮。B 从 `2026-09-02 16:05:02` 至 `23:45:35`，用时 `0d 07:40:33`；A/B 会话从 `09:08:04` 至 `23:45:35`，合计 `0d 14:37:31`，最终于 `23:47:12` 关闭。
+- 启动前一次远端网络预检因 SSH 超时被阻断，网络恢复后重新预检通过再启动 A。A D1 首次发布 Vx artifact 时遇短暂 `Move` 访问拒绝，脚本有限重试后成功，checker 最终 `errors=0 warnings=0`；未形成脚本故障、代码自愈或阶段重启。
+- CA/构建准备已通过 `WHOIS_TLS=1` TLS/LTO 九架构、9/9 哈希、Windows full-static 与依赖审计（`out/artifacts/20260901-170601`）；A/B 编制期还通过默认 stub 与 TLS x86_64/win64 快编译、TLS loopback/证书/主机名/失败分类合同。普通构建继续以 `WHOIS_TLS=0` 生成无 OpenSSL 的 unsupported stub，不得将其描述为 HTTPS-enabled 制品。
+
+### 14.4 最终回归与发布候选复核（2026-09-03）
+
+- Strict Version `lto-auto` 默认轮与 debug/retry/DNS-stats/interleave-v4-first 轮均完成九架构构建，9/9 SHA-256、Golden 与 referral 全 PASS（`out/artifacts/20260903-003613`、`out/artifacts/20260903-004426`），未发现编译、LTO 或链接告警。归档阶段的 GnuPG socket `ignored` 只是 tar 跳过 Unix socket，不是构建告警。
+- Batch Golden 的 raw/health-first/plan-a/plan-b 四策略全 PASS（`out/artifacts/batch_raw/20260903-005136` 至 `out/artifacts/batch_planb/20260903-011010`）；独立 core 与四策略 Selftest Golden 共 5/5 PASS（`out/artifacts/batch_raw/20260903-012001` 至 `out/artifacts/batch_planb/20260903-013853`）。负向合同中的 `Private query denied`、`Suspicious query detected` 等文本是预期断言，不是运行告警。
+- 12×6 redirect matrix 生成 72/72 案例和 72/72 分析行，authority mismatch 为空且 `errors=(no errors found)`（`out/artifacts/redirect_matrix_10x6/20260903-014154`）。CIDR body `4/4`、draft matrix `9/9`，bundle `result=pass`、`exit_code=0`（`out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`）。默认直连、stdout/stderr、权威判定、referral、CIDR 与 Step47 契约未发生回归，本轮无需代码修复。
+
+### 14.5 产品交付收口
+
+- 官方远程静态构建器默认 `WHOIS_TLS=1`，full release 与 one-click release 也显式固定该值；调用者仍可显式设置 `WHOIS_TLS=0` 生成无 OpenSSL 的兼容制品，本地普通 `make` 的默认值不变。
+- `--help` 列出 HTTP/HTTPS/SOCKS4/4a/5/5h、默认端口、凭据与环境变量，并根据编译宏打印 `HTTPS proxy TLS backend: enabled|disabled`，因此用户可直接识别手中二进制能力。
+- 中英文 USAGE 提供 HTTPS proxy、公网 CA、企业私有 `SSL_CERT_FILE` 及 Windows/POSIX 可执行示例；官方 release 不再要求终端用户自行理解或设置内部构建开关。
+- 最终产品交付轮在不显式传入 `WHOIS_TLS` 时确认环境为 `WHOIS_TLS='1'`，Strict `lto-auto` 九架构、Windows full-static、网络冒烟、9/9 本地哈希、Golden 与三起点 referral 全 PASS，日志无 warning/error，并同步两个正式 release 目录（`out/artifacts/20260903-040906`，410s）。同步后的 win64 `--help` 实测显示 `HTTPS proxy TLS backend: enabled`，双目录清单逐字一致且制品独立复算 9/9 PASS。
+- 用户可见文案收口后的最终复核轮再次通过 Strict `lto-auto` 九架构构建与同步（`out/artifacts/20260903-045122`，360s）：Linux/QEMU、win32、win64 冒烟分别完成 18/3/3 条查询，24/24 标题与权威尾行配对且硬告警为 0；Golden PASS，IANA/ARIN/AFRINIC 三起点 referral 均零错误并收敛至 AFRINIC。九个制品独立 SHA-256 复算与清单 9/9 一致，仓库内/外 release 清单逐字一致，Windows 两目标均为 full-static；同步 win64 的 `--help` 显示 TLS backend enabled，且 `--help`/`--about`/`--examples` 均无旧的 preflight-only 或内部构建开关文案。本轮无需代码修复。
 
 # English Version
 
@@ -689,7 +704,7 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and V
 
 ## 14. WP-13D HTTPS proxy TLS next-start checklist
 
-Status: **task-definition authoring complete; awaiting start-file generation and launch authorization**. The planned window is `2027-08-05 ~ 2027-08-18`, using `schemaVersion=vx-draft`, `strict-enforce`, and serial event-only A/B. Execution results must not be backfilled before launch, and authoring-time x86_64/win64 quick builds are not nine-architecture production acceptance.
+Status: **execution and production acceptance complete (SESSION=PASS / A=PASS / B=PASS)**. The planned window was `2027-08-05 ~ 2027-08-18`; the actual run completed on 2026-09-02 with `schemaVersion=vx-draft`, `strict-enforce`, and serial event-only A/B. The active start file is `testdata/unattended_start/active/unattended_ab_start_20270805-20270818.md`.
 
 ### 14.1 Checklist A: connection transport ownership
 
@@ -705,12 +720,27 @@ Status: **task-definition authoring complete; awaiting start-file generation and
 - Frozen target set: A's nine targets plus existing `config_header`, `proxy_header`, and `opts_source`, and create targets `tls_header=include/wc/wc_tls.h` and `tls_source=src/core/tls.c`; `target_set_sha256=4d171a4202c4c3bbec9d945aa884a44a0fcb72b3d619362eef590cb1d279af99`.
 - D1/D2 create the complete TLS header/source; D3 adds the scheme, build gate, and parser selftests; D4 inserts TLS after proxy TCP and before CONNECT, adopts it into A's owner, and adds stable classifications and deterministic TLS selftests.
 
-### 14.3 Authoring evidence and remaining pre-launch gates
+### 14.3 Authoring evidence and execution backfill
 
 - Both definitions are UTF-8 BOM + LF, TODO-free, and pass SyntaxOnly, D1-D4, and all three Vx infrastructure regressions. B's full-definition check with A as prerequisite passes with `errors=0 warnings=0` under the official `WorkerTimeoutMs=120000`; internal regex timeout and operation-safety enforcement remain unchanged.
 - The isolated effective tree passes remote x86_64/win64 compilation for both the default stub and `WHOIS_TLS=1` OpenSSL paths. The TLS win64 artifact remains full-static and local artifact hashes pass. This is authoring-time quick-build evidence, not section 9 production acceptance.
-- Before start-file generation, the complete effective target set must still pass nine-architecture Strict `lto-auto`, TLS/non-TLS smoke and selftests, Golden/referral, Batch/CIDR/Redirect/Step47, default-direct output freezing, and HTTPS loopback certificate/hostname/failure-class contracts. Only then may it be marked launch-ready.
-- A/B remain strictly serial. B starts only after A passes, its success snapshot is complete, and the prerequisite gate passes. No active start-file generation or launch, commit, or push occurs without explicit same-turn user authorization.
+- A run=`out/artifacts/dev_verify_multiround/20260902-090840` and B run=`out/artifacts/dev_verify_multiround/20260902-160535`; both report `Result=pass`, `ExitCode=0`, 8/8 rounds, and no failed tags. B ran from `2026-09-02 16:05:02` through `23:45:35` (`0d 07:40:33`); the combined A/B session ran from `09:08:04` through `23:45:35` (`0d 14:37:31`) and closed at `23:47:12`.
+- One pre-launch remote network check was blocked by an SSH timeout; after network recovery, a clean precheck preceded Stage A. A D1 then saw a transient access denial while moving a Vx artifact, but bounded retry published it and the checker ended with `errors=0 warnings=0`; no script incident, code self-heal, or stage restart occurred.
+- CA/build preparation passed `WHOIS_TLS=1` TLS/LTO across all nine architectures, 9/9 hashes, Windows full-static mode, and dependency audit (`out/artifacts/20260901-170601`). Authoring also passed default-stub and TLS x86_64/win64 quick builds plus deterministic TLS loopback certificate/hostname/failure-class contracts. Ordinary builds intentionally keep `WHOIS_TLS=0` and the OpenSSL-free unsupported stub; they must not be described as HTTPS-enabled artifacts.
+
+### 14.4 Final regression and release-candidate review (2026-09-03)
+
+- Default and debug/retry/DNS-stats/interleave-v4-first Strict Version `lto-auto` rounds completed all nine architectures with 9/9 SHA-256, Golden, and referral PASS (`out/artifacts/20260903-003613`, `out/artifacts/20260903-004426`) and no compiler, LTO, or linker warnings. GNU tar messages about ignored GnuPG Unix sockets are harmless archive notices, not build warnings.
+- All four Batch Golden strategies (raw/health-first/plan-a/plan-b) pass (`out/artifacts/batch_raw/20260903-005136` through `out/artifacts/batch_planb/20260903-011010`); standalone core plus all four strategy Selftest Goldens pass 5/5 (`out/artifacts/batch_raw/20260903-012001` through `out/artifacts/batch_planb/20260903-013853`). Negative-contract text such as `Private query denied` and `Suspicious query detected` is expected assertion output.
+- The 12x6 redirect matrix contains 72/72 case files and analysis rows, an empty authority-mismatch file, and `errors=(no errors found)` (`out/artifacts/redirect_matrix_10x6/20260903-014154`). CIDR body is 4/4, the draft matrix is 9/9, and the bundle reports `result=pass`, `exit_code=0` (`out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`). Default direct, stdout/stderr, authority, referral, CIDR, and Step47 contracts remain unchanged; no code fix is required.
+
+### 14.5 Product-delivery closure
+
+- The official remote static builder defaults to `WHOIS_TLS=1`, and both full release and one-click release explicitly pin that value. Callers may still set `WHOIS_TLS=0` for an OpenSSL-free compatibility artifact; normal local `make` keeps its existing default.
+- `--help` lists HTTP/HTTPS/SOCKS4/4a/5/5h, default ports, credentials, and environment variables, then reports `HTTPS proxy TLS backend: enabled|disabled` from the actual compile-time capability.
+- The Chinese and English usage guides provide executable HTTPS-proxy, public-CA, private `SSL_CERT_FILE`, Windows, and POSIX examples. Users of official releases no longer need to understand or set the internal build flag.
+- The final product-delivery run, without an explicit `WHOIS_TLS`, reports `WHOIS_TLS='1'` and passes Strict `lto-auto` across all nine architectures, Windows full-static mode, network smoke, 9/9 local hashes, Golden, and all three referral origins with no warning/error in the logs. It synchronizes both official release directories (`out/artifacts/20260903-040906`, 410s). The synchronized win64 `--help` reports `HTTPS proxy TLS backend: enabled`; both manifests are byte-identical and independent artifact hashes pass 9/9.
+- The final post-copy-review run again passes the Strict `lto-auto` nine-architecture build and synchronization (`out/artifacts/20260903-045122`, 360s). Linux/QEMU, win32, and win64 smoke complete 18/3/3 queries; all 24 query headers have authoritative tails and hard-warning count is zero. Golden passes, and the IANA, ARIN, and AFRINIC referral origins have zero errors and all converge on AFRINIC. Independent SHA-256 recomputation matches all nine manifest entries, the repository and external release manifests are byte-identical, and both Windows targets are full-static. The synchronized win64 `--help` reports the TLS backend as enabled, while `--help`, `--about`, and `--examples` contain neither the obsolete preflight-only wording nor the internal build-switch terminology. No code fix is required.
 
 ### 11.3 Joint pre-launch confirmation
 
@@ -730,7 +760,7 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 - Deterministic fake transports cover authentication, ATYP, REP, and remote-DNS policy. The loopback protocol/configuration spike passes 21/21 cases (`out/artifacts/proxy_protocol_spike/20260831-030507`). Strict ISO C11 clang validation is clean; an initial remote run exposed and fixed an implicit `strdup` declaration on loongarch64 by using standard `malloc` plus `memcpy`.
 - The final Strict Version `lto-auto` nine-architecture build has no compiler/LTO warnings. All 9 SHA-256 checks, POSIX/QEMU and win32/win64 smoke, Golden, and three-origin IANA/ARIN/AFRINIC referral checks pass (`out/artifacts/20260831-112633`, 436s). Release directories were not synchronized.
 - Final run with release synchronization (2026-08-31): Strict Version `lto-auto` remote build + smoke sync + Golden re-check pass with no warnings, no LTO warnings, and Local hash verify/Golden/referral all PASS in 284s (`out/artifacts/20260831-114158`). Both release directories (`lzispro/release/lzispro/whois` and `whois/release/lzispro/whois`) match `SHA256SUMS-static.txt` byte-for-byte; local `Get-FileHash` recheck matches 9/9.
-- WP-13C (SOCKS4/4a) is not implemented. WP-13D's TLS dependency gate is cleared, while its independent readiness review and production acceptance remain pending.
+- At this WP-13B-3 checkpoint, WP-13C (SOCKS4/4a) was not yet implemented and WP-13D still awaited its independent readiness review and production acceptance. Both were completed later; see sections 13 and 14.
 
 ## 13. WP-13C SOCKS4/4a readiness review
 
@@ -786,6 +816,6 @@ Status: **this run is complete and backfilled (SESSION=PASS / A=PASS / B=PASS)**
 - Combined A/B elapsed: `0d 12:01:40` (session start `2026-08-31 15:08:58` → `2026-09-01 03:10:37`, including launcher/preflight and the A→B handover interval).
 - Post-run Strict validation (2026-09-01): `WHOIS_STRICT_VERSION=1 tools/remote/remote_build_and_test.sh -H 10.0.0.199 -u larson -k '/c/Users/妙妙呜/.ssh/id_rsa' -r 1 -q '8.8.8.8 1.1.1.1 10.0.0.8' -s '/d/LZProjects/lzispro/release/lzispro/whois;/d/LZProjects/whois/release/lzispro/whois' -P 1 -a '' -G 1 -E '' -O 'lto-auto' -K 0 -N 0` → no warnings + no lto warnings + Local hash verify: PASS + Golden PASS + referral check: PASS, exit code 0, 755s, log dir `out/artifacts/20260901-121843`.
 - Review conclusion: default direct connect, stdout, RIR referral, DNS health, batch strategy, and retry-metrics contracts remain unchanged; no further code fix is required.
-- WP-13D's TLS dependency gate is cleared; independent readiness review and production acceptance under section 9 remain pending.
+- At this WP-13C checkpoint, WP-13D's TLS dependency gate was cleared while its independent readiness review and production acceptance remained pending. WP-13D later completed them; see section 14.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file + RELEASE_NOTES + RFC-whois-client-split).
 - No commit or push without explicit user authorization.

@@ -74,9 +74,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
     wc_ip_pref_format_label(cfg->ip_pref_mode, ctx->hops, ctx->pref_label, ctx->pref_label_len);
 
     struct wc_net_info ni;
-    ni.connected = 0;
-    ni.fd = -1;
-    ni.ip[0] = '\0';
+    wc_net_info_init(&ni);
 
     ctx->canonical_host[0] = '\0';
     wc_lookup_compute_canonical_host(current_host, rir, ctx->canonical_host, ctx->canonical_host_len);
@@ -379,9 +377,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                                 if (inet_ntop(AF_INET, &(ipv4->sin_addr), ipbuf, sizeof(ipbuf))) {
                                     struct wc_net_info ni4;
                                     int rc4;
-                                    ni4.connected = 0;
-                                    ni4.fd = -1;
-                                    ni4.ip[0] = '\0';
+                                    wc_net_info_init(&ni4);
                                     int used_proxy = 0;
                                     rc4 = wc_proxy_dial_hop(cfg, net_ctx, domain_for_ipv4, ipbuf,
                                         (uint16_t)ctx->current_port, zopts->timeout_sec * 1000, zopts->retries,
@@ -392,7 +388,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                                     int backoff_success = (rc4 == 0 && ni4.connected);
                                     if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, backoff_success);
                                     if (backoff_success) {
-                                        ni = ni4;
+                                        wc_net_info_move(&ni, &ni4);
                                         connected_ok = 1;
                                         out->meta.fallback_flags |= 0x4;
                                         forced_ipv4_success = 1;
@@ -403,7 +399,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                                         forced_ipv4_errno = ni4.last_errno;
                                         if (ni4.fd >= 0) {
                                             int debug_enabled = cfg ? cfg->debug : 0;
-                                            wc_safe_close(&ni4.fd, "wc_lookup_forced_ipv4_fail", debug_enabled);
+                                            wc_net_info_close(&ni4, "wc_lookup_forced_ipv4_fail", debug_enabled);
                                         }
                                     }
                                 }
@@ -457,9 +453,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                     wc_selftest_record_known_ip_attempt();
                     struct wc_net_info ni2;
                     int rc2;
-                    ni2.connected = 0;
-                    ni2.fd = -1;
-                    ni2.ip[0] = '\0';
+                    wc_net_info_init(&ni2);
                     known_ip_attempted = 1;
                     known_ip_target = kip;
                     int used_proxy = 0;
@@ -469,7 +463,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                     int known_backoff_success = (rc2 == 0 && ni2.connected);
                     if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, known_backoff_success);
                     if (rc2 == 0 && ni2.connected) {
-                        ni = ni2;
+                        wc_net_info_move(&ni, &ni2);
                         connected_ok = 1;
                         out->meta.fallback_flags |= 0x1;
                         if (strchr(kip, ':') == NULL && strchr(kip, '.') != NULL) {
@@ -482,7 +476,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
                         known_ip_errno = ni2.last_errno;
                         if (ni2.fd >= 0) {
                             int debug_enabled = cfg ? cfg->debug : 0;
-                            wc_safe_close(&ni2.fd, "wc_lookup_known_ip_fail", debug_enabled);
+                            wc_net_info_close(&ni2, "wc_lookup_known_ip_fail", debug_enabled);
                         }
                     }
                 }
@@ -504,7 +498,7 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
 
     wc_dns_candidate_list_free(&candidates);
 
-    *ctx->ni = ni;
+    wc_net_info_move(ctx->ni, &ni);
     *ctx->connected_ok = connected_ok;
     *ctx->first_conn_rc = first_conn_rc;
     *ctx->attempt_cap_hit = (host_attempt_cap > 0 && host_attempts >= host_attempt_cap);

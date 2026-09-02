@@ -22,8 +22,9 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
         return -1;
     }
 
-    wc_transport_t transport;
-    wc_transport_init(&transport, &ctx->ni->fd);
+    wc_transport_t bare_transport;
+    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);
+    if (!transport) return -1;
 
     int arin_retry_active = (ctx->arin_cidr_retry_query && *ctx->arin_cidr_retry_query != NULL);
     int query_is_cidr_hop = ctx->query_is_cidr_effective || ctx->use_original_query;
@@ -97,7 +98,7 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
             free(stripped_query);
         }
         ctx->out->err = -1;
-        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport, "wc_lookup_malloc_fail", debug_enabled); }
+        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni, "wc_lookup_malloc_fail", debug_enabled); }
         if (ctx->pending_referral && *ctx->pending_referral) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
         }
@@ -122,11 +123,11 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
         if (ctx->pending_referral && *ctx->pending_referral) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
         }
-        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport, "wc_lookup_signal_abort", debug_enabled); }
+        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni, "wc_lookup_signal_abort", debug_enabled); }
         return -1;
     }
 
-    if (wc_transport_send_all(&transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000) < 0) {
+    if (wc_transport_send_all(transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000) < 0) {
         free(line);
         if (arin_prefixed_query) {
             free(arin_prefixed_query);
@@ -135,7 +136,7 @@ int wc_lookup_exec_send_query(struct wc_lookup_exec_send_ctx* ctx)
             free(stripped_query);
         }
         ctx->out->err = -1;
-        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport, "wc_lookup_send_fail", debug_enabled); }
+        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni, "wc_lookup_send_fail", debug_enabled); }
         if (ctx->pending_referral && *ctx->pending_referral) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
         }

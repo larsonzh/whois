@@ -20,8 +20,9 @@ int wc_lookup_exec_recv_body(struct wc_lookup_exec_recv_ctx* ctx)
         return -1;
     }
 
-    wc_transport_t transport;
-    wc_transport_init(&transport, &ctx->ni->fd);
+    wc_transport_t bare_transport;
+    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);
+    if (!transport) return -1;
 
     if (wc_signal_should_terminate()) {
         ctx->out->err = WC_ERR_IO;
@@ -29,7 +30,7 @@ int wc_lookup_exec_recv_body(struct wc_lookup_exec_recv_ctx* ctx)
         if (ctx->pending_referral && *ctx->pending_referral) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
         }
-        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport,
+        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni,
                 "wc_lookup_signal_abort", debug_enabled); }
         return -1;
     }
@@ -43,16 +44,16 @@ int wc_lookup_exec_recv_body(struct wc_lookup_exec_recv_ctx* ctx)
         }
     }
 
-    if (wc_transport_recv_until_idle(&transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes) < 0) {
+    if (wc_transport_recv_until_idle(transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes) < 0) {
         ctx->out->err = -1;
-        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport, "wc_lookup_recv_fail", debug_enabled); }
+        { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni, "wc_lookup_recv_fail", debug_enabled); }
         if (ctx->pending_referral && *ctx->pending_referral) {
             snprintf(ctx->out->meta.authoritative_host, sizeof(ctx->out->meta.authoritative_host), "%s", "unknown");
         }
         return -1;
     }
 
-    { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_transport_close(&transport, "wc_lookup_recv_done", debug_enabled); }
+    { int debug_enabled = ctx->cfg ? ctx->cfg->debug : 0; wc_net_info_close(ctx->ni, "wc_lookup_recv_done", debug_enabled); }
 
     if (wc_signal_should_terminate()) {
         if (*ctx->body) {

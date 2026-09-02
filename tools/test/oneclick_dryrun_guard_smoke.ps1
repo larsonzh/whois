@@ -47,6 +47,9 @@ $remoteBuildIndex = $oneClickSource.IndexOf('Invoke-GitBash $rbCmd -Environment 
 $tagCreateIndex = $oneClickSource.IndexOf('& "$repoRoot\tools\dev\tag_release.ps1"')
 $releaseOrderPass = ($remoteBuildIndex -ge 0) -and ($tagCreateIndex -gt $remoteBuildIndex)
 $forcedVersionPass = $oneClickSource -match '\$buildEnvironment\[''WHOIS_FORCE_VERSION''\]\s*=\s*\$tag'
+$tlsReleasePass = $oneClickSource -match '\$buildEnvironment\s*=\s*@\{\s*WHOIS_TLS\s*=\s*''1''\s*\}'
+$remoteBuildSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\remote\remote_build_and_test.sh') -Raw
+$tlsRemoteDefaultPass = $remoteBuildSource -match 'WHOIS_TLS=\$\{WHOIS_TLS:-1\}'
 $tokenInlinePass = $oneClickSource -notmatch "(?m)(GH_TOKEN|GITEE_TOKEN)='\{0\}'"
 $expectedStatics = @(
     'whois-aarch64',
@@ -63,7 +66,7 @@ $expectedStatics = @(
 $staticsPath = Join-Path $PSScriptRoot "..\..\release\lzispro\whois"
 $missingStatics = @($expectedStatics | Where-Object { -not (Test-Path -LiteralPath (Join-Path $staticsPath $_)) })
 $staticsSetPass = ($missingStatics.Count -eq 0)
-$sourceContractPass = $releaseOrderPass -and $forcedVersionPass -and $tokenInlinePass -and $staticsSetPass
+$sourceContractPass = $releaseOrderPass -and $forcedVersionPass -and $tlsReleasePass -and $tlsRemoteDefaultPass -and $tokenInlinePass -and $staticsSetPass
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error "git not found in PATH"
@@ -300,6 +303,8 @@ $summary = [pscustomobject]@{
     build_and_sync = $BuildAndSyncIf
     release_order_pass = $releaseOrderPass
     forced_version_pass = $forcedVersionPass
+    tls_release_pass = $tlsReleasePass
+    tls_remote_default_pass = $tlsRemoteDefaultPass
     token_inline_pass = $tokenInlinePass
     statics_set_pass = $staticsSetPass
     missing_statics = $missingStatics
@@ -338,7 +343,7 @@ Write-Output ("[ONECLICK-DRYRUN-SMOKE] log={0}" -f $logPath)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_json={0}" -f $summaryJson)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] summary_txt={0}" -f $summaryTxt)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] guard_found={0} skip_tag={1} skip_github_release={2} skip_gitee_release={3} statics_detected={4} statics_commit_pushed={5} guard_result={6}" -f $guardFound, $skipTag, $skipGithub, $skipGitee, $staticsDetected, $staticsCommitPushed, $result)
-Write-Output ("[ONECLICK-DRYRUN-SMOKE] release_order_pass={0} forced_version_pass={1} token_inline_pass={2} statics_set_pass={3} missing_statics={4}" -f $releaseOrderPass, $forcedVersionPass, $tokenInlinePass, $staticsSetPass, ($missingStatics -join ','))
+Write-Output ("[ONECLICK-DRYRUN-SMOKE] release_order_pass={0} forced_version_pass={1} tls_release_pass={2} tls_remote_default_pass={3} token_inline_pass={4} statics_set_pass={5} missing_statics={6}" -f $releaseOrderPass, $forcedVersionPass, $tlsReleasePass, $tlsRemoteDefaultPass, $tokenInlinePass, $staticsSetPass, ($missingStatics -join ','))
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_git_state_unchanged={0} git_state_unchanged={1} git_state_check_pass={2}" -f $requireGitStateUnchanged, $gitStateUnchanged, $gitStateCheckPass)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] require_statics_detected_if_build_sync={0} statics_detected_check_pass={1}" -f $requireStaticsDetected, $staticsDetectedCheckPass)
 Write-Output ("[ONECLICK-DRYRUN-SMOKE] include_event_queue_idempotent_regression={0} event_queue_regression_pass={1} event_queue_regression_exit_code={2}" -f $eventQueueRegressionIncluded, $eventQueueRegressionPass, $eventQueueRegressionExitCode)

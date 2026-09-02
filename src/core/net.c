@@ -455,7 +455,55 @@ static void wc_net_sleep_between_attempts_if_enabled(wc_net_context_t* ctx, int 
     ctx->total_sleep_ms += (unsigned)(sleep_ms > 0 ? sleep_ms : 0);
 }
 
-static void wc_net_info_init(struct wc_net_info* n){ if(n){ n->fd=-1; n->ip[0]='\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; }}
+void wc_net_info_init(struct wc_net_info* info)
+{
+    if (!info) return;
+    info->fd = -1;
+    info->ip[0] = '\0';
+    info->connected = 0;
+    info->err = WC_ERR_INTERNAL;
+    info->last_errno = 0;
+    info->custom_transport = NULL;
+}
+
+wc_transport_t* wc_net_info_get(struct wc_net_info* info, wc_transport_t* bare_transport)
+{
+    if (!info) return NULL;
+    if (info->custom_transport) return info->custom_transport;
+    if (!bare_transport) return NULL;
+    wc_transport_init(bare_transport, &info->fd);
+    return bare_transport;
+}
+
+void wc_net_info_adopt(struct wc_net_info* info, wc_transport_t* custom_transport)
+{
+    if (!info || !custom_transport) return;
+    wc_net_info_close(info, "wc_net_info_adopt_replace", 0);
+    info->custom_transport = custom_transport;
+}
+
+void wc_net_info_move(struct wc_net_info* destination, struct wc_net_info* source)
+{
+    if (!destination || !source || destination == source) return;
+    wc_net_info_close(destination, "wc_net_info_move_replace", 0);
+    *destination = *source;
+    wc_net_info_init(source);
+}
+
+void wc_net_info_close(struct wc_net_info* info, const char* reason, int debug_enabled)
+{
+    if (!info) return;
+    if (info->custom_transport) {
+        wc_transport_t* custom_transport = info->custom_transport;
+        info->custom_transport = NULL;
+        wc_transport_close(custom_transport, reason, debug_enabled);
+        free(custom_transport);
+        info->fd = -1;
+    } else {
+        wc_safe_close(&info->fd, reason, debug_enabled);
+    }
+    info->connected = 0;
+}
 
 static uint64_t wc_net_now_ms(void)
 {

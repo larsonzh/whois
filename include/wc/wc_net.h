@@ -11,6 +11,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/types.h>
 #endif
 #include "wc/wc_types.h"
+#include "wc/wc_transport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,7 +93,14 @@ struct wc_net_info {
     int connected;          // 1 if connected, 0 otherwise
     int err;                // wc_err_t mapped error code
     int last_errno;         // last errno from connect/select failure (0 if success)
+    wc_transport_t* custom_transport; // owned optional custom transport
 };
+
+void wc_net_info_init(struct wc_net_info* info);
+wc_transport_t* wc_net_info_get(struct wc_net_info* info, wc_transport_t* bare_transport);
+void wc_net_info_adopt(struct wc_net_info* info, wc_transport_t* custom_transport);
+void wc_net_info_move(struct wc_net_info* destination, struct wc_net_info* source);
+void wc_net_info_close(struct wc_net_info* info, const char* reason, int debug_enabled);
 
 #define WC_NET_DIAL_POLICY_DEFINED 1
 typedef enum wc_net_endpoint_family {

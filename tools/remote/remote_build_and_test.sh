@@ -37,7 +37,9 @@ SQUOTE_ESC="'\"'\"'"
 RB_LTO_MODE=${RB_LTO_MODE:-""}
 RB_LTO_SERIAL=${RB_LTO_SERIAL:-""}
 RB_LTO_PARALLEL=${RB_LTO_PARALLEL:-""}
-WHOIS_TLS=${WHOIS_TLS:-0}
+# Official remote statics include HTTPS proxy support by default. Set
+# WHOIS_TLS=0 explicitly for an OpenSSL-free compatibility build.
+WHOIS_TLS=${WHOIS_TLS:-1}
 OPENSSL_STATIC_VERSION=${OPENSSL_STATIC_VERSION:-3.5.8}
 OPENSSL_STATIC_ROOT=${OPENSSL_STATIC_ROOT:-/home/larson/.local/openssl-static}
 UPLOAD_TO_GH=${UPLOAD_TO_GH:-0}  # 1 to upload fetched assets to GitHub Release

@@ -6,6 +6,26 @@
 #endif
 
 #include "wc/wc_proxy.h"
+#if defined(__has_include)
+#if __has_include("wc/wc_tls.h")
+#include "wc/wc_tls.h"
+#define WC_PROXY_TLS_HEADER 1
+#endif
+#endif
+#ifndef WC_PROXY_TLS_HEADER
+typedef enum wc_tls_result {
+    WC_TLS_RESULT_SUCCEEDED = 0,
+    WC_TLS_RESULT_UNSUPPORTED,
+    WC_TLS_RESULT_CA_CONFIG_FAILURE,
+    WC_TLS_RESULT_PEER_VERIFY_FAILURE,
+    WC_TLS_RESULT_HANDSHAKE_FAILURE,
+    WC_TLS_RESULT_TIMEOUT,
+    WC_TLS_RESULT_IO_FAILURE,
+    WC_TLS_RESULT_PROTOCOL_FAILURE
+} wc_tls_result_t;
+wc_tls_result_t wc_tls_wrap_client(int fd, const char* peer_name, uint64_t deadline_ms, wc_transport_t** out_transport);
+const char* wc_tls_result_name(wc_tls_result_t result);
+#endif
 
 #include <ctype.h>
 #include <errno.h>
@@ -463,6 +483,7 @@ const char* wc_proxy_result_name(wc_proxy_result_t result)
     switch (result) {
         case WC_PROXY_RESULT_SUCCEEDED: return "succeeded";
         case WC_PROXY_RESULT_TCP_FAILURE: return "proxy-tcp-failure";
+        case WC_PROXY_RESULT_TLS_FAILURE: return "proxy-tls-failure";
         case WC_PROXY_RESULT_TIMEOUT: return "proxy-timeout";
         case WC_PROXY_RESULT_AUTH_REQUIRED: return "proxy-auth-required";
         case WC_PROXY_RESULT_REJECTED: return "proxy-rejected";
@@ -507,9 +528,12 @@ int wc_proxy_dial_hop(const Config* config,
 {
     wc_net_dial_policy_t policy;
     struct wc_net_info endpoint;
-    wc_transport_t transport;
+    wc_transport_t bare_transport;
+    wc_transport_t* transport;
+    wc_transport_t* tls_transport = NULL;
     uint64_t deadline_ms;
     int status = 0;
+    const char* phase = "connect";
     wc_proxy_result_t result;
     if (used_proxy) *used_proxy = 0;
     if (proxy_result) *proxy_result = WC_PROXY_RESULT_SUCCEEDED;
@@ -518,6 +542,7 @@ int wc_proxy_dial_hop(const Config* config,
         return wc_dial_43(net_ctx, target_address, target_port, timeout_ms, retries, out);
     if (used_proxy) *used_proxy = 1;
     if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP &&
+        config->proxy.scheme != (wc_proxy_scheme_t)6 &&
         config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5 &&
         config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5H &&
         config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4 &&
@@ -530,32 +555,56 @@ int wc_proxy_dial_hop(const Config* config,
     if (config->proxy.family == WC_PROXY_FAMILY_V4) policy.family = WC_NET_ENDPOINT_FAMILY_IPV4;
     else if (config->proxy.family == WC_PROXY_FAMILY_V6) policy.family = WC_NET_ENDPOINT_FAMILY_IPV6;
     policy.record_dns_health = 0;
+    wc_net_info_init(&endpoint);
     if (wc_net_dial_endpoint_until(net_ctx, config->proxy.endpoint_host,
             (uint16_t)config->proxy.endpoint_port, deadline_ms, retries, &policy, &endpoint) != WC_OK ||
         !endpoint.connected || endpoint.fd < 0) {
-        if (out) *out = endpoint;
+        wc_net_info_move(out, &endpoint);
         if (proxy_result) *proxy_result = WC_PROXY_RESULT_TCP_FAILURE;
         return WC_ERR_IO;
     }
-    wc_transport_init(&transport, &endpoint.fd);
-    if (config->proxy.scheme == WC_PROXY_SCHEME_HTTP) {
-        result = (wc_proxy_result_t)wc_proxy_http_connect_transport(&transport, &config->proxy,
+    if (config->proxy.scheme == (wc_proxy_scheme_t)6) {
+        wc_tls_result_t tls_result;
+        phase = "tls";
+        tls_result = wc_tls_wrap_client(endpoint.fd, config->proxy.endpoint_host, deadline_ms, &tls_transport);
+        if (tls_result != WC_TLS_RESULT_SUCCEEDED || !tls_transport) {
+            if (config->debug || config->retry_metrics)
+                fprintf(stderr, "[PROXY] scheme=https phase=tls port=%u result=proxy-tls-failure tls=%s status=0\n",
+                    (unsigned)config->proxy.endpoint_port, wc_tls_result_name(tls_result));
+            wc_net_info_close(&endpoint, "wc_proxy_tls_fail", config->debug);
+            result = WC_PROXY_RESULT_TLS_FAILURE;
+            endpoint.err = WC_ERR_IO;
+            endpoint.last_errno = tls_result == WC_TLS_RESULT_TIMEOUT ? ETIMEDOUT : EPROTO;
+            wc_net_info_move(out, &endpoint);
+            if (proxy_result) *proxy_result = result;
+            return WC_ERR_IO;
+        }
+        endpoint.fd = -1;
+        wc_net_info_adopt(&endpoint, tls_transport);
+        phase = "connect";
+    }
+    transport = wc_net_info_get(&endpoint, &bare_transport);
+    if (!transport) {
+        wc_net_info_close(&endpoint, "wc_proxy_transport_missing", config->debug);
+        result = WC_PROXY_RESULT_TCP_FAILURE;
+    } else if (config->proxy.scheme == WC_PROXY_SCHEME_HTTP ||
+               config->proxy.scheme == (wc_proxy_scheme_t)6) {
+        result = (wc_proxy_result_t)wc_proxy_http_connect_transport(transport, &config->proxy,
             target_address, target_port, deadline_ms, &status);
     } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4 ||
                config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A) {
         const int remote_dns = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A;
         const char* socks_target = remote_dns ? target_host : target_address;
-        result = (wc_proxy_result_t)wc_proxy_socks4_connect_transport(&transport, &config->proxy,
+        result = (wc_proxy_result_t)wc_proxy_socks4_connect_transport(transport, &config->proxy,
             socks_target, target_port, remote_dns, deadline_ms, &status);
     } else {
         const char* socks_target = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? target_host : target_address;
-        result = (wc_proxy_result_t)wc_proxy_socks5_connect_transport(&transport, &config->proxy,
+        result = (wc_proxy_result_t)wc_proxy_socks5_connect_transport(transport, &config->proxy,
             socks_target, target_port, config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H,
             deadline_ms, &status);
     }
     if (result != WC_PROXY_RESULT_SUCCEEDED) {
-        wc_transport_close(&transport, "wc_proxy_connect_fail", config->debug);
-        endpoint.connected = 0;
+        wc_net_info_close(&endpoint, "wc_proxy_connect_fail", config->debug);
         endpoint.err = WC_ERR_IO;
         endpoint.last_errno = (result == WC_PROXY_RESULT_TIMEOUT) ? ETIMEDOUT : EPROTO;
     } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||
@@ -565,13 +614,14 @@ int wc_proxy_dial_hop(const Config* config,
         snprintf(endpoint.ip, sizeof(endpoint.ip), "%s", target_address);
     }
     if ((config->debug || config->retry_metrics) && result != WC_PROXY_RESULT_SUCCEEDED)
-        fprintf(stderr, "[PROXY] scheme=%s phase=connect port=%u result=%s status=%d\n",
-            config->proxy.scheme == WC_PROXY_SCHEME_HTTP ? "http" :
+        fprintf(stderr, "[PROXY] scheme=%s phase=%s port=%u result=%s status=%d\n",
+            config->proxy.scheme == (wc_proxy_scheme_t)6 ? "https" :
+            (config->proxy.scheme == WC_PROXY_SCHEME_HTTP ? "http" :
                 (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? "socks5h" :
                 (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5 ? "socks5" :
-                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ? "socks4a" : "socks4"))),
-            (unsigned)config->proxy.endpoint_port, wc_proxy_result_name(result), status);
-    *out = endpoint;
+                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ? "socks4a" : "socks4")))),
+            phase, (unsigned)config->proxy.endpoint_port, wc_proxy_result_name(result), status);
+    wc_net_info_move(out, &endpoint);
     if (proxy_result) *proxy_result = result;
     return result == WC_PROXY_RESULT_SUCCEEDED ? WC_OK : WC_ERR_IO;
 }

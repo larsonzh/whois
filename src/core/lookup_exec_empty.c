@@ -151,9 +151,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                         if (inet_ntop(AF_INET, &(a->sin_addr), ipbuf, sizeof(ipbuf))) {
                             struct wc_net_info ni4;
                             int rc4;
-                            ni4.connected = 0;
-                            ni4.fd = -1;
-                            ni4.ip[0] = '\0';
+                            wc_net_info_init(&ni4);
                             int used_proxy = 0;
                             wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
                             rc4 = wc_proxy_dial_hop(cfg, net_ctx, current_host, ipbuf,
@@ -178,7 +176,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                                     rir_empty ? rir_empty : "unknown",
                                     ts);
                                 if (ni) {
-                                    *ni = ni4;
+                                    wc_net_info_move(ni, &ni4);
                                 }
                                 handled_empty = 1;
                                 (*ctx->empty_retry)++;
@@ -190,7 +188,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             } else {
                                 if (ni4.fd >= 0) {
                                     int debug_enabled = cfg ? cfg->debug : 0;
-                                    wc_safe_close(&ni4.fd, "wc_lookup_empty_ipv4_fail", debug_enabled);
+                                    wc_net_info_close(&ni4, "wc_lookup_empty_ipv4_fail", debug_enabled);
                                 }
                             }
                             if (!empty_ipv4_success) {
@@ -226,9 +224,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                     kip && kip[0]) {
                     struct wc_net_info ni2;
                     int rc2;
-                    ni2.connected = 0;
-                    ni2.fd = -1;
-                    ni2.ip[0] = '\0';
+                    wc_net_info_init(&ni2);
                     int used_proxy = 0;
                     wc_proxy_result_t proxy_result = WC_PROXY_RESULT_SUCCEEDED;
                     rc2 = wc_proxy_dial_hop(cfg, net_ctx, current_host, kip,
@@ -252,7 +248,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             rir_empty ? rir_empty : "unknown",
                             ts);
                         if (ni) {
-                            *ni = ni2;
+                            wc_net_info_move(ni, &ni2);
                         }
                         handled_empty = 1;
                         (*ctx->empty_retry)++;
@@ -271,7 +267,7 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                                                pref_label, net_ctx, cfg);
                         if (ni2.fd >= 0) {
                             int debug_enabled = cfg ? cfg->debug : 0;
-                            wc_safe_close(&ni2.fd, "wc_lookup_empty_known_fail", debug_enabled);
+                            wc_net_info_close(&ni2, "wc_lookup_empty_known_fail", debug_enabled);
                         }
                     }
                 }

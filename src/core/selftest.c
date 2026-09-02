@@ -8,6 +8,11 @@
 #include "wc/wc_preclass.h"
 #include "wc/wc_opts.h"
 #include "wc/wc_proxy.h"
+#if defined(__has_include) && __has_include("wc/wc_tls.h")
+#include "wc/wc_tls.h"
+#else
+int wc_tls_selftest(void);
+#endif
 #include "wc/wc_fold.h"
 #include "wc/wc_redirect.h"
 #include "wc/wc_server.h"
@@ -216,6 +221,79 @@ static int selftest_dns_family_controls(void) {
     return failed_local;
 }
 
+typedef struct wc_net_info_fake_transport {
+    int close_count;
+    int socket_close_count;
+} wc_net_info_fake_transport_t;
+
+static int wc_net_info_fake_read(void* context, char* buffer, size_t length)
+{
+    (void)context;
+    (void)buffer;
+    (void)length;
+    return 0;
+}
+
+static int wc_net_info_fake_write(void* context, const char* data, size_t length)
+{
+    (void)context;
+    (void)data;
+    return (int)length;
+}
+
+static int wc_net_info_fake_wait(void* context, int events, uint64_t deadline_ms)
+{
+    (void)context;
+    (void)events;
+    (void)deadline_ms;
+    return 1;
+}
+
+static void wc_net_info_fake_close(void* context, const char* reason, int debug_enabled)
+{
+    wc_net_info_fake_transport_t* fake = (wc_net_info_fake_transport_t*)context;
+    (void)reason;
+    (void)debug_enabled;
+    fake->close_count++;
+    fake->socket_close_count++;
+}
+
+static int selftest_net_info_transport_ownership(void)
+{
+    static const wc_transport_ops_t operations = {
+        wc_net_info_fake_read,
+        wc_net_info_fake_write,
+        wc_net_info_fake_wait,
+        wc_net_info_fake_close
+    };
+    wc_net_info_fake_transport_t fake = {0, 0};
+    struct wc_net_info source;
+    struct wc_net_info destination;
+    wc_transport_t bare_transport;
+    wc_transport_t* custom_transport = (wc_transport_t*)malloc(sizeof(*custom_transport));
+    int failed = 0;
+
+    wc_net_info_init(&source);
+    wc_net_info_init(&destination);
+    if (!custom_transport) {
+        fprintf(stderr, "[SELFTEST] net-info-transport-ownership: FAIL (alloc)\n");
+        return 1;
+    }
+    wc_transport_init_with_ops(custom_transport, &operations, &fake);
+    wc_net_info_adopt(&source, custom_transport);
+    if (!wc_net_info_get(&source, &bare_transport)) failed = 1;
+    wc_net_info_move(&destination, &source);
+    if (source.fd != -1 || !wc_net_info_get(&destination, &bare_transport)) failed = 1;
+    wc_net_info_close(&destination, "selftest_net_info_transport_ownership", 0);
+    wc_net_info_close(&destination, "selftest_net_info_transport_ownership_repeat", 0);
+    if (fake.close_count != 1 || fake.socket_close_count != 1 ||
+        destination.fd != -1) failed = 1;
+    if (wc_net_info_get(&source, &bare_transport) != &bare_transport ||
+        bare_transport.context != &source.fd) failed = 1;
+    fprintf(stderr, "[SELFTEST] net-info-transport-ownership: %s\n", failed ? "FAIL" : "PASS");
+    return failed;
+}
+
 static int selftest_net_dial_policy(void)
 {
     wc_net_context_config_t context_config;
@@ -261,14 +339,14 @@ static int selftest_net_dial_policy(void)
     policy.family = WC_NET_ENDPOINT_FAMILY_IPV4;
     wc_dns_health_note_count_reset_for_test();
     (void)wc_net_dial_endpoint(&context, "127.0.0.1", 0, 100, 1, &policy, &info);
-    if (info.fd >= 0) wc_safe_close(&info.fd, "selftest_net_dial_policy", 0);
+    wc_net_info_close(&info, "selftest_net_dial_policy", 0);
     if (wc_dns_health_note_count_for_test() != 0) {
         fprintf(stderr, "[SELFTEST] net-dial-policy-health-isolation: FAIL (health-off)\n");
         failed = 1;
     } else {
         policy.record_dns_health = 1;
         (void)wc_net_dial_endpoint(&context, "127.0.0.1", 0, 100, 1, &policy, &info);
-        if (info.fd >= 0) wc_safe_close(&info.fd, "selftest_net_dial_policy", 0);
+        wc_net_info_close(&info, "selftest_net_dial_policy", 0);
         if (wc_dns_health_note_count_for_test() == 0) {
             fprintf(stderr, "[SELFTEST] net-dial-policy-health-isolation: FAIL (health-on)\n");
             failed = 1;
@@ -330,6 +408,15 @@ static int selftest_proxy_preflight_matrix(void)
     opts.proxy_url = "http://proxy.example";
     failed_local |= selftest_proxy_expect("http-default-port",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 8080);
+    opts.proxy_url = "https://proxy.example";
+    failed_local |= selftest_proxy_expect("https-default-port",
+        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 443 &&
+        proxy.scheme == WC_PROXY_SCHEME_HTTPS);
+#ifdef WHOIS_TLS
+    failed_local |= selftest_proxy_expect("https-build-routing", proxy.routing_enabled);
+#else
+    failed_local |= selftest_proxy_expect("https-build-gate", !proxy.routing_enabled);
+#endif
     opts.proxy_url = "socks5://proxy.example";
     failed_local |= selftest_proxy_expect("socks-default-port",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 && proxy.routing_enabled);
@@ -380,10 +467,15 @@ static int selftest_proxy_preflight_matrix(void)
     env.whois_proxy_password = "dedicated-password";
     failed_local |= selftest_proxy_expect("credential-conflict", !wc_opts_proxy_resolve(&opts, &env, &proxy));
 
+    env.whois_proxy = "https://proxy.example";
+    failed_local |= selftest_proxy_expect("https-auth-no-cleartext-gate",
+        wc_opts_proxy_resolve(&opts, &env, &proxy));
     env.whois_proxy = "http://proxy.example";
-    failed_local |= selftest_proxy_expect("cleartext-auth-gate", !wc_opts_proxy_resolve(&opts, &env, &proxy));
+    failed_local |= selftest_proxy_expect("cleartext-auth-gate",
+        !wc_opts_proxy_resolve(&opts, &env, &proxy));
     opts.proxy_allow_insecure_auth = 1;
-    failed_local |= selftest_proxy_expect("cleartext-auth-explicit", wc_opts_proxy_resolve(&opts, &env, &proxy));
+    failed_local |= selftest_proxy_expect("cleartext-auth-explicit",
+        wc_opts_proxy_resolve(&opts, &env, &proxy));
     opts.proxy_allow_insecure_auth = 0;
     env.whois_proxy_user = NULL;
     env.whois_proxy_password = NULL;
@@ -1406,7 +1498,9 @@ int wc_selftest_run(void) {
     selftest_dns_negative_flag();
     failed |= selftest_dns_family_controls();
     failed |= selftest_net_dial_policy();
+    failed |= selftest_net_info_transport_ownership();
     failed |= wc_proxy_selftest();
+    failed |= wc_tls_selftest();
     failed |= selftest_dns_fallback_toggles();
     failed |= selftest_proxy_preflight_matrix();
     failed |= selftest_injection_view_fallback();

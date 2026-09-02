@@ -117,7 +117,7 @@ whois-x86_64 --cidr-strip -h arin 1.1.1.0/24   # send base IP only
 whois-x86_64 --show-non-auth-body --show-post-marker-body 1.1.1.1
 ```
 
-### 3.3 Proxy (HTTP CONNECT / SOCKS)
+### 3.3 Proxy (HTTP/HTTPS CONNECT / SOCKS)
 
 A proxy is a relay server: the client asks the proxy to connect to the WHOIS server (port 43) on its behalf. Use one when your network cannot reach some RIRs directly (for example, an ISP blocks ARIN's port 43) or when a company/campus requires a shared egress.
 
@@ -126,6 +126,7 @@ A proxy is a relay server: the client asks the proxy to connect to the WHOIS ser
 | Type | URL example | Default port | Notes |
 |------|-------------|--------------|-------|
 | `http://` | `http://proxy.example:8080` | 8080 | HTTP CONNECT proxy: sends `CONNECT host:43`, then runs plaintext WHOIS inside the tunnel. Most common (corporate/shared) |
+| `https://` | `https://proxy.example:443` | 443 | HTTPS CONNECT proxy: establishes and verifies TLS to the proxy before CONNECT; WHOIS inside the tunnel remains plaintext TCP |
 | `socks5://` | `socks5://proxy.example:1080` | 1080 | SOCKS5 with **local target resolution**: the client resolves the domain itself and hands the IP to the proxy |
 | `socks5h://` | `socks5h://proxy.example:1080` | 1080 | SOCKS5 with **remote resolution**: the domain is sent to the proxy, which resolves and connects. Useful when local DNS is polluted/unreliable |
 | `socks4://` | `socks4://proxy.example:1080` | 1080 | SOCKS4: IPv4 targets only (legacy) |
@@ -188,7 +189,7 @@ whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 
 | Option | Description |
 |--------|-------------|
-| `--proxy URL` | Explicit proxy. Accepts only absolute `http://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` URLs (host+port, no path/query/fragment; IPv6 proxies use brackets like `[::1]:1080`; default port per type: http=8080, socks*=1080). **Embedding `user:pass@` in the URL is forbidden** (see credentials below) |
+| `--proxy URL` | Explicit proxy. Accepts absolute `http://`/`https://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` URLs (host+port, no path/query/fragment; IPv6 proxies use brackets like `[::1]:1080`; defaults: http=8080, https=443, socks*=1080). Official static release artifacts support `https://`; a locally built no-TLS compatibility binary fails as unsupported before lookup. **Embedding `user:pass@` in the URL is forbidden** (see credentials below) |
 | `--proxy-env` | Enables generic proxy env vars: reads `ALL_PROXY` → `all_proxy` and honors `NO_PROXY`/`no_proxy` bypasses. Off by default (so a system-wide proxy cannot silently hijack traffic); `HTTP_PROXY`/`HTTPS_PROXY` are never read |
 | `--proxy-allow-insecure-auth` | Allows credentials on a **cleartext `http://` proxy**; without it, http-proxy + credentials fail before lookup (SOCKS proxies are not restricted this way) |
 | `--proxy-family auto\|v4\|v6` | Controls only the **proxy endpoint's** address family (default `auto`). Use `--proxy-family v6` when the proxy has only an IPv6 address; conflicts with a numeric host in the URL fail before lookup |
@@ -199,7 +200,26 @@ Priority: `--proxy` > `WHOIS_PROXY` > (`--proxy-env` only) `ALL_PROXY` > `all_pr
 #### SOCKS and HTTPS proxy usage
 
 - **SOCKS**: just specify it, e.g. `whois-x86_64 --proxy socks5://10.0.0.246:1080 8.8.8.8`. For authentication, set `WHOIS_PROXY_USER`/`WHOIS_PROXY_PASSWORD` as above (SOCKS5 supports username/password; SOCKS4 sends USERID as the username and never carries a password).
-- **HTTPS proxy (`https://`) — WP-13D under development, not enabled on master yet**: in a future release `https://host:443` means TLS between the client and the proxy, with `CONNECT` on top; WHOIS inside the tunnel stays plaintext. Certificate and hostname verification are mandatory (no insecure mode), the trust store defaults to an embedded Mozilla CA bundle, and a non-empty `SSL_CERT_FILE` can point to an enterprise private CA PEM (unreadable/empty/load-failure is fail-closed, never falling back to the embedded bundle). See `docs/RFC-proxy-access.md` for details.
+- **HTTPS proxy (`https://`)**: official static release artifacts include this capability by default. `https://host:443` means TLS between the client and the proxy, with `CONNECT` on top; WHOIS inside the tunnel stays plaintext. Certificate and hostname/IP verification are mandatory (no insecure mode), the trust store defaults to an embedded Mozilla CA bundle, and a non-empty `SSL_CERT_FILE` can point to an enterprise private CA PEM (unreadable, empty, or load failure is fail-closed, never falling back to the embedded bundle). A locally built compatibility binary without the HTTPS TLS backend fails as unsupported before lookup. See `docs/RFC-proxy-access.md` for details.
+
+Run `whois-x86_64 --help` (`whois-win64.exe --help` on Windows) first. `HTTPS proxy TLS backend: enabled` means the binary is ready; `disabled` identifies an OpenSSL-free compatibility build.
+
+```powershell
+# Official Windows static artifact with a publicly trusted proxy certificate
+.\whois-win64.exe --proxy https://proxy.example:443 8.8.8.8
+
+# Enterprise private CA in PEM format
+$env:SSL_CERT_FILE = 'C:\certs\corp-proxy-ca.pem'
+.\whois-win64.exe --proxy https://proxy.corp.example:443 8.8.8.8
+```
+
+```sh
+# Official POSIX static artifact
+./whois-x86_64 --proxy https://proxy.example:443 8.8.8.8
+
+# Enterprise private CA in PEM format
+SSL_CERT_FILE=/etc/company/proxy-ca.pem ./whois-x86_64 --proxy https://proxy.corp.example:443 8.8.8.8
+```
 
 ### 3.4 Timeouts & retries
 
@@ -658,6 +678,6 @@ Remote build, smoke, Golden checks, artifact publishing, and cleanup workflows b
 
 ### Current feature status
 
-- Enabled on master: direct connection, HTTP CONNECT proxy (`http://`), SOCKS4/4a/5/5h proxy, conditional output, batch strategies, DNS/IP family controls, diagnostics/selftests (see §3).
-- Under development (not enabled): HTTPS proxy (`https://`, WP-13D) — TLS between the client and the proxy with CONNECT on top, mandatory certificate/hostname verification, embedded Mozilla CA trust store; see §9/§14 of `docs/RFC-proxy-access.md`.
+- Enabled in master source and official static artifacts: direct connection, HTTP CONNECT (`http://`), HTTPS CONNECT (`https://`), and SOCKS4/4a/5/5h; conditional output, batch strategies, DNS/IP family controls, and diagnostics/selftests are also available (see §3).
+- Artifact boundary: official static releases support `https://` directly. A locally built compatibility artifact without the HTTPS TLS backend fails as unsupported. Check the `HTTPS proxy TLS backend` line in `--help` for the binary in hand.
 

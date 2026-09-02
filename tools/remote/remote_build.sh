@@ -25,7 +25,9 @@ set -euo pipefail
 : "${RB_LTO_MODE:=}"
 : "${RB_LTO_SERIAL:=}"
 : "${RB_LTO_PARALLEL:=}"
-: "${WHOIS_TLS:=0}"
+# Official remote statics include HTTPS proxy support by default. Set
+# WHOIS_TLS=0 explicitly for an OpenSSL-free compatibility build.
+: "${WHOIS_TLS:=1}"
 : "${OPENSSL_STATIC_VERSION:=3.5.8}"
 : "${OPENSSL_STATIC_ROOT:=$HOME/.local/openssl-static}"
 # Smoke test behavior

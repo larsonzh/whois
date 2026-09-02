@@ -118,10 +118,10 @@ void wc_meta_print_usage(
     printf("      --batch-interval-ms M  Sleep M ms between batch queries (default: 0)\n");
     printf("      --batch-jitter-ms J    Add random 0..J ms to batch interval (default: 0)\n");
     printf("  -h, --host HOST           Start from specific whois server (name|domain|ip)\n");
-    printf("      --proxy URL           Validate proxy configuration (13B-2 A preflight only)\n");
+    printf("      --proxy URL           Route each WHOIS hop through http|https|socks4|socks4a|socks5|socks5h proxy\n");
     printf("      --proxy-env           Opt in to ALL_PROXY/all_proxy fallback\n");
     printf("      --proxy-family MODE   Proxy endpoint family auto|v4|v6 (default: auto)\n");
-    printf("      --proxy-allow-insecure-auth  Permit credentials on cleartext HTTP proxy URLs\n");
+    printf("      --proxy-allow-insecure-auth  Permit credentials over cleartext http:// proxy\n");
     printf("  -p, --port PORT           Whois server port (default: %d)\n", default_port);
     printf("  -Q, --no-redirect         Do not follow referrals (default: follow up to %d)\n", default_max_redirects);
     printf("  -R, --max-hops N          Max referral hops (default: %d)\n", default_max_redirects);
@@ -181,10 +181,17 @@ void wc_meta_print_usage(
     printf("      (Legacy resolver already reuses wc_dns candidates; shim stats remain visible via --debug)\n\n");
 
     print_usage_section(&k_conditional_output_section);
-    printf("Proxy routing (HTTP CONNECT):\n");
+    printf("Proxy routing:\n");
+    printf("      Schemes/default ports: http=8080, https=443, socks4/4a/5/5h=1080\n");
     printf("      Priority: --proxy > WHOIS_PROXY > (--proxy-env only) ALL_PROXY > all_proxy > direct\n");
     printf("      --proxy-env also enables NO_PROXY/no_proxy; HTTP_PROXY/HTTPS_PROXY are never read\n");
-    printf("      NO_PROXY/no_proxy is evaluated for every WHOIS hop; SOCKS and HTTPS proxy remain unavailable\n\n");
+    printf("      Credentials: set both WHOIS_PROXY_USER and WHOIS_PROXY_PASSWORD; CLI URL userinfo is rejected\n");
+    printf("      NO_PROXY/no_proxy is evaluated independently for every WHOIS hop\n");
+#ifdef WHOIS_TLS
+    printf("      HTTPS proxy TLS backend: enabled (embedded Mozilla CA; SSL_CERT_FILE overrides)\n\n");
+#else
+    printf("      HTTPS proxy TLS backend: disabled (this build reports https:// as unsupported)\n\n");
+#endif
     print_usage_section(&k_diagnostics_section);
 
     printf("Examples:\n");
@@ -225,6 +232,11 @@ void wc_meta_print_about(void) {
     printf("  Use --retry-metrics for diagnostics only; it prints [RETRY-METRICS*] to stderr.\n");
     printf("- DNS family preference flags: --ipv4-only / --ipv6-only / --prefer-ipv4 / --prefer-ipv6 / --prefer-ipv4-ipv6 / --prefer-ipv6-ipv4 plus --dns-family-mode[(-first|-next)].\n");
     printf("- Negative DNS cache: short TTL for name resolution failures (default 10s, disable with --no-dns-neg-cache).\n");
+#ifdef WHOIS_TLS
+    printf("- Proxy support: HTTP CONNECT, HTTPS CONNECT over verified TLS, SOCKS4/4a, and SOCKS5/5h.\n");
+#else
+    printf("- Proxy support: HTTP CONNECT and SOCKS4/4a/5/5h; this binary has no HTTPS TLS backend.\n");
+#endif
 }
 
 void wc_meta_print_examples(const char* program_name) {
@@ -244,4 +256,11 @@ void wc_meta_print_examples(const char* program_name) {
     printf("%s --grep '^(route|origin|descr):' 1.1.1.1\n\n", prog);
     printf("# Preserve case in folded output\n");
     printf("%s --fold --fold-sep , --no-fold-upper 8.8.8.8\n\n", prog);
+    printf("# Query through a proxy\n");
+    printf("%s --proxy http://proxy.example:8080 8.8.8.8\n", prog);
+#ifdef WHOIS_TLS
+    printf("%s --proxy https://proxy.example:443 8.8.8.8\n\n", prog);
+#else
+    printf("# This binary has no HTTPS TLS backend; use an official static release for https://\n\n");
+#endif
 }

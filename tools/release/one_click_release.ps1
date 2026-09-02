@@ -187,7 +187,7 @@ if ($doBuild) {
     $argTableGuardScript = ''
     if ($RbPreclassTableGuardScript -and $RbPreclassTableGuardScript.Trim() -ne '') { $argTableGuardScript = "-B '$RbPreclassTableGuardScript'" }
     $rbCmd = "tools/remote/remote_build_and_test.sh -H $RbHost -u $RbUser -k '$RbKey' -r $RbSmoke -q '$RbQueries' -s '$syncDirArg' -P 1 $argSmoke -G $RbGolden -E '$RbCflagsExtra' $argOpt -K $RbPreflight -N $RbPreclassTableGuard -Y $rbQuiet $argTableGuardScript"
-    $buildEnvironment = @{}
+    $buildEnvironment = @{ WHOIS_TLS = '1' }
     git rev-parse --verify --quiet "refs/tags/$tag" 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
       $buildEnvironment['WHOIS_FORCE_VERSION'] = $tag

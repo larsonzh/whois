@@ -551,6 +551,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         int hop_prefers_v4 = 0;
         char pref_label[32];
         struct wc_net_info ni;
+        wc_net_info_init(&ni);
         int connected_ok = 0;
         int first_conn_rc = 0;
         int attempt_cap_hit = 0;
@@ -628,7 +629,7 @@ int wc_lookup_exec_run(const struct wc_query* q, const struct wc_lookup_opts* op
         }
         if (wc_signal_should_terminate()) {
             int debug_enabled = cfg ? cfg->debug : 0;
-            wc_safe_close(&ni.fd, "wc_lookup_signal_abort", debug_enabled);
+            wc_net_info_close(&ni, "wc_lookup_signal_abort", debug_enabled);
             out->err = WC_ERR_IO;
             out->meta.last_connect_errno = EINTR;
             snprintf(out->meta.last_host, sizeof(out->meta.last_host), "%s", current_host);
