@@ -80,20 +80,6 @@ CIDR 草案矩阵扩展（2026-02-20）：`testdata/cidr_matrix_cases_draft.tsv`
 下一步计划（2026-02-20）：以当前日志作为新基线继续扩展 CIDR 草案矩阵覆盖（marker/no-marker/consistency-fail/error 主导），并维持“Strict + matrix + selftest”三闸门禁。
 远程编译冒烟同步 + 黄金校验（2026-02-19，Strict Version + lto-auto 默认）：`Local hash verify PASS + Golden PASS + referral check: PASS`，日志 `out/artifacts/20260219-045120`。
 重定向矩阵（2026-02-19）：参数化 IPv4 `pass=66 fail=0`（`out/artifacts/redirect_matrix/20260219-045555`）；12x6（含 `47.96.0.0/10`）`authMismatchFiles=0、errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260219-051415`）。
-远程编译冒烟同步 + 黄金校验（2026-02-09，lto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。
-远程编译冒烟同步 + 黄金校验（2026-02-09，lto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-110224`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-113135`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-120349`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-123718`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-133508`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-134308`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-163305`。
-远程编译冒烟同步 + 黄金校验（2026-02-14，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260214-075348`。
-远程编译冒烟同步 + 黄金校验（2026-02-16，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260216-152247`。
-远程编译冒烟同步 + 黄金校验（2026-02-16，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260216-152830`。
-远程编译冒烟同步 + 黄金校验（2026-02-17，Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260217-170956`。
-远程编译冒烟同步 + 黄金校验（2026-02-10，Strict Version + lto-auto + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260210-164007`。
 构建体积基线（2026-02-10，lto-auto + UPX aarch64/x86_64 + 全量 strip）：aarch64 149KB、x86_64 151KB、armv7 340KB、x86 404KB、mipsel 483KB、mips64el 506KB、loongarch64 262KB、win64 393KB、win32 422KB；UPX 报告 `upx_report.txt` 显示 aarch64/x86_64 压缩成功。
 批量策略黄金（2026-02-10，lto-auto）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-13*`。
 自检黄金（2026-02-10，lto-auto + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260210-14*`。

@@ -4,753 +4,370 @@
 
 提示：自 3.2.5 起，界面输出统一为英文（English-only），避免在不支持中文的 SSH 终端出现乱码；原 `--lang` 与 `WHOIS_LANG` 已移除。
 
-重大改进提示（v3.2.11）：本版将《IPv4/IPv6 地址 WHOIS 查询规则契约》（`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`）确立为实现与评审主基线；涉及权威判定、跳转顺序与 CIDR 语义的讨论和变更，请优先以该契约为准。
+## 目录
 
-亮点：
-- 智能重定向：非阻塞连接、超时、轻量重试，自动跟随转发（`-R` 上限，`-Q` 可禁用），带循环保护。
-  - 规则契约（2026-02-20）：IPv4/IPv6 地址查询流程（含非权威标记、CIDR 基准回查、RIR 轮询与收敛）以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为准。
-  - CIDR 末端回查前置条件（2026-02-22）：仅当“CIDR + APNIC 命中 ERX/IANA + 存在 APNIC 前候选 RIR（排除 IANA/APNIC）+ RIR 轮询耗尽”同时满足时，才执行 APNIC 前候选基准回查；命中即 `unknown`，全 miss 仅在“无未清偿失败债务”时回落 APNIC。
-  - 失败债务清偿（2026-03-03）：对同一 RIR，若原始查询项出现失败（含空响应重试耗尽）且未拿到可判定正文，则记失败债务；仅同一 RIR 后续以同一原始查询项拿到可判定正文才可清偿。轮询耗尽仍有未清偿失败债务时，终态优先 `error`。
-  - CIDR 正文输出（2026-02-20）：基准回查（首标记 RIR 内）与后续跳基准查询均不直接输出正文；若进入“一致性验证”，正文以该次原始查询项验证响应为准；标题首行/重定向提示行/权威尾行按既有契约输出。
-  - 顺序规则（2026-01-22）：首跳有 referral 则直跟；首跳无 referral 且需要跳转时强制以 ARIN 作为第二跳。第二跳起：有 referral 且未访问过则跟随，referral 已访问或无 referral 则按 APNIC→ARIN→RIPE→AFRINIC→LACNIC 顺序选择未访问 RIR；全部访问过即终止。第二跳后不再插入 IANA。
-  - LACNIC 内部重定向（2026-02-21）：统一按非权威事件处理。内部目标已访问时视为无效重定向并回到 RIR 轮询；CIDR 下内部目标为未访问 ARIN 时仅标记 LACNIC 访问，ARIN 不做预访问标记；非 CIDR 或内部目标为未访问非 ARIN RIR 时可按连续访问语义记录并继续目标 RIR 的正常处理。
-  - LACNIC→ARIN 语义补充（2026-02-22）：ARIN 正文中的 `Query terms are ambiguous.` 在该内部重定向语境下不得单独作为“确定非权威”关键词，需结合 referral/marker/轮询状态综合判定。
-  - LACNIC→ARIN 规则细化（2026-02-22）：当 LACNIC 内部重定向目标为 ARIN 且查询项为“非 IP 字面量”时，立即按非权威继续跳转，并且不预先标记 ARIN visited；避免后续 ARIN 规则（含查询前缀注入链路）被“已访问”短路。
-  - APNIC 的 IANA-NETBLOCK 提示中出现 “not allocated to APNIC” 或 “not fully allocated to APNIC” 时，即便返回了对象字段，也会触发重定向轮询以验证最终权威。
-- 管道化批量输入：稳定头/尾输出契约；支持从标准输入读取（`-B`/隐式）；天然契合 BusyBox grep/awk。
-- 行尾归一化：单条与批量 stdin 输入在处理前自动将 CR-only/CRLF 归一化为 LF，避免 title/grep/fold 被多余回车切段，适配 BusyBox 管道。
-- 条件输出引擎：标题投影（`-g`）→ POSIX ERE 正则筛查（`--grep*`，行/块 + 可选续行展开）→ 单行折叠（`--fold`）。
-- 批量起始策略插件：`--batch-strategy <name>` 现改为显式 opt-in（默认批量流程保持“CLI host → 推测 RIR → IANA”的 raw 顺序，不再自动按 penalty 重排）。`--batch-strategy health-first` 可恢复 penalty 感知排序，`--batch-strategy plan-a` 复用上一条权威 RIR。`--batch-strategy plan-b` 已启用：在健康时复用上一条权威 RIR，若被罚站则回退到首个健康候选（或强制末尾/override）；命中会输出 `[DNS-BATCH] plan-b-*` 标签（plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last），并新增缓存窗口标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，命中过期即视为 stale 并清空）；当缓存起始主机被罚分时会立刻丢弃缓存，下一条查询会直接走健康候选（可能先看到一次 `plan-b-empty`）。`WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'` 仍可预注入惩罚窗口，方便验证上述加速器与黄金断言。
-- 信号处理：Ctrl+C/TERM/HUP 会关闭缓存连接并在拨号/接收阶段快速中断，且仅输出一次终止提示；进程退出时显式释放 DNS/连接缓存；`[DNS-CACHE-SUM]` / `[RETRY-*]` 仍通过 atexit 刷出，保持黄金日志形态。
-- 空响应回退：空响应触发的回退重试次数做了收敛（ARIN 上限 2、其他 1），并在回退间加入轻量退让，以降低高并发下的连接风暴；正常成功路径不受影响。
-- 应用层限流重试（2026-02-17）：新增 `--rate-limit-retries N` 与 `--rate-limit-retry-interval-ms M`，仅对“temporary denied / rate-limit”响应在同 hop 内做受限重试；`permanently denied` 不重试。
-- 权威尾行收敛：若链路存在未清偿失败债务（含限流/拒绝/连接失败或空响应重试耗尽）且最终未收敛，尾行权威输出 `error`，用于区分“失败未收敛”与“真未知”。
-- 入口复用：所有可执行入口统一通过 `wc_client_frontend_run` 执行；若未来新增入口，只需组装 `wc_opts` 后调用该 facade，不要在入口层重复自测/信号/atexit 逻辑。
+- [1. 快速开始](#1-快速开始)
+- [2. 输出契约](#2-输出契约)
+- [3. 命令行参数参考](#3-命令行参数参考)
+- [4. 批量模式](#4-批量模式)
+- [5. 常用示例](#5-常用示例)
+- [6. 退出码](#6-退出码)
+- [7. 提示与故障排查](#7-提示与故障排查)
+- [8. 相关文档与集成](#8-相关文档与集成)
 
-批量策略速览（通俗版）：
-- raw（默认）：按“CLI host → 推测 RIR → IANA”顺序，既不跳过“被惩罚”主机也不复用缓存。
-- health-first：遇到“被惩罚/暂时屏蔽”的主机直接跳过，全部都被惩罚时强制用最后一个候选；关注 `[DNS-BATCH] start-skip/force-last`。
-- plan-a：记住上一条权威 RIR，下一轮优先用它做快速起步；若该主机被惩罚则回落常规候选；关注 `[DNS-BATCH] plan-a-*` 与 `plan-a-skip`。
-- plan-b：缓存优先且感知罚站。健康时复用上一条权威 RIR；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`，并新增缓存窗口相关标签 `[DNS-BATCH] action=plan-b-hit|plan-b-stale|plan-b-empty`（默认窗口 300s，stale 会清空缓存）便于观测命中/过期/空击。
+## 1. 快速开始
 
-补充：当缓存起始主机被罚分时，plan-b 会立即丢弃缓存，下一条查询可能先看到 `plan-b-empty`，随后直接选择健康候选。
-
-## 导航（发布与运维扩展）
-
-发布流程（详版）：`docs/RELEASE_FLOW_CN.md` | English: `docs/RELEASE_FLOW_EN.md`
-
-查询规则契约（新增）：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
-
-WP-13D HTTPS proxy TLS 开工准备（2026-09-02）：CA/静态 OpenSSL 构建准备及 Vx A/B 任务定义已完成编制期验收。A 收敛 `wc_net_info` 的 custom transport 所有权，B 增加 `https://`、强制证书/主机名验证、固定 CA 或 fail-close 的 `SSL_CERT_FILE` 覆盖，以及同一绝对 deadline 内的 TLS handshake + CONNECT。A→B 全定义零错误零警告，默认与 TLS x86_64/win64 快编译 PASS；功能尚未在 master 开放，九架构生产门禁、start-file 与运行仍待完成。权威清单见 `docs/RFC-proxy-access.md` 第 14 节。
-
-WP-13C SOCKS4/4a 完成（2026-09-01）：`socks4://` 仅向代理发送本地解析的 IPv4 候选（SOCKS4 不支持 IPv6）；`socks4a://` 对未被 per-hop `NO_PROXY` 绕过的域名使用代理端远程解析，并与 `socks5h://` 共用目标 family/fallback/RIR override 冲突门禁与目标健康隔离；USERID 使用解析后的 username，password 不进入帧。loopback 协议/配置探针 27/27 PASS；Vx A/B 各 8/8 一轮通过、无事故/自愈/重启（A run=`out/artifacts/dev_verify_multiround/20260831-150933`，B run=`out/artifacts/dev_verify_multiround/20260831-205121`，A/B 合计 `0d 12:01:40`，session start=2026-08-31 15:08:58）；最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260901-121843`，755s；Local hash verify/Golden/referral 全 PASS）。默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约不变；HTTPS proxy（WP-13D）仍按代理 RFC 第 9 节 Ready 门禁继续。
-
-WP-13B-3 SOCKS5/5h 数据面完成（2026-08-31）：`socks5://` 使用本地目标解析并发送 IPv4/IPv6 ATYP；`socks5h://` 对未被 per-hop `NO_PROXY` 绕过的域名使用代理端远程解析，不触发本地目标 DNS、DNS-health/backoff 或 empty-response IP fallback。支持 RFC 1929 username/password 与完整 REP 分类，远程解析成功后的目标 IP 保持 unknown。loopback 协议/配置探针 21/21 PASS；最终 Strict `lto-auto` 九架构、9/9 hash、POSIX/QEMU 与 Windows smoke、Golden、三起点 referral 全 PASS（`out/artifacts/20260831-112633`，436s）。带 release 同步的最终复核（2026-08-31）：Strict `lto-auto` 无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS，用时 284s，release 双目录与 `SHA256SUMS-static.txt` 逐字一致（`out/artifacts/20260831-114158`）。SOCKS4/4a 与 HTTPS proxy 尚未开放。
-
-WP-13B-2 HTTP CONNECT 代理与 per-hop bypass 完成（2026-08-31）：Vx A/B 各 8/8 轮通过（A run=`out/artifacts/dev_verify_multiround/20260830-133709`，B run=`out/artifacts/dev_verify_multiround/20260831-032025`，A/B 合计 `0d 18:51:00`）；B 首跑 D1 后 `runtime-fail` 经 3 处编排脚本修复与 A 快照锚点恢复后重启续跑 8/8 收敛。最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260831-091653`，254s；Local hash verify/Golden/referral 全 PASS）。默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约不变；WP-13C/13D 按代理 RFC 第 9 节 Ready 门禁继续。
-
-WP-13B-1 transport 基线与最终制品复核（2026-08-30）：endpoint dialer policy 已保持 `wc_dial_43` 默认直连与目标 DNS-health 语义；lookup 收发已通过可注入 `read/write/wait/close` transport adapter 执行，并支持共享绝对单调 deadline。确定性 transport 合同与 endpoint family/health 隔离 selftest 已跨 Linux/Windows PASS（`out/artifacts/20260830-010926`、`20260830-012006`）。代码调整后的最终 Strict `lto-auto` 九架构同步轮无编译/LTO 告警，九个 SHA-256 独立复算、Golden、三起点 referral 与默认 smoke 全 PASS（`out/artifacts/20260830-014939`，241s）；本轮默认 smoke 未启用 `--selftest`，不替代前述专项证据。当前公开 CLI 与默认输出契约不变。
-
-post-3.3.0 修复验证（2026-08-24）：`injection-view-fallback` standalone selftest 的反向返回值断言已修正，生产查询逻辑与输出契约不变；core golden 现要求 PASS 且禁止 FAIL。最终 Strict `lto-auto` 默认轮无编译/LTO 告警，九架构 hash、Golden、三起点 referral 与 Strict standalone selftest 全 PASS（`out/artifacts/20260824-081341`，281s），同步制品哈希一致。
-
-发布候选验证（2026-08-23）：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，九架构 SHA-256 实算均 `9/9` 匹配，Golden/referral 全 PASS（`out/artifacts/20260823-151731`、`20260823-152347`）；Batch 与 Selftest Golden 四策略全 PASS，独立 core golden 逐项锁定四条响应分类优先级断言；12x6 authority mismatch 空表且无 errors（`redirect_matrix_10x6/20260823-161855`）；CIDR body `4/4`、draft matrix `9/9`（`cidr_bundle_summary_20260823-163528.txt`）。完整 standalone core 原始日志仍有既有网络 WARN/SKIP 与 `injection-view-fallback: FAIL`，不应表述为 standalone 全绿，也不影响本轮 golden 门禁结论。本轮无需代码修复，当前语义冻结。
-
-若你需要“一键更新 Release（可选跳过打标签）”或“在普通远端主机用 Makefile 快速编译冒烟”能力，请查看《操作与发布手册》对应章节：
-
-- VS Code 任务：One-Click Release（参数与令牌说明）
-  - `docs/OPERATIONS_CN.md` → [One-Click Release 任务](./OPERATIONS_CN.md#vs-code-任务新增one-click-release)
-- 新脚本：`one_click_release.ps1` 快速更新 GitHub/Gitee Release
-  - `docs/OPERATIONS_CN.md` → 同上章节内脚本示例
-- 简易远程 Makefile 快速编译与测试
-  - `docs/OPERATIONS_CN.md` → [远程 Makefile 快速编译与测试](./OPERATIONS_CN.md#简易远程-makefile-快速编译与测试新增)
-- 异常原文抽取（RIR 限速/拒绝）
-  - 脚本：`tools/dev/extract_rir_failure_raw.ps1`
-  - 文档：`docs/OPERATIONS_CN.md` → 异常原文抽取（含参数与示例）
-  - VS Code 任务：`Docs: Extract RIR Failure Raw`
-
-（如链接在某些渲染器中无法直接跳转，请打开 `OPERATIONS_CN.md` 手动滚动到对应标题。）
-
-### A/B 无人值守 start-file reset 语义（口径同步）
-
-针对 `tools/test/reset_unattended_ab_start_file.ps1`，统一口径如下：
-
-- 默认行为：恢复未运行态字段并保留当前模式（`normal` / `anti-missent` / `low-disturb` / `event-only`）。
-- 显式传 `-UseTemplateBaseline`：委托 `tools/test/create_unattended_ab_start_file.ps1` 按“当前 start-file 文件名 + 当前模式（`AI_CHAT_POLICY_WORK_MODE`，缺失回退 `normal`）”重建并覆盖当前文件。
-
-常用示例：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -DryRun
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/reset_unattended_ab_start_file.ps1 -StartFile testdata/unattended_start/active/unattended_ab_start_20261031-20261115.md -UseTemplateBaseline -DryRun
-```
-
-49/50 缺口验证回填（2026-08-16）：
-- 2026-08-17 追加复核：Strict 默认/debug 两轮 Local hash、Golden、referral 全 PASS（`20260817-000833`、`20260817-001953`）；Batch/Selftest 四策略 Golden 全 PASS（`002627/003207/003826/004414`、`010022/010604/011235/011843`）。12x6 authority mismatch 空表；唯一 LACNIC `45.113.52.0/22` rate-limit error 单例重测恢复 APNIC，保留日志 `out/artifacts/redirect_matrix_10x6/20260817-014619` 作为网络瞬态证据。
-- 末端失败节点重查：RIR 轮询耗尽且权威未决时，对曾出现拒绝、限流或持久空响应的 RIR 各做一次受限单跳重查；仅权威结果清偿 failure debt，非权威/再次失败保持原终态。调试标签为 `[TERMINAL-RETRY]`，仅写 stderr。验证：P0 `12/12`、special `17/17`、CIDR `4/4 + 9/9`、12x6 `authMismatchFiles=0 errorFiles=0`（`out/artifacts/redirect_matrix_10x6/20260816-194455`），Strict 全架构 PASS（`out/artifacts/20260816-201756`，325s）。
-- 最新发布候选复核：Strict `lto-auto` 默认/debug 两轮无编译/LTO 告警，9 架构 SHA-256、Local hash、Golden、referral 全 PASS（`out/artifacts/20260816-203059`，276s；`20260816-203903`，286s）；批量四策略 Golden 全 PASS（`204504/205026/205622/210225`，1315.436s），自检四策略全 PASS（`210950/211526/212129/212741`，1369.958s）。最终 12x6 authority mismatch 空表且无 errors（`out/artifacts/redirect_matrix_10x6/20260816-213231`）。此前 `lacnic_158.60.0.0_16` 的 APNIC 空响应瞬态保留在历史目录 `20260816-161935`，本轮已正常收敛。
-- CIDR 正文契约：`pass=4 fail=0`，报告 `out/artifacts/cidr_body_contract/20260816-023439/cidr_body_contract_report_20260816-023439.txt`。
-- CIDR draft TSV 首轮为 `pass=8 fail=1`；跨平台对照确认并非测试期望过时，而是 Windows `getopt_long` shim 遇到查询位置参数后提前停止，未解析后置 `-h arin`。补齐 GNU 风格稳定参数排列并新增 `opts-permuted-parser` 回归后，win32/win64 均以 ARIN 为显式起始和最终权威；复跑 body `pass=4 fail=0`、draft TSV `pass=9 fail=0`，汇总 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260816-042354.txt`。
-- Redirect Matrix IPv4：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025454`。
-- Redirect Matrix 参数化（`RirIpPref=NONE`、`PreferIpv4=false`）：`pass=66 fail=0`，报告目录 `out/artifacts/redirect_matrix/20260816-025728`。
-- Redirect Matrix 10x6 稳态（`InterCaseSleepMs=500`、`RateLimitRetries=2`、`RateLimitRetrySleepMs=2500`）：`authMismatchFiles=0`、`errorFiles=0`，目录 `out/artifacts/redirect_matrix_10x6/20260816-025940`。
-- Batch Strategy Golden：raw/health-first/plan-a/plan-b 全 `[golden] PASS`，总用时 `1775.592s`；目录分别为 `out/artifacts/batch_raw/20260816-030943`、`batch_health/20260816-031539`、`batch_plan/20260816-032618`、`batch_planb/20260816-033430`。
-- Phase C 新增 selftest：直接运行 `release/lzispro/whois/whois-win64.exe --selftest`，`preclass-phasec-policy`、`preclass-phasec-route`、`preclass-phasec-explicit-host-bypass`、`opts-short-parser`、`opts-long-parser` 全 PASS，证据 `out/artifacts/phasec_selftest_20260816/stderr.txt`。完整 standalone selftest 另有既有 `injection-view-fallback: FAIL`，以及网络相关 WARN/SKIP；该失败在 49/50 前已存在，未归因于本期 Phase C 变更。
-
-最新验证基线（2026-02-20，LTO）：
-- 远程编译冒烟同步 + Golden（Strict Version，2026-02-23，本轮）：`lto-auto`，默认参数与 `--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first` 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-062933`（187s）、`out/artifacts/20260223-063512`（267s）。
-- 批量策略黄金（2026-02-23，本轮）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-064057`、`batch_health/20260223-064601`、`batch_plan/20260223-065003`、`batch_planb/20260223-065408`（总计 1039.830s）。
-- 自检黄金（2026-02-23，本轮，`--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-070056`、`batch_health/20260223-070613`、`batch_plan/20260223-071033`、`batch_planb/20260223-071536`（总计 1155.471s）。
-- 重定向矩阵（12x6，2026-02-23，本轮）：authority mismatch 空表，`errors=(no errors found)`，日志 `out/artifacts/redirect_matrix_10x6/20260223-072410`。
-- 黄金脚本链路复核（2026-02-23，本轮）：`golden_report*.txt` 与 `golden_selftest_report.txt` 均 PASS，说明当前输出格式下黄金断言链路工作正常。
-- 远程编译冒烟同步 + Golden（Strict Version，2026-02-23）：`lto-auto`，默认参数与 debug/metrics 两轮均通过（`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`），日志 `out/artifacts/20260223-033648`（196s）、`out/artifacts/20260223-034240`（295s）。
-- 批量策略黄金（2026-02-23）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260223-034940`、`batch_health/20260223-035544`、`batch_plan/20260223-040008`、`batch_planb/20260223-040424`（总计 1158.378s）。
-- 自检黄金（2026-02-23，`--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b 全 `[golden-selftest] PASS`，日志 `out/artifacts/batch_raw/20260223-041716`、`batch_health/20260223-042233`、`batch_plan/20260223-042702`、`batch_planb/20260223-043114`（总计 1127.578s）。
-- 重定向矩阵（12x6，2026-02-23）：authority mismatch 空表；出现 1 条环境性超时（`lacnic_171.84.0.0_14` 首跳 LACNIC connect timeout，`out/artifacts/redirect_matrix_10x6/20260223-052029`）；同样例单独复测已恢复 APNIC 收敛，判定为网络抖动。
-- 远程编译冒烟同步 + Golden（Strict Version，全架构，2026-02-22）：`lto-auto` 默认参数，`无告警 + lto 无告警 + Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260222-193842`。
-- 追加复核（2026-02-22 晚间）：Strict 两轮（默认参数 / `--debug --retry-metrics --dns-cache-stats`）均 `[golden] PASS`，日志 `out/artifacts/20260222-200857`、`out/artifacts/20260222-201419`。
-- 批量策略黄金（2026-02-22 晚间）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260222-201954`、`batch_health/20260222-202552`、`batch_plan/20260222-203003`、`batch_planb/20260222-203401`。
-- 自检黄金（2026-02-22 晚间）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260222-204127`、`batch_health/20260222-204706`、`batch_plan/20260222-205139`、`batch_planb/20260222-205609`。
-- 重定向矩阵（12x6，2026-02-22 晚间）：authority 对照无不匹配，`errors=(no errors found)`，日志 `out/artifacts/redirect_matrix_10x6/20260222-210208`。
-- 统一 debug 抽样（2026-02-22）：`-h iana/ripe/afrinic/lacnic 8.8.0.0/16` 四组均命中 `pre-apnic-lookback-hit host=whois.arin.net`，未出现 APNIC 后 RIR 被纳入“APNIC 前候选回查”的现象。
-- CIDR 契约收敛（2026-02-20）：修复 APNIC `not allocated to APNIC` 场景中 ERX 标记被清零导致的回落偏差；使用发布产物复跑 `testdata/cidr_matrix_cases_draft.tsv` 达到 `pass=5 fail=0`，日志 `out/artifacts/redirect_matrix/20260220-111122`。
-- 回归复核（2026-02-20）：远程快速构建与发布目录同步（`x86_64+win64`，`lto-auto`）`Local hash verify PASS + Golden PASS`，日志 `out/artifacts/20260220-110900`。
-- 自检黄金（2026-02-20，prefilled）：raw/health-first/plan-a/plan-b 全 PASS，日志 `out/artifacts/batch_raw/20260220-111736`、`batch_health/20260220-112303`、`batch_plan/20260220-112658`、`batch_planb/20260220-113149`。
-- invalid CIDR 收口（2026-02-19）：`-h iana --show-non-auth-body --show-post-marker-body 47.96.0.0/10` 首跳直接返回 IANA `Invalid query` 且尾行 `unknown @ unknown`，不再误走 IANA→ARIN→APNIC；`-h apnic` 同查询保持 `invalid search key -> unknown @ unknown`。
-- 远程编译冒烟同步 + Golden（Strict Version + lto-auto 默认）：`Local hash verify PASS + Golden PASS + referral check PASS`，日志 `out/artifacts/20260219-045120`。
-- 重定向矩阵（参数化 IPv4）：`pass=66 fail=0`，日志 `out/artifacts/redirect_matrix/20260219-045555`。
-- 重定向矩阵（12x6，含 `47.96.0.0/10`）：`authMismatchFiles=0 errorFiles=0`，日志 `out/artifacts/redirect_matrix_10x6/20260219-051415`。
-- 远程编译冒烟同步 + Golden（Strict Version + lto-auto 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260214-075348`。
-- 重定向矩阵 10x6：authority mismatches 空表、errors 空表，日志 `out/artifacts/redirect_matrix_10x6/20260214-081508`。
-- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122029`。
-- 远程编译冒烟同步 + Golden（LTO + debug/metrics + dns-family-mode=interleave-v4-first）：无告警 + lto 无告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260209-122818`。
-- 批量策略黄金（LTO）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-11*`。
-- 自检黄金（LTO + `--selftest-force-suspicious 8.8.8.8`）：raw/health-first/plan-a/plan-b PASS，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260209-12*`。
-- 重定向矩阵 10x6：无权威不匹配/错误，日志 `out/artifacts/redirect_matrix_10x6/20260209-133525`。
-- 矩阵 authority 判定语义（2026-02-14）：若尾行为 `=== Authoritative RIR: error @ error ===`，该样例 authority 期望按 `error` 判定（失败未收敛）；仅非失败尾行按静态 RIR 期望表判定。
-- CIDR 样例（APNIC/AFRINIC/RIPE/ARIN/LACNIC）：日志 `out/artifacts/cidr_samples/20260209-002242`。
-- 48 进程批量对比（基准复查 + 轮询 vs 仅轮询）：日志 `out/artifacts/gt-ax6000_recheck_20260209_syslog.log`。
-- 远程编译冒烟同步 + Golden（LTO 默认）：无告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260201-214831`。
-- 远程编译冒烟同步 + Golden（LTO 默认）：有告警 + lto 有告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260130-213229`。
-- 远程冒烟 + 黄金（默认参数）：`[golden] PASS`，日志 `out/artifacts/20260124-045307`。
-- 远程冒烟 + 黄金（`--debug --retry-metrics --dns-cache-stats --dns-family-mode interleave-v4-first`）：`[golden] PASS`，日志 `out/artifacts/20260124-045757`。
-- 批量策略黄金（raw/health-first/plan-a/plan-b）：`[golden] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-050*`（报告同目录）。
-- 自检黄金（`--selftest-force-suspicious 8.8.8.8`）：`[golden-selftest] PASS`，日志 `out/artifacts/batch_{raw,health,plan,planb}/20260124-0519**/052***`。
-- 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-113056`。
-- 远程编译冒烟同步 + 黄金（LTO 默认）：无告警 + lto 告警 + Golden PASS + referral check: PASS，日志 `out/artifacts/20260124-190255`。
-
-### 重定向矩阵测试（IPv4）
-
-该测试用于覆盖多 RIR 起始主机的重定向链路与权威判定，独立于编译/冒烟/黄金流程。
-
-- 脚本：`tools/test/redirect_matrix_test.ps1`
-- 组合脚本：`tools/test/run_cidr_contract_bundle.ps1`（先跑 CIDR 正文契约，再跑 CIDR 草案矩阵）
-- 任务：Test: Redirect Matrix (IPv4)、Test: Redirect Matrix (IPv4, Params)、Test: Redirect Matrix (CIDR Draft TSV)、Test: Redirect Matrix (CIDR Draft TSV, prefilled)、Test: CIDR Contract Bundle、Test: CIDR Contract Bundle (prefilled)
-- 产出：在输出目录生成 `redirect_matrix_report_<timestamp>.txt`（默认写入 `out/artifacts/redirect_matrix/<timestamp>`）。
-- 逐条日志：默认写入 `out/artifacts/redirect_matrix/<timestamp>/cases/`，可用 `-SaveLogs false` 关闭。
-- 退出码：任一用例失败返回 1，全部通过返回 0。
-
-参数说明（可选）：
-- `-BinaryPath`：二进制路径（默认 `release/lzispro/whois/whois-win64.exe`）
-- `-OutDir`：报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
-- `-RirIpPref`：传入 `--rir-ip-pref` 值，填 `NONE` 跳过
-  - 当某个 RIR 对当前 IPv4 公网出口存在稳定拒绝时，可按 RIR 单独切到 IPv6（示例：`-RirIpPref arin=ipv6,ripe=ipv6`），用于降低环境性 `access denied` 噪声。
-- `-PreferIpv4`：`true|false` 控制是否启用 `--prefer-ipv4`
-- `-SaveLogs`：`true|false` 控制是否保存逐条日志（默认 `true`）
-- `-CasesFile`：自定义 case 文件（TSV/CSV）；可直接使用 `testdata/cidr_matrix_cases_draft.tsv` 跑 CIDR 草案矩阵
-
-组合脚本常用参数（`run_cidr_contract_bundle.ps1`）：
-- `-BodyOutDir`：CIDR 正文契约报告输出目录（默认 `out/artifacts/cidr_body_contract/<timestamp>`）
-- `-MatrixOutDir`：CIDR 草案矩阵报告输出目录（默认 `out/artifacts/redirect_matrix/<timestamp>`）
-- `-SummaryOutDir`：组合汇总输出目录（默认 `out/artifacts/cidr_bundle/`，生成 `cidr_bundle_summary_<timestamp>.txt`）
-- 其余参数与矩阵脚本一致（`-BinaryPath/-RirIpPref/-PreferIpv4/-SaveLogs/-CasesFile`）
-
-附加提示（Windows 跨平台产物）：
-- `tools/remote/remote_build_and_test.sh` 默认追加 win32/win64 目标（无需手动 `-w 1`）。
-- 本地 Windows 示例：
-  - PowerShell 单条：`whois-win64.exe --debug --prefer-ipv4-ipv6 8.8.8.8`；IPv6-only：`whois-win64.exe --debug --ipv6-only 8.8.8.8`
-  - PowerShell 管道：`"8.8.8.8" | whois-win64.exe --debug --ipv4-only`（stdin 非 TTY 自动批量）
-  - CMD 管道：`echo 8.8.8.8 | whois-win64.exe --debug --ipv4-only`
-- Linux wine 冒烟：`env WINEDEBUG=-all wine64 ./whois-win64.exe --debug --prefer-ipv6 8.8.8.8`（32 位对应 `wine`），可复用同一冒烟参数。
-
-提示：
-- `--no-body` 抑制最终 WHOIS 正文，但保留查询首行、适用时的 `Address Status:` 和权威尾行；DNS、连接、重试、重定向、权威判定及 `-g/--grep*` 过滤仍完整执行。
-- `--no-body` 可与 `-g`、`--grep*`、正文选择器及批量模式组合；与 `--plain`、`--fold`、`--fold-sep`、`--fold-unique` 或 `--no-fold-upper` 组合会在查询前报错退出。
-- WP-03 最终制品验证（2026-08-24）：Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-115609`，248s）；Linux/QEMU、win32、win64 smoke=`18/3/3` 且首尾一一对应、零告警，两个 lzispro 同步目录均与 artifact `9/9` SHA 一致；最终 win64 制品合同 smoke=`13/13`（`out/artifacts/no_body_contract/20260824-120031`）。
-- `--print-meta` 在每条查询记录末尾追加一行 TAB 分隔的 `k=v` 元信息：`query=...`、`rir=...`、`status=success|error`、`duration_ms=...`、`attempts=...`、`redirects=...`；首行、正文、尾行与退出码保持不变。
-- `--print-meta` 可与 `-g`、`--grep*`、`--no-body`、`--fold` 及批量模式组合；与 `--plain` 组合会在查询前报错退出。
-- lookup 失败配合 `--fold` 时固定输出 `<query> ERROR` 后再输出 error 元信息；非法 IP/CIDR 与显式私网沿用既有 unknown 尾行，元信息为 `rir=unknown status=success`；安全规则在 lookup 前拒绝时仅输出 `rir=error status=error` 元信息。未触网路径的三个数值字段均为 0。
-- 未启用 `--print-meta` 时，`--fold` 的既有失败行为不变：lookup 失败只写 stderr，stdout 为空。
-- 元信息值会删除首尾空白，并把内部连续空白或控制字符折叠为单空格；反斜杠仍按字面输出。
-- WP-04 最终验证（2026-08-24）：扩展 smoke `18/18` PASS（`out/artifacts/print_meta_contract/20260824-151824`），新增覆盖失败 fold、非法输入、显式私网、安全拒绝、值归一化、stdin 自动批量、grep 组合及未启用元信息时的 fold 失败兼容性；最终同步 win64 standalone selftest PASS。Strict `lto-auto` 九架构 build/hash、Golden、三起点 referral 全 PASS（`out/artifacts/20260824-151759`，350s），两个同步目录与 artifact 的 SHA 均为 `9/9` 一致。
-- `--print-chain` 在每条查询记录末尾追加 `chain=server1>server2>...`，按实际逻辑 WHOIS hop 的时间顺序记录服务器；同一 hop 的 DNS 候选和重试不重复。未触网的 Phase C、非法 IP/CIDR、私网或安全拒绝输出 `chain=unknown`；最多保留 16 个 hop，溢出时追加 `>truncated`。
-- `--print-chain` 可与 `--no-body`、`--fold`、`--print-meta`、`-g`/`--grep*` 及批量模式组合；启用多个观测项时 chain 位于 meta 之前。与 `--plain` 组合会在查询前报错退出。fold 查询失败时先输出 `<query> ERROR`，再输出 chain。
-- WP-05A 聚焦验证（2026-08-24）：专项合同 `12/12` PASS（`out/artifacts/print_chain_contract/20260824-155911`）；x86_64/win32/win64 `lto-auto` build/hash/smoke 与三起点 referral PASS（`out/artifacts/20260824-155726`，294s），standalone parser/冲突自测 PASS。
-- `--pick <k1,k2,...>` 在每条记录末尾追加一行 TAB 分隔的所选 WHOIS 标题值；首版白名单为 `netname,country,inetnum,inet6num,origin,route,descr`。键名大小写不敏感但必须完整匹配，输出按首次请求顺序，缺失或空值保留为 `key=`。
-- `--pick-mode first|join` 默认 `first`；`join` 用 `|` 合并重复标题，标题续行先用 `; ` 合并。抽取顺序固定为 title -> grep -> pick -> fold/body；与 `--no-body`、`--fold`、chain/meta 和批量合法，与 `--plain` 查询前 fail-fast。每个字段最多 64 KiB，截断以 `...` 收尾且不影响后续键。
-- WP-05B 聚焦验证（2026-08-24）：专项合同 `12/12` PASS（`out/artifacts/pick_contract/20260824-164050`），最终 win64 standalone selftest 四项 pick 标签全 PASS。WP-05 最终重建复核 PASS（`out/artifacts/20260824-170256`，351s）：Strict 九架构 `lto-auto` 无编译/LTO 告警，artifact 与两个发布目录 SHA-256 均 `9/9` 一致；Linux/QEMU/native smoke=`18`、win32=`3`、win64=`3` 且零告警，Golden 与三起点 referral PASS。
-
-WP-05 常用命令：
+单条查询（自动跟随 referral 重定向，最多 `-R` 次，默认 6）：
 
 ```sh
-# 只输出记录边界和逻辑 WHOIS 链
-./whois-x86_64 --no-body --print-chain 8.8.8.8
-
-# 抽取固定字段；缺失值保留为 key=
-./whois-x86_64 --no-body --pick netname,country,inetnum 8.8.8.8
-
-# 合并重复字段，并同时输出 pick、chain、meta
-./whois-x86_64 --no-body --pick descr,country --pick-mode join --print-chain --print-meta 1.1.1.1
-
-# title 投影后再抽取；未保留的 descr 输出空值
-./whois-x86_64 -g 'NetName|Country' --pick netname,country,descr 8.8.8.8
-
-# fold 后追加 pick 与 chain；不要同时使用 --no-body
-./whois-x86_64 -g 'NetName|Country' --fold --pick netname,country --print-chain 8.8.8.8
-
-# stdin 非 TTY 自动进入批量模式
-printf '8.8.8.8\n1.1.1.1\n10.0.0.8\n' |
-  ./whois-x86_64 --no-body --pick netname,country --print-chain
+whois-x86_64 8.8.8.8
+whois-x86_64 example.com
 ```
 
-`--pick` 可与 `--fold` 组合，但 `--no-body` 与任何 fold 开关互斥；`--pick`/`--print-chain` 与 `--plain` 也互斥。
-
-`--stats` 仅用于 `-B` 或 stdin 非 TTY 的批量模式，在全部逐查询记录之后向 stdout 追加一行固定 TAB 分隔汇总。字段覆盖总数、success/error、lookup/rejected/internal 错误分类、IANA/六个 RIR/Verisign/unknown/error/other 分布，以及精确 nearest-rank `p50/p95` 毫秒时延。空批次输出全零行；普通单项失败仍继续批次并计入 error。`--stats` 可与 no-body、fold、过滤及 pick/chain/meta 组合，与单条位置参数或 `--plain` 查询前 fail-fast。统计上限为每批 1,000,000 个有效输入项，超限、分配失败或 SIGINT 不输出部分汇总。
+指定起始服务器并禁止重定向：
 
 ```sh
-# 显式批量；stats 行固定在所有 meta 行之后
-printf '8.8.8.8\n1.1.1.1\n' |
-  ./whois-x86_64 -B --no-body --print-meta --stats
-
-# stdin 非 TTY 自动批量；fold 记录之后输出统计
-printf '8.8.8.8\n1.1.1.1\n' |
-  ./whois-x86_64 -g 'NetName|Country' --fold --stats
+whois-x86_64 --host apnic -Q 103.89.208.0
 ```
 
-WP-06 最终验证（2026-08-24）：真实联网复核修复了 pipeline 渲染接管正文后 stats 把成功查询误计为 lookup error 的问题；成功状态现于渲染前冻结，`8.8.8.8` + `1.1.1.1` 的 meta/fold 组合均输出 `success=2 error=0`、ARIN/APNIC 各 1。修复后 Strict 九架构 `lto-auto` build/hash、Golden、三起点 referral 与双目录 release sync 全 PASS且无编译/LTO 告警（`out/artifacts/20260824-185823`，316s），artifact、仓库发布目录与外部 lzispro 发布目录 SHA-256 均 `9/9` 一致；可运行 Linux/QEMU、win32、win64 smoke=`18/3/3`，首尾对应且零告警。最终同步 win64 专项合同 `12/12` PASS（`out/artifacts/stats_contract/20260824-190108`），standalone selftest 退出 0且 parser、plain 冲突、聚合/分位三项均唯一 PASS。
-- 可选折叠输出 `--fold` 将筛选后的正文折叠为单行：`<query> <UPPER_VALUE_...> <RIR>`；
-- `--fold-sep <SEP>` 指定折叠项分隔符（默认空格，支持 `\t`/`\n`/`\r`/`\s`）
-- `--no-fold-upper` 保留原大小写（默认会转为大写）
+批量查询（`-B` 显式或 stdin 非 TTY 自动开启）：
 
-## 一、核心特性（3.2.0）
-  - 头：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`（例如 `via whois.apnic.net @ 203.119.102.24`），查询项位于标题行第 3 字段（`$3`）；标识会保留用户输入的别名或显示映射后的 RIR 主机名，`@` 段恒为首次连通的真实 IP
-  - 尾：`=== Authoritative RIR: <权威RIR域名> @ <其IP|unknown|error> ===`，若最终服务器以 IP 字面量给出会映射回对应的 RIR 域名；若是已知的 RIR 别名/子域（如 `whois-jp1.apnic.net`），会先归一化为该 RIR 的 canonical 域名再输出；当尾行输出 `error @ error` 时才会在 stderr 输出 `Error: Query failed for ...`，否则不输出失败行；折叠后位于最后一个字段（`$(NF)`）
-  - 链路判读：多跳场景中，首个“无明确 referral 触发的附加跳”可能显示为 `=== Additional query to ... ===`，而不是 `=== Redirected query to ... ===`；这是预期行为，不表示中间 RIR 跳丢失。
-
-
-### 三跳仿真与重试指标（apnic→iana→arin）
-
-为便于稳定模拟“第二/第三跳失败”并观察重试与错误统计，提供以下自测旗标（CLI 开关，不改变默认生产逻辑）：
-
-| 旗标 | 作用 | 用途 |
-|------|------|------|
-| `--selftest-force-iana-pivot` | 首次可重定向链路出现时强制进行一次 IANA 枢纽中转（仅一次，后续真实 referral 正常跟随） | 构造确定的三跳路径 |
-| `--selftest-blackhole-arin` | 将 ARIN 拨号候选替换为保留地址 `192.0.2.1` 制造可控连接超时 | 模拟“终端权威不可达” |
-| `--selftest-blackhole-iana` | 黑洞化 IANA 拨号候选 | 模拟“中间跳失败” |
-
-> 3.2.10+ 提醒：只要开启任意 `--selftest-*` 故障注入或 demo（`--selftest-fail-first-attempt`、`--selftest-inject-empty`、`--selftest-dns-negative`、`--selftest-blackhole-{arin,iana}`、`--selftest-force-iana-pivot`、`--selftest-{grep,seclog}`），客户端都会在执行真实查询前自动跑一次 lookup 自测，并在 stderr 输出 `[LOOKUP_SELFTEST] ...`，无需额外先执行 `whois --selftest`；`--selftest-force-{suspicious,private}` 等需要影响真实查询的钩子会在这次 dry-run 后立即恢复。
-
-#### 故障档案与强制查询钩子（3.2.10+）
-
-- 运行期的所有故障开关（黑洞、DNS negative、force-iana、fail-first 等）会统一写入 `wc_selftest_fault_profile_t`，DNS / lookup / net 仅需读取该结构与版本号即可保持注入行为一致，不再手动同步多个 `extern`。
-- `--selftest-force-suspicious <query|*>` 可在静态检测前把某条（或全部 `*`）查询标记为“可疑”。命中时 stderr 会打印 `[SELFTEST] action=force-suspicious query=<值>`，并额外输出错误行供黄金校验，但在开启 force 时不再阻断；正常（非自测）可疑检测仍保持原有阻断行为。
-- `--selftest-force-private <query|*>` 以同样方式强制触发“私网 IP”路径，并优先于 Phase C 早收敛：命中时 stdout 输出标准私网提示/尾行并结束该查询，stderr 输出 `[SELFTEST] action=force-private query=<值>` 与 `Error: Private query denied`，确保冒烟真实覆盖私网处理分支。未命中该自测钩子的普通隐式私网查询（含批量）仍按 Phase C 输出 Address Status 并早收敛 `unknown @ unknown`；显式 `-h` 保持旧私网提示兼容。
-- `--selftest-registry` 运行本地批量策略注册表自测（不触网），验证默认激活、显式 override 与每次运行隔离，stderr 输出 `[SELFTEST] action=batch-registry-*` 标签；默认关闭，可在冒烟时显式开启。
-
-提示：自 2025-12-25 起，以上 `[SELFTEST]` 标签统一带 `action=` 前缀，并在每个进程内最多输出一次（即便未显式执行 `--selftest` 套件，也会在首次命中强制钩子时落盘），便于 smoke/golden 统一 grep；同批次 DNS ipv6-only/fallback 自测已降级为 WARN，避免偶发网络导致自测中止。
-
-示例（所有查询视为可疑，仅对 `10.0.0.8` 额外触发私网路径）：
-
-```bash
-printf "1.1.1.1\n10.0.0.8\n" | \
-  whois-x86_64 -B --selftest-force-suspicious '*' --selftest-force-private 10.0.0.8
-# stderr 片段：
-# [SELFTEST] action=force-suspicious query=1.1.1.1
-# [SELFTEST] action=force-private query=10.0.0.8
+```sh
+cat ip_list.txt | whois-x86_64 -B --host apnic
 ```
 
-`[SELFTEST] action=force-*` 标签仅写 stderr，与 `-D/--debug` 是否开启无关；当测试/脚本依赖这些钩子时，请将其列为冒烟日志的预期输出。
+主要特性：非阻塞连接、超时与轻量重试；自动跟随 referral（带循环保护）；稳定头/尾输出契约；批量 stdin 输入；条件输出引擎（`-g` → `--grep*` → `--fold`）；可选 HTTP CONNECT 代理；DNS/IP 家族偏好与负向缓存；诊断/安全日志。
 
-示例（Windows PowerShell，通过 Git Bash 调用）：
-```powershell
-& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
-  ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only' -P 1"
-```
+权威判定、跳转顺序与 CIDR 语义以 `docs/RFC-ipv4-ipv6-whois-lookup-rules.md` 为最终基线；代理行为见 `docs/RFC-proxy-access.md`。
 
-自 2025-12-04 起，只要保持默认 `-L 1`（或省略该参数），`tools/remote/remote_build_and_test.sh` 就会在冒烟结束后自动抓取 `build_out/referral_143128/{iana,arin,afrinic}.log` 并在本地调用 `tools/test/referral_143128_check.sh`。仅当 AfriNIC 暂不可达或你只需要构建产物时，才建议传 `-L 0` 或设置 `REFERRAL_CHECK=0` 暂停该守卫，避免误报。
+## 2. 输出契约
 
-示例输出片段：
-```text
-[RETRY-METRICS-INSTANT] attempt=1 success=1 latency_ms=367 total_attempts=1
-[RETRY-METRICS-INSTANT] attempt=2 success=1 latency_ms=227 total_attempts=2
-Error: Query failed for 8.8.8.8 (connect timeout, errno=110, host=whois.apnic.net, ip=203.119.102.29, time=2026-01-30 03:11:29)
-=== Query: 8.8.8.8 via whois.apnic.net @ 203.119.102.29 ===
-[RETRY-METRICS] attempts=7 successes=2 failures=5 min_ms=227 max_ms=3017 avg_ms=2234.1 p95_ms=3017 sleep_ms=0
-[RETRY-ERRORS] timeouts=5 refused=0 net_unreach=0 host_unreach=0 addr_na=0 interrupted=0 other=0
-=== Authoritative RIR: whois.arin.net @ unknown ===
-```
+先看几个贯穿本文的术语（普通用户快速理解）：
 
-字段说明：
-- `[RETRY-METRICS-INSTANT]`：每次拨号完成即刻输出；`success=1` 表示建立连接并收到正文；`latency_ms` 单次耗时；`total_attempts` 为累积尝试计数。
-- `Error: ... errno=XXX`：统一的失败提示；包含 host/ip/time 便于定位；errno 区分超时 / 主机拒绝 / 网络不可达等场景。
-- `[RETRY-METRICS]`：查询结束时聚合统计；`attempts=成功+失败`；`min/max/avg/p95_ms` 为各尝试耗时分布；`sleep_ms` 为连接级节流累计睡眠（禁用节流或无等待则为 0）。
-- `[RETRY-ERRORS]`：错误分类计数（timeouts/refused/net_unreach/host_unreach/addr_na/interrupted/other）。
-- `[DNS-CAND-IANA]`：仅在 `--debug` 或 `--retry-metrics` 时出现；用于观测 IANA 首跳候选构建，输出候选总数、来源分解（`from_input/from_cache/from_resolver/from_known/from_canonical`）以及 `cache_hit/neg_cache_hit/limit_hit`，不改变查询语义。
-- `[DNS-CAND-SUM]`：仅在 `--debug` 或 `--retry-metrics` 时出现；按 hop/host 输出候选构建汇总（`mode/start/count` + 来源分解 + `cache_hit/neg_cache_hit/limit_hit`），用于跨跳定位候选来源变化，不改变查询语义。
-- `[DNS-CAND-RATIO]`：仅在 `--debug` 或 `--retry-metrics` 时出现；输出候选来源占比（`input/cache/resolver/known/canonical` 百分比），用于快速评估某跳候选来源偏移，不改变查询语义。
-- `[DNS-CAND-UNIQ]`：仅在 `--debug` 或 `--retry-metrics` 时出现；输出每跳候选唯一性统计（`total/unique/duplicate`），用于观测候选池重复度，不改变候选顺序与查询语义。
+- **WHOIS** — 一种用来回答“这个 IP/域名归谁”的协议/服务，传统上是明文 TCP 43 端口；本客户端就是去查这些服务器的。
+- **RIR** — 五个地区性互联网注册机构：ARIN（北美）、APNIC（亚太）、RIPE NCC（欧洲/中东）、LACNIC（拉美）、AFRINIC（非洲）。它们负责分配 IP/AS 号并保存 WHOIS 记录。
+- **IANA** — 互联网号码分配局，把大段地址分给各 RIR；很多查询会从 IANA 开始或被其提示。
+- **referral（权威指引）** — 服务器回复“该地址由另一个 RIR 管理，请去问它”；客户端自动跟随（有跳数上限）。
+- **权威（authoritative）** — 真正拥有该记录的服务器；尾行 `=== Authoritative RIR: ... ===` 就是最终判定。
+- **跳（hop）** — 一次“连接某个服务器并查询”的过程；跟随 referral 就形成多跳链路。
+- **CIDR** — `192.0.2.0/24` 表示一段地址范围（`/24` 是前缀长度）；IPv6 同理（如 `2001:db8::/32`）。
+- **私网 IP** — RFC1918 的 `10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16` 等；客户端能识别，直接输出 `unknown` 且不联网。
+- **标题行与续行** — WHOIS 正文形如 `NetName: Foo` 的字段行，其下以空格缩进直到下一个标题的行称为“块/续行”；`-g`/`--grep` 就是按这个结构过滤的。
+- **折叠（fold）** — 把筛选后的正文压缩为一行（`<query> 值1 值2 ... RIR`），方便 awk/grep 聚合。
+- **批量（batch）** — 每行一个查询，各自独立输出；适合 `cat 列表 | whois -B`。
 
-常见问题：
-- `[RETRY-ERRORS]` 全 0？说明没有失败（或失败不在列出的分类之外）。
-- `attempts` 为什么大于 `-r`？包含首拨（`-r 0` 仍有 attempt=1）。
-- `sleep_ms` 是否含 DNS 重试等待？否，仅统计连接级节流等待。
+### 头/尾与折叠契约
 
-远程冒烟脚本超时策略（`tools/remote/remote_build_and_test.sh`）：
-- `SMOKE_TIMEOUT_DEFAULT_SECS`：普通冒烟（未加 `--retry-metrics`）保护超时，默认 8。
-- `SMOKE_TIMEOUT_ON_METRICS_SECS`：包含 `--retry-metrics` 时的宽松超时，默认 45；脚本先 SIGINT（保留指标），超时后 5 秒再 SIGKILL。
+- 头行：`=== Query: <查询项> via <起始服务器标识> @ <实际连通IP或unknown> ===`
+  - 查询项位于第 3 字段（`$3`）；标识保留用户输入的别名或映射后的 RIR 主机名；`@` 段恒为首次连通的真实 IP（DNS 失败时为 `unknown`）。
+- 尾行：`=== Authoritative RIR: <权威RIR域名> @ <其IP|unknown|error> ===`
+  - IP 字面量会映射回对应 RIR 域名；已知别名/子域（如 `whois-jp1.apnic.net`）会归一化为 canonical 域名。仅当尾行为 `error @ error` 时才在 stderr 输出 `Error: Query failed for ...`，否则不输出失败行。
+- 折叠行：`<query> <UPPER_VALUE_1> <UPPER_VALUE_2> ... <RIR>`（无 IP），折叠后权威 RIR 为最后一个字段 `$(NF)`。
+- 私网 IP：正文输出 `<ip> is a private IP address`，尾行 `=== Authoritative RIR: unknown ===`（隐式查询另见 `Address Status:` 行）。
+- 附加跳：多跳中首个“无明确 referral 触发的附加跳”显示为 `=== Additional query to ... ===`（而非 `=== Redirected query to ... ===`），属预期行为。
+- 空响应告警：`=== Warning: empty response from <host>, retrying ... ===`（stdout），不计入跳数。
+- stdout 仅业务输出；stderr 仅诊断/指标（`[RETRY-*]`、`[DNS-*]`、`[SELFTEST]`、`[INFO]` 等）。
 
-自定义示例：
-```powershell
-$env:SMOKE_TIMEOUT_ON_METRICS_SECS='60'; \
-& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8' -a '--host apnic --selftest-force-iana-pivot --selftest-blackhole-arin --retry-metrics -t 3 -r 0 --ipv4-only'"
-```
-
-### 网络重试上下文（3.2.10+）
-
-- 每个客户端进程在运行期初始化后都会构建一份 `wc_net_context`，之后所有入口（单条查询、批量 stdin 循环、自动触发的 lookup 自测）都会复用同一份上下文，因此 `[RETRY-METRICS]`、`[RETRY-METRICS-INSTANT]`、`[RETRY-ERRORS]` 计数会在自测预热与真实查询之间保持连续，不会在每条查询前自动清零。
-- 若需要“干净”的重试计数或 pacing 状态，请直接重新启动进程；共享上下文的目的是让同一批次/同一流水线内的诊断输出更容易关联，也确保节流预算在批量模式下能够跨多条查询累积。
-
-说明：黑洞化仅用于受控验证，不代表真实服务异常；标题/尾行契约保持不变，便于与真实结果做差异分析。
-
-## 二、命令行用法
+## 3. 命令行参数参考
 
 ```
 Usage: whois-<arch> [OPTIONS] <IP or domain>
-
-元信息选项：
-  -H, --help               显示帮助
-  -v, --version            显示版本
-  -l, --list               列出内置服务器别名
-      --about              显示详细功能与模块说明
-      --examples           显示更多示例
-
-说明：纯元信息选项（help/version/about/examples/list）会直接返回结果，不再触发运行期初始化；stdout/stderr 契约保持不变。
-
-运行期 / 查询选项（节选）：
-  -B, --batch              从 stdin 逐行读取查询（禁止再写位置参数）；若未显式加 `-B` 且 stdin 非 TTY，则自动进入批量模式
-      --batch-strategy 名称  仅批量模式可用；显式启用起始服务器调度策略/加速器（默认保持 raw 顺序）。可选 `health-first`、`plan-a`、`plan-b`，未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy ... fallback=health-first` 并回落，避免影响旧脚本
-      --batch-interval-ms M  批量模式下每条查询间隔 M 毫秒（默认 0=关闭）
-      --batch-jitter-ms J    批量间隔追加随机抖动 0..J 毫秒（默认 0=关闭）
-    -R, --max-redirects N   限制跟随的重定向跳数（默认 6）；到达上限仍需跳转则立即结束，权威未确定时回落为 `unknown`；别名：`--max-hops`
-    -Q, --no-redirect       等同于 `-R 1`：仅查询首跳；若首跳返回 referral，则立即结束并回落 `Authoritative RIR: unknown @ unknown`
-    -P, --plain             纯净输出（抑制标题/尾行与 referral 提示行）
-        --show-non-auth-body 保留权威跳之前的非权威正文
-        --show-post-marker-body 保留权威跳之后的正文（与 --show-non-auth-body 组合可保留全部）
-      （CIDR 例外）基准回查正文不输出；若后续跳基准命中，正文以“原始查询项一致性验证”响应为准
-        --hide-failure-body 隐藏限流/拒绝类正文行（默认保留）
-      --ipv6-only            强制 IPv6；同时禁用 forced-ipv4/known-ip 回退，确保纯 IPv6 行为
-      --ipv4-only            强制 IPv4（不涉及 IPv6 回退）
-      --max-host-addrs N    限制单个主机的拨号尝试次数（默认 0=不限制，范围 1..64）。上限在 DNS 候选生成与 lookup 拨号层同时生效，超过 N 后不再尝试后续地址。开启 `--debug` 时可通过 `[DNS-LIMIT] host=<h> limit=<n> appended=<k> total=<m>` 与 `[NET-DEBUG] host=<h> max-host-addrs=<n> (ctx=<c> cfg=<g>)` 观测实际生效的上限。
-      --dns-backoff-window-ms N  DNS 失败滑动窗口（毫秒，默认 10000，0=禁用窗口累计）
-      --dns-append-known-ips  将内置 RIR 已知 IP 追加到 DNS 候选（显式开关，仅补足候选）
-    -d, --dns-cache COUNT   DNS 缓存条目数（默认 10）
-    -c, --conn-cache COUNT  连接缓存条目数（默认 5）
-    -T, --cache-timeout SEC 缓存 TTL，秒（默认 300）
-      --cache-counter-sampling  在非 debug 运行中也周期输出缓存计数采样（默认关闭；任意 `--selftest*` 开关会自动开启以便黄金断言）
 ```
 
-### 新增：安全日志（可选）
+### 3.1 元信息
 
-- 重定向补充：当 RIR 返回限流/拒绝访问时会触发“非权威重定向”继续查找；若此前没有 ERX/IANA 标记且已查遍所有 RIR，则权威回落 `error`，否则权威为首个出现 ERX/IANA 标记的 RIR。失败出错行仅在最终尾行为 `error @ error` 时才会输出；否则不输出 `Error: Query failed for ...`。`--debug` 下，限流/拒绝会在 stderr 追加 `[RIR-RESP] action=denied|rate-limit ...` 标签。仅包含 banner 注释的 RIR 响应会按空响应处理：先重试，仍为空时触发重定向（非 ARIN 首跳直跳 ARIN，ARIN 首跳进入 RIR 轮询）。空响应重试会在 stderr 输出 `[EMPTY-RESP] action=...` 标签。若因限流/拒绝访问导致未能查询到某个 RIR，且出现过 ERX/IANA 标记但最终未收敛权威，则在遍历完所有 RIR 后，仅对首个 ERX/IANA 标记 RIR 执行一次“基准值回查”（去掉 CIDR 掩码的 IP 字面量查询）；若回查仍失败或仍含非权威标记，则权威保持 `error`。LACNIC 内部重定向到 ARIN 时因未加 ARIN 前置查询标志，常出现 `Query terms are ambiguous` 并触发非权威重定向，因此此时不会把 ARIN 记为已访问，下一跳会按 ARIN 规则补全前置标志再查询。
+| 参数 | 说明 |
+|------|------|
+| `-H, --help` | 显示帮助并退出 |
+| `-v, --version` | 显示版本并退出 |
+| `-l, --list` | 列出内置 RIR 服务器别名 |
+| `--about` | 显示功能与模块说明 |
+| `--examples` | 显示扩展示例 |
 
-- `--security-log`：开启安全事件日志输出（stderr），默认关闭。用于调试/攻防校验，不改变标准输出（stdout）的既有“标题/尾行”契约。典型事件包含：输入校验拒绝、协议异常、重定向目标校验失败、响应净化与校验、连接洪泛检测等。
-- 已内置限频防洪：安全日志在攻击/洪泛场景下会做限速（约 20 条/秒），超额条目会被抑制并在秒窗切换时汇总提示。
-### 新增：调试 / 自检 / 折叠去重（3.2.4+）
+说明：纯元信息选项直接返回，不触发运行期初始化（stdout/stderr 契约不变）。
 
-- `-D, --debug`：开启“基础调试”与 TRACE（stderr）。默认关闭；推荐仅在排查问题时启用。
-- `--debug-verbose`：开启“更详细的调试”（包含缓存/重定向等关键路径的附加日志），输出到 stderr。
-- 当查询携带 ARIN 风格前缀（如 `n + =`）但跳转目标不是 ARIN 时，会自动剥离前缀并在 stderr 输出 `[DNS-ARIN] strip-prefix ...`（需 `--debug` 或重试指标开启时才会出现）。
-- 说明：不再支持通过环境变量启用调试；请直接使用 `-D` 或 `--debug-verbose`。
-- 调试日志采集提示：若查询命中内置已知 IP（例如 8.8.8.8 → whois.iana.org/arin），仅加 `--debug` 可能无 DNS/重试输出。可追加 `--retry-metrics --dns-cache-stats --no-known-ip-fallback` 强制经过 DNS/重试路径；需要仅 IPv4 则再加 `--ipv4-only`，示例：`./whois-x86_64 --title --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log`。
-- `--selftest`：运行内置自检并退出；覆盖项包含折叠基础与折叠去重行为验证（非 0 退出代表失败）。自 3.2.10 起，任一 `--selftest-*` 故障旗标都会在真实查询前自动触发同一套 lookup 自测，因此该旗标仅在需要单独跑自测后立刻退出的场景使用。
-  - 扩展（3.2.7）：默认自测包含折叠、重定向（redirect）与查找（lookup）检查；lookup 检查包含 IANA 首跳、单跳权威与“空响应注入”路径验证。可通过 `--selftest-inject-empty` 显式触发“空响应注入”路径（需要网络）。如需额外启用 grep 与安全日志（seclog）自测，请在构建时加入编译宏并使用 CLI：
-    - 编译：`-DWHOIS_GREP_TEST`、`-DWHOIS_SECLOG_TEST`
-    - 运行：`--selftest-grep`、`--selftest-seclog`
-  - 远程脚本示例（启用全部自测并执行）：
-    ```bash
-    ./tools/remote/remote_build_and_test.sh -r 1 -a "--selftest" -E "-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST"
-    # 或在 PowerShell 中：
-    & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -a '--selftest' -E '-DWHOIS_GREP_TEST -DWHOIS_SECLOG_TEST'"
-    ```
-  - 典型输出片段：
-    ```
-    [SELFTEST] fold-basic: PASS
-    [SELFTEST] fold-unique: PASS
-    [SELFTEST] redirect-detect-0: PASS
-    [SELFTEST] redirect-detect-1: PASS
-    [SELFTEST] auth-indicators: PASS
-    [SELFTEST] extract-refer: PASS
-    [SELFTEST] lookup-iana-first: PASS
-    [SELFTEST] lookup-single-hop: PASS
-    [SELFTEST] lookup-empty-inject: PASS
-    [SELFTEST] grep: PASS
-    [SELFTEST] seclog: PASS
-    ```
-  - 注意：grep 与 seclog 自测默认不开启；仅在需要验证正则引擎与安全日志速率/限频逻辑时使用，生产构建可不加这些宏以缩短构建时间。
-  - 版本注入策略（简化）：默认不再附加 `-dirty` 后缀；如需恢复严格模式，可在构建或调用脚本前设置环境变量 `WHOIS_STRICT_VERSION=1`（暂不建议启用，待模块拆分完成后再使用严格标记，以降低日常迭代噪声）。
-- `--fold-unique`：在 `--fold` 折叠模式下去除重复 token，按“首次出现”保序输出。
+### 3.2 核心查询
 
-### 新增：Step 4.7 受控试验选项（3.2.11+）
+| 参数 | 说明 |
+|------|------|
+| `-h, --host HOST` | 指定起始 WHOIS 服务器（别名/域名/IP 字面量，如 `apnic`、`whois.apnic.net`、`202.12.29.220`） |
+| `-p, --port PORT` | WHOIS 端口（默认 43）；不支持 `host:port` 语法 |
+| `-B, --batch` | 从 stdin 逐行读取查询（禁止再写位置参数；stdin 非 TTY 时自动启用） |
+| `-R, --max-redirects N` | 最大跟随 referral 跳数（默认 6）；别名 `--max-hops`。到达上限仍需跳转时立即结束，权威回落 `unknown` |
+| `-Q, --no-redirect` | 等价 `-R 1`：只查首跳；若首跳返回 referral，立即结束并回落 `unknown @ unknown` |
+| `-P, --plain` | 纯净输出：抑制头行、尾行与 referral 提示行 |
+| `--show-non-auth-body` | 保留权威跳之前的非权威正文 |
+| `--show-post-marker-body` | 保留权威跳之后的正文（与上项组合保留全部） |
+| `--hide-failure-body` | 隐藏限流/拒绝类正文行（默认保留） |
+| `--cidr-strip` | 查询项为 CIDR 时只发送 IP 基地址；标题行保留原始 CIDR |
+| `-D, --debug` | 基础调试与 TRACE 到 stderr |
 
-- `--disable-address-preclass`：一键关闭 Step 4.5/4.6/4.7 逻辑，回退到 preclass 关闭语义。
-- `--enable-preclass-actions`：开启 P1 受控分类动作入口（默认关闭；需配合 `--enable-step47-trial` 才会生效，建议仅在定向验证中启用）。
-- `--preclass-action-tier r0|r1`：P1 动作候选分层（默认 `r0`；`r0` 仅单点候选，`r1` 扩展 reserved/special 候选）。
-- `--preclass-action-list <csv>`：覆盖 P1 动作候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时沿用 tier 默认候选；`default` 允许前后空白）。
-- `--enable-step47-trial`：开启 Step 4.7 观测/试验门（默认关闭）。
-- `--step47-trial-scope minimal|reserved|all`：控制 Step 4.7 试验范围（默认 `minimal`）。
-- `--enable-step47-early-unknown`：开启 early-unknown 受控入口（默认关闭，仅 `reserved` scope 生效）。
-- `--step47-early-unknown-list <csv>`：配置 early-unknown 候选列表（CSV 精确匹配，忽略大小写；未设置或 `default` 时使用默认单点候选）。
-- `--enable-preclass-first-hop`：启用专用 Phase B 分类器优先首跳开关；49/50 D4 后对隐式查询默认开启。显式 `-h` 保持旁路，`--disable-address-preclass` 提供全量回退。
-- `--enable-preclass-early-converge`：Phase C reserved/special 早收敛能力，默认开启；仅高置信 `reserved|special` 且 `rir=none` 的隐式查询允许短路。命中 IANA special-purpose 静态表时，普通输出增加 `=== Address Status: ... ===`，权威尾行统一为 `unknown @ unknown`。显式 `-h` 仍查询并显示指定服务器正文，但成功响应同样执行 special-purpose 权威归一化；低置信、allocated/legacy 与非 `none` RIR 不进入该路径。使用 `--disable-address-preclass` 可全量回退旧路径。
+用例：
 
-说明：
-- 显式 `-h` 保持兼容，不参与 Step 4.7 短路。
-- Address Status 仅在普通输出出现；`--plain`/`--fold` 不新增结构行，fold 末项继续为 `unknown`。
-- `tools/test/preclass_special_registry_matrix.ps1` 提供 10 个离线 special-purpose 样例；加 `-RunExplicitHosts` 后追加 TEST-NET-3 七起点一致性验证。
-- `[PRECLASS-DECISION]` 新增 `p1_list=default|custom` 字段，用于观测 P1 候选来源（tier 默认或自定义 CSV）。
-- 建议优先使用 VS Code 任务：`Test: Step47 PreRelease Check (reserved, list file)`（复用 `step47ListFile` 输入，一键执行 readiness + A/B + rollback）。
-- 建议配合以下脚本做 pre-release 验证：
-  - `tools/test/step47_prerelease_check.ps1`（一键门禁）
-  - `tools/test/step47_ab_compare.ps1`
-  - `tools/test/step47_rollback_drill.ps1`
-  - `testdata/step47_reserved_list_default.txt`（默认候选）
-
-### 批量起始策略与调试（3.2.10+）
-
-- `--batch-strategy <名称>`：仅在批量模式下启用可插拔策略；未指定时保持 raw 顺序（CLI host → 推测 RIR → IANA），不会触发 penalty 跳过或 plan-a 缓存日志。
-  - `health-first`：沿用经典顺序并结合 DNS penalty 记忆跳过近期失败主机，是触发 `[DNS-BATCH] action=start-skip/force-last` 的必要前提。
-  - `plan-a`：缓存上一条成功查询的权威 RIR，下一条查询若该 RIR 仍健康则直接作为首跳，并在 `--debug` 场景输出 `[DNS-BATCH] action=plan-a-cache`（缓存更新/清空）、`plan-a-faststart`（命中快速路径）、`plan-a-skip`（缓存 host 被 penalty，回退）等日志。
-  - `plan-b`：缓存上一条权威 RIR，健康时优先使用；若被罚站则回退到首个健康候选（若无则强制 override/末尾），在 `--debug` 下输出 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last`。
-  未知名称会打印一行 `[DNS-BATCH] action=unknown-strategy name=<输入> fallback=health-first` 并自动启用 `health-first`，避免破坏旧脚本。
-- `WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net,whois.ripe.net'`：在进入批量循环前一次性将逗号分隔的主机标记为“已罚站”。通常需要配合 `--batch-strategy health-first`（观测 `start-skip/force-last`）或 `--batch-strategy plan-a`（观测 plan-a-* 日志），再搭配 `tools/remote/remote_build_and_test.sh -F testdata/queries.txt -a '--debug --retry-metrics --dns-cache-stats'`，即可在 remote smoke / Golden 剧本中稳定复现 `[DNS-BATCH] action=...` 信号。
-
-#### 批量策略快手剧本
-
-以下命令均默认在仓库根目录执行，示例二进制为 `whois-x86_64`，其余架构名称替换即可。脚本需要 BusyBox/Git Bash 环境，若要跨平台运行建议通过 `tools/remote/remote_build_and_test.sh`。
-
-- **raw 顺序冒烟**：用于验证“无策略”路径仍能跑通、标题与尾行契约未被破坏。
-
-  ```bash
-  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
-    --batch-strategy raw < testdata/queries.txt
-  ```
-
-- **health-first + penalty 观察**：结合 `WHOIS_BATCH_DEBUG_PENALIZE` 提前将若干 RIR 标记为罚站，配合 `health-first` 观测 `[DNS-BATCH] action=start-skip/force-last`。
-
-  ```bash
-  WHOIS_BATCH_DEBUG_PENALIZE='whois.arin.net' \
-    ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
-    --batch-strategy health-first < testdata/queries.txt
-  ```
-
-- **plan-a 缓存路径**：先跑一轮 `health-first`，再复用 `plan-a` 确认 `[DNS-BATCH] action=plan-a-faststart/plan-a-cache/plan-a-skip`，并确保缓存失效时可回退。
-
-  ```bash
-  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
-    --batch-strategy health-first < testdata/queries.txt
-
-  ./whois-x86_64 --debug --retry-metrics --dns-cache-stats \
-    --batch-strategy plan-a < testdata/queries.txt
-  ```
-
-Golden 校验：推荐使用 `tools/test/golden_check_batch_presets.sh`（`raw` / `health-first` / `plan-a` / `plan-b`），现已对 plan-b 的 `[DNS-BATCH] plan-b-force-start/plan-b-fallback/force-override/start-skip/force-last` 等标签做断言。可在 `-l` 之前追加 `--selftest-actions 'force-suspicious,force-private'` 等列表，一次性断言 `[SELFTEST]` 与 `[DNS-BATCH]`。示例：
-
-```bash
-tools/test/golden_check_batch_presets.sh plan-a \
-  --selftest-actions 'force-suspicious,force-private' \
-  -l out/artifacts/<ts_pa>/build_out/smoke_test.log --strict
+```sh
+whois-x86_64 --host apnic -Q 103.89.208.0      # 固定起始 RIR 且不跟随 referral
+whois-x86_64 -P 8.8.8.8                        # 纯净正文（无头/尾）
+whois-x86_64 --cidr-strip -h arin 1.1.1.0/24   # CIDR 只发基地址
+whois-x86_64 --show-non-auth-body --show-post-marker-body 1.1.1.1   # 保留全部跳转正文
 ```
 
-单条查询黄金脚本：`tools/test/golden_check.sh` 支持 capped referral 与自测日志：
+### 3.3 代理（HTTP CONNECT / SOCKS）
 
-- capped referral（例如 `-R 2`，尾行可能 `unknown @ unknown`）：
-  ```bash
-  tools/test/golden_check.sh -l out/artifacts/<ts>/build_out/smoke_test.log \
-    --query 8.8.8.8 --start whois.iana.org --auth whois.arin.net \
-    --auth-unknown-when-capped --redirect-line whois.afrinic.net
-  ```
-  若日志只有 `Additional`/`Redirect` 无尾行，脚本会自动放行并打印 `[INFO] tail missing but allowed`，无需额外开关。
+代理是一台“中转服务器”：客户端把连接请求交给它，由它替你去连 WHOIS 服务器（端口 43）。当你的网络访问不了某些 RIR（例如运营商屏蔽 ARIN 的 43 端口）、或公司/校园要求走统一出口时，就可以通过代理查询。
 
-- 自测日志（仅含 `[SELFTEST] action=*`，无头尾）：
-  ```bash
-  tools/test/golden_check.sh -l out/artifacts/<ts_selftest>/build_out/smoke_test.log \
-    --selftest-actions force-suspicious --selftest-actions-only
-  ```
+#### 支持的代理类型（当前版本）
 
-当 golden 校验通过后，可将同一命令集透传给 `tools/remote/remote_build_and_test.sh -a '<命令>'` 做跨架构冒烟，使 `[DNS-BATCH]`、`[RETRY-METRICS]`、`[DNS-CACHE-SUM]` 等指标保持一致。
+| 类型 | URL 示例 | 默认端口 | 用途说明 |
+|------|----------|----------|----------|
+| `http://` | `http://proxy.example:8080` | 8080 | HTTP CONNECT 代理：先向代理发 `CONNECT host:43`，成功后在其上跑 WHOIS 明文 TCP。最常见（公司/共享代理） |
+| `socks5://` | `socks5://proxy.example:1080` | 1080 | SOCKS5：**目标域名由本客户端本地解析**，再把解析出的 IP 交给代理（走的是你自己的 DNS） |
+| `socks5h://` | `socks5h://proxy.example:1080` | 1080 | SOCKS5 远程解析：**把域名直接发给代理**，由代理解析并连接。适合“本地 DNS 被污染/解析异常”或想隐藏目标域名 |
+| `socks4://` | `socks4://proxy.example:1080` | 1080 | SOCKS4：仅支持 IPv4 目标（老式代理） |
+| `socks4a://` | `socks4a://proxy.example:1080` | 1080 | SOCKS4a：支持域名（代理端解析），但仍不支持 IPv6 目标 |
 
-**Windows 一键四策略（raw + health-first + plan-a + plan-b）** – 通过 PowerShell 调用 `tools/test/remote_batch_strategy_suite.ps1`，一次性执行四轮远端冒烟，plan-b 轮次会校验 `[DNS-BATCH] plan-b-*` 标签：
+选择建议：
+- 公司/内网提供的一般是 `http://` 代理，端口常见 8080/3128。
+- 只想要“能连上就行”且不介意本地解析：`socks5://`。
+- 本地 DNS 有问题（如解析到错误地址）或不想暴露目标：`socks5h://`。
+- 注意：`socks5h://` / `socks4a://` 把域名交给代理，代理最终用的地址族无法预知，因此与 `--ipv4-only`/`--ipv6-only`、家族模式、回退开关或 `--rir-ip-pref` 等控制互斥，同时使用会在查询前直接报错。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test/remote_batch_strategy_suite.ps1 `
-  -Host 10.0.0.199 -User larson -KeyPath '/c/Users/你/.ssh/id_rsa' `
-  -Queries '8.8.8.8 1.1.1.1' -BatchInput testdata/queries.txt `
-  -SelftestActions 'force-suspicious,*;force-private,10.0.0.8' -EnablePlanB
+#### 怎么指定代理（含 `ALL_PROXY` 是什么）
+
+优先级从高到低：
+
+1. 命令行 `--proxy <url>`
+2. 环境变量 `WHOIS_PROXY`
+3. 仅当加了 `--proxy-env` 时：`ALL_PROXY` → `all_proxy`
+4. 都不存在 → 直连
+
+关于 `ALL_PROXY` / `all_proxy`：它们是很常见的“通用代理环境变量”，很多程序（curl、git、apt 等）都认它，写法如 `http://proxy.example:8080` 或 `socks5h://proxy.example:1080`。`ALL_PROXY` 为大写（更常用），`all_proxy` 为小写；本客户端按“大写优先、小写次之”读取。**默认不读**——因为如果系统里恰好设置了 `ALL_PROXY`，而你不想走代理，会被“悄悄”强制走代理，所以必须显式加 `--proxy-env` 才启用。
+
+`HTTP_PROXY` / `HTTPS_PROXY` 永远不会被读取：WHOIS 是明文 TCP（没有“HTTP 还是 HTTPS”之分），而且某些环境下大写 `HTTP_PROXY` 存在 CGI 注入隐患。
+
+`NO_PROXY` / `no_proxy`（也需要 `--proxy-env` 才生效）：列出“不要走代理”的目标，多个用逗号分隔；对每一跳 WHOIS 服务器都会重新判断。支持：`*`（全部直连）、精确主机名、前导点域名后缀（如 `.internal` 匹配 `a.internal`）、IPv4 字面量、方括号 IPv6 字面量，以及“主机:端口”。不支持 CIDR（如 `10.0.0.0/8`）和任意通配符。
+
+```sh
+# 指定 NO_PROXY：本机、内网域名和不希望走代理的 RIR
+NO_PROXY='localhost,.internal,whois.iana.org' whois-x86_64 --proxy-env 1.1.1.1
 ```
 
-`-SelftestActions '动作,目标;...'` 会为四组黄金命令统一追加 `--selftest-actions`，让 `[SELFTEST] action=*` 与 `[DNS-BATCH] action=*` 同时被断言。
+#### 用户名 / 密码怎么填（重要）
 
+出于安全考虑：
 
-### 新增：DNS 解析控制 / IP 家族偏好 / 负向缓存（3.2.7 & Phase1 扩展）
-
-IP 家族偏好（解析与拨号顺序）：
-- `--ipv4-only` 强制仅 IPv4（修复后不再先用域名按系统默认族顺序拨号）
-- `--ipv6-only` 强制仅 IPv6
-- `--prefer-ipv4` IPv4 优先，再 IPv6
-- `--prefer-ipv6` IPv6 优先，再 IPv4
-- `--prefer-ipv4-ipv6` 首跳（hop0）IPv4 优先，后续 referral/重试自动切换为 IPv6 优先；若首选失败仍会自动使用另一族
-- `--prefer-ipv6-ipv4` 与上项镜像：首跳 IPv6 优先，后续 hop 改为 IPv4 优先（适合“本地 IPv6 更快，但多跳场景 IPv4 更稳”的拓扑）
-- `--rir-ip-pref arin=v4,ripe=v6,...` 按 RIR 覆盖族偏好（可只设置部分 RIR）；优先级：`--ipv4-only/--ipv6-only` > RIR 覆盖 > `--dns-family-mode-*` > 全局 `--prefer-*`。RIR 覆盖会对应到 `ipv4-only-block`/`ipv6-only-block`。
-- `--dns-family-mode <模式>` 控制 DNS 候选交错/顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block`。可选 per-hop 覆盖：`--dns-family-mode-first`（首跳）与 `--dns-family-mode-next`（第二跳及以后）接受同样的模式。优先级：单栈强制（显式 only 或探测） > RIR 覆盖 > per-hop 覆盖 > 全局 family-mode > prefer 派生默认。`--debug` 下 `[DNS-CAND] mode=... start=ipv4|ipv6` 显示生效的跳次配置。
-  启动时会做一次 IPv4/IPv6 可用性探测：IPv6 仅在本机存在公网地址（2000/4000::/3）时视为可用；两族都不可用直接 fatal 退出；仅单族可用时会自动强制对应 block 模式，忽略冲突偏好并打印 notice；双栈可用且未显式设定 prefer/only/family 时，默认生效 `--prefer-ipv6` + `--dns-family-mode-first interleave-v6-first` + `--dns-family-mode-next seq-v6-then-v4`（全局回落仍为 `seq-v6-then-v4`）。开启 `--debug` 会看到 `[NET-PROBE]` 打印探测结果。
-用途简述：`--dns-family-mode`/`--dns-family-mode-first/next` 控制“候选表如何交错/切换”，而 `--prefer-*` 只决定首选族群。当首拨失败或被健康记忆判为坏时，family-mode 决定下一跳切换的族群与节奏；想直观看出差异，可在 `--debug` 下对比 `[DNS-CAND] mode/start`，或临时改成 `--prefer-ipv4-ipv6` 等降低单族偏好后再比较交错/顺序的表现。
-
-CIDR 查询归一化：
-- `--cidr-strip` 当查询项为 CIDR（例如 `1.1.1.0/24`）时，仅向服务器发送 IP 基地址，标题行仍保留原始 CIDR 字符串。
-- `--no-cidr-erx-recheck` 已在 next-major 开发阶段移除；CIDR 默认始终执行 ERX/IANA 基准复查。
-
-负向 DNS 缓存（短 TTL）：
-- `--dns-neg-ttl <秒>` 设置负向缓存 TTL（默认 10 秒）
-- `--no-dns-neg-cache` 禁用负向缓存
-
-进程级汇总快照（`--dns-cache-stats`）：
-- 当显式启用 `--dns-cache-stats` 时，客户端会在本次进程结束前额外打印一行 DNS 缓存统计：
-
-  ```text
-  [DNS-CACHE-SUM] hits=10 neg_hits=0 misses=3
-  ```
-
-- 该行只会在进程级别输出一次（单条/批量/自测均适用），统计来源于已有的 `[DNS-CACHE]` 计数器，仅用于诊断观察，不会改变解析/回退策略。
-- 字段含义：
-  - `hits`：本进程内 DNS **正向缓存命中次数**。当某个域名/主机名的解析结果已存在于缓存中并被成功复用（无需再次调用 `getaddrinfo`）时，计数加 1。
-  - `neg_hits`：本进程内 DNS **负缓存命中次数**。当某个域名之前解析失败（例如 NXDOMAIN）且该“失败结果”被写入负缓存，后续对同一域名的查询直接命中这条负缓存记录时，计数加 1。
-  - `misses`：本进程内 DNS **缓存未命中次数**。当缓存中既没有正向命中、也没有负向命中，客户端只能发起一次真正的 DNS 解析（`getaddrinfo`）时，计数加 1。
-  - 直观理解：`hits` 越多说明重复查询有效利用了缓存；`neg_hits` 多通常意味着“同一个不存在/有问题的域名”被重复查询较多次；`misses` 偏大则意味着缓存命中率较低（查询集合高度分散，或进程刚启动、缓存尚未“预热”）。
-
-> 2025-12 更新：legacy DNS cache 已彻底下线，`wc_dns` 成为唯一的解析与缓存数据面。`--dns-cache-stats` 输出仅保留 `[DNS-CACHE-SUM]`（源自 `wc_dns`），`[DNS-CACHE-LGCY]` / `[DNS-CACHE-LGCY-SUM]` 不再输出；若需诊断旧路径，请使用专门分支或本地补丁，而非运行时开关。
-
-解析与候选控制（Phase1 新增，CLI-only）：
-- `--no-dns-addrconfig` 关闭 `AI_ADDRCONFIG`（默认开启，避免在本机无 IPv6 时仍返回 IPv6 失败候选）
-- `--dns-retry N` `getaddrinfo` 在 `EAI_AGAIN` 下的重试次数（默认 3，范围 1..10）
-- `--dns-retry-interval-ms M` DNS 重试间隔毫秒（默认 100，范围 0..5000）
-- `--rate-limit-retries N` 应用层限流/临时拒绝重试次数（默认 2，范围 0..10）
-- `--rate-limit-retry-interval-ms M` 应用层限流重试间隔毫秒（默认 2500，范围 0..600000）
-- `--dns-max-candidates N` 限制解析出的可拨号 IP 候选数量（默认 12，范围 1..64）
-    - 白话：`--no-dns-addrconfig` 会关闭“与本机网络匹配”的系统过滤（例如：本机没有 IPv6 时默认会过滤掉 IPv6 结果），一般无需关闭；`--dns-retry*` 仅在临时 DNS 故障（EAI_AGAIN）时做快速重试。
-
-Phase‑2 助手速记（`wc_dns` 模块）：
-    - `wc_dns_build_candidates()` 会把用户指定的 IP 字面量保留为首个候选，再将 arin/apnic 等别名映射成规范域名，并按 `--prefer-*` / `--ipv*-only` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` 为当前 hop 交错 IPv6/IPv4 结果。
-    - 解析阶段遵循 `--dns-retry*`、`--dns-max-candidates`，自动去重，并在仅提供字面量时回落到对应 RIR 的规范域名，保证拨号顺序可预测。
-    - 空响应重试、强制 IPv4 重拨、已知 IPv4 fallback 以及自测黑洞路径都复用同一批候选；若加上 `--no-known-ip-fallback` / `--no-force-ipv4-fallback`，只会移除额外 fallback 层，不影响基础候选排序。
-    - Phase 3 预览：在开启 `--debug` 或 `--retry-metrics` 时，`[DNS-CAND]` 之后会多一行 `[DNS-CACHE] hits=... neg_hits=... misses=...`，用于粗略观察 DNS 缓存/负缓存的使用情况，仅作诊断用途，不改变解析/回退行为。
-
-#### DNS 自测操作指南（3.2.9）
-
-以下示例默认在仓库根目录执行，使用 `whois-x86_64`，其他架构二进制同理。所有命令返回码为 0。
-
-1. **IPv6-only 纯候选**
-   ```bash
-   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
-     --ipv6-only --retry-metrics --debug
-   ```
-   观察 `[DNS-CAND]` 仅包含 IPv6 字面量且没有 `canonical`，`dns-ipv6-only-candidates PASS`。由于黑洞场景会诱发 IPv4 回退，结尾的 `fallback counters: forced>0 known>0` 证明 instrumentation 正常。
-
-2. **Prefer-IPv6 + 回退开启**
-   ```bash
-   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
-     --prefer-ipv6 --retry-metrics --debug
-   ```
-   `[DNS-CAND] canonical` 与 IPv4 候选重新出现，`dns-canonical-fallback PASS`。当 IPv6 候选被黑洞掉后，会看到 `known-ip fallback found-known-ip`、`forced-ipv4 fallback warning` 等日志，说明两层回退确实被触发。
-
-3. **Prefer-IPv6 + 回退禁用**
-   ```bash
-   ./whois-x86_64 --selftest --selftest-blackhole-arin --selftest-inject-empty \
-     --prefer-ipv6 --no-force-ipv4-fallback --no-known-ip-fallback \
-     --retry-metrics --debug
-   ```
-   canonical 依旧被构建，但 `[DNS-FALLBACK]` 成对打印 `not selected`，`dns-fallback-disabled PASS` 且 `fallback counters` 为 0，可直观看到禁用了强制 IPv4 与已知 IPv4 回退。
-
-回退行为开关（默认启用，不加开关即可使用）：
-  - `--no-known-ip-fallback` 关闭“已知 IPv4”回退（针对特定 RIR 的固定 IPv4 兜底）
-  - `--no-force-ipv4-fallback` 关闭“强制 IPv4”回退（空响应/异常场景再尝试纯 IPv4 重拨）
-  - `--no-iana-pivot` 关闭“缺失 referral 时的 IANA 中转”策略（可能降低最终权威定位成功率）
-
-调试统计（不改变行为）：
-  - `--retry-metrics` 打印重试节奏统计（stderr），用于观察是否发生重试/等待；不会让程序“更慢”，仅输出统计数据。
-
-说明：正向缓存保存“域名→IP”成功解析；负向缓存保存“解析失败”的临时记忆，用于在短时间内快速跳过重复失败的解析并降低阻塞时间。过期后自动清理，不影响后续成功解析。`--ipv4-only/--ipv6-only` 下已取消对原始域名的首拨，直接按单族枚举数值地址，避免系统默认族排序导致“仅 IPv4”仍先走 IPv6。
-block 模式（`ipv4-only-block` / `ipv6-only-block`）不会再追加规范主机名 fallback，只保留允许族的数值候选；未显式设置 `--dns-family-mode-next` 时，全局 `--dns-family-mode` 会在第二跳及以后生效。
+- **不要在命令行 `--proxy http://user:pass@...` 里写账号密码**——URL 里的 userinfo 会被拒绝（凭据会留在 shell 历史与进程列表中）。
+- 正确方式：使用专用环境变量 `WHOIS_PROXY_USER`（用户名）与 `WHOIS_PROXY_PASSWORD`（密码），两者**必须同时设置且非空**，否则启动时报错。
+- 如果代理 URL 来自环境变量（`WHOIS_PROXY` / `ALL_PROXY` / `all_proxy`），该 URL 可以带 percent-encoded 的 `user:pass@`（如 `http://my%20user:p%40ss@proxy:8080`），方便与通用工具共用配置。
+- 专用凭据变量与 URL 内嵌凭据**同时存在时直接报错**（避免歧义）。
+- 走**明文 `http://` 代理**且带凭据时，还必须显式加 `--proxy-allow-insecure-auth`；否则报错。注意：明文代理上的账号密码是明文传输的，只应在可信内网代理使用。
+- 不支持凭据文件、交互式输入或系统钥匙串；也请尽量不要把环境变量传给不必要的子进程（凭据可能被继承）。
 
 示例：
-```powershell
-# 优先 IPv4；设定负向缓存 TTL 为 30 秒
-whois-x86_64 --prefer-ipv4 --dns-neg-ttl 30 8.8.8.8
-
-# 自测：模拟负向缓存路径（域名 selftest.invalid 会被标记为负向缓存）
-whois-x86_64 --selftest-dns-negative --host selftest.invalid 8.8.8.8
-
-# 仅 IPv4，限制候选数为 4 并关闭已知 IPv4 回退
-whois-x86_64 --ipv4-only --dns-max-candidates 4 --no-known-ip-fallback 1.1.1.1
-
-# 仅 IPv6，关闭 IANA 枢纽中转（固定起始 RIR）
-whois-x86_64 --ipv6-only --no-iana-pivot --host apnic 1.1.1.1
-```
-
-#### DNS 调试指引（Phase2）
-
-- 推荐配方：`--debug --retry-metrics --dns-max-candidates <N>`；前两项让 stderr 带上连接级节奏/诊断，最后一项便于观察候选裁剪效果。
-- 若要观测 IPv6→IPv4 或“首跳 IPv4、后续 IPv6”这类混合顺序，可组合 `--prefer-ipv6` / `--prefer-ipv4` / `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4`，对比 `[RETRY-METRICS]` 的尝试顺序与 `=== Warning: empty response...` 中提示的回退主机。
-- `[DNS-CAND]` 会列出每个 hop 的候选顺序，包含 `idx`、`type`（`ipv4` / `ipv6` / `host`）、`origin`（`input` / `resolver` / `canonical`）、本 hop 的 `pref=` 标签（如 `pref=v6-then-v4-hop1`），以及在触发上限时的 `limit=<N>`。
-- `[DNS-FALLBACK]` 在强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等非主路径运行时触发，除动作/结果/`fallback_flags` 外也会回显同一个 `pref=` 标签，使“操作员意图 vs 实际 fallback”一目了然。
-- ARIN 查询：当目标是 `whois.arin.net` 且查询项不含空格（视为未带标志）时，自动注入常用 ARIN 前缀：IP/IPv6 用 `n + =`，CIDR 用 `r + =`，ASN 用 `a + =`（`AS...` 大小写皆可），NetHandle 用 `n + = !`。若查询项包含空格，则认为用户已带自定义标志，原样透传。若启用 `--cidr-strip`，CIDR 查询会按 IP 字面量处理并去除 CIDR 前缀长度。若 ARIN 输出出现 “No match found for” 且无 referral，则用原始查询（不带 ARIN 标志）转向 `whois.iana.org` 继续解析。
-- 特殊说明：IPv4 `0.0.0.0` 结果固定为 `unknown`，与 `0.0.0.0/0` 保持一致。
-- 需要验证 fallback 开关：
-  - `--no-force-ipv4-fallback` + `--selftest-inject-empty` 可以确认“强制 IPv4”层关闭后的行为。
-  - `--no-known-ip-fallback` 能阻止已知 IPv4 兜底，观察最终错误是否直接暴露。
-  - `--dns-no-fallback` 一次性关闭“强制 IPv4/已知 IPv4”两层附加回退，只保留主路径，便于对比“有/无附加回退”时的差异（详见下方示例）。
-- 建议在调试前阅读 `docs/RFC-dns-phase2.md`，掌握候选生成与回退栈的设计背景。
-
-示例命令：
-```powershell
-# 观察候选裁剪 + IPv6→IPv4 顺序 + 空响应回退
-whois-x86_64 --debug --retry-metrics --dns-max-candidates 2 --prefer-ipv6 --selftest-inject-empty example.com
-
-# 对比关闭强制 IPv4 fallback 后的行为
-whois-x86_64 --debug --retry-metrics --no-force-ipv4-fallback --selftest-inject-empty --host arin 8.8.8.8
-
-# 结合自测黑洞，查看 stderr 中的 [DNS-CAND]/[DNS-FALLBACK]
-whois-x86_64 --debug --retry-metrics --selftest-blackhole-arin --host arin 8.8.8.8 2> dns_trace.log
-# 日志片段示例：
-# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=0 target=whois.arin.net type=host origin=canonical pref=v6-then-v4-hop1 limit=2
-# [DNS-CAND] hop=1 server=whois.arin.net rir=arin idx=1 target=104.44.135.12 type=ipv4 origin=resolver pref=v6-then-v4-hop1 limit=2
-# [DNS-FALLBACK] hop=1 cause=connect-fail action=forced-ipv4 domain=whois.arin.net target=104.44.135.12 status=success flags=forced-ipv4 pref=v6-then-v4-hop1
-# [DNS-FALLBACK] hop=1 cause=manual action=iana-pivot domain=whois.arin.net target=whois.iana.org status=success flags=forced-ipv4|iana-pivot pref=v6-then-v4-hop1
- 
-# 对比有/无 dns-no-fallback 对 fallback 行为的影响（在真实 ARIN 环境下更易观察）：
-# 1）允许附加回退（可能看到 action=forced-ipv4/known-ip）：
-whois-x86_64 --debug --retry-metrics -h arin 8.8.8.8
-# 2）禁用附加回退（fallback 分支仅打印 action=no-op status=skipped flags=dns-no-fallback）：
-whois-x86_64 --debug --retry-metrics --dns-no-fallback -h arin 8.8.8.8
-```
-
-如需一站式查看候选/回退/缓存统计与健康记忆，推荐先阅读 `docs/OPERATIONS_CN.md` 中的“DNS 调试 quickstart”小节，并直接使用：
-
-```bash
-whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
-whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest 8.8.8.8
-```
-
-上述命令会在 stderr 中附带 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]` 等日志，并在进程退出前打印单行 `[DNS-CACHE-SUM]` 汇总，适合配合 grep/日志查看器进行快速 eyeball 调试。
-
-#### DNS 调试日志与缓存可观测性（3.2.9）
-
-只要启用了 `--debug` 或 `--retry-metrics`，解析层就会输出结构化的 stderr 日志，并与 `[RETRY-METRICS*]` 共享同一节奏：每个 hop 先打印 `[DNS-CAND]` 列出候选，再在每次实际拨号后输出 `[RETRY-METRICS-INSTANT]`；若本次失败，则在下一次拨号前插入 `[DNS-FALLBACK]` 和/或 `[DNS-ERROR]`。因此即使你只关心重试节奏，也能同步看到 DNS 细节。
-
-常见标签：
-- `[DNS-CAND]`：逐条列出将要拨号的候选，包含 `type`（ipv4/ipv6/host）与 `origin`。`origin=input/canonical/resolver/cache/selftest` 分别表示用户字面量、映射 RIR 域名、实时解析、正向缓存复用、或自测注入。若末尾出现 `limit=<N>`，说明 `--dns-max-candidates` 已裁剪列表。`--ipv4-only` / `--ipv6-only` 现已跳过“先拨规范域名”这一步，整个列表会保持纯数值、且完全符合单族要求。
-- `[DNS-FALLBACK]`：只要触发回退栈（强制 IPv4、已知 IPv4、空正文重试、IANA pivot 等）就会打印。`flags` 对应 `fallback_flags` 位掩码，`errno` / `empty_retry=` 进一步解释触发原因；`status=success` 表示该 fallback 生成了新的拨号尝试。
-- `[DNS-BACKOFF]`：当候选被罚站时打印，字段包含 `server`（当前逻辑 whois host）、`target`（具体拨号目标，可能是 IP 或域名）、`family`、`action`（skip/force-last/force-override 等）、`consec_fail`、`penalty_ms_left`，便于与 `[DNS-HEALTH]` 或批量策略日志对齐。
-- `[DNS-ERROR]`：报告解析失败。`source=resolver` 代表 `getaddrinfo` 直接出错，`source=negative-cache` 代表该域名仍在负向缓存有效期内而被跳过；`gai_err` 即原始错误码，方便与系统日志对齐。
-
-缓存摘要：
-- 正向缓存会连同 `sockaddr` 一起保存成功解析结果，后续命中会在 `[DNS-CAND]` 中看到 `origin=cache`，避免重复的 DNS/解析开销；容量由 `--dns-cache N` 决定（默认取构建配置值），有效期沿用全局 `cache_timeout`。
-- 负向缓存只记录失败错误和到期时间，由 `--dns-neg-ttl` 控制（默认 10 秒）。命中时 `[DNS-ERROR]` 会显示 `source=negative-cache`，用于抑制同一无效域名的反复尝试。
-
-与 `[RETRY-METRICS]` 的对照方式：
-- `[DNS-CAND]` 总是在第一次拨号前全部打印完毕，因此可以直接用 `idx` 对照后续 `[RETRY-METRICS-INSTANT attempt=X]` 的顺序。
-- 每当发生强制重试（timeout、空正文、自测黑洞等），会先输出 `[DNS-FALLBACK]` 说明原因，再继续遍历剩余候选；所以你可能看到 `[DNS-FALLBACK]` / `[DNS-ERROR]` 插在 `attempt=N` 与 `attempt=N+1` 之间，表明为何下一次会直接跳到另一族或备用 IP。
-- 在 `--ipv4-only` / `--ipv6-only` 模式下，由于已取消规范域名的预拨号，`[RETRY-METRICS-INSTANT]` 中的每个 attempt 都可与一个纯数值候选一一对应，排查更直观。
-
-### 新增：辅助脚本（Windows + Git Bash）
-
-- `tools/remote/invoke_remote_plain.sh`：标准远程构建 + 冒烟 + Golden（不修改输出格式，验证契约）。
-- `tools/remote/invoke_remote_demo.sh`：演示 `--fold --fold-unique -g ...` 的折叠输出（不跑 Golden）。
-- `tools/remote/invoke_remote_selftest.sh`：仅运行 `--selftest`（不跑 Golden）。
-
-> 以上脚本只是对 `tools/remote/remote_build_and_test.sh` 的参数封装，用于在 Windows 下可靠传递多词参数。
-
-## 七、版本
-版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.9`。
-- 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN 连通性提示（修正）：部分网络环境下，运营商可能对 ARIN 的 IPv4 whois 服务（whois.arin.net:43 的 A 记录）做端口屏蔽，导致 IPv4 无法连通；IPv6 访问正常。建议启用 IPv6 或使用公网出口。
-- 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式（全局仅保留第一个 header-like 缩进行，后续同类需匹配正则）；远程构建诊断信息增强。新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
-- 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。
-- 3.2.1：新增 `--fold` 单行折叠与 `--fold-sep`/`--no-fold-upper`；补充续行关键词命中技巧文档。
-- 3.2.0：批量模式、标题/权威尾行、非阻塞连接与超时、重定向；默认重试节奏 interval=300ms/jitter=300ms。
-
-- 3.2.6（版本号简化：默认不再附加 -dirty 后缀；保留 `WHOIS_STRICT_VERSION=1` 可回退严格行为）
-- 3.2.0（Batch mode, headers+RIR tail, non-blocking connect, timeouts, redirects；默认重试节奏：interval=300ms, jitter=300ms）
-
-## 八、远端构建与冒烟测试快速命令（Windows）
-
-以下命令假设你已安装 Git Bash，并使用 Ubuntu 虚拟机作为交叉编译环境（详见 `tools/remote/README_CN.md`）。
-
-- 在 Git Bash 中执行（默认联网冒烟测试，目标为 8.8.8.8）：
-
-```bash
-cd /d/LZProjects/whois
-./tools/remote/remote_build_and_test.sh -r 1
-```
-
-- 同步产物到外部目录并仅保留 7 个架构二进制（将路径替换为你的目标目录）：
-
-```bash
-./tools/remote/remote_build_and_test.sh -r 1 -s "/d/Your/LZProjects/lzispro/release/lzispro/whois" -P 1
-```
-
-- 自定义冒烟目标（空格分隔）：
-
-```bash
-SMOKE_QUERIES="8.8.8.8 example.com 1.1.1.1" ./tools/remote/remote_build_and_test.sh -r 1
-```
-
-- 从 PowerShell 调用 Git Bash（注意路径与引号）：
 
 ```powershell
-& 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -s /d/Your/LZProjects/lzispro/release/lzispro/whois -P 1"
+# PowerShell：先设凭据，再加 --proxy 与允许明文认证开关
+$env:WHOIS_PROXY_USER = 'myuser'
+$env:WHOIS_PROXY_PASSWORD = 'mypass'
+whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 ```
 
-### 产物存储与清理
-
-下载链接风格（GitHub 直链 ↔ 仓库相对路径）的切换策略与脚本，见：`docs/RELEASE_LINK_STYLE.md`。
-
-- 自 v3.2.0 起，`out/artifacts/` 已加入 `.gitignore`，不再纳入版本控制；CI 发布会在 GitHub Release 附带二进制资产。
-- 如需清理本地历史产物，可使用 `tools/dev/prune_artifacts.ps1`（支持 `-DryRun`）。
-
-## 九、与 lzispro 集成（交叉链接）
-
-lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调用本 whois 客户端并使用内置过滤，支持通过环境变量调整模式与关键词（有默认值，开箱即用）：
-
-- WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）
-- WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
-- WHOIS_GREP_MODE：`line` 或 `block`（whois 客户端默认 `block` 块模式；lzispro 脚本会显式设置为 `line` 以便 BusyBox 聚合）
-- WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
-
-说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
-
-- 本地（同工作区）：`../lzispro/README.md`
-- GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
-
-在 lzispro 调用路径中，脚本会默认设为“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到客户端默认的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
-折叠示例（与脚本 `func/lzispdata.sh` 风格一致）：
-
-```bash
-whois-x86_64 --debug --retry-metrics --dns-cache-stats 8.8.8.8
-whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-blackhole-arin 8.8.8.8
+```sh
+# Git Bash / Linux：同样先设环境变量
+export WHOIS_PROXY_USER='myuser'
+export WHOIS_PROXY_PASSWORD='mypass'
+whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 ```
 
-上述命令保持 stdout 的头/尾契约不变，并在 stderr 输出 `[DNS-CAND]` / `[DNS-FALLBACK]` / `[DNS-CACHE]` / `[DNS-HEALTH]`，进程结束前还会额外写出一次 `[DNS-CACHE-SUM] ...` 汇总。第二条命令追加任意 `--selftest-*` 旗标时，会在真实查询前自动跑 lookup 自测套件，因此 `[LOOKUP_SELFTEST]` 会自然出现，无需单独运行 `whois --selftest`。
+#### 代理命令行参数（逐项）
+
+| 参数 | 说明 |
+|------|------|
+| `--proxy URL` | 显式指定代理。URL 只接受 `http://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` 的绝对地址（主机+端口，不含 path/query/fragment；IPv6 代理用方括号如 `[::1]:1080`；未写端口时按类型默认：http=8080、socks*=1080）。**URL 中禁止内嵌 `user:pass@`**（见下方凭据说明） |
+| `--proxy-env` | 启用通用代理环境变量：按 `ALL_PROXY` → `all_proxy` 取代理，并读取 `NO_PROXY`/`no_proxy` 决定哪些目标直连。默认不启用（避免系统环境里的代理“悄悄”生效）；`HTTP_PROXY`/`HTTPS_PROXY` 永不读取 |
+| `--proxy-allow-insecure-auth` | 允许在**明文 `http://` 代理**上发送凭据；不带它时，http 代理 + 凭据会在查询前报错（SOCKS 代理不受此限制） |
+| `--proxy-family auto\|v4\|v6` | 只控制**代理服务器本身**的地址族（默认 `auto`）。例如代理只有 IPv6 地址时用 `--proxy-family v6`；与代理 URL 中的数值地址冲突会报错 |
+| `-p, --port PORT` | 仍指 **WHOIS 目标端口**（默认 43），与代理无关；referral 可独立替换后续目标端口 |
+
+优先级：`--proxy` > `WHOIS_PROXY` > （仅 `--proxy-env`）`ALL_PROXY` > `all_proxy` > 直连。
+
+#### SOCKS 与 HTTPS 代理怎么操作
+
+- **SOCKS**：直接指定即可，如 `whois-x86_64 --proxy socks5://10.0.0.246:1080 8.8.8.8`；带认证时按上面方式设 `WHOIS_PROXY_USER/PASSWORD`（SOCKS5 支持用户名/密码，SOCKS4 的 USERID 用用户名、不带密码）。
+- **HTTPS 代理（`https://`）——WP-13D 开发中，master 暂未开放**：未来 `https://host:443` 表示“客户端与代理之间走 TLS”，在 TLS 之上再发 `CONNECT`，隧道内 WHOIS 仍是明文。届时强制证书与主机名验证（无“跳过验证”选项），默认信任构建时内嵌的 Mozilla CA bundle；非空 `SSL_CERT_FILE` 可指向企业私有 CA 的 PEM（无法读取/为空/加载失败会 fail-close，不会回退内嵌 CA）。设计细节见 `docs/RFC-proxy-access.md`。
+
+### 3.4 超时与重试
+
+| 参数 | 说明 |
+|------|------|
+| `--timeout SEC` | 套接字超时（默认 5s） |
+| `--retries N` | 瞬时错误重试次数（默认 2） |
+| `--retry-all-addrs` | 对每个解析出的 IP 都应用重试（默认仅第一个） |
+| `--retry-interval-ms M` | 重试基础间隔 ms（默认 300） |
+| `--retry-jitter-ms J` | 额外随机抖动 0..J ms（默认 300） |
+| `--rate-limit-retries N` | 应用层限流/临时拒绝重试次数（默认 2，0..10）；`permanently denied` 不重试 |
+| `--rate-limit-retry-interval-ms M` | 应用层重试间隔 ms（默认 2500） |
+
+### 3.5 连接级重试节流（默认开启，仅 CLI）
+
+| 参数 | 说明 |
+|------|------|
+| `--pacing-disable` | 关闭节流（不推荐） |
+| `--pacing-interval-ms M` | 基础等待（默认 60） |
+| `--pacing-jitter-ms J` | 随机抖动 0..J（默认 40） |
+| `--pacing-backoff-factor N` | 每次重试放大倍数（默认 2） |
+| `--pacing-max-ms C` | 单次等待上限（默认 400） |
+
+说明：`[RETRY-METRICS] ... sleep_ms=` 反映节流累计睡眠；与通用重试 `-i/-J` 解耦。
+
+### 3.6 缓冲与缓存
+
+| 参数 | 说明 |
+|------|------|
+| `-b, --buffer-size BYTES` | 响应缓冲区大小（默认 512K，支持 1K/1M/1G 后缀） |
+| `-d, --dns-cache N` | DNS 缓存条目数（默认 10） |
+| `-c, --conn-cache N` | 连接缓存条目数（默认 5） |
+| `-T, --cache-timeout SEC` | 缓存 TTL（默认 300） |
+| `--cache-counter-sampling` | 非 debug 下也周期输出缓存计数采样；任一 `--selftest*` 自动开启 |
+
+### 3.7 DNS / IP 家族偏好
+
+通俗理解：WHOIS 服务器通常同时有 IPv4 与 IPv6 地址。`--ipv4-only`/`--ipv6-only` 是“只用一族”的强约束（如果该族不可达会失败）；`--prefer-*` 是“优先一族，失败自动换另一族”，更稳妥；`--rir-ip-pref` 则允许“不同 RIR 用不同策略”（比如某 RIR 仅 IPv4 畅通）。一般情况下不必特意设置，客户端会自动探测本机可用性并选择合理顺序。
+
+| 参数 | 说明 |
+|------|------|
+| `--ipv4-only` / `--ipv6-only` | 强制单族解析与拨号（不再先拨规范域名） |
+| `--prefer-ipv4` / `--prefer-ipv6` | 优先某族（另一族仍可回退） |
+| `--prefer-ipv4-ipv6` / `--prefer-ipv6-ipv4` | 首跳偏好 + 后续 hop 向另一族倾斜 |
+| `--rir-ip-pref SPEC` | 按 RIR 覆盖族偏好，如 `arin=v4,ripe=v6` |
+| `--dns-family-mode MODE` | 全局候选交错顺序：`interleave-v4-first`/`interleave-v6-first`/`seq-v4-then-v6`/`seq-v6-then-v4`/`ipv4-only-block`/`ipv6-only-block` |
+| `--dns-family-mode-first/next` | 首跳 / 第二跳及以上覆盖（同模式值） |
+| `--dns-neg-ttl SEC` | 负向 DNS 缓存 TTL（默认 10） |
+| `--no-dns-neg-cache` | 禁用负向缓存 |
+| `--no-dns-addrconfig` | 关闭 OS `AI_ADDRCONFIG` 过滤（默认开启） |
+| `--dns-retry N` | `EAI_AGAIN` 下 DNS 重试次数（默认 3，1..10） |
+| `--dns-retry-interval-ms M` | DNS 重试间隔（默认 100，0..5000） |
+| `--dns-max-candidates N` | 限制可拨号候选数（默认 12，1..64） |
+| `--max-host-addrs N` | 每主机拨号上限（默认 0=不限，1..64） |
+| `--dns-backoff-window-ms N` | DNS 失败滑动窗口（默认 10000，0=关闭） |
+| `--dns-append-known-ips` | 追加内置 RIR 已知 IP 到候选 |
+| `--no-known-ip-fallback` | 关闭已知 IPv4 兜底 |
+| `--no-force-ipv4-fallback` | 关闭强制 IPv4 重拨回退 |
+| `--no-iana-pivot` | 关闭缺失 referral 时的 IANA 中转 |
+| `--dns-no-fallback` | 一次性关闭强制 IPv4/已知 IPv4 附加回退（调试用） |
+
+优先级（族偏好）：`--ipv4-only/--ipv6-only` > `--rir-ip-pref` > `--dns-family-mode-*` > 全局 `--prefer-*`。
+
+**什么是负向缓存（DNS 失败记忆）？**
+
+当一次 DNS 解析失败（例如域名暂时不存在/解析出错）时，客户端会把这个“刚刚失败”的记忆短暂保存（默认 10 秒，`--dns-neg-ttl` 可调）。在这段时间里再次查询同一个名字，会直接按“已知失败”跳过，不再每次都等待 DNS 超时，从而加快批量/重复查询并减少无谓的解析请求。它是**只针对失败结果**的短缓存：成功解析走的是另一套正向缓存（`--dns-cache N` + `--cache-timeout`），且只要有一次成功解析就会覆盖负向记录。一般无需修改；若你发现某个域名的失败被反复快速跳过，可调大 TTL 观察，或用 `--no-dns-neg-cache` 关闭后重新验证真实解析结果。
+
+用例：
+
+```sh
+whois-x86_64 --ipv4-only 1.1.1.1
+whois-x86_64 --prefer-ipv6 --dns-neg-ttl 30 8.8.8.8
+whois-x86_64 --rir-ip-pref arin=v4,ripe=v6 8.8.8.8
 ```
 
-## 四、常用示例
+### 3.8 条件输出引擎
+
+处理顺序固定：`-g`（标题投影）→ `--grep*`（行/块 + 可选续行展开）→ `--pick` → `--fold`/正文。
+
+| 参数 | 说明 |
+|------|------|
+| `-g, --title PATTERN` | 标题前缀投影（不区分大小写；`|` 分隔多个前缀；匹配标题连带续行）。**不是正则** |
+| `--grep REGEX` | POSIX ERE 过滤（不区分大小写） |
+| `--grep-cs REGEX` | 区分大小写版本 |
+| `--grep-line` | 行模式 |
+| `--grep-block` | 块模式（默认） |
+| `--keep-continuation-lines` | 行模式下保留续行（默认） |
+| `--no-keep-continuation-lines` | 行模式下丢弃续行 |
+| `--fold` | 折叠为单行：`<query> <UPPER_VALUE_...> <RIR>` |
+| `--fold-sep STR` | 折叠分隔符（默认空格；支持 `\t`/`\n`/`\r`/`\s`） |
+| `--no-fold-upper` | 保留原大小写（默认转大写） |
+| `--fold-unique` | 折叠 token 去重（按首次出现保序） |
+| `--no-body` | 抑制正文；保留查询头、`Address Status:` 与权威尾行（过滤仍执行） |
+| `--print-meta` | 每条记录末尾追加 TAB 分隔 `k=v`：`query,rir,status,duration_ms,attempts,redirects` |
+| `--print-chain` | 每条记录末尾追加 `chain=server1>server2>...`（最多 16 hop，溢出追加 `>truncated`） |
+| `--pick KEYS` | 追加选定的 WHOIS 标题值（白名单：`netname,country,inetnum,inet6num,origin,route,descr`；缺失输出 `key=`） |
+| `--pick-mode MODE` | `first`（默认）或 `join`（用 `|` 合并重复标题；续行先用 `; ` 合并） |
+| `--stats` | 批量模式末尾追加一行 TAB 汇总（success/error、分类、RIR 分布、p50/p95 毫秒） |
+
+互斥关系：`--no-body` 与 `--plain`、任何 `--fold*` 互斥（查询前报错）；`--print-meta`/`--print-chain`/`--pick` 与 `--plain` 互斥。
+
+用例：
+
+```sh
+# 标题投影 + 块正则 + 折叠
+whois-x86_64 -g 'Org|Net|Country' --grep 'Google|ARIN' --fold 8.8.8.8
+
+# 行模式命中关键词并展开整块
+whois-x86_64 -g 'netname|e-mail' --grep 'cmcc' --grep-line --keep-continuation-lines 1.2.3.4
+
+# 记录边界 + 逻辑链 + 字段抽取（批量友好）
+printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 -B --no-body --print-chain --pick netname,country --stats
+```
+
+### 3.9 诊断 / 安全 / 自测
+
+| 参数 | 说明 |
+|------|------|
+| `--debug-verbose` | 更详细调试（缓存/重定向附加日志） |
+| `--retry-metrics` | 打印重试统计到 stderr（`[RETRY-METRICS*]`，仅诊断，不改变行为） |
+| `--dns-cache-stats` | 进程退出输出单行 `[DNS-CACHE-SUM] hits=<n> neg_hits=<n> misses=<n>` |
+| `--security-log` | 安全事件日志到 stderr（默认关闭，限频约 20 条/秒） |
+| `--selftest` | 运行内置自测并退出（折叠/重定向/lookup；非 0 退出即失败） |
+| `--selftest-grep` / `--selftest-seclog` | 扩展自测（需编译宏 `-DWHOIS_GREP_TEST` / `-DWHOIS_SECLOG_TEST`） |
+| `--selftest-inject-empty` | 触发空响应注入路径（需要网络） |
+| `--selftest-dns-negative` | 模拟 DNS 负向缓存场景 |
+| `--selftest-blackhole-iana` / `--selftest-blackhole-arin` | 黑洞化 IANA/ARIN 候选（模拟连接失败） |
+| `--selftest-force-iana-pivot` | 强制一次 IANA 枢纽中转（构造三跳路径） |
+| `--selftest-fail-first-attempt` | 强制首个尝试失败一次 |
+| `--selftest-force-suspicious Q` | 将查询（或 `*`）标记为可疑用于管线测试 |
+| `--selftest-force-private Q` | 将查询（或 `*`）标记为私网用于管线测试 |
+| `--selftest-registry` | 批量策略注册表自测（不触网） |
+| `--selftest-workbuf` | 长行/CRLF/高续行压力自测（`[WORKBUF]*`） |
+| `--disable-address-preclass` | 一键关闭 Step 4.7 预分类（回退旧路径） |
+| `--enable-preclass-actions` | 开启 P1 受控动作（默认关闭，需 `--enable-step47-trial`） |
+| `--preclass-action-tier r0|r1` | P1 候选分层（默认 `r0`） |
+| `--preclass-action-list CSV` | 覆盖 P1 候选列表 |
+| `--enable-step47-trial` | 开启 Step 4.7 试验门（默认关闭） |
+| `--step47-trial-scope minimal|reserved|all` | 试验范围（默认 `minimal`） |
+| `--enable-step47-early-unknown` | 开启 early-unknown 试验（默认关闭，仅 `reserved` 生效） |
+| `--step47-early-unknown-list CSV` | early-unknown 候选列表 |
+| `--enable-preclass-first-hop` | Phase B 分类器优先首跳（隐式查询默认开启；显式 `-h` 旁路） |
+| `--enable-preclass-early-converge` | Phase C reserved/special 早收敛（默认开启；命中输出 `Address Status:` 并归一化 `unknown @ unknown`） |
+
+说明：开启任一 `--selftest-*` 故障旗标，会在真实查询前自动运行一次 lookup 自测（stderr 出现 `[LOOKUP_SELFTEST]`）。`[SELFTEST] action=force-*` 标签仅写 stderr，与 `--debug` 无关。调试收集推荐组合：
+
+```sh
+whois-x86_64 --debug --retry-metrics --dns-cache-stats --no-known-ip-fallback 8.8.8.8 2>debug.log
+```
+
+相关运维/构建/验证流程（远程冒烟、Golden、重定向矩阵、批量策略黄金、Step47 预发布门禁）见 `docs/OPERATIONS_CN.md`。
+
+## 4. 批量模式
+
+- 显式：`-B`；隐式：未给位置参数且 stdin 非 TTY 时自动启用。
+- 输入逐行读取（行尾自动归一化为 LF）；每个查询记录保持独立头/尾与过滤链。
+- `--batch-strategy raw|health-first|plan-a|plan-b`：可选起始主机调度策略（默认 `raw`）。
+  - `raw`（默认）：CLI host → 推测 RIR → IANA，不跳过被惩罚主机、不复用缓存。
+  - `health-first`：跳过近期失败主机；全部被罚则强制最后一个候选。
+  - `plan-a`：复用上一条权威 RIR 作为快速起步；被罚则回落常规候选。
+  - `plan-b`：缓存优先 + 罚站感知；被罚时回退首个健康候选（或强制 override/末尾）。
+  - 未知名称自动回落 `health-first` 并输出一行 `[DNS-BATCH] action=unknown-strategy ...`。
+- `--batch-interval-ms M` / `--batch-jitter-ms J`：批量间隔与抖动（默认 0）。
+- `--stats`：最后追加一行汇总（适合聚合）。`WHOIS_BATCH_DEBUG_PENALIZE='host1,host2'` 可预注入惩罚窗口（仅调试）。
+
+用例：
+
+```sh
+cat ip_list.txt | whois-x86_64 -B --host apnic
+cat queries.txt | whois-x86_64 -B --batch-strategy plan-a --debug --retry-metrics
+printf '8.8.8.8\n1.1.1.1\n' | whois-x86_64 -B --no-body --print-meta --stats
+```
+
+## 5. 常用示例
 
 ```sh
 # 单条（自动重定向）
@@ -831,7 +448,7 @@ whois-x86_64 \
 - `--fold-sep` 可改分隔符（如 `,` 或 `\t`）：`--fold --fold-sep ,`、`--fold --fold-sep \t`；`--no-fold-upper` 可保留大小写。
 - 折叠行首始终使用原始查询词 `<query>`（即便查询参数看起来像正则）。
 
-## 五、退出码
+## 6. 退出码
 - `0`（`WC_EXIT_SUCCESS`）：成功  
   - 单条查询：查找流程完整结束；即使 RIR 明确返回“没有数据”（例如 `no-such-domain-abcdef.whois-test.invalid`），只要协议/网络链路成功，进程仍视为成功完成并返回 0。  
   - 批量模式：退出码只反映“整批是否跑完”，单行的网络/lookup 失败、可疑/私有 IP 等都会按行打印到 stderr，但不会把进程退出码从 0 改成 1。  
@@ -841,7 +458,7 @@ whois-x86_64 \
 - `130`（`WC_EXIT_SIGINT`）：被 SIGINT(Ctrl‑C) 中断  
   - 程序会在 stderr 打印 `[INFO] Terminated by user (Ctrl-C). Exiting...`，执行包括 DNS/重试统计在内的清理钩子，然后以 130 退出；远程冒烟脚本和外部自动化可能依赖这一固定值。  
 
-## 六、提示
+## 7. 提示与故障排查
 - 建议与 BusyBox 工具链配合：grep/awk/sed 排序、去重、聚合留给外层脚本处理
 - 如需固定出口且避免跳转带来的不稳定，可使用 `--host <rir> -Q`
 - 在自动重定向模式下，`-R` 过小可能拿不到权威信息；过大可能产生延迟，默认 6 足够
@@ -860,26 +477,15 @@ whois-x86_64 \
   [RETRY-METRICS] ... sleep_ms=0
   ```
 
-  示例（Windows PowerShell 远程冒烟 + 自定义节流）：
-  ```powershell
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && \
-    ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-interval-ms 60 --pacing-jitter-ms 40 --pacing-backoff-factor 2 --pacing-max-ms 400' -P 1"
-  ```
 
   示例（本地批量 + 临时关闭节流）：
   ```bash
   printf "8.8.8.8\n1.1.1.1\n" | ./whois-x86_64 --pacing-disable -B -g 'netname|e-mail' --grep 'GOOGLE|CLOUDFLARE' --grep-line --fold
   ```
 
-  可选自动断言（需要 `-r 1` 且 `--retry-metrics`）：`-M nonzero` / `-M zero`
-  - 期望“禁用节流”为零睡眠：追加 `-M zero`
-  示例：
-  ```powershell
-  # 默认节流应为非零
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt' -M nonzero"
-  # 禁用节流应为零
-  & 'C:\\Program Files\\Git\\bin\\bash.exe' -lc "cd /d/LZProjects/whois && ./tools/remote/remote_build_and_test.sh -r 1 -q '8.8.8.8 1.1.1.1' -a '--retry-metrics --selftest-fail-first-attempt --pacing-disable' -M zero"
-  ```
+  说明：`--retry-metrics` 输出 `[RETRY-METRICS]`（含 `sleep_ms`），可用于确认节流生效；`--pacing-disable` 后 `sleep_ms` 恒为 0。
+
+  补充：`-i/-J`（通用重试间隔/抖动）与连接级节流已解耦；节流仅由 `--pacing-*` 控制。
 
 ### Errno 差异速查（连接阶段）
 
@@ -919,7 +525,7 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 
 - 在部分仅有 IPv4 私网出口（NAT，未启用 IPv6）的环境中，无法连上 `whois.arin.net:43` 的常见原因并非 ARIN 针对私网的 ACL 拒绝，而是宽带运营商对 ARIN 的 IPv4 whois 服务（A 记录所指向的 IPv4 地址的 43 端口）进行了屏蔽。
 - 现象：IPv4 到 ARIN:43 无法建立连接；官方 whois 客户端同样受影响。改用 IPv6 后可立即恢复。
-- 建议：优先启用 IPv6；或确保出口为公网 IPv4 未被屏蔽。必要时可直接指定 ARIN 的 IPv6 字面量作为 `--host`，或临时选择固定起始服务器/禁用重定向以便排查。
+- 建议：优先启用 IPv6；或确保出口为公网 IPv4 未被屏蔽。必要时可直接指定 ARIN 的 IPv6 字面量作为 `--host`，或临时选择固定起始服务器/禁用重定向以便排查。若网络策略允许，也可改用代理（`--proxy http://...` 或 `--proxy socks5://...`，见 §3.3）让代理替你去连被运营商屏蔽的 whois 服务。
 
 ### 故障排查：偶发“空响应”重试/回退告警（3.2.7）
 
@@ -937,4 +543,58 @@ whois-x86_64 --host 2001:67c:2e8:22::c100:68b -p 43 example.com
 说明：
 - 告警属于标准输出（stdout），方便在批量管道中观察；重试不计入跳数，不影响既有“标题/尾行”契约。
 - 可通过 `--selftest-inject-empty` 并运行 `--selftest` 复现该路径（需要网络）。
+
+### 故障排查：限流 / 拒绝访问（rate-limit / denied）
+
+另一种常见情况是服务器**明确拒绝或限流**，例如返回 `%ERROR:201: access denied`、`rate limit exceeded` 等。与“空响应”不同，它是有内容的拒绝，客户端会这样处理：
+
+- **应用层受限重试**：对 `temporary denied / rate-limit` 响应，在同一跳内做受限重试，次数由 `--rate-limit-retries N` 控制（默认 2，范围 0..10），间隔由 `--rate-limit-retry-interval-ms M` 控制（默认 2500ms）；`permanently denied`（永久拒绝）不会重试。
+- **重试仍失败 → 非权威重定向**：客户端把这次拒绝视为“非权威”并继续查找其它 RIR。若此前从未看到 ERX/IANA 标记且已查遍所有 RIR，权威回落到 `error`；否则权威为首个出现过 ERX/IANA 标记的 RIR。
+- **错误行输出**：只有最终尾行为 `error @ error` 时才会在 stderr 输出 `Error: Query failed for ...`；否则不输出失败行。
+- **调试观测**：`--debug` 下 stderr 会出现 `[RIR-RESP] action=denied|rate-limit ...`；应用层重试相关标签为 `[APP-RETRY]`（配合 `--retry-metrics` 使用）。
+- **应对建议**：若某个 RIR 对当前出口持续拒绝（例如批量/矩阵中反复出现 access denied），可以：① 调大 `--rate-limit-retries`/间隔；② 用 `--rir-ip-pref <rir>=v6` 把该 RIR 切到 IPv6（若 IPv6 可达）；③ 通过 `--proxy` 换出口（见 §3.3）；④ 对单个目标先用 `--host <rir> -Q` 单独复测确认是否瞬时限流。
+
+## 8. 相关文档与集成
+
+### 版本注入
+
+版本号会在构建时自动注入（优先读取仓库根目录 `VERSION.txt`；远程构建时由脚本写入该文件），默认回退为 `3.2.9`。
+- 3.2.3：输出契约细化——标题与尾行附带服务器 IP（DNS 失败显示 `unknown`），别名先映射再解析；折叠输出保持 `<query> <UPPER_VALUE_...> <RIR>` 不含服务器 IP。新增 ARIN 连通性提示（修正）：部分网络环境下，运营商可能对 ARIN 的 IPv4 whois 服务（whois.arin.net:43 的 A 记录）做端口屏蔽，导致 IPv4 无法连通；IPv6 访问正常。建议启用 IPv6 或使用公网出口。
+- 3.2.4：模块化基线（wc_* 模块：title/grep/fold/output/seclog）；新增 grep 自测钩子（编译宏 + 环境变量）；改进块模式续行启发式；新增 `--debug-verbose`、`--selftest`、`--fold-unique`。
+- 3.2.2：九项安全性加固；新增 `--security-log` 调试日志开关（默认关闭，内置限频）。要点：内存安全包装、改进的信号处理、更严格的输入与服务器/重定向校验、连接洪泛监测、响应净化/校验、缓存加锁与一致性、协议异常检测等；同时彻底移除此前的 RDAP 实验功能与开关，保持经典 WHOIS 流程。
+- 3.2.1：新增 `--fold` 单行折叠与 `--fold-sep`/`--no-fold-upper`；补充续行关键词命中技巧文档。
+- 3.2.0：批量模式、标题/权威尾行、非阻塞连接与超时、重定向；默认重试节奏 interval=300ms/jitter=300ms。
+
+### 构建与冒烟（运维向）
+
+远程构建、冒烟、Golden、产物发布与清理流程详见 `docs/OPERATIONS_CN.md`；下载链接风格见 `docs/RELEASE_LINK_STYLE.md`。
+
+### 与 lzispro 集成（交叉链接）
+
+lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调用本 whois 客户端并使用内置过滤，支持通过环境变量调整模式与关键词（有默认值，开箱即用）：
+
+- WHOIS_TITLE_GREP：-g 标题前缀投影（例：`netname|mnt-|e-mail`）
+- WHOIS_GREP_REGEXP：--grep 正则（POSIX ERE，例：`CNC|UNICOM|CHINANET|...`）
+- WHOIS_GREP_MODE：`line` 或 `block`（whois 客户端默认 `block` 块模式；lzispro 脚本会显式设置为 `line` 以便 BusyBox 聚合）
+- WHOIS_KEEP_CONT：行模式下是否展开续行到整个字段块（`1`/`0`，默认 `0`）
+
+说明与示例请见 lzispro 项目 README“脚本环境变量（ISP 批量归类脚本）”一节：
+
+- 本地（同工作区）：`../lzispro/README.md`
+- GitHub：https://github.com/larsonzh/lzispro#%E8%84%9A%E6%9C%AC%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8Fisp-%E6%89%B9%E9%87%8F%E5%BD%92%E7%B1%BB%E8%84%9A%E6%9C%AC
+
+在 lzispro 调用路径中，脚本会默认设为“行模式 + 不展开续行”，便于 BusyBox awk 一行聚合；若需回退到客户端默认的“块模式”输出，可设置 `WHOIS_GREP_MODE=block`。
+
+### 相关文档
+
+- 操作与发布手册：`docs/OPERATIONS_CN.md`（English: `docs/OPERATIONS_EN.md`）
+- IPv4/IPv6 查询规则契约：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
+- DNS 设计：`docs/RFC-dns-phase2.md`、`docs/RFC-dns-phase4-ip-health.md`
+- 代理访问：`docs/RFC-proxy-access.md`
+- 发布流程：`docs/RELEASE_FLOW_CN.md` | `docs/RELEASE_FLOW_EN.md`
+
+### 当前功能状态
+
+- 已开放（master）：直连、HTTP CONNECT 代理（`http://`）、SOCKS4/4a/5/5h 代理、条件输出、批量策略、DNS/IP 家族控制、诊断/自测等（详见 §3）。
+- 开发中（未开放）：HTTPS 代理（`https://`，WP-13D）——客户端到代理走 TLS 并在其内执行 CONNECT，强制证书/主机名验证，内嵌 Mozilla CA 信任源；详见 `docs/RFC-proxy-access.md` 第 9/14 节。
 
