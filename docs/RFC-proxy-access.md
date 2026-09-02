@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13B-1、WP-13B-2、WP-13B-3 已完成；HTTP CONNECT 与 SOCKS5/5h 数据面均通过 Strict Version `lto-auto` 九架构、Golden 与 referral 门禁，release 双目录已同步并逐字一致 / WP-13B-1, WP-13B-2, and WP-13B-3 complete; HTTP CONNECT and SOCKS5/5h data planes pass the Strict Version `lto-auto` nine-architecture, Golden, and referral gates, with both release directories synchronized byte-for-byte.
+状态 / Status：WP-13B-1、WP-13B-2、WP-13B-3 与 WP-13C 已完成；WP-13D 的 CA/构建准备及 Vx A/B 任务定义已完成编制期验收，待生成 start-file、授权启动与生产验收 / WP-13B-1, WP-13B-2, WP-13B-3, and WP-13C are complete; WP-13D CA/build preparation and Vx A/B task definitions have passed authoring-time validation and await start-file generation, launch authorization, and production acceptance.
 
 # 中文版
 
@@ -372,6 +372,31 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 权威文档集合内各落点的回填内容已核对一致：YES（本文件中文/英文两处 + RELEASE_NOTES + RFC-whois-client-split）。
 - 未经用户明确授权，不执行提交或推送。
 
+## 14. WP-13D HTTPS proxy TLS 开工清单
+
+状态：**任务定义编制完成，待 start-file 与启动授权**。计划窗口 `2027-08-05 ~ 2027-08-18`，使用 `schemaVersion=vx-draft`、`strict-enforce`、event-only 串行 A/B。启动前不得回填执行结果，不得把编制期 x86_64/win64 快编译表述为九架构生产验收。
+
+### 14.1 Checklist A：连接 transport 所有权
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270805_20270811.json`；定义 SHA-256 `78f21ce56b111b00066f72d7502b4b73baff3118474bef64bc67adf23e442159`。
+- 目标：让 `wc_net_info` 成为单 hop 连接唯一所有者，统一 `init/get/adopt/move/close`，并将 proxy、候选/empty-response fallback、send、recv 与 signal close 收敛到同一所有权路径。
+- 冻结 target set：`net_header`、`net_source`、`proxy_source`、`lookup_connect`、`lookup_empty`、`lookup_send`、`lookup_recv`、`lookup_loop`、`selftest_source`，均为 existing；`target_set_sha256=8a3176bf267040b886b1cd7cbb48b545b228fa7c673094b223f5bfd4cad09957`。
+- D1 声明并实现所有权 API；D2 迁移 proxy/connect/empty；D3 迁移 send/recv/loop；D4 增加 custom transport move 与幂等 close-once 自测。
+
+### 14.2 Checklist B：HTTPS scheme 与 OpenSSL TLS transport
+
+- 任务定义：`testdata/autopilot_code_step_tasks_20270812_20270818.json`；定义 SHA-256 `f2d45a5599b4fd39fff4995b06cb18abd25b140857bea3c8cf681320bfccd32a`；运行时必须以 A 为 prerequisite。
+- 目标：增加 `https://` 配置与 443 默认端口；默认构建在 lookup 前稳定报 unsupported；`WHOIS_TLS=1` 使用 OpenSSL 3.5.8、强制 peer/hostname/IP 验证、SNI、TLS 1.2 下限、固定 CA 或 fail-close 的非空 `SSL_CERT_FILE` 覆盖，并在同一绝对单调 deadline 内完成 TLS handshake 与 HTTP CONNECT。
+- 冻结 target set：继承 A 九目标；新增 `config_header`、`proxy_header`、`opts_source`（existing）及 `tls_header=include/wc/wc_tls.h`、`tls_source=src/core/tls.c`（create）；`target_set_sha256=4d171a4202c4c3bbec9d945aa884a44a0fcb72b3d619362eef590cb1d279af99`。
+- D1/D2 分别创建完整 TLS header/source；D3 增加 scheme、build gate 与 parser selftest；D4 在代理 TCP 后、CONNECT 前接入 TLS，转交 A 的 owner，并增加稳定分类与确定性 TLS selftest。
+
+### 14.3 编制期证据与启动前剩余门禁
+
+- A/B 均满足 UTF-8 BOM + LF、TODO-free、SyntaxOnly、D1-D4、三项 Vx 基础设施回归；B 带 A prerequisite 的全定义检查在官方 `WorkerTimeoutMs=120000` 预算下 `errors=0 warnings=0`，内部 regex timeout 与 operation safety policy 未放宽。
+- 隔离 effective tree 的默认 stub 路径和 `WHOIS_TLS=1` OpenSSL 路径均通过 x86_64/win64 远程编译；TLS 路径 win64 保持 full-static，本地制品哈希复核 PASS。该证据仅为编制期快速编译，不替代第 9 节生产验收。
+- 生成 start-file 前仍须完成完整 effective target set 的九架构 Strict `lto-auto`、TLS/非 TLS smoke/selftest、Golden/referral、Batch/CIDR/Redirect/Step47、默认直连输出冻结及 HTTPS loopback 证书/主机名/失败分类合同；全部通过后方可标记 launch-ready。
+- A/B 必须严格串行；B 仅在 A 最终 PASS、A success snapshot 完整且 prerequisite 门禁通过后启动。未经用户同轮明确授权，不生成或启动 active start-file，不提交或推送。
+
 # English Version
 
 ## 1. Purpose
@@ -661,6 +686,31 @@ SyntaxOnly, D1-D4, B's prerequisite-chain full-definition check against A, and V
 - WP-13C (SOCKS4/4a) and WP-13D (HTTPS proxy TLS) continue under section 9. WP-13D's TLS dependency gate is now cleared, but independent readiness review and production acceptance are still required.
 - Backfill consistency across the authoritative document set: YES (CN/EN sections in this file + RELEASE_NOTES + RFC-whois-client-split).
 - No commit or push without explicit user authorization.
+
+## 14. WP-13D HTTPS proxy TLS next-start checklist
+
+Status: **task-definition authoring complete; awaiting start-file generation and launch authorization**. The planned window is `2027-08-05 ~ 2027-08-18`, using `schemaVersion=vx-draft`, `strict-enforce`, and serial event-only A/B. Execution results must not be backfilled before launch, and authoring-time x86_64/win64 quick builds are not nine-architecture production acceptance.
+
+### 14.1 Checklist A: connection transport ownership
+
+- Definition: `testdata/autopilot_code_step_tasks_20270805_20270811.json`; definition SHA-256 `78f21ce56b111b00066f72d7502b4b73baff3118474bef64bc67adf23e442159`.
+- Goal: make `wc_net_info` the sole owner of one hop connection, provide unified `init/get/adopt/move/close`, and move proxy, candidate/empty-response fallback, send, receive, and signal close paths onto that ownership contract.
+- Frozen target set: `net_header`, `net_source`, `proxy_source`, `lookup_connect`, `lookup_empty`, `lookup_send`, `lookup_recv`, `lookup_loop`, and `selftest_source`, all existing; `target_set_sha256=8a3176bf267040b886b1cd7cbb48b545b228fa7c673094b223f5bfd4cad09957`.
+- D1 declares and implements ownership APIs; D2 migrates proxy/connect/empty; D3 migrates send/receive/loop; D4 adds custom-transport move and idempotent close-once selftests.
+
+### 14.2 Checklist B: HTTPS scheme and OpenSSL TLS transport
+
+- Definition: `testdata/autopilot_code_step_tasks_20270812_20270818.json`; definition SHA-256 `f2d45a5599b4fd39fff4995b06cb18abd25b140857bea3c8cf681320bfccd32a`; runtime must use A as its prerequisite.
+- Goal: add `https://` and default port 443; fail before lookup as unsupported in ordinary builds; with `WHOIS_TLS=1`, use OpenSSL 3.5.8 with mandatory peer/hostname/IP verification, SNI, TLS 1.2 minimum, the pinned CA bundle or a fail-closed non-empty `SSL_CERT_FILE` override, and one absolute monotonic deadline across TLS handshake and HTTP CONNECT.
+- Frozen target set: A's nine targets plus existing `config_header`, `proxy_header`, and `opts_source`, and create targets `tls_header=include/wc/wc_tls.h` and `tls_source=src/core/tls.c`; `target_set_sha256=4d171a4202c4c3bbec9d945aa884a44a0fcb72b3d619362eef590cb1d279af99`.
+- D1/D2 create the complete TLS header/source; D3 adds the scheme, build gate, and parser selftests; D4 inserts TLS after proxy TCP and before CONNECT, adopts it into A's owner, and adds stable classifications and deterministic TLS selftests.
+
+### 14.3 Authoring evidence and remaining pre-launch gates
+
+- Both definitions are UTF-8 BOM + LF, TODO-free, and pass SyntaxOnly, D1-D4, and all three Vx infrastructure regressions. B's full-definition check with A as prerequisite passes with `errors=0 warnings=0` under the official `WorkerTimeoutMs=120000`; internal regex timeout and operation-safety enforcement remain unchanged.
+- The isolated effective tree passes remote x86_64/win64 compilation for both the default stub and `WHOIS_TLS=1` OpenSSL paths. The TLS win64 artifact remains full-static and local artifact hashes pass. This is authoring-time quick-build evidence, not section 9 production acceptance.
+- Before start-file generation, the complete effective target set must still pass nine-architecture Strict `lto-auto`, TLS/non-TLS smoke and selftests, Golden/referral, Batch/CIDR/Redirect/Step47, default-direct output freezing, and HTTPS loopback certificate/hostname/failure-class contracts. Only then may it be marked launch-ready.
+- A/B remain strictly serial. B starts only after A passes, its success snapshot is complete, and the prerequisite gate passes. No active start-file generation or launch, commit, or push occurs without explicit same-turn user authorization.
 
 ### 11.3 Joint pre-launch confirmation
 

@@ -1,0 +1,462 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13d-b-https-proxy-tls-20270812-20270818",
+  "targetFiles": [
+    {
+      "id": "net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "net_source",
+      "file": "src/core/net.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "proxy_source",
+      "file": "src/core/proxy.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_connect",
+      "file": "src/core/lookup_exec_connect.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_empty",
+      "file": "src/core/lookup_exec_empty.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_send",
+      "file": "src/core/lookup_exec_send.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_recv",
+      "file": "src/core/lookup_exec_recv.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_loop",
+      "file": "src/core/lookup_exec_loop.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "selftest_source",
+      "file": "src/core/selftest.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "config_header",
+      "file": "include/wc/wc_config.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "proxy_header",
+      "file": "include/wc/wc_proxy.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "opts_source",
+      "file": "src/core/opts.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "tls_header",
+      "file": "include/wc/wc_tls.h",
+      "kind": "c-header",
+      "lifecycle": "create"
+    },
+    {
+      "id": "tls_source",
+      "file": "src/core/tls.c",
+      "kind": "c-source",
+      "lifecycle": "create"
+    }
+  ],
+  "defaultTarget": "tls_header",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Create the complete public TLS client transport API; this is the only D1 operation touching tls_header.",
+      "idempotentContainsByTarget": {
+        "tls_header": [
+          "WC_TLS_RESULT_CA_CONFIG_FAILURE",
+          "wc_tls_result_t wc_tls_wrap_client(int fd,"
+        ]
+      },
+      "operations": [
+        {
+          "type": "create-file",
+          "target": "tls_header",
+          "content": "#ifndef WC_TLS_H\n#define WC_TLS_H\n\n#include <stdint.h>\n\n#include \"wc_transport.h\"\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\ntypedef enum wc_tls_result {\n    WC_TLS_RESULT_SUCCEEDED = 0,\n    WC_TLS_RESULT_UNSUPPORTED,\n    WC_TLS_RESULT_CA_CONFIG_FAILURE,\n    WC_TLS_RESULT_PEER_VERIFY_FAILURE,\n    WC_TLS_RESULT_HANDSHAKE_FAILURE,\n    WC_TLS_RESULT_TIMEOUT,\n    WC_TLS_RESULT_IO_FAILURE,\n    WC_TLS_RESULT_PROTOCOL_FAILURE\n} wc_tls_result_t;\n\nwc_tls_result_t wc_tls_wrap_client(int fd,\n                                   const char* peer_name,\n                                   uint64_t deadline_ms,\n                                   wc_transport_t** out_transport);\nconst char* wc_tls_result_name(wc_tls_result_t result);\nint wc_tls_selftest(void);\n\n#ifdef __cplusplus\n}\n#endif\n\n#endif // WC_TLS_H\n",
+          "contentSha256": "ad6492bad4f0e2fb835b35ff21c836a07cdce156f55dd32185552360194a7388",
+          "existingPolicy": "skip",
+          "idempotentContains": [
+            "WC_TLS_RESULT_PEER_VERIFY_FAILURE",
+            "int wc_tls_selftest(void);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D1_TLS_RESULT_ENUM_ONCE",
+          "target": "tls_header",
+          "pattern": "typedef enum wc_tls_result \\{",
+          "expectedCount": 1
+        },
+        {
+          "name": "D1_TLS_WRAP_API_ONCE",
+          "target": "tls_header",
+          "pattern": "wc_tls_result_t wc_tls_wrap_client\\(int fd,",
+          "expectedCount": 1
+        },
+        {
+          "name": "D1_TLS_PUBLIC_APIS_THREE",
+          "target": "tls_header",
+          "pattern": "(?:wc_tls_result_t|const char\\*|int) wc_tls_(?:wrap_client|result_name|selftest)\\(",
+          "expectedCount": 3
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Create the final TLS transport implementation; this is the only operation that ever touches tls_source.",
+      "idempotentContainsByTarget": {
+        "tls_source": [
+          "static const wc_transport_ops_t g_wc_tls_transport_ops",
+          "wc_tls_result_t wc_tls_wrap_client(int fd,"
+        ]
+      },
+      "operations": [
+        {
+          "type": "create-file",
+          "target": "tls_source",
+          "content": "// SPDX-License-Identifier: MIT\n// tls.c - optional OpenSSL client transport for HTTPS proxy endpoints\n\n#if defined(__has_include)\n#if __has_include(\"wc/wc_tls.h\")\n#include \"wc/wc_tls.h\"\n#define WC_TLS_PUBLIC_HEADER 1\n#endif\n#endif\n#ifndef WC_TLS_PUBLIC_HEADER\n#include <stdint.h>\n#include \"wc/wc_transport.h\"\ntypedef enum wc_tls_result {\n    WC_TLS_RESULT_SUCCEEDED = 0,\n    WC_TLS_RESULT_UNSUPPORTED,\n    WC_TLS_RESULT_CA_CONFIG_FAILURE,\n    WC_TLS_RESULT_PEER_VERIFY_FAILURE,\n    WC_TLS_RESULT_HANDSHAKE_FAILURE,\n    WC_TLS_RESULT_TIMEOUT,\n    WC_TLS_RESULT_IO_FAILURE,\n    WC_TLS_RESULT_PROTOCOL_FAILURE\n} wc_tls_result_t;\n#endif\n\n#include <errno.h>\n#include <limits.h>\n#include <stdlib.h>\n\n#ifdef WHOIS_TLS\n#include <openssl/err.h>\n#include <openssl/pem.h>\n#include <openssl/ssl.h>\n#include <openssl/x509_vfy.h>\n\n#include \"wc/wc_ca_bundle.h\"\n#include \"wc/wc_util.h\"\n\ntypedef struct wc_tls_context {\n    SSL_CTX* ssl_context;\n    SSL* ssl;\n    int fd;\n    uint64_t io_deadline_ms;\n} wc_tls_context_t;\n\nstatic int wc_tls_wait_fd(wc_tls_context_t* context, int events, uint64_t deadline_ms)\n{\n    wc_transport_t bare_transport;\n    if (!context || context->fd < 0) return -1;\n    wc_transport_init(&bare_transport, &context->fd);\n    return wc_transport_wait_until(&bare_transport, events, deadline_ms);\n}\n\nstatic int wc_tls_wait_for_ssl(wc_tls_context_t* context, int ssl_error)\n{\n    int events = ssl_error == SSL_ERROR_WANT_READ ? WC_TRANSPORT_WAIT_READ : WC_TRANSPORT_WAIT_WRITE;\n    int ready = wc_tls_wait_fd(context, events, context->io_deadline_ms);\n    if (ready == 0) errno = ETIMEDOUT;\n    return ready;\n}\n\nstatic int wc_tls_read(void* value, char* buffer, size_t length)\n{\n    wc_tls_context_t* context = (wc_tls_context_t*)value;\n    if (!context || !context->ssl || length > (size_t)INT_MAX) return -1;\n    for (;;) {\n        int result = SSL_read(context->ssl, buffer, (int)length);\n        int error;\n        if (result > 0) return result;\n        error = SSL_get_error(context->ssl, result);\n        if (error == SSL_ERROR_ZERO_RETURN) return 0;\n        if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) return -1;\n        if (wc_tls_wait_for_ssl(context, error) <= 0) return -1;\n    }\n}\n\nstatic int wc_tls_write(void* value, const char* data, size_t length)\n{\n    wc_tls_context_t* context = (wc_tls_context_t*)value;\n    if (!context || !context->ssl || length > (size_t)INT_MAX) return -1;\n    for (;;) {\n        int result = SSL_write(context->ssl, data, (int)length);\n        int error;\n        if (result > 0) return result;\n        error = SSL_get_error(context->ssl, result);\n        if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) return -1;\n        if (wc_tls_wait_for_ssl(context, error) <= 0) return -1;\n    }\n}\n\nstatic int wc_tls_wait(void* value, int events, uint64_t deadline_ms)\n{\n    wc_tls_context_t* context = (wc_tls_context_t*)value;\n    if (!context || !context->ssl) return -1;\n    context->io_deadline_ms = deadline_ms;\n    if ((events & WC_TRANSPORT_WAIT_READ) != 0 && SSL_pending(context->ssl) > 0) return 1;\n    return wc_tls_wait_fd(context, events, deadline_ms);\n}\n\nstatic void wc_tls_close(void* value, const char* reason, int debug_enabled)\n{\n    wc_tls_context_t* context = (wc_tls_context_t*)value;\n    if (!context) return;\n    if (context->ssl) {\n        (void)SSL_shutdown(context->ssl);\n        SSL_free(context->ssl);\n    }\n    if (context->ssl_context) SSL_CTX_free(context->ssl_context);\n    wc_safe_close(&context->fd, reason, debug_enabled);\n    free(context);\n}\n\nstatic const wc_transport_ops_t g_wc_tls_transport_ops = {\n    wc_tls_read, wc_tls_write, wc_tls_wait, wc_tls_close\n};\n\nstatic int wc_tls_load_embedded_ca(SSL_CTX* context)\n{\n    BIO* input;\n    X509_STORE* store;\n    X509* certificate;\n    int loaded = 0;\n    if (!context || wc_ca_bundle_pem_len == 0 || wc_ca_bundle_pem_len > (size_t)INT_MAX) return 0;\n    input = BIO_new_mem_buf(wc_ca_bundle_pem, (int)wc_ca_bundle_pem_len);\n    store = SSL_CTX_get_cert_store(context);\n    if (!input || !store) { BIO_free(input); return 0; }\n    while ((certificate = PEM_read_bio_X509(input, NULL, NULL, NULL)) != NULL) {\n        if (X509_STORE_add_cert(store, certificate) == 1) loaded++;\n        else ERR_clear_error();\n        X509_free(certificate);\n    }\n    ERR_clear_error();\n    BIO_free(input);\n    return loaded > 0;\n}\n\nstatic int wc_tls_configure_trust(SSL_CTX* context, int allow_environment_override)\n{\n    const char* override_path = allow_environment_override ? getenv(\"SSL_CERT_FILE\") : NULL;\n    if (override_path && *override_path)\n        return SSL_CTX_load_verify_locations(context, override_path, NULL) == 1;\n    return wc_tls_load_embedded_ca(context);\n}\n\nstatic int wc_tls_configure_peer(SSL* ssl, const char* peer_name)\n{\n    X509_VERIFY_PARAM* parameters;\n    if (!ssl || !peer_name || !*peer_name) return 0;\n    parameters = SSL_get0_param(ssl);\n    if (!parameters) return 0;\n    if (X509_VERIFY_PARAM_set1_ip_asc(parameters, peer_name) == 1) return 1;\n    ERR_clear_error();\n    return SSL_set_tlsext_host_name(ssl, peer_name) == 1 &&\n        X509_VERIFY_PARAM_set1_host(parameters, peer_name, 0) == 1;\n}\n\nwc_tls_result_t wc_tls_wrap_client(int fd,\n                                   const char* peer_name,\n                                   uint64_t deadline_ms,\n                                   wc_transport_t** out_transport)\n{\n    wc_tls_context_t* context = NULL;\n    wc_transport_t* transport = NULL;\n    wc_tls_result_t result = WC_TLS_RESULT_PROTOCOL_FAILURE;\n    if (out_transport) *out_transport = NULL;\n    if (fd < 0 || !peer_name || !*peer_name || !out_transport) return result;\n    context = (wc_tls_context_t*)calloc(1, sizeof(*context));\n    if (!context) return WC_TLS_RESULT_IO_FAILURE;\n    context->fd = fd;\n    context->io_deadline_ms = deadline_ms;\n    context->ssl_context = SSL_CTX_new(TLS_client_method());\n    if (!context->ssl_context) goto cleanup;\n    if (SSL_CTX_set_min_proto_version(context->ssl_context, TLS1_2_VERSION) != 1) goto cleanup;\n    SSL_CTX_set_verify(context->ssl_context, SSL_VERIFY_PEER, NULL);\n    if (!wc_tls_configure_trust(context->ssl_context, 1)) { result = WC_TLS_RESULT_CA_CONFIG_FAILURE; goto cleanup; }\n    context->ssl = SSL_new(context->ssl_context);\n    if (!context->ssl || SSL_set_fd(context->ssl, fd) != 1 || !wc_tls_configure_peer(context->ssl, peer_name)) goto cleanup;\n    for (;;) {\n        int handshake = SSL_connect(context->ssl);\n        int error;\n        int ready;\n        if (handshake == 1) break;\n        error = SSL_get_error(context->ssl, handshake);\n        if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {\n            if (SSL_get_verify_result(context->ssl) != X509_V_OK)\n                result = WC_TLS_RESULT_PEER_VERIFY_FAILURE;\n            else\n                result = error == SSL_ERROR_SSL ? WC_TLS_RESULT_HANDSHAKE_FAILURE : WC_TLS_RESULT_IO_FAILURE;\n            goto cleanup;\n        }\n        ready = wc_tls_wait_for_ssl(context, error);\n        if (ready <= 0) { result = ready == 0 ? WC_TLS_RESULT_TIMEOUT : WC_TLS_RESULT_IO_FAILURE; goto cleanup; }\n    }\n    if (SSL_get_verify_result(context->ssl) != X509_V_OK) { result = WC_TLS_RESULT_PEER_VERIFY_FAILURE; goto cleanup; }\n    transport = (wc_transport_t*)malloc(sizeof(*transport));\n    if (!transport) { result = WC_TLS_RESULT_IO_FAILURE; goto cleanup; }\n    wc_transport_init_with_ops(transport, &g_wc_tls_transport_ops, context);\n    *out_transport = transport;\n    return WC_TLS_RESULT_SUCCEEDED;\ncleanup:\n    free(transport);\n    if (context) {\n        if (context->ssl) SSL_free(context->ssl);\n        if (context->ssl_context) SSL_CTX_free(context->ssl_context);\n        free(context);\n    }\n    return result;\n}\n\nint wc_tls_selftest(void)\n{\n    SSL_CTX* context = SSL_CTX_new(TLS_client_method());\n    SSL* dns_ssl = NULL;\n    SSL* ip_ssl = NULL;\n    X509_STORE* store;\n    int dns_configured = 0;\n    int ip_configured = 0;\n    int passed = context != NULL;\n    if (passed) passed = SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION) == 1;\n    if (passed) { SSL_CTX_set_verify(context, SSL_VERIFY_PEER, NULL); passed = wc_tls_configure_trust(context, 0); }\n    store = context ? SSL_CTX_get_cert_store(context) : NULL;\n    if (passed) passed = store && X509_STORE_get0_objects(store) && sk_X509_OBJECT_num(X509_STORE_get0_objects(store)) > 0;\n    if (passed) {\n        dns_ssl = SSL_new(context);\n        ip_ssl = SSL_new(context);\n        if (dns_ssl) dns_configured = wc_tls_configure_peer(dns_ssl, \"proxy.example\");\n        if (ip_ssl) ip_configured = wc_tls_configure_peer(ip_ssl, \"192.0.2.1\");\n        passed = dns_ssl && ip_ssl && dns_configured == 1 && ip_configured == 1;\n    }\n    SSL_free(ip_ssl);\n    SSL_free(dns_ssl);\n    SSL_CTX_free(context);\n    return passed ? 0 : 1;\n}\n#else\nwc_tls_result_t wc_tls_wrap_client(int fd,\n                                   const char* peer_name,\n                                   uint64_t deadline_ms,\n                                   wc_transport_t** out_transport)\n{\n    (void)fd; (void)peer_name; (void)deadline_ms;\n    if (out_transport) *out_transport = NULL;\n    return WC_TLS_RESULT_UNSUPPORTED;\n}\nint wc_tls_selftest(void)\n{\n    wc_transport_t* transport = (wc_transport_t*)1;\n    return wc_tls_wrap_client(-1, \"proxy.example\", 0, &transport) == WC_TLS_RESULT_UNSUPPORTED && transport == NULL ? 0 : 1;\n}\n#endif\n\nconst char* wc_tls_result_name(wc_tls_result_t result)\n{\n    switch (result) {\n        case WC_TLS_RESULT_SUCCEEDED: return \"succeeded\";\n        case WC_TLS_RESULT_UNSUPPORTED: return \"unsupported\";\n        case WC_TLS_RESULT_CA_CONFIG_FAILURE: return \"ca-config-failure\";\n        case WC_TLS_RESULT_PEER_VERIFY_FAILURE: return \"peer-verify-failure\";\n        case WC_TLS_RESULT_HANDSHAKE_FAILURE: return \"handshake-failure\";\n        case WC_TLS_RESULT_TIMEOUT: return \"timeout\";\n        case WC_TLS_RESULT_IO_FAILURE: return \"io-failure\";\n        default: return \"protocol-failure\";\n    }\n}\n",
+          "contentSha256": "51efd72324fa308614b490911bd913360dc27cd22b113aab4fc11bcfdcc6db67",
+          "existingPolicy": "skip",
+          "idempotentContains": [
+            "static int wc_tls_configure_trust(SSL_CTX* context, int allow_environment_override)",
+            "return WC_TLS_RESULT_UNSUPPORTED;"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D2_TLS_WRAP_DEFINITION_ONCE",
+          "target": "tls_source",
+          "pattern": "wc_tls_result_t wc_tls_wrap_client\\(int fd,",
+          "expectedCount": 2
+        },
+        {
+          "name": "D2_TLS_OPS_ONCE",
+          "target": "tls_source",
+          "pattern": "static const wc_transport_ops_t g_wc_tls_transport_ops",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_NO_DEFAULT_VERIFY_PATHS",
+          "target": "tls_source",
+          "pattern": "SSL_CTX_set_default_verify_paths",
+          "expectedCount": 0
+        },
+        {
+          "name": "D2_ENV_OVERRIDE_ONCE",
+          "target": "tls_source",
+          "pattern": "getenv\\(\\\"SSL_CERT_FILE\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_EMBEDDED_CA_SELFTEST_BYPASSES_ENV",
+          "target": "tls_source",
+          "pattern": "wc_tls_configure_trust\\(context, 0\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_SSL_PENDING_ONCE",
+          "target": "tls_source",
+          "pattern": "SSL_pending\\(context->ssl\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_SSL_SHUTDOWN_ONCE",
+          "target": "tls_source",
+          "pattern": "SSL_shutdown\\(context->ssl\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_HANDSHAKE_ERROR_VERIFY_RESULT_ONCE",
+          "target": "tls_source",
+          "pattern": "if \\(error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE\\) \\{\\n            if \\(SSL_get_verify_result\\(context->ssl\\) != X509_V_OK\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_SELFTEST_DNS_PEER_ONCE",
+          "target": "tls_source",
+          "pattern": "wc_tls_configure_peer\\(dns_ssl, \\\"proxy\\.example\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_SELFTEST_IP_PEER_ONCE",
+          "target": "tls_source",
+          "pattern": "wc_tls_configure_peer\\(ip_ssl, \\\"192\\.0\\.2\\.1\\\"\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D2_TLS_SOURCE_SINGLE_CREATE",
+          "target": "tls_source",
+          "pattern": "// tls\\.c - optional OpenSSL client transport for HTTPS proxy endpoints",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Parse HTTPS proxy endpoints, gate routing on WHOIS_TLS, and cover default port and build behavior.",
+      "idempotentContainsByTarget": {
+        "config_header": [
+          "WC_PROXY_SCHEME_HTTPS = 6"
+        ],
+        "opts_source": [
+          "Error: HTTPS proxy requires a WHOIS_TLS=1 build"
+        ],
+        "selftest_source": [
+          "selftest_proxy_expect(\"https-default-port\""
+        ]
+      },
+      "operations": [
+        {
+          "target": "config_header",
+          "pattern": "    WC_PROXY_SCHEME_SOCKS4A = 5\\n} wc_proxy_scheme_t;",
+          "replacement": "    WC_PROXY_SCHEME_SOCKS4A = 5,\n    WC_PROXY_SCHEME_HTTPS = 6\n} wc_proxy_scheme_t;",
+          "idempotentContains": [
+            "    WC_PROXY_SCHEME_HTTPS = 6"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    if \\(\\(size_t\\)\\(scheme_end - url\\) == 4 && strncasecmp\\(url, \\\"http\\\", 4\\) == 0\\) \\{\\n        out->scheme = WC_PROXY_SCHEME_HTTP;\\n        port = 8080;\\n    } else if",
+          "replacement": "    if ((size_t)(scheme_end - url) == 5 && strncasecmp(url, \"https\", 5) == 0) {\n        out->scheme = WC_PROXY_SCHEME_HTTPS;\n        port = 443;\n    } else if ((size_t)(scheme_end - url) == 4 && strncasecmp(url, \"http\", 4) == 0) {\n        out->scheme = WC_PROXY_SCHEME_HTTP;\n        port = 8080;\n    } else if",
+          "idempotentContains": [
+            "        out->scheme = WC_PROXY_SCHEME_HTTPS;\n        port = 443;"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP \\|\\|\\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 \\|\\|",
+          "replacement": "#ifdef WHOIS_TLS\n    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTPS ||\n        out->scheme == WC_PROXY_SCHEME_HTTP ||\n#else\n    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||\n#endif\n        out->scheme == WC_PROXY_SCHEME_SOCKS5 ||",
+          "idempotentContains": [
+            "    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTPS ||"
+          ]
+        },
+        {
+          "target": "opts_source",
+          "pattern": "        if \\(o->proxy.configured && !o->proxy.routing_enabled\\) \\{\\n            wc_opts_proxy_clear\\(&o->proxy\\);\\n            fprintf\\(stderr, \\\"Error: Configured proxy scheme is not available in the HTTP CONNECT build\\\\n\\\"\\);\\n            return 37;\\n        }",
+          "replacement": "        if (o->proxy.configured && !o->proxy.routing_enabled) {\n            if (o->proxy.scheme == WC_PROXY_SCHEME_HTTPS)\n                fprintf(stderr, \"Error: HTTPS proxy requires a WHOIS_TLS=1 build\\n\");\n            else\n                fprintf(stderr, \"Error: Configured proxy scheme is not available in this build\\n\");\n            wc_opts_proxy_clear(&o->proxy);\n            return 37;\n        }",
+          "idempotentContains": [
+            "                fprintf(stderr, \"Error: HTTPS proxy requires a WHOIS_TLS=1 build\\n\");"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    opts.proxy_url = \\\"http://proxy\\.example\\\";\\n    failed_local \\|= selftest_proxy_expect\\(\\\"http-default-port\\\",\\n        wc_opts_proxy_resolve\\(&opts, &env, &proxy\\) && proxy.endpoint_port == 8080\\);\\n    opts.proxy_url = \\\"socks5://proxy\\.example\\\";",
+          "replacement": "    opts.proxy_url = \"http://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"http-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 8080);\n    opts.proxy_url = \"https://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"https-default-port\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 443 &&\n        proxy.scheme == WC_PROXY_SCHEME_HTTPS);\n#ifdef WHOIS_TLS\n    failed_local |= selftest_proxy_expect(\"https-build-routing\", proxy.routing_enabled);\n#else\n    failed_local |= selftest_proxy_expect(\"https-build-gate\", !proxy.routing_enabled);\n#endif\n    opts.proxy_url = \"socks5://proxy.example\";",
+          "idempotentContains": [
+            "    failed_local |= selftest_proxy_expect(\"https-default-port\",",
+            "    failed_local |= selftest_proxy_expect(\"https-build-gate\", !proxy.routing_enabled);"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    env.whois_proxy = \\\"http://proxy\\.example\\\";\\n    failed_local \\|= selftest_proxy_expect\\(\\\"cleartext-auth-gate\\\", !wc_opts_proxy_resolve\\(&opts, &env, &proxy\\)\\);\\n    opts.proxy_allow_insecure_auth = 1;\\n    failed_local \\|= selftest_proxy_expect\\(\\\"cleartext-auth-explicit\\\", wc_opts_proxy_resolve\\(&opts, &env, &proxy\\)\\);",
+          "replacement": "    env.whois_proxy = \"https://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"https-auth-no-cleartext-gate\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy));\n    env.whois_proxy = \"http://proxy.example\";\n    failed_local |= selftest_proxy_expect(\"cleartext-auth-gate\",\n        !wc_opts_proxy_resolve(&opts, &env, &proxy));\n    opts.proxy_allow_insecure_auth = 1;\n    failed_local |= selftest_proxy_expect(\"cleartext-auth-explicit\",\n        wc_opts_proxy_resolve(&opts, &env, &proxy));",
+          "idempotentContains": [
+            "    failed_local |= selftest_proxy_expect(\"https-auth-no-cleartext-gate\","
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D3_HTTPS_SCHEME_ENUM_ONCE",
+          "target": "config_header",
+          "pattern": "WC_PROXY_SCHEME_HTTPS = 6",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_HTTPS_DEFAULT_443_ONCE",
+          "target": "opts_source",
+          "pattern": "out->scheme = WC_PROXY_SCHEME_HTTPS;\\n        port = 443;",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_CLEARTEXT_GATE_HTTP_ONLY",
+          "target": "opts_source",
+          "pattern": "out->scheme == WC_PROXY_SCHEME_HTTP && out->has_credentials",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_HTTPS_ROUTING_COMPILE_GATE_ONCE",
+          "target": "opts_source",
+          "pattern": "#ifdef WHOIS_TLS\\n    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTPS",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_HTTPS_FINAL_ERROR_ONCE",
+          "target": "opts_source",
+          "pattern": "Error: HTTPS proxy requires a WHOIS_TLS=1 build",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_HTTPS_PARSER_SELFTESTS_THREE",
+          "target": "selftest_source",
+          "pattern": "selftest_proxy_expect\\(\\\"https-(?:default-port|build-routing|build-gate|auth-no-cleartext-gate)\\\"",
+          "expectedCount": 4
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Wrap HTTPS proxy endpoint TCP connections in TLS before CONNECT and preserve A transport ownership.",
+      "idempotentContainsByTarget": {
+        "proxy_header": [
+          "WC_PROXY_RESULT_TLS_FAILURE"
+        ],
+        "proxy_source": [
+          "wc_net_info_adopt(&endpoint, tls_transport);",
+          "scheme=https phase=tls"
+        ],
+        "selftest_source": [
+          "failed |= wc_tls_selftest();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "proxy_header",
+          "pattern": "    WC_PROXY_RESULT_TCP_FAILURE,\\n    WC_PROXY_RESULT_TIMEOUT,",
+          "replacement": "    WC_PROXY_RESULT_TCP_FAILURE,\n    WC_PROXY_RESULT_TLS_FAILURE,\n    WC_PROXY_RESULT_TIMEOUT,",
+          "idempotentContains": [
+            "    WC_PROXY_RESULT_TLS_FAILURE,"
+          ]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "#include \\\"wc/wc_proxy\\.h\\\"\\n\\n#include <ctype\\.h>",
+          "replacement": "#include \"wc/wc_proxy.h\"\n#if defined(__has_include)\n#if __has_include(\"wc/wc_tls.h\")\n#include \"wc/wc_tls.h\"\n#define WC_PROXY_TLS_HEADER 1\n#endif\n#endif\n#ifndef WC_PROXY_TLS_HEADER\ntypedef enum wc_tls_result {\n    WC_TLS_RESULT_SUCCEEDED = 0,\n    WC_TLS_RESULT_UNSUPPORTED,\n    WC_TLS_RESULT_CA_CONFIG_FAILURE,\n    WC_TLS_RESULT_PEER_VERIFY_FAILURE,\n    WC_TLS_RESULT_HANDSHAKE_FAILURE,\n    WC_TLS_RESULT_TIMEOUT,\n    WC_TLS_RESULT_IO_FAILURE,\n    WC_TLS_RESULT_PROTOCOL_FAILURE\n} wc_tls_result_t;\nwc_tls_result_t wc_tls_wrap_client(int fd, const char* peer_name, uint64_t deadline_ms, wc_transport_t** out_transport);\nconst char* wc_tls_result_name(wc_tls_result_t result);\n#endif\n\n#include <ctype.h>",
+          "idempotentContains": [
+            "#define WC_PROXY_TLS_HEADER 1",
+            "wc_tls_result_t wc_tls_wrap_client(int fd, const char* peer_name, uint64_t deadline_ms, wc_transport_t** out_transport);"
+          ]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "        case WC_PROXY_RESULT_TCP_FAILURE: return \\\"proxy-tcp-failure\\\";\\n        case WC_PROXY_RESULT_TIMEOUT: return \\\"proxy-timeout\\\";",
+          "replacement": "        case WC_PROXY_RESULT_TCP_FAILURE: return \"proxy-tcp-failure\";\n        case WC_PROXY_RESULT_TLS_FAILURE: return \"proxy-tls-failure\";\n        case WC_PROXY_RESULT_TIMEOUT: return \"proxy-timeout\";",
+          "idempotentContains": [
+            "        case WC_PROXY_RESULT_TLS_FAILURE: return \"proxy-tls-failure\";"
+          ]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "int wc_proxy_dial_hop\\(const Config\\* config,[\\s\\S]*?wc_transport_t transport;[\\s\\S]*?return result == WC_PROXY_RESULT_SUCCEEDED \\? WC_OK : WC_ERR_IO;\\n}\\n\\ntypedef struct wc_proxy_fake",
+          "replacement": "int wc_proxy_dial_hop(const Config* config,\n                      wc_net_context_t* net_ctx,\n                      const char* target_host,\n                      const char* target_address,\n                      uint16_t target_port,\n                      int timeout_ms,\n                      int retries,\n                      struct wc_net_info* out,\n                      int* used_proxy,\n                      wc_proxy_result_t* proxy_result)\n{\n    wc_net_dial_policy_t policy;\n    struct wc_net_info endpoint;\n    wc_transport_t bare_transport;\n    wc_transport_t* transport;\n    wc_transport_t* tls_transport = NULL;\n    uint64_t deadline_ms;\n    int status = 0;\n    const char* phase = \"connect\";\n    wc_proxy_result_t result;\n    if (used_proxy) *used_proxy = 0;\n    if (proxy_result) *proxy_result = WC_PROXY_RESULT_SUCCEEDED;\n    if (!config || !target_address || !out) return WC_ERR_INVALID;\n    if (!wc_proxy_should_proxy(config, target_host, target_address, (int)target_port))\n        return wc_dial_43(net_ctx, target_address, target_port, timeout_ms, retries, out);\n    if (used_proxy) *used_proxy = 1;\n    if (config->proxy.scheme != WC_PROXY_SCHEME_HTTP &&\n        config->proxy.scheme != (wc_proxy_scheme_t)6 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS5H &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4 &&\n        config->proxy.scheme != WC_PROXY_SCHEME_SOCKS4A) {\n        if (proxy_result) *proxy_result = WC_PROXY_RESULT_UNSUPPORTED;\n        return WC_ERR_INVALID;\n    }\n    deadline_ms = wc_net_deadline_after(timeout_ms);\n    wc_net_dial_policy_init(&policy);\n    if (config->proxy.family == WC_PROXY_FAMILY_V4) policy.family = WC_NET_ENDPOINT_FAMILY_IPV4;\n    else if (config->proxy.family == WC_PROXY_FAMILY_V6) policy.family = WC_NET_ENDPOINT_FAMILY_IPV6;\n    policy.record_dns_health = 0;\n    wc_net_info_init(&endpoint);\n    if (wc_net_dial_endpoint_until(net_ctx, config->proxy.endpoint_host,\n            (uint16_t)config->proxy.endpoint_port, deadline_ms, retries, &policy, &endpoint) != WC_OK ||\n        !endpoint.connected || endpoint.fd < 0) {\n        wc_net_info_move(out, &endpoint);\n        if (proxy_result) *proxy_result = WC_PROXY_RESULT_TCP_FAILURE;\n        return WC_ERR_IO;\n    }\n    if (config->proxy.scheme == (wc_proxy_scheme_t)6) {\n        wc_tls_result_t tls_result;\n        phase = \"tls\";\n        tls_result = wc_tls_wrap_client(endpoint.fd, config->proxy.endpoint_host, deadline_ms, &tls_transport);\n        if (tls_result != WC_TLS_RESULT_SUCCEEDED || !tls_transport) {\n            if (config->debug || config->retry_metrics)\n                fprintf(stderr, \"[PROXY] scheme=https phase=tls port=%u result=proxy-tls-failure tls=%s status=0\\n\",\n                    (unsigned)config->proxy.endpoint_port, wc_tls_result_name(tls_result));\n            wc_net_info_close(&endpoint, \"wc_proxy_tls_fail\", config->debug);\n            result = WC_PROXY_RESULT_TLS_FAILURE;\n            endpoint.err = WC_ERR_IO;\n            endpoint.last_errno = tls_result == WC_TLS_RESULT_TIMEOUT ? ETIMEDOUT : EPROTO;\n            wc_net_info_move(out, &endpoint);\n            if (proxy_result) *proxy_result = result;\n            return WC_ERR_IO;\n        }\n        endpoint.fd = -1;\n        wc_net_info_adopt(&endpoint, tls_transport);\n        phase = \"connect\";\n    }\n    transport = wc_net_info_get(&endpoint, &bare_transport);\n    if (!transport) {\n        wc_net_info_close(&endpoint, \"wc_proxy_transport_missing\", config->debug);\n        result = WC_PROXY_RESULT_TCP_FAILURE;\n    } else if (config->proxy.scheme == WC_PROXY_SCHEME_HTTP ||\n               config->proxy.scheme == (wc_proxy_scheme_t)6) {\n        result = (wc_proxy_result_t)wc_proxy_http_connect_transport(transport, &config->proxy,\n            target_address, target_port, deadline_ms, &status);\n    } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4 ||\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A) {\n        const int remote_dns = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A;\n        const char* socks_target = remote_dns ? target_host : target_address;\n        result = (wc_proxy_result_t)wc_proxy_socks4_connect_transport(transport, &config->proxy,\n            socks_target, target_port, remote_dns, deadline_ms, &status);\n    } else {\n        const char* socks_target = config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? target_host : target_address;\n        result = (wc_proxy_result_t)wc_proxy_socks5_connect_transport(transport, &config->proxy,\n            socks_target, target_port, config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H,\n            deadline_ms, &status);\n    }\n    if (result != WC_PROXY_RESULT_SUCCEEDED) {\n        wc_net_info_close(&endpoint, \"wc_proxy_connect_fail\", config->debug);\n        endpoint.err = WC_ERR_IO;\n        endpoint.last_errno = (result == WC_PROXY_RESULT_TIMEOUT) ? ETIMEDOUT : EPROTO;\n    } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||\n               config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H) {\n        endpoint.ip[0] = '\\0';\n    } else {\n        snprintf(endpoint.ip, sizeof(endpoint.ip), \"%s\", target_address);\n    }\n    if ((config->debug || config->retry_metrics) && result != WC_PROXY_RESULT_SUCCEEDED)\n        fprintf(stderr, \"[PROXY] scheme=%s phase=%s port=%u result=%s status=%d\\n\",\n            config->proxy.scheme == (wc_proxy_scheme_t)6 ? \"https\" :\n            (config->proxy.scheme == WC_PROXY_SCHEME_HTTP ? \"http\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H ? \"socks5h\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5 ? \"socks5\" :\n                (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ? \"socks4a\" : \"socks4\")))),\n            phase, (unsigned)config->proxy.endpoint_port, wc_proxy_result_name(result), status);\n    wc_net_info_move(out, &endpoint);\n    if (proxy_result) *proxy_result = result;\n    return result == WC_PROXY_RESULT_SUCCEEDED ? WC_OK : WC_ERR_IO;\n}\n\ntypedef struct wc_proxy_fake",
+          "idempotentContains": [
+            "        wc_net_info_adopt(&endpoint, tls_transport);",
+            "[PROXY] scheme=https phase=tls port=%u result=proxy-tls-failure tls=%s status=0"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "#include \\\"wc/wc_proxy\\.h\\\"\\n#include \\\"wc/wc_fold\\.h\\\"",
+          "replacement": "#include \"wc/wc_proxy.h\"\n#if defined(__has_include) && __has_include(\"wc/wc_tls.h\")\n#include \"wc/wc_tls.h\"\n#else\nint wc_tls_selftest(void);\n#endif\n#include \"wc/wc_fold.h\"",
+          "idempotentContains": [
+            "#if defined(__has_include) && __has_include(\"wc/wc_tls.h\")"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    failed \\|= wc_proxy_selftest\\(\\);\\n    failed \\|= selftest_dns_fallback_toggles\\(\\);",
+          "replacement": "    failed |= wc_proxy_selftest();\n    failed |= wc_tls_selftest();\n    failed |= selftest_dns_fallback_toggles();",
+          "idempotentContains": [
+            "    failed |= wc_tls_selftest();"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D4_PROXY_TLS_RESULT_ENUM_ONCE",
+          "target": "proxy_header",
+          "pattern": "WC_PROXY_RESULT_TLS_FAILURE",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_TLS_WRAP_BEFORE_ADOPT_ONCE",
+          "target": "proxy_source",
+          "pattern": "wc_tls_wrap_client\\(endpoint\\.fd,[\\s\\S]*?endpoint\\.fd = -1;\\n        wc_net_info_adopt\\(&endpoint, tls_transport\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_CONNECT_USES_OWNED_TRANSPORT_ONCE",
+          "target": "proxy_source",
+          "pattern": "transport = wc_net_info_get\\(&endpoint, &bare_transport\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_HTTP_CONNECT_TRANSPORT_POINTER_ONCE",
+          "target": "proxy_source",
+          "pattern": "wc_proxy_http_connect_transport\\(transport, &config->proxy,",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_TLS_FAILURE_OWNER_CLOSE_ONCE",
+          "target": "proxy_source",
+          "pattern": "wc_net_info_close\\(&endpoint, \\\"wc_proxy_tls_fail\\\", config->debug\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_FINAL_OWNER_MOVE_ONCE",
+          "target": "proxy_source",
+          "pattern": "wc_net_info_move\\(out, &endpoint\\);\\n    if \\(proxy_result\\) \\*proxy_result = result;\\n    return result == WC_PROXY_RESULT_SUCCEEDED",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_OLD_STACK_TRANSPORT_CLOSE_REMOVED",
+          "target": "proxy_source",
+          "pattern": "wc_transport_close\\(&transport, \\\"wc_proxy_connect_fail\\\"",
+          "expectedCount": 0
+        },
+        {
+          "name": "D4_HTTPS_TLS_LOG_ONCE",
+          "target": "proxy_source",
+          "pattern": "scheme=https phase=tls",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_TLS_SELFTEST_CALLED_ONCE",
+          "target": "selftest_source",
+          "pattern": "failed \\|= wc_tls_selftest\\(\\);",
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}

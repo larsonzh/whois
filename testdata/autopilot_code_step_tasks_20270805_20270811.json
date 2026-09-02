@@ -1,0 +1,614 @@
+﻿{
+  "schemaVersion": "vx-draft",
+  "name": "wp13d-a-net-transport-ownership-20270805-20270811",
+  "targetFiles": [
+    {
+      "id": "net_header",
+      "file": "include/wc/wc_net.h",
+      "kind": "c-header",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "net_source",
+      "file": "src/core/net.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "proxy_source",
+      "file": "src/core/proxy.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_connect",
+      "file": "src/core/lookup_exec_connect.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_empty",
+      "file": "src/core/lookup_exec_empty.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_send",
+      "file": "src/core/lookup_exec_send.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_recv",
+      "file": "src/core/lookup_exec_recv.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "lookup_loop",
+      "file": "src/core/lookup_exec_loop.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    },
+    {
+      "id": "selftest_source",
+      "file": "src/core/selftest.c",
+      "kind": "c-source",
+      "lifecycle": "existing"
+    }
+  ],
+  "defaultTarget": "net_header",
+  "qualityPolicy": {
+    "unknownNoOpBudget": 1,
+    "unknownNoOpConsecutiveLimit": 2,
+    "disableUnknownNoOpBudgetGate": false,
+    "taskDesignQualityPolicy": "enforce",
+    "operationSafetyPolicy": "enforce"
+  },
+  "rounds": {
+    "D1": {
+      "type": "regex-patch",
+      "description": "Declare and implement wc_net_info transport ownership helpers.",
+      "idempotentContainsByTarget": {
+        "net_header": [
+          "wc_transport_t* custom_transport;",
+          "wc_transport_t* wc_net_info_get(struct wc_net_info* info, wc_transport_t* bare_transport);"
+        ],
+        "net_source": [
+          "void wc_net_info_adopt(struct wc_net_info* info, wc_transport_t* custom_transport)",
+          "void wc_net_info_move(struct wc_net_info* destination, struct wc_net_info* source)"
+        ]
+      },
+      "operations": [
+        {
+          "target": "net_header",
+          "pattern": "#include \"wc/wc_types\\.h\"\\n\\n#ifdef __cplusplus",
+          "replacement": "#include \"wc/wc_types.h\"\n#include \"wc/wc_transport.h\"\n\n#ifdef __cplusplus",
+          "idempotentContains": [
+            "#include \"wc/wc_transport.h\""
+          ]
+        },
+        {
+          "target": "net_header",
+          "pattern": "(struct wc_net_info \\{\\n    int fd;[^\\n]*\\n    char ip\\[64\\];[^\\n]*\\n    int connected;[^\\n]*\\n    int err;[^\\n]*\\n    int last_errno;[^\\n]*\\n)(\\};)",
+          "replacement": "$1    wc_transport_t* custom_transport; // owned optional custom transport\n$2\n\nvoid wc_net_info_init(struct wc_net_info* info);\nwc_transport_t* wc_net_info_get(struct wc_net_info* info, wc_transport_t* bare_transport);\nvoid wc_net_info_adopt(struct wc_net_info* info, wc_transport_t* custom_transport);\nvoid wc_net_info_move(struct wc_net_info* destination, struct wc_net_info* source);\nvoid wc_net_info_close(struct wc_net_info* info, const char* reason, int debug_enabled);",
+          "idempotentContains": [
+            "wc_transport_t* custom_transport;",
+            "void wc_net_info_close(struct wc_net_info* info, const char* reason, int debug_enabled);"
+          ]
+        },
+        {
+          "target": "net_source",
+          "pattern": "static void wc_net_info_init\\(struct wc_net_info\\* n\\)\\{ if\\(n\\)\\{ n->fd=-1; n->ip\\[0\\]='\\\\0'; n->connected=0; n->err=WC_ERR_INTERNAL; n->last_errno=0; \\}\\}",
+          "replacement": "void wc_net_info_init(struct wc_net_info* info)\n{\n    if (!info) return;\n    info->fd = -1;\n    info->ip[0] = '\\0';\n    info->connected = 0;\n    info->err = WC_ERR_INTERNAL;\n    info->last_errno = 0;\n    info->custom_transport = NULL;\n}\n\nwc_transport_t* wc_net_info_get(struct wc_net_info* info, wc_transport_t* bare_transport)\n{\n    if (!info) return NULL;\n    if (info->custom_transport) return info->custom_transport;\n    if (!bare_transport) return NULL;\n    wc_transport_init(bare_transport, &info->fd);\n    return bare_transport;\n}\n\nvoid wc_net_info_adopt(struct wc_net_info* info, wc_transport_t* custom_transport)\n{\n    if (!info || !custom_transport) return;\n    wc_net_info_close(info, \"wc_net_info_adopt_replace\", 0);\n    info->custom_transport = custom_transport;\n}\n\nvoid wc_net_info_move(struct wc_net_info* destination, struct wc_net_info* source)\n{\n    if (!destination || !source || destination == source) return;\n    wc_net_info_close(destination, \"wc_net_info_move_replace\", 0);\n    *destination = *source;\n    wc_net_info_init(source);\n}\n\nvoid wc_net_info_close(struct wc_net_info* info, const char* reason, int debug_enabled)\n{\n    if (!info) return;\n    if (info->custom_transport) {\n        wc_transport_t* custom_transport = info->custom_transport;\n        info->custom_transport = NULL;\n        wc_transport_close(custom_transport, reason, debug_enabled);\n        free(custom_transport);\n        info->fd = -1;\n    } else {\n        wc_safe_close(&info->fd, reason, debug_enabled);\n    }\n    info->connected = 0;\n}",
+          "idempotentContains": [
+            "info->custom_transport = NULL;",
+            "free(custom_transport);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D1_TRANSPORT_HEADER_INCLUDED_ONCE",
+          "target": "net_header",
+          "pattern": "#include \"wc/wc_transport\\.h\"",
+          "expectedCount": 1
+        },
+        {
+          "name": "D1_CUSTOM_POINTER_FIELD_ONCE",
+          "target": "net_header",
+          "pattern": "wc_transport_t\\* custom_transport;",
+          "expectedCount": 1
+        },
+        {
+          "name": "D1_HELPER_PROTOTYPES_FIVE",
+          "target": "net_header",
+          "pattern": "(?:void|wc_transport_t\\*) wc_net_info_(?:init|get|adopt|move|close)\\(",
+          "expectedCount": 5
+        },
+        {
+          "name": "D1_HELPER_DEFINITIONS_FIVE",
+          "target": "net_source",
+          "pattern": "(?:void|wc_transport_t\\*) wc_net_info_(?:init|get|adopt|move|close)\\(",
+          "expectedCount": 5
+        },
+        {
+          "name": "D1_OLD_STATIC_INIT_REMOVED",
+          "target": "net_source",
+          "pattern": "static void wc_net_info_init",
+          "expectedCount": 0
+        },
+        {
+          "name": "D1_CUSTOM_CLOSE_AND_FREE_ONCE",
+          "target": "net_source",
+          "pattern": "wc_transport_close\\(custom_transport, reason, debug_enabled\\);\\n        free\\(custom_transport\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D2": {
+      "type": "regex-patch",
+      "description": "Move hop ownership through proxy, connect fallback, and empty-body fallback paths.",
+      "idempotentContainsByTarget": {
+        "proxy_source": [
+          "wc_net_info_move(out, &endpoint);"
+        ],
+        "lookup_connect": [
+          "wc_net_info_move(&ni, &ni4);",
+          "wc_net_info_move(ctx->ni, &ni);"
+        ],
+        "lookup_empty": [
+          "wc_net_info_move(ni, &ni4);",
+          "wc_net_info_close(&ni2, \"wc_lookup_empty_known_fail\", debug_enabled);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "proxy_source",
+          "pattern": "if \\(out\\) \\*out = endpoint;",
+          "replacement": "if (out) wc_net_info_move(out, &endpoint);",
+          "idempotentContains": [
+            "if (out) wc_net_info_move(out, &endpoint);"
+          ]
+        },
+        {
+          "target": "proxy_source",
+          "pattern": "    \\*out = endpoint;\\n    if \\(proxy_result\\) \\*proxy_result = result;",
+          "replacement": "    wc_net_info_move(out, &endpoint);\n    if (proxy_result) *proxy_result = result;",
+          "idempotentContains": [
+            "    wc_net_info_move(out, &endpoint);\n    if (proxy_result) *proxy_result = result;"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "    struct wc_net_info ni;\\n    ni\\.connected = 0;\\n    ni\\.fd = -1;\\n    ni\\.ip\\[0\\] = '\\\\0';",
+          "replacement": "    struct wc_net_info ni;\n    wc_net_info_init(&ni);",
+          "idempotentContains": [
+            "    wc_net_info_init(&ni);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                                    ni4\\.connected = 0;\\n                                    ni4\\.fd = -1;\\n                                    ni4\\.ip\\[0\\] = '\\\\0';",
+          "replacement": "                                    wc_net_info_init(&ni4);",
+          "idempotentContains": [
+            "                                    wc_net_info_init(&ni4);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                                        ni = ni4;",
+          "replacement": "                                        wc_net_info_move(&ni, &ni4);",
+          "idempotentContains": [
+            "                                        wc_net_info_move(&ni, &ni4);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                                            wc_safe_close\\(&ni4\\.fd, \"wc_lookup_forced_ipv4_fail\", debug_enabled\\);",
+          "replacement": "                                            wc_net_info_close(&ni4, \"wc_lookup_forced_ipv4_fail\", debug_enabled);",
+          "idempotentContains": [
+            "                                            wc_net_info_close(&ni4, \"wc_lookup_forced_ipv4_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                    ni2\\.connected = 0;\\n                    ni2\\.fd = -1;\\n                    ni2\\.ip\\[0\\] = '\\\\0';\\n                    known_ip_attempted = 1;",
+          "replacement": "                    wc_net_info_init(&ni2);\n                    known_ip_attempted = 1;",
+          "idempotentContains": [
+            "                    wc_net_info_init(&ni2);\n                    known_ip_attempted = 1;"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                        ni = ni2;",
+          "replacement": "                        wc_net_info_move(&ni, &ni2);",
+          "idempotentContains": [
+            "                        wc_net_info_move(&ni, &ni2);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "                            wc_safe_close\\(&ni2\\.fd, \"wc_lookup_known_ip_fail\", debug_enabled\\);",
+          "replacement": "                            wc_net_info_close(&ni2, \"wc_lookup_known_ip_fail\", debug_enabled);",
+          "idempotentContains": [
+            "                            wc_net_info_close(&ni2, \"wc_lookup_known_ip_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_connect",
+          "pattern": "    \\*ctx->ni = ni;",
+          "replacement": "    wc_net_info_move(ctx->ni, &ni);",
+          "idempotentContains": [
+            "    wc_net_info_move(ctx->ni, &ni);"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                            ni4\\.connected = 0;\\n                            ni4\\.fd = -1;\\n                            ni4\\.ip\\[0\\] = '\\\\0';",
+          "replacement": "                            wc_net_info_init(&ni4);",
+          "idempotentContains": [
+            "                            wc_net_info_init(&ni4);"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                                    \\*ni = ni4;",
+          "replacement": "                                    wc_net_info_move(ni, &ni4);",
+          "idempotentContains": [
+            "                                    wc_net_info_move(ni, &ni4);"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                                    wc_safe_close\\(&ni4\\.fd, \"wc_lookup_empty_ipv4_fail\", debug_enabled\\);",
+          "replacement": "                                    wc_net_info_close(&ni4, \"wc_lookup_empty_ipv4_fail\", debug_enabled);",
+          "idempotentContains": [
+            "                                    wc_net_info_close(&ni4, \"wc_lookup_empty_ipv4_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                    ni2\\.connected = 0;\\n                    ni2\\.fd = -1;\\n                    ni2\\.ip\\[0\\] = '\\\\0';\\n                    int used_proxy = 0;",
+          "replacement": "                    wc_net_info_init(&ni2);\n                    int used_proxy = 0;",
+          "idempotentContains": [
+            "                    wc_net_info_init(&ni2);\n                    int used_proxy = 0;"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                            \\*ni = ni2;",
+          "replacement": "                            wc_net_info_move(ni, &ni2);",
+          "idempotentContains": [
+            "                            wc_net_info_move(ni, &ni2);"
+          ]
+        },
+        {
+          "target": "lookup_empty",
+          "pattern": "                            wc_safe_close\\(&ni2\\.fd, \"wc_lookup_empty_known_fail\", debug_enabled\\);",
+          "replacement": "                            wc_net_info_close(&ni2, \"wc_lookup_empty_known_fail\", debug_enabled);",
+          "idempotentContains": [
+            "                            wc_net_info_close(&ni2, \"wc_lookup_empty_known_fail\", debug_enabled);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D2_PROXY_MOVES_TWO",
+          "target": "proxy_source",
+          "pattern": "wc_net_info_move\\(out, &endpoint\\);",
+          "expectedCount": 2
+        },
+        {
+          "name": "D2_PROXY_VALUE_ASSIGNMENTS_REMOVED",
+          "target": "proxy_source",
+          "pattern": "\\*out = endpoint;",
+          "expectedCount": 0
+        },
+        {
+          "name": "D2_CONNECT_LOCAL_INITS_THREE",
+          "target": "lookup_connect",
+          "pattern": "wc_net_info_init\\(&ni(?:4|2)?\\);",
+          "expectedCount": 3
+        },
+        {
+          "name": "D2_CONNECT_MOVES_THREE",
+          "target": "lookup_connect",
+          "pattern": "wc_net_info_move\\((?:&ni, &ni[24]|ctx->ni, &ni)\\);",
+          "expectedCount": 3
+        },
+        {
+          "name": "D2_CONNECT_OLD_VALUE_ASSIGNMENTS_REMOVED",
+          "target": "lookup_connect",
+          "pattern": "(?:ni = ni[24]|\\*ctx->ni = ni);",
+          "expectedCount": 0
+        },
+        {
+          "name": "D2_CONNECT_FALLBACK_CLOSES_TWO",
+          "target": "lookup_connect",
+          "pattern": "wc_net_info_close\\(&ni[24], \"wc_lookup_(?:forced_ipv4|known_ip)_fail\", debug_enabled\\);",
+          "expectedCount": 2
+        },
+        {
+          "name": "D2_EMPTY_LOCAL_INITS_TWO",
+          "target": "lookup_empty",
+          "pattern": "wc_net_info_init\\(&ni[24]\\);",
+          "expectedCount": 2
+        },
+        {
+          "name": "D2_EMPTY_MOVES_TWO",
+          "target": "lookup_empty",
+          "pattern": "wc_net_info_move\\(ni, &ni[24]\\);",
+          "expectedCount": 2
+        },
+        {
+          "name": "D2_EMPTY_OLD_VALUE_ASSIGNMENTS_REMOVED",
+          "target": "lookup_empty",
+          "pattern": "\\*ni = ni[24];",
+          "expectedCount": 0
+        },
+        {
+          "name": "D2_EMPTY_FALLBACK_CLOSES_TWO",
+          "target": "lookup_empty",
+          "pattern": "wc_net_info_close\\(&ni[24], \"wc_lookup_empty_(?:ipv4|known)_fail\", debug_enabled\\);",
+          "expectedCount": 2
+        }
+      ]
+    },
+    "D3": {
+      "type": "regex-patch",
+      "description": "Route send, receive, and loop cleanup through wc_net_info transport ownership.",
+      "idempotentContainsByTarget": {
+        "lookup_send": [
+          "wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);",
+          "wc_net_info_close(ctx->ni, \"wc_lookup_send_fail\", debug_enabled);"
+        ],
+        "lookup_recv": [
+          "wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);",
+          "wc_net_info_close(ctx->ni, \"wc_lookup_recv_done\", debug_enabled);"
+        ],
+        "lookup_loop": [
+          "wc_net_info_init(&ni);",
+          "wc_net_info_close(&ni, \"wc_lookup_signal_abort\", debug_enabled);"
+        ]
+      },
+      "operations": [
+        {
+          "target": "lookup_send",
+          "pattern": "    wc_transport_t transport;\\n    wc_transport_init\\(&transport, &ctx->ni->fd\\);\\n\\n    int arin_retry_active =",
+          "replacement": "    wc_transport_t bare_transport;\n    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);\n    if (!transport) return -1;\n\n    int arin_retry_active =",
+          "idempotentContains": [
+            "    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);\n    if (!transport) return -1;\n\n    int arin_retry_active ="
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_transport_send_all\\(&transport, line, qlen \\+ 2, ctx->zopts->timeout_sec \\* 1000\\)",
+          "replacement": "wc_transport_send_all(transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000)",
+          "idempotentContains": [
+            "wc_transport_send_all(transport, line, qlen + 2, ctx->zopts->timeout_sec * 1000)"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_transport_close\\(&transport, \"wc_lookup_malloc_fail\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni, \"wc_lookup_malloc_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni, \"wc_lookup_malloc_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_transport_close\\(&transport, \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni, \"wc_lookup_signal_abort\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni, \"wc_lookup_signal_abort\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_send",
+          "pattern": "wc_transport_close\\(&transport, \"wc_lookup_send_fail\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni, \"wc_lookup_send_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni, \"wc_lookup_send_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "    wc_transport_t transport;\\n    wc_transport_init\\(&transport, &ctx->ni->fd\\);\\n\\n    if \\(wc_signal_should_terminate\\(\\)\\)",
+          "replacement": "    wc_transport_t bare_transport;\n    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);\n    if (!transport) return -1;\n\n    if (wc_signal_should_terminate())",
+          "idempotentContains": [
+            "    wc_transport_t* transport = wc_net_info_get(ctx->ni, &bare_transport);\n    if (!transport) return -1;\n\n    if (wc_signal_should_terminate())"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_transport_recv_until_idle\\(&transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec \\* 1000, max_bytes\\)",
+          "replacement": "wc_transport_recv_until_idle(transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes)",
+          "idempotentContains": [
+            "wc_transport_recv_until_idle(transport, ctx->body, ctx->blen, ctx->zopts->timeout_sec * 1000, max_bytes)"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_transport_close\\(&transport,\\n                \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni,\n                \"wc_lookup_signal_abort\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni,\n                \"wc_lookup_signal_abort\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_transport_close\\(&transport, \"wc_lookup_recv_fail\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni, \"wc_lookup_recv_fail\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni, \"wc_lookup_recv_fail\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_recv",
+          "pattern": "wc_transport_close\\(&transport, \"wc_lookup_recv_done\", debug_enabled\\);",
+          "replacement": "wc_net_info_close(ctx->ni, \"wc_lookup_recv_done\", debug_enabled);",
+          "idempotentContains": [
+            "wc_net_info_close(ctx->ni, \"wc_lookup_recv_done\", debug_enabled);"
+          ]
+        },
+        {
+          "target": "lookup_loop",
+          "pattern": "        struct wc_net_info ni;\\n        int connected_ok = 0;",
+          "replacement": "        struct wc_net_info ni;\n        wc_net_info_init(&ni);\n        int connected_ok = 0;",
+          "idempotentContains": [
+            "        wc_net_info_init(&ni);"
+          ]
+        },
+        {
+          "target": "lookup_loop",
+          "pattern": "            wc_safe_close\\(&ni\\.fd, \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "replacement": "            wc_net_info_close(&ni, \"wc_lookup_signal_abort\", debug_enabled);",
+          "idempotentContains": [
+            "            wc_net_info_close(&ni, \"wc_lookup_signal_abort\", debug_enabled);"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D3_SEND_GET_ONCE",
+          "target": "lookup_send",
+          "pattern": "wc_net_info_get\\(ctx->ni, &bare_transport\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_SEND_OWNER_CLOSES_THREE",
+          "target": "lookup_send",
+          "pattern": "wc_net_info_close\\(ctx->ni, \"wc_lookup_(?:malloc_fail|signal_abort|send_fail)\", debug_enabled\\);",
+          "expectedCount": 3
+        },
+        {
+          "name": "D3_SEND_STACK_TRANSPORT_CLOSE_REMOVED",
+          "target": "lookup_send",
+          "pattern": "wc_transport_close\\(&transport",
+          "expectedCount": 0
+        },
+        {
+          "name": "D3_RECV_GET_ONCE",
+          "target": "lookup_recv",
+          "pattern": "wc_net_info_get\\(ctx->ni, &bare_transport\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_RECV_OWNER_CLOSES_THREE",
+          "target": "lookup_recv",
+          "pattern": "wc_net_info_close\\(ctx->ni,",
+          "expectedCount": 3
+        },
+        {
+          "name": "D3_RECV_STACK_TRANSPORT_CLOSE_REMOVED",
+          "target": "lookup_recv",
+          "pattern": "wc_transport_close\\(&transport",
+          "expectedCount": 0
+        },
+        {
+          "name": "D3_LOOP_INIT_ONCE",
+          "target": "lookup_loop",
+          "pattern": "wc_net_info_init\\(&ni\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D3_LOOP_SIGNAL_OWNER_CLOSE_ONCE",
+          "target": "lookup_loop",
+          "pattern": "wc_net_info_close\\(&ni, \"wc_lookup_signal_abort\", debug_enabled\\);",
+          "expectedCount": 1
+        }
+      ]
+    },
+    "D4": {
+      "type": "regex-patch",
+      "description": "Add deterministic custom transport move and idempotent close ownership selftest.",
+      "idempotentContainsByTarget": {
+        "selftest_source": [
+          "static int selftest_net_info_transport_ownership(void)",
+          "failed |= selftest_net_info_transport_ownership();"
+        ]
+      },
+      "operations": [
+        {
+          "target": "selftest_source",
+          "pattern": "    return failed_local;\\n\\}\\n\\nstatic int selftest_net_dial_policy\\(void\\)\\n\\{",
+              "replacement": "    return failed_local;\n}\n\ntypedef struct wc_net_info_fake_transport {\n    int close_count;\n    int socket_close_count;\n} wc_net_info_fake_transport_t;\n\nstatic int wc_net_info_fake_read(void* context, char* buffer, size_t length)\n{\n    (void)context;\n    (void)buffer;\n    (void)length;\n    return 0;\n}\n\nstatic int wc_net_info_fake_write(void* context, const char* data, size_t length)\n{\n    (void)context;\n    (void)data;\n    return (int)length;\n}\n\nstatic int wc_net_info_fake_wait(void* context, int events, uint64_t deadline_ms)\n{\n    (void)context;\n    (void)events;\n    (void)deadline_ms;\n    return 1;\n}\n\nstatic void wc_net_info_fake_close(void* context, const char* reason, int debug_enabled)\n{\n    wc_net_info_fake_transport_t* fake = (wc_net_info_fake_transport_t*)context;\n    (void)reason;\n    (void)debug_enabled;\n    fake->close_count++;\n    fake->socket_close_count++;\n}\n\nstatic int selftest_net_info_transport_ownership(void)\n{\n    static const wc_transport_ops_t operations = {\n        wc_net_info_fake_read,\n        wc_net_info_fake_write,\n        wc_net_info_fake_wait,\n        wc_net_info_fake_close\n    };\n    wc_net_info_fake_transport_t fake = {0, 0};\n    struct wc_net_info source;\n    struct wc_net_info destination;\n    wc_transport_t bare_transport;\n    wc_transport_t* custom_transport = (wc_transport_t*)malloc(sizeof(*custom_transport));\n    int failed = 0;\n\n    wc_net_info_init(&source);\n    wc_net_info_init(&destination);\n    if (!custom_transport) {\n        fprintf(stderr, \"[SELFTEST] net-info-transport-ownership: FAIL (alloc)\\n\");\n        return 1;\n    }\n    wc_transport_init_with_ops(custom_transport, &operations, &fake);\n    wc_net_info_adopt(&source, custom_transport);\n    if (!wc_net_info_get(&source, &bare_transport)) failed = 1;\n    wc_net_info_move(&destination, &source);\n    if (source.fd != -1 || !wc_net_info_get(&destination, &bare_transport)) failed = 1;\n    wc_net_info_close(&destination, \"selftest_net_info_transport_ownership\", 0);\n    wc_net_info_close(&destination, \"selftest_net_info_transport_ownership_repeat\", 0);\n    if (fake.close_count != 1 || fake.socket_close_count != 1 ||\n        destination.fd != -1) failed = 1;\n    if (wc_net_info_get(&source, &bare_transport) != &bare_transport ||\n        bare_transport.context != &source.fd) failed = 1;\n    fprintf(stderr, \"[SELFTEST] net-info-transport-ownership: %s\\n\", failed ? \"FAIL\" : \"PASS\");\n    return failed;\n}\n\nstatic int selftest_net_dial_policy(void)\n{",
+          "idempotentContains": [
+            "static int selftest_net_info_transport_ownership(void)",
+            "fake.close_count != 1 || fake.socket_close_count != 1"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    \\(void\\)wc_net_dial_endpoint\\(&context, \"127\\.0\\.0\\.1\", 0, 100, 1, &policy, &info\\);\\n    if \\(info\\.fd >= 0\\) wc_safe_close\\(&info\\.fd, \"selftest_net_dial_policy\", 0\\);\\n    if \\(wc_dns_health_note_count_for_test\\(\\) != 0\\)",
+          "replacement": "    (void)wc_net_dial_endpoint(&context, \"127.0.0.1\", 0, 100, 1, &policy, &info);\n    wc_net_info_close(&info, \"selftest_net_dial_policy\", 0);\n    if (wc_dns_health_note_count_for_test() != 0)",
+          "idempotentContains": [
+            "    wc_net_info_close(&info, \"selftest_net_dial_policy\", 0);\n    if (wc_dns_health_note_count_for_test() != 0)"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "        \\(void\\)wc_net_dial_endpoint\\(&context, \"127\\.0\\.0\\.1\", 0, 100, 1, &policy, &info\\);\\n        if \\(info\\.fd >= 0\\) wc_safe_close\\(&info\\.fd, \"selftest_net_dial_policy\", 0\\);\\n        if \\(wc_dns_health_note_count_for_test\\(\\) == 0\\)",
+          "replacement": "        (void)wc_net_dial_endpoint(&context, \"127.0.0.1\", 0, 100, 1, &policy, &info);\n        wc_net_info_close(&info, \"selftest_net_dial_policy\", 0);\n        if (wc_dns_health_note_count_for_test() == 0)",
+          "idempotentContains": [
+            "        wc_net_info_close(&info, \"selftest_net_dial_policy\", 0);\n        if (wc_dns_health_note_count_for_test() == 0)"
+          ]
+        },
+        {
+          "target": "selftest_source",
+          "pattern": "    failed \\|= selftest_net_dial_policy\\(\\);\\n    failed \\|= wc_proxy_selftest\\(\\);",
+          "replacement": "    failed |= selftest_net_dial_policy();\n    failed |= selftest_net_info_transport_ownership();\n    failed |= wc_proxy_selftest();",
+          "idempotentContains": [
+            "    failed |= selftest_net_info_transport_ownership();"
+          ]
+        }
+      ],
+      "postApplyAssertions": [
+        {
+          "name": "D4_OWNERSHIP_SELFTEST_DEFINITION_ONCE",
+          "target": "selftest_source",
+          "pattern": "static int selftest_net_info_transport_ownership\\(void\\)",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_CUSTOM_CLOSE_CALLBACK_ONCE",
+          "target": "selftest_source",
+          "pattern": "static void wc_net_info_fake_close\\(",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_DOUBLE_CLOSE_EXERCISED",
+          "target": "selftest_source",
+          "pattern": "wc_net_info_close\\(&destination, \"selftest_net_info_transport_ownership(?:_repeat)?\", 0\\);",
+          "expectedCount": 2
+        },
+        {
+          "name": "D4_CLOSE_ONCE_ASSERTION",
+          "target": "selftest_source",
+          "pattern": "fake\\.close_count != 1 \\|\\| fake\\.socket_close_count != 1",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_OWNERSHIP_SELFTEST_CALLED_ONCE",
+          "target": "selftest_source",
+          "pattern": "failed \\|= selftest_net_info_transport_ownership\\(\\);",
+          "expectedCount": 1
+        },
+        {
+          "name": "D4_OLD_SELFTEST_FD_CLOSES_REMOVED",
+          "target": "selftest_source",
+          "pattern": "wc_safe_close\\(&info\\.fd, \"selftest_net_dial_policy\"",
+          "expectedCount": 0
+        },
+        {
+          "name": "D4_NET_DIAL_OWNER_CLOSES_TWO",
+          "target": "selftest_source",
+          "pattern": "wc_net_info_close\\(&info, \"selftest_net_dial_policy\", 0\\);",
+          "expectedCount": 2
+        }
+      ]
+    }
+  }
+}

@@ -41,6 +41,8 @@
 
 查询规则契约（新增）：`docs/RFC-ipv4-ipv6-whois-lookup-rules.md`
 
+WP-13D HTTPS proxy TLS 开工准备（2026-09-02）：CA/静态 OpenSSL 构建准备及 Vx A/B 任务定义已完成编制期验收。A 收敛 `wc_net_info` 的 custom transport 所有权，B 增加 `https://`、强制证书/主机名验证、固定 CA 或 fail-close 的 `SSL_CERT_FILE` 覆盖，以及同一绝对 deadline 内的 TLS handshake + CONNECT。A→B 全定义零错误零警告，默认与 TLS x86_64/win64 快编译 PASS；功能尚未在 master 开放，九架构生产门禁、start-file 与运行仍待完成。权威清单见 `docs/RFC-proxy-access.md` 第 14 节。
+
 WP-13C SOCKS4/4a 完成（2026-09-01）：`socks4://` 仅向代理发送本地解析的 IPv4 候选（SOCKS4 不支持 IPv6）；`socks4a://` 对未被 per-hop `NO_PROXY` 绕过的域名使用代理端远程解析，并与 `socks5h://` 共用目标 family/fallback/RIR override 冲突门禁与目标健康隔离；USERID 使用解析后的 username，password 不进入帧。loopback 协议/配置探针 27/27 PASS；Vx A/B 各 8/8 一轮通过、无事故/自愈/重启（A run=`out/artifacts/dev_verify_multiround/20260831-150933`，B run=`out/artifacts/dev_verify_multiround/20260831-205121`，A/B 合计 `0d 12:01:40`，session start=2026-08-31 15:08:58）；最终 Strict Version `lto-auto` 远程构建冒烟同步 + 黄金校验无告警 PASS（`out/artifacts/20260901-121843`，755s；Local hash verify/Golden/referral 全 PASS）。默认直连、stdout、RIR referral、DNS-health、batch strategy 与 retry metrics 契约不变；HTTPS proxy（WP-13D）仍按代理 RFC 第 9 节 Ready 门禁继续。
 
 WP-13B-3 SOCKS5/5h 数据面完成（2026-08-31）：`socks5://` 使用本地目标解析并发送 IPv4/IPv6 ATYP；`socks5h://` 对未被 per-hop `NO_PROXY` 绕过的域名使用代理端远程解析，不触发本地目标 DNS、DNS-health/backoff 或 empty-response IP fallback。支持 RFC 1929 username/password 与完整 REP 分类，远程解析成功后的目标 IP 保持 unknown。loopback 协议/配置探针 21/21 PASS；最终 Strict `lto-auto` 九架构、9/9 hash、POSIX/QEMU 与 Windows smoke、Golden、三起点 referral 全 PASS（`out/artifacts/20260831-112633`，436s）。带 release 同步的最终复核（2026-08-31）：Strict `lto-auto` 无告警 + lto 无告警 + Local hash verify/Golden/referral 全 PASS，用时 284s，release 双目录与 `SHA256SUMS-static.txt` 逐字一致（`out/artifacts/20260831-114158`）。SOCKS4/4a 与 HTTPS proxy 尚未开放。
