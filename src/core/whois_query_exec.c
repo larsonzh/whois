@@ -697,7 +697,7 @@ void wc_report_query_failure(const Config* config,
 		ip = "unknown";
 	if (lerr) {
 		int already_reported = (res && res->meta.failure_emitted);
-		const char* cause = NULL;
+		const char* cause = (res && res->meta.proxy_failure) ? "proxy failure" : NULL;
 		int gai_mapped = 0;
 #ifdef EAI_AGAIN
 		if (lerr == EAI_AGAIN) gai_mapped = 1;

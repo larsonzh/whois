@@ -515,6 +515,16 @@ int wc_proxy_result_is_terminal(wc_proxy_result_t result)
         result == WC_PROXY_RESULT_UNKNOWN_REPLY;
 }
 
+int wc_proxy_result_is_terminal_for_scheme(wc_proxy_scheme_t scheme,
+                                           wc_proxy_result_t result)
+{
+    if (scheme == WC_PROXY_SCHEME_SOCKS5 &&
+        (result == WC_PROXY_RESULT_GENERAL_FAILURE ||
+         result == WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED))
+        return 0;
+    return wc_proxy_result_is_terminal(result);
+}
+
 int wc_proxy_dial_hop(const Config* config,
                       wc_net_context_t* net_ctx,
                       const char* target_host,
@@ -607,6 +617,7 @@ int wc_proxy_dial_hop(const Config* config,
         wc_net_info_close(&endpoint, "wc_proxy_connect_fail", config->debug);
         endpoint.err = WC_ERR_IO;
         endpoint.last_errno = (result == WC_PROXY_RESULT_TIMEOUT) ? ETIMEDOUT : EPROTO;
+        endpoint.ip[0] = '\0';
     } else if (config->proxy.scheme == WC_PROXY_SCHEME_SOCKS4A ||
                config->proxy.scheme == WC_PROXY_SCHEME_SOCKS5H) {
         endpoint.ip[0] = '\0';
@@ -875,7 +886,13 @@ int wc_proxy_selftest(void)
         wc_proxy_socks5_classify(0x08) == WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED &&
         wc_proxy_socks5_classify(0x09) == WC_PROXY_RESULT_UNKNOWN_REPLY &&
         wc_proxy_result_is_terminal(WC_PROXY_RESULT_RULESET_DENIED) &&
-        !wc_proxy_result_is_terminal(WC_PROXY_RESULT_CONNECTION_REFUSED));
+        !wc_proxy_result_is_terminal(WC_PROXY_RESULT_CONNECTION_REFUSED) &&
+        !wc_proxy_result_is_terminal_for_scheme(WC_PROXY_SCHEME_SOCKS5,
+            WC_PROXY_RESULT_GENERAL_FAILURE) &&
+        !wc_proxy_result_is_terminal_for_scheme(WC_PROXY_SCHEME_SOCKS5,
+            WC_PROXY_RESULT_ADDRESS_TYPE_UNSUPPORTED) &&
+        wc_proxy_result_is_terminal_for_scheme(WC_PROXY_SCHEME_SOCKS5H,
+            WC_PROXY_RESULT_GENERAL_FAILURE));
     wc_proxy_secure_clear(&fake, sizeof(fake));
     wc_proxy_secure_clear(&config.proxy, sizeof(config.proxy));
     return failed;

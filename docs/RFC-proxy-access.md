@@ -69,6 +69,7 @@ WP-13A 不改变任何生产网络路径。
 ## 4. DNS 与地址族契约
 
 - `http://` 和 `socks5://` 使用本地目标解析；现有目标候选顺序、地址族控制和健康记忆保持权威。
+- `socks5://` 的 SOCKS5 `general-failure` 与 `address-type-unsupported` 是当前数值目标候选的失败，可继续下一个本地候选；认证、规则拒绝、命令/协议错误仍为 terminal。该放宽不适用于 `socks5h://`。
 - `socks5h://` 将域名发送给代理。由于无法观测代理最终选择的目标地址族，13B 中它与 `--ipv4-only`、`--ipv6-only`、per-RIR family override 及 candidate fallback 控制不兼容；这些组合必须在 lookup 前失败。
 - `--proxy-family=auto` 使用 `AF_UNSPEC` 独立解析代理端点；`v4`/`v6` 分别限制为 `AF_INET`/`AF_INET6`。数值代理字面量与显式 family 不匹配时必须在拨号前失败。
 - HTTP CONNECT 使用数值目标候选；IPv6 authority 编码为 `[address]:port`。
@@ -307,7 +308,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 ## 12. WP-13B-3 SOCKS5/5h 实施记录
 
 - 已实现 SOCKS5 method negotiation、RFC 1929 username/password、CONNECT 的 IPv4/IPv6/domain ATYP 编码、完整 REP 分类和统一 terminal failure policy。
-- `socks5://` 保留本地目标 DNS 候选；未被 per-hop `NO_PROXY` 绕过的 `socks5h://` 直接使用逻辑 hostname 候选，不调用本地目标 DNS、目标 DNS-health/backoff 或 empty-response IP fallback。被 host 规则绕过时仍走原本地 DNS/直连路径。
+- `socks5://` 保留本地目标 DNS 候选；单个候选返回 `general-failure` 或 `address-type-unsupported` 时继续后续候选。未被 per-hop `NO_PROXY` 绕过的 `socks5h://` 直接使用逻辑 hostname 候选，不调用本地目标 DNS、目标 DNS-health/backoff 或 empty-response IP fallback。被 host 规则绕过时仍走原本地 DNS/直连路径。
 - SOCKS5H 成功后目标 IP 保持 unknown，不把代理端点或未观测的远端解析结果写入标题、权威尾行或目标健康状态。默认直连、stdout、RIR referral、batch strategy 与 retry metrics 契约不变。
 - 确定性 fake transport 覆盖认证、ATYP、REP 与远程 DNS policy；loopback 协议/配置探针 21/21 PASS（`out/artifacts/proxy_protocol_spike/20260831-030507`）。严格 ISO C11 clang 检查零诊断；首轮远程检查发现并修复 loongarch64 下 `strdup` 隐式声明，改用标准 `malloc` + `memcpy`。
 - 最终 Strict Version `lto-auto` 九架构构建无编译/LTO 告警，9/9 SHA-256、POSIX/QEMU 与 win32/win64 smoke、Golden 和 IANA/ARIN/AFRINIC 三起点 referral 全 PASS（`out/artifacts/20260831-112633`，436s）。未同步 release 目录。
@@ -479,6 +480,7 @@ Environment inheritance can still expose secrets, so usage documentation must re
 ## 4. DNS and address-family contract
 
 - `http://` and `socks5://` use local target resolution. Existing target candidate ordering, family controls, and health memory remain authoritative.
+- For `socks5://`, SOCKS5 `general-failure` and `address-type-unsupported` apply to the current numeric target candidate and advance to the next local candidate. Authentication, ruleset, command, and protocol failures remain terminal. This relaxation does not apply to `socks5h://`.
 - `socks5h://` sends a domain name to the proxy. Because the selected target address family is unobservable, it is incompatible in 13B with `--ipv4-only`, `--ipv6-only`, per-RIR family overrides, and candidate fallback controls. These combinations fail before lookup.
 - `--proxy-family=auto` resolves the proxy endpoint independently with `AF_UNSPEC`; `v4` and `v6` restrict it to `AF_INET` and `AF_INET6`, respectively. A numeric proxy literal that conflicts with an explicit family fails before dialing.
 - HTTP CONNECT uses a numeric target candidate. IPv6 authorities are encoded as `[address]:port`.
@@ -755,7 +757,7 @@ Execution backfill: completed; see the Checklist A/B backfills and Final wrap-up
 ## 12. WP-13B-3 SOCKS5/5h implementation record
 
 - Implements SOCKS5 method negotiation, RFC 1929 username/password authentication, CONNECT IPv4/IPv6/domain ATYP encoding, complete REP classification, and a shared terminal-failure policy.
-- `socks5://` preserves local target-DNS candidates. An unbypassed `socks5h://` hop uses one logical hostname candidate and does not invoke local target DNS, target DNS-health/backoff, or empty-response IP fallback. A host-level per-hop `NO_PROXY` match preserves the existing local-DNS/direct path.
+- `socks5://` preserves local target-DNS candidates and advances after `general-failure` or `address-type-unsupported` for one candidate. An unbypassed `socks5h://` hop uses one logical hostname candidate and does not invoke local target DNS, target DNS-health/backoff, or empty-response IP fallback. A host-level per-hop `NO_PROXY` match preserves the existing local-DNS/direct path.
 - After SOCKS5H succeeds, the target IP remains unknown; neither the proxy endpoint nor an unobserved remote resolution is written into titles, authoritative trailers, or target-health state. Default direct mode, stdout, RIR referrals, batch strategy, and retry-metrics contracts are unchanged.
 - Deterministic fake transports cover authentication, ATYP, REP, and remote-DNS policy. The loopback protocol/configuration spike passes 21/21 cases (`out/artifacts/proxy_protocol_spike/20260831-030507`). Strict ISO C11 clang validation is clean; an initial remote run exposed and fixed an implicit `strdup` declaration on loongarch64 by using standard `malloc` plus `memcpy`.
 - The final Strict Version `lto-auto` nine-architecture build has no compiler/LTO warnings. All 9 SHA-256 checks, POSIX/QEMU and win32/win64 smoke, Golden, and three-origin IANA/ARIN/AFRINIC referral checks pass (`out/artifacts/20260831-112633`, 436s). Release directories were not synchronized.

@@ -218,7 +218,8 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
         if (attempt_success) out->meta.proxy_failure = 0;
         else if (used_proxy) {
             out->meta.proxy_failure = 1;
-            proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
+            proxy_terminal_failure = wc_proxy_result_is_terminal_for_scheme(
+                cfg->proxy.scheme, proxy_result);
         }
         if (wc_lookup_should_trace_dns(net_ctx, cfg) && i > 0) {
             wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,
@@ -277,7 +278,8 @@ int wc_lookup_exec_connect(struct wc_lookup_exec_connect_ctx* ctx) {
             if (attempt_success) out->meta.proxy_failure = 0;
             else if (used_proxy) {
                 out->meta.proxy_failure = 1;
-                proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
+                proxy_terminal_failure = wc_proxy_result_is_terminal_for_scheme(
+                    cfg->proxy.scheme, proxy_result);
             }
             if (wc_lookup_should_trace_dns(net_ctx, cfg)) {
                 wc_lookup_log_fallback(ctx->hops + 1, "connect-fail", "candidate", current_host,

@@ -75,6 +75,8 @@ int wc_proxy_dial_hop(const Config* config,
                       wc_proxy_result_t* proxy_result);
 const char* wc_proxy_result_name(wc_proxy_result_t result);
 int wc_proxy_result_is_terminal(wc_proxy_result_t result);
+int wc_proxy_result_is_terminal_for_scheme(wc_proxy_scheme_t scheme,
+                                           wc_proxy_result_t result);
 int wc_proxy_selftest(void);
 
 #ifdef __cplusplus

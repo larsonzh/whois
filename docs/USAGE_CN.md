@@ -126,14 +126,15 @@ whois-x86_64 --show-non-auth-body --show-post-marker-body 1.1.1.1   # 保留全�
 | `http://` | `http://proxy.example:8080` | 8080 | HTTP CONNECT 代理：先向代理发 `CONNECT host:43`，成功后在其上跑 WHOIS 明文 TCP。最常见（公司/共享代理） |
 | `https://` | `https://proxy.example:443` | 443 | HTTPS CONNECT 代理：客户端到代理先建立并验证 TLS，再发送 CONNECT；隧道内 WHOIS 仍为明文 TCP |
 | `socks5://` | `socks5://proxy.example:1080` | 1080 | SOCKS5：**目标域名由本客户端本地解析**，再把解析出的 IP 交给代理（走的是你自己的 DNS） |
-| `socks5h://` | `socks5h://proxy.example:1080` | 1080 | SOCKS5 远程解析：**把域名直接发给代理**，由代理解析并连接。适合“本地 DNS 被污染/解析异常”或想隐藏目标域名 |
+| `socks5h://` | `socks5h://proxy.example:1080` | 1080 | SOCKS5H 远程解析：**把域名直接发给代理**，由代理解析并连接。适合“本地 DNS 被污染/解析异常”或想隐藏目标域名 |
 | `socks4://` | `socks4://proxy.example:1080` | 1080 | SOCKS4：仅支持 IPv4 目标（老式代理） |
-| `socks4a://` | `socks4a://proxy.example:1080` | 1080 | SOCKS4a：支持域名（代理端解析），但仍不支持 IPv6 目标 |
+| `socks4a://` | `socks4a://proxy.example:1080` | 1080 | SOCKS4A：支持域名（代理端解析），但仍不支持 IPv6 目标 |
 
 选择建议：
 - 公司/内网提供的一般是 `http://` 代理，端口常见 8080/3128。
 - 只想要“能连上就行”且不介意本地解析：`socks5://`。
 - 本地 DNS 有问题（如解析到错误地址）或不想暴露目标：`socks5h://`。
+- `socks5://` 会按本地 DNS 候选顺序逐个尝试；某个地址收到 SOCKS5 general-failure 或 address-type-unsupported 时会继续下一个候选，因此不支持 IPv6 的代理仍可回退到 IPv4。`socks5h://` / `socks4a://` 无法观测代理最终选择的目标 IP，标题与权威尾行显示 `unknown` 属于预期行为。
 - 注意：`socks5h://` / `socks4a://` 把域名交给代理，代理最终用的地址族无法预知，因此与 `--ipv4-only`/`--ipv6-only`、家族模式、回退开关或 `--rir-ip-pref` 等控制互斥，同时使用会在查询前直接报错。
 
 #### 怎么指定代理（含 `ALL_PROXY` 是什么）

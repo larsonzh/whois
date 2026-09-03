@@ -162,7 +162,8 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                             if (!used_proxy) wc_lookup_record_backoff_result(cfg, ipbuf, AF_INET, empty_backoff_success);
                             else if (!empty_backoff_success) {
                                 out->meta.proxy_failure = 1;
-                                proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
+                                proxy_terminal_failure = wc_proxy_result_is_terminal_for_scheme(
+                                    cfg->proxy.scheme, proxy_result);
                             }
                             if (empty_backoff_success) {
                                 char ts[32];
@@ -234,7 +235,8 @@ int wc_lookup_exec_handle_empty_body(struct wc_lookup_exec_empty_ctx* ctx) {
                     if (!used_proxy) wc_lookup_record_backoff_result(cfg, kip, AF_UNSPEC, empty_known_success);
                     else if (!empty_known_success) {
                         out->meta.proxy_failure = 1;
-                        proxy_terminal_failure = wc_proxy_result_is_terminal(proxy_result);
+                        proxy_terminal_failure = wc_proxy_result_is_terminal_for_scheme(
+                            cfg->proxy.scheme, proxy_result);
                     }
                     if (empty_known_success) {
                         char ts[32];
