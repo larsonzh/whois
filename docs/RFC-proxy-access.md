@@ -101,6 +101,8 @@ Proxy-Connection: keep-alive\r\n
 
 SOCKS4/4a 延后至 WP-13C。SOCKS4 仅支持 IPv4 目标；SOCKS4a 远程 DNS 不代表支持 IPv6。
 
+SOCKS4 保留本地目标解析：严格 IPv6-only 控制与协议能力冲突，必须在查询前 fail-fast，不能静默忽略或降级为 IPv4。仍包含 IPv4 回退的 IPv6-first 偏好合法；IPv6 候选由协议能力过滤后继续 IPv4 候选。SOCKS5 支持 IPv4 与 IPv6 数值目标，目标 family 控制继续生效。SOCKS5h/SOCKS4a 的目标 family 由代理端解析决定，客户端无法强制或验证，因此显式目标 family 控制继续按配置冲突拒绝。`--proxy-family` 始终只控制代理端点，不参与目标 family 决策。
+
 HTTPS proxy 延后至 WP-13D。其含义是客户端到 HTTP 代理之间使用 TLS，再执行 CONNECT；隧道内的 WHOIS 仍为明文 TCP。证书与主机名验证是强制要求，不计划提供不安全验证模式。
 
 WP-13D 的默认信任源冻结为构建时固定并嵌入静态二进制的 Mozilla CA bundle；bundle 来源、版本日期、SHA-256 与许可证须进入构建清单和 release 审计。该设计保持九架构单文件分发，并避免交叉编译 OpenSSL 的 `OPENSSLDIR` 泄漏为运行时路径。非空 `SSL_CERT_FILE` 可显式覆盖嵌入 bundle，以支持企业代理私有 CA；覆盖文件无法读取、为空或不含可加载证书时必须在连接前 fail-close，不得回退到嵌入 bundle。未设置覆盖时只使用嵌入 bundle，不探测平台相关默认路径或 Windows 证书库。CA 更新至少每月检查一次；Mozilla CA 数据或适用安全公告变化时须更新固定摘要并重跑九架构 TLS、Golden/referral 与发布哈希门禁。

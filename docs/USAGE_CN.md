@@ -135,6 +135,7 @@ whois-x86_64 --show-non-auth-body --show-post-marker-body 1.1.1.1   # 保留全�
 - 只想要“能连上就行”且不介意本地解析：`socks5://`。
 - 本地 DNS 有问题（如解析到错误地址）或不想暴露目标：`socks5h://`。
 - `socks5://` 会按本地 DNS 候选顺序逐个尝试；某个地址收到 SOCKS5 general-failure 或 address-type-unsupported 时会继续下一个候选，因此不支持 IPv6 的代理仍可回退到 IPv4。`socks5h://` / `socks4a://` 无法观测代理最终选择的目标 IP，标题与权威尾行显示 `unknown` 属于预期行为。
+- 只有 `socks4://` 是严格的 IPv4-only 数值目标协议：与 `--ipv6-only` 或 `ipv6-only-block` 家族模式组合会在查询前报错，不会静默改用 IPv4；`--prefer-ipv6` / `--prefer-ipv6-ipv4` 仍可用，因为它们允许回退 IPv4。`socks5://` 支持 IPv4 和 IPv6，族参数照常生效。
 - 注意：`socks5h://` / `socks4a://` 把域名交给代理，代理最终用的地址族无法预知，因此与 `--ipv4-only`/`--ipv6-only`、家族模式、回退开关或 `--rir-ip-pref` 等控制互斥，同时使用会在查询前直接报错。
 
 #### 怎么指定代理（含 `ALL_PROXY` 是什么）

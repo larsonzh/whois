@@ -137,6 +137,7 @@ How to choose:
 - If you just need connectivity and local DNS is fine: `socks5://`.
 - If local DNS is broken or you prefer not to expose the target: `socks5h://`.
 - `socks5://` tries locally resolved target candidates in order. A SOCKS5 general-failure or address-type-unsupported reply for one address advances to the next candidate, so a proxy without IPv6 egress can still fall back to IPv4. With `socks5h://` / `socks4a://`, the proxy's selected target IP is unobservable, so `unknown` in query headers and authoritative trailers is expected.
+- Only `socks4://` is strictly limited to numeric IPv4 targets. Combining it with `--ipv6-only` or an `ipv6-only-block` family mode fails before lookup instead of silently forcing IPv4; `--prefer-ipv6` / `--prefer-ipv6-ipv4` remain valid because they permit IPv4 fallback. `socks5://` supports both IPv4 and IPv6, so target-family controls remain effective.
 - Because `socks5h://` / `socks4a://` delegate the domain to the proxy (whose chosen address family cannot be known), they conflict with `--ipv4-only`/`--ipv6-only`, family-mode, fallback switches, or `--rir-ip-pref`; combining them fails before lookup.
 
 #### How to specify a proxy (including what `ALL_PROXY` is)

@@ -369,6 +369,20 @@ static int wc_opts_proxy_has_rir_override(const wc_opts_t* opts)
         opts->rir_pref_verisign != WC_RIR_IP_PREF_UNSET;
 }
 
+static int wc_opts_proxy_requires_ipv6_target(const wc_opts_t* opts)
+{
+    wc_dns_family_mode_t first_mode;
+    wc_dns_family_mode_t next_mode;
+
+    if (opts->ipv6_only) return 1;
+    first_mode = opts->dns_family_mode_first_set ? opts->dns_family_mode_first :
+        (opts->dns_family_mode_set ? opts->dns_family_mode : opts->dns_family_mode_first);
+    next_mode = opts->dns_family_mode_next_set ? opts->dns_family_mode_next :
+        (opts->dns_family_mode_set ? opts->dns_family_mode : opts->dns_family_mode_next);
+    return first_mode == WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK ||
+        next_mode == WC_DNS_FAMILY_MODE_IPV6_ONLY_BLOCK;
+}
+
 int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_proxy_config_t* out)
 {
     const char* url = NULL;
@@ -552,6 +566,11 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
          opts->no_dns_known_fallback || opts->no_dns_force_ipv4_fallback ||
          opts->no_iana_pivot || opts->dns_no_fallback || wc_opts_proxy_has_rir_override(opts))) {
         fprintf(stderr, "Error: remote-DNS proxy conflicts with target-family, fallback, or RIR override controls\n");
+        goto fail;
+    }
+    if (out->scheme == WC_PROXY_SCHEME_SOCKS4 &&
+        wc_opts_proxy_requires_ipv6_target(opts)) {
+        fprintf(stderr, "Error: socks4 proxy does not support IPv6 targets\n");
         goto fail;
     }
 #ifdef WHOIS_TLS
