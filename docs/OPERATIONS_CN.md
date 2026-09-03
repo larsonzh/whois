@@ -4,7 +4,11 @@
 
 本手册汇总日常“提交/发布/远端构建/镜像到 Gitee”相关的常用操作与注意事项，便于随时查阅。
 
+v3.4.0 双制品运维边界：官方每个架构同时交付紧凑版 `whois-<arch>`（Windows 为 `.exe`）和完整 TLS 版 `whois-<arch>-tls`。两者都可独立运行；紧凑版遇到 HTTPS 代理时只从自身所在目录定位同架构、同版本的 `-tls` 文件，然后在读取查询输入前以 `exec` 替换当前进程。stdin/stdout/stderr、argv、环境与退出状态因此原样继承，批量管道只转交一次，不会为每条查询创建 TLS 进程。缺少 companion、版本不一致或 companion 并非 TLS 构建时，必须在消费 stdin 和访问网络前 fail-close（退出码 37）。HTTP、SOCKS 与直连仍由紧凑版直接处理。
+
 WP-13D HTTPS proxy TLS 最终验收（2026-09-02 至 2026-09-03）：Vx A/B 各 8/8 PASS（A run=`out/artifacts/dev_verify_multiround/20260902-090840`，B run=`out/artifacts/dev_verify_multiround/20260902-160535`，合计 `0d 14:37:31`），无脚本故障、代码自愈或阶段重启。`WHOIS_TLS=1` 的 OpenSSL 3.5.8 九架构 TLS/LTO、9/9 hash、Windows full-static 与依赖审计已通过（`out/artifacts/20260901-170601`）；官方远程静态构建与 release 入口现默认/显式启用 TLS，本地普通 `make` 与显式 `WHOIS_TLS=0` 仍可生成无 OpenSSL 的兼容制品。收尾复核的 Strict 默认/调试两轮、Batch 4/4、Selftest 5/5、12×6 redirect 72/72、CIDR body 4/4 + draft 9/9 全 PASS（`out/artifacts/20260903-003613` 至 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`）。产品交付轮再次以默认 `WHOIS_TLS='1'` 完成 Strict 九架构、网络冒烟、9/9 hash、Golden/referral、双目录同步且日志零告警（`out/artifacts/20260903-040906`，410s）。用户文案收口后的最终同步轮（`out/artifacts/20260903-045122`，360s）再次确认：冒烟 18/3/3、24/24 查询头尾配对、硬告警 0，Golden PASS，三起点 referral 零错误并收敛至 AFRINIC，九制品独立哈希 9/9 且双 release 清单逐字一致，Windows 均为 full-static；同步 win64 显示 TLS backend enabled，用户可见元信息无旧的 preflight-only 或内部构建开关文案。tar 跳过 GnuPG Unix socket 的 `ignored` 信息以及负向自测中的拒绝文本均非告警；本轮无需代码修复。
+
+v3.4.0 双制品最终制品复核（2026-09-04）：首次 18 制品轮暴露 TLS 分支未使用 `argv` 告警，并发现旧 LoongArch64 glibc 构建仍带动态解释器和静态 DNS/NSS 运行时兼容告警。前者以显式未使用参数处理修复；后者切换到 `loongarch64-linux-musl`，重建该 triplet 的 OpenSSL 3.5.8，并在远程构建中新增 Linux static/static-pie fail-close 门禁。最终 Strict `lto-auto` 轮 `out/artifacts/20260904-073811` 无编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与双目录同步全 PASS；POSIX/win32/win64 smoke=`18/3/3`，24/24 查询头尾配对且异常 0。七个 Linux 架构的 compact/TLS 均为静态链接，Windows 四制品均为 full-static。
 
 v3.3.3 Windows/跨平台可移植性最终复核（2026-08-29）：完成大小写字符串比较、`ssize_t`、平台头、sleep、单调时钟与 Winsock 类型的条件编译收口，并补齐 `nanosleep` 的 POSIX feature-test macro、显式零初始化 retry metrics 的 `timespec` 起点。最终 Strict `lto-auto` 九架构均实际使用 `-flto=auto`，无编译/LTO 告警；Local hash、Golden、IANA/ARIN/AFRINIC 三起点 referral 与仓库内/外双目录 release sync 全部 PASS（`out/artifacts/20260829-094858`，273s）。产品网络、DNS/重试及 stdout/stderr 契约未变，本轮无需追加代码修复。
 
@@ -129,6 +133,11 @@ whois-x86_64 --debug --retry-metrics --dns-cache-stats --selftest-force-suspicio
 - 远程冒烟：VS Code 任务“Remote: Build and Sync whois statics”或直接 `tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8"`，查看 smoke_test.log 是否包含 `[SELFTEST] action=force-suspicious`、`[DNS-CACHE-SUM]` 且黄金 PASS。
 
 其它场景示例：
+- HTTPS 代理 + 批量管道（紧凑版透明转交）：
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --proxy https://proxy.example:443
+  ```
+  紧凑版与 `whois-x86_64-tls` 必须放在同一目录且版本一致。检查 stdout 中两条输入各有一组 `=== Query:` 与 `=== Authoritative RIR:`；直接把命令名替换为 `whois-x86_64-tls`，结果契约应一致。Windows PowerShell 对应 `@('8.8.8.8','1.1.1.1') | .\whois-win64.exe -B --batch-strategy raw --proxy https://proxy.example:443`。stdin 非 TTY 时可省略 `-B`，但运维验收建议显式保留。
 - 批量策略（raw，无折叠）：
   ```bash
   printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --debug --retry-metrics --dns-cache-stats --grep-line --no-fold
@@ -1312,9 +1321,9 @@ errno 快查（只需了解，不必强记）：
 - 手动触发（workflow_dispatch）：可在 build.yml 的 `release` 任务中输入 tag 重跑；`publish-gitee.yml` 可手动补发到 Gitee
 
 主要 Job：
-- `build-linux`：构建 `whois-x86_64-gnu` 并保存为构建产物
+- `build-linux`：构建动态链接 glibc/OpenSSL 3 的 TLS 完整版 `whois-x86_64-gnu-tls` 并保存为构建产物；运行主机须提供兼容的 `libssl.so.3` 与 `libcrypto.so.3`
 - `release`（标签推送或手动触发）：
-  - 收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制
+  - 收集 whois 仓库 `release/lzispro/whois/` 的 18 个 compact/TLS 静态二进制
   - 生成合并的 `SHA256SUMS.txt`
   - 创建/更新 GitHub Release，上传所有资产（支持覆盖同名资产）
   - 可选：若设置了 Secrets（见下），在 Gitee 创建同名 Release，正文附 GitHub 下载直链

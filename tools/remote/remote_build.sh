@@ -133,7 +133,7 @@ find_cc() {
     mips64el)
       cand=("$HOME/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc" "mips64el-linux-musl-gcc") ;;
     loongarch64)
-      cand=("$HOME/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc" "loongarch64-linux-gnu-gcc" "loongarch64-linux-musl-gcc") ;;
+      cand=("$HOME/.local/loongarch64-linux-musl-cross/bin/loongarch64-linux-musl-gcc" "loongarch64-linux-musl-gcc" "$HOME/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc" "loongarch64-linux-gnu-gcc") ;;
     win64)
       cand=("$HOME/.local/x86_64-w64-mingw32/bin/x86_64-w64-mingw32-gcc" "x86_64-w64-mingw32-gcc") ;;
     win32)
@@ -341,17 +341,17 @@ build_one() {
     loongarch64)
       local cc; cc="$(find_cc loongarch64)"; [[ -z "$cc" ]] && { warn "loongarch64 toolchain not found"; return 0; }
   strip_tool="$(resolve_strip_tool "$cc")"
-  local LFE="-static-libgcc -static-libstdc++"  # dynamic build with extra libs statically linked
+  local LFE=""
   out="$ARTIFACTS_DIR/whois-loongarch64"
   log "Building loongarch64 => $(basename "$out")"
   if [[ "$RB_QUIET" == "1" ]]; then
     log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC} (quiet)"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make all ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static ) >/dev/null 2>>"$ARTIFACTS_DIR/build_errors.log" || true
   else
     log "Make overrides (arch=loongarch64): CC=$cc CFLAGS_EXTRA='$CFE' LDFLAGS_EXTRA='$LFE' OPT_PROFILE='$OPTP'${LTO_DESC}"
-    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make all )
+    ( cd "$REPO_DIR" && make clean >/dev/null 2>&1 || true; CC="$cc" CFLAGS_EXTRA="$CFE" LDFLAGS_EXTRA="$LFE" OPT_PROFILE="$OPTP" "${MAKE_LTO_ARGS[@]}" make static )
   fi
-  cp -f "$REPO_DIR/whois-client" "$out" || warn "Output missing for loongarch64"
+  cp -f "$REPO_DIR/whois-client.static" "$out" || warn "Static output missing for loongarch64"
       ;;
     win64)
       local cc; cc="$(find_cc win64)"; [[ -z "$cc" ]] && { warn "win64 toolchain not found"; return 0; }
@@ -469,6 +469,16 @@ bin_name_for_target() {
     win32) echo "whois-win32.exe" ;;
     *) echo "" ;;
   esac
+}
+
+tls_bin_name_for_target() {
+  local name
+  name="$(bin_name_for_target "$1")"
+  if [[ "$name" == *.exe ]]; then
+    echo "${name%.exe}-tls.exe"
+  elif [[ -n "$name" ]]; then
+    echo "${name}-tls"
+  fi
 }
 
 run_smoke_command() {
@@ -675,9 +685,31 @@ smoke_log="$ARTIFACTS_DIR/smoke_test.log"
 : > "$upx_report"
 : > "$smoke_log"
 WIN_SMOKE_BINS=()
+BUILD_TLS_COMPANION=0
+if [[ "$WHOIS_TLS" == "1" || "$WHOIS_TLS" == "true" || "$WHOIS_TLS" == "TRUE" ||
+      "$WHOIS_TLS" == "yes" || "$WHOIS_TLS" == "YES" ]]; then
+  BUILD_TLS_COMPANION=1
+fi
 
 for t in $TARGETS; do
-  build_one "$t"
+  bn="$(bin_name_for_target "$t")"
+  tls_bn="$(tls_bin_name_for_target "$t")"
+  if [[ "$BUILD_TLS_COMPANION" == "1" ]]; then
+    WHOIS_TLS=0 build_one "$t"
+    if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
+      cp -f "$ARTIFACTS_DIR/$bn" "$ARTIFACTS_DIR/$bn.compact"
+      rm -f "$ARTIFACTS_DIR/$bn"
+    fi
+    WHOIS_TLS=1 build_one "$t"
+    if [[ -n "$bn" && -n "$tls_bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
+      mv -f "$ARTIFACTS_DIR/$bn" "$ARTIFACTS_DIR/$tls_bn"
+    fi
+    if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn.compact" ]]; then
+      mv -f "$ARTIFACTS_DIR/$bn.compact" "$ARTIFACTS_DIR/$bn"
+    fi
+  else
+    WHOIS_TLS=0 build_one "$t"
+  fi
   # Optional UPX per built target
   case "$t" in
     aarch64)
@@ -717,9 +749,23 @@ for t in $TARGETS; do
   esac
 
   # file(1) report for the built target only
-  bn="$(bin_name_for_target "$t")"
   if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
-    file "$ARTIFACTS_DIR/$bn" | tee -a "$file_report" >/dev/null || true
+    file_info="$(file "$ARTIFACTS_DIR/$bn")"
+    echo "$file_info" >> "$file_report"
+    if [[ "$t" != win32 && "$t" != win64 &&
+          "$file_info" != *"statically linked"* && "$file_info" != *"static-pie linked"* ]]; then
+      err "Static linkage check failed for $bn: $file_info"
+      exit 1
+    fi
+  fi
+  if [[ -n "$tls_bn" && -f "$ARTIFACTS_DIR/$tls_bn" ]]; then
+    file_info="$(file "$ARTIFACTS_DIR/$tls_bn")"
+    echo "$file_info" >> "$file_report"
+    if [[ "$t" != win32 && "$t" != win64 &&
+          "$file_info" != *"statically linked"* && "$file_info" != *"static-pie linked"* ]]; then
+      err "Static linkage check failed for $tls_bn: $file_info"
+      exit 1
+    fi
   fi
 
   # Collect Windows binaries for wine smoke (run later)
@@ -788,6 +834,7 @@ fi
 summary_parts=()
 for t in $TARGETS; do
   bn="$(bin_name_for_target "$t")"
+  tls_bn="$(tls_bin_name_for_target "$t")"
   if [[ -n "$bn" && -f "$ARTIFACTS_DIR/$bn" ]]; then
     sz="$(stat -c %s "$ARTIFACTS_DIR/$bn" 2>/dev/null || echo 0)"
     hashval="NA"
@@ -800,6 +847,19 @@ for t in $TARGETS; do
   else
     echo "${t},binary=missing" >> "$report_file"
     summary_parts+=("${t}(missing)")
+  fi
+  if [[ -n "$tls_bn" && -f "$ARTIFACTS_DIR/$tls_bn" ]]; then
+    sz="$(stat -c %s "$ARTIFACTS_DIR/$tls_bn" 2>/dev/null || echo 0)"
+    hashval="NA"
+    if [[ -n "$HASH_CMD" ]]; then
+      # shellcheck disable=SC2086
+      hashval="$(cd "$ARTIFACTS_DIR" && $HASH_CMD "$tls_bn" 2>/dev/null | awk '{print $1}')"
+    fi
+    echo "${t}-tls,binary=${tls_bn},size=${sz},${HASH_NAME:-hash}=${hashval}" >> "$report_file"
+    summary_parts+=("${t}-tls(size=${sz},${HASH_NAME:-hash}=${hashval})")
+  elif [[ "$BUILD_TLS_COMPANION" == "1" ]]; then
+    echo "${t}-tls,binary=missing" >> "$report_file"
+    summary_parts+=("${t}-tls(missing)")
   fi
 done
 if [[ -s "$ARTIFACTS_DIR/build_errors.log" ]]; then

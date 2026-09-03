@@ -4,10 +4,10 @@ Also available in Chinese: `RELEASE_FLOW_CN.md`.
 
 This document describes how to complete a full release locally in one go:
 
-- Cross-compile 7 static binaries for multiple architectures + online smoke tests
+- Cross-compile 18 compact/TLS static binaries across nine architectures + online smoke tests
 - Sync static artifacts to lzispro and automatically commit/push
 - (Optional) commit the updated `RELEASE_NOTES.md`
-- Create a tag to trigger GitHub Release (CI will automatically attach `whois-x86_64-gnu` + the 7 static binaries)
+- Create a tag to trigger GitHub Release (CI automatically attaches the dynamic TLS `whois-x86_64-gnu-tls` build plus the 18 static binaries)
 
 > CI and remote SSH notes:
 > - GitHub Actions workflows that involve remote SSH (cross-machine cross-compilation / artifact collection) are switched to manual trigger (workflow_dispatch) to avoid failures when hosted runners cannot reach private hosts.

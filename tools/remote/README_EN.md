@@ -21,7 +21,7 @@ Remote (Ubuntu VM)
   - x86(i686): `~/.local/i686-linux-musl-cross/bin/i686-linux-musl-gcc`
   - mipsel: `~/.local/mipsel-linux-musl-cross/bin/mipsel-linux-musl-gcc`
   - mips64el: `~/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc`
-  - loongarch64: `~/.local/loongson-gnu-toolchain-.../loongarch64-linux-gnu-gcc`
+  - loongarch64: `~/.local/loongarch64-linux-musl-cross/bin/loongarch64-linux-musl-gcc` (preferred; the glibc toolchain is a compatibility fallback only)
 - Optional: `upx` (compress aarch64/x86_64), `qemu-user-static` (smoke tests), `file` (report binaries)
 
 ## Quick start
@@ -58,7 +58,7 @@ Sync into the lzispro binary-only folder (e.g., `D:/LZProjects/lzispro/release/l
 ```
 
 On completion, artifacts are fetched into `out/artifacts/<timestamp>/build_out/`, including:
-- Per-arch binaries: `whois-<arch>` (7 arches: `aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`)
+- Per-architecture binaries: default `WHOIS_TLS=1` emits compact `whois-<arch>` and full `whois-<arch>-tls`; including win32/win64 yields 18 artifacts
 - `file_report.txt` (summary of `file` output)
 - `smoke_test.log` (if `-r 1` was used)
 
@@ -84,7 +84,7 @@ You can also override most defaults via environment variables (`SSH_HOST` / `SSH
 - SSH non-interactive: `StrictHostKeyChecking=accept-new`, `UserKnownHostsFile=/dev/null`, `BatchMode=yes`, `LogLevel=ERROR`.
 - Remote base: `$HOME/whois_remote/src` by default; override via `-R`.
 - Upload: tar streaming (excludes `.git`, `out/artifacts`, `dist`).
-- Remote build: `tools/remote/remote_build.sh` static build (`-O3 -s -pthread`), loongarch64 uses `-static-libgcc -static-libstdc++`.
+- Remote build: `tools/remote/remote_build.sh` performs static builds (`-O3 -s -pthread`); LoongArch64 uses the musl cross-toolchain. Every Linux compact/TLS artifact must be reported by `file` as static or static PIE, otherwise the build fails closed.
 - QEMU: optional per-binary smoke tests (default mode = real network `net`):
   - Default query: `8.8.8.8`.
   - Override via `SMOKE_QUERIES` (space separated, e.g., `SMOKE_QUERIES="8.8.8.8 example.com"`).

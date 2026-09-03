@@ -127,7 +127,7 @@ resolve_compiler() {
     x86) candidates=("$HOME/.local/i686-linux-musl-cross/bin/i686-linux-musl-gcc" i686-linux-musl-gcc) ;;
     mipsel) candidates=("$HOME/.local/mipsel-linux-musl-cross/bin/mipsel-linux-musl-gcc" mipsel-linux-musl-gcc) ;;
     mips64el) candidates=("$HOME/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc" mips64el-linux-musl-gcc) ;;
-    loongarch64) candidates=("$HOME/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc" loongarch64-linux-gnu-gcc loongarch64-linux-musl-gcc) ;;
+    loongarch64) candidates=("$HOME/.local/loongarch64-linux-musl-cross/bin/loongarch64-linux-musl-gcc" loongarch64-linux-musl-gcc "$HOME/.local/loongson-gnu-toolchain-8.3-x86_64-loongarch64-linux-gnu-rc1.6/bin/loongarch64-linux-gnu-gcc" loongarch64-linux-gnu-gcc) ;;
     win32) candidates=("$HOME/.local/i686-w64-mingw32/bin/i686-w64-mingw32-gcc" i686-w64-mingw32-gcc) ;;
     win64) candidates=("$HOME/.local/x86_64-w64-mingw32/bin/x86_64-w64-mingw32-gcc" x86_64-w64-mingw32-gcc) ;;
     *) return 1 ;;

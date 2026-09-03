@@ -42,14 +42,23 @@ files=("$@")
 if [[ $static -eq 1 ]]; then
   static_assets=(
     whois-aarch64
+    whois-aarch64-tls
     whois-armv7
+    whois-armv7-tls
     whois-x86_64
+    whois-x86_64-tls
     whois-x86
+    whois-x86-tls
     whois-mipsel
+    whois-mipsel-tls
     whois-mips64el
+    whois-mips64el-tls
     whois-loongarch64
+    whois-loongarch64-tls
     whois-win64.exe
+    whois-win64-tls.exe
     whois-win32.exe
+    whois-win32-tls.exe
   )
   for a in "${static_assets[@]}"; do
     files+=("${static_dir}/${a}")

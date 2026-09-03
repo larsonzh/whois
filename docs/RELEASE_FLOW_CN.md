@@ -1,9 +1,9 @@
 ﻿# 一键发布流程（whois）
 
-- 远程交叉编译 7 个架构静态二进制 + 联网冒烟
+- 远程交叉编译九架构 compact/TLS 共 18 个静态二进制 + 联网冒烟
 - 同步静态产物到 lzispro，并自动提交/推送
 - （可选）提交更新后的 `RELEASE_NOTES.md`
-- 打标签触发 GitHub Release（自动附上 CI 的 `whois-x86_64-gnu` + 7 个静态二进制）
+- 打标签触发 GitHub Release（自动附上 CI 的动态 TLS 版 `whois-x86_64-gnu-tls` + 18 个静态二进制）
 
 > CI 与远程 SSH 说明：
 > - 建议：在本机通过 `tools/remote/remote_build_and_test.sh` 完成远端构建与冒烟；需要 CI 化时，优先考虑自托管 Runner。

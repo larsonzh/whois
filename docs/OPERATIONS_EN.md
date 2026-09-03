@@ -4,7 +4,11 @@ Chinese version: `docs/OPERATIONS_CN.md`
 
 This guide summarizes common day-to-day tasks: commit/push, remote cross-compilation + smoke tests, and publishing releases to GitHub and Gitee.
 
+v3.4.0 dual-artifact operating boundary: each architecture ships a compact `whois-<arch>` binary (`.exe` on Windows) and a full `whois-<arch>-tls` binary. Either runs independently. When the compact binary sees an HTTPS proxy, it resolves only the same-directory, same-architecture, same-version `-tls` file and replaces itself with that process before reading query input. stdin/stdout/stderr, argv, the environment, and exit status are therefore inherited unchanged; a batch pipeline delegates once, not once per query. A missing, version-mismatched, or non-TLS companion must fail closed before consuming stdin or accessing the network (exit code 37). HTTP, SOCKS, and direct connections continue in the compact binary.
+
 WP-13D HTTPS-proxy TLS final acceptance (2026-09-02 through 2026-09-03): Vx A and B each pass 8/8 (A run=`out/artifacts/dev_verify_multiround/20260902-090840`, B run=`out/artifacts/dev_verify_multiround/20260902-160535`, combined `0d 14:37:31`) with no script incident, code self-heal, or stage restart. OpenSSL 3.5.8 `WHOIS_TLS=1` TLS/LTO passes all nine architectures, 9/9 hashes, Windows full-static mode, and dependency audit (`out/artifacts/20260901-170601`); official remote static builds and release entry points now default to or explicitly enable TLS, while normal local `make` and explicit `WHOIS_TLS=0` retain an OpenSSL-free compatibility path. Final review passes two default/debug Strict rounds, Batch 4/4, Selftest 5/5, 12x6 redirect 72/72, and CIDR body 4/4 plus draft 9/9 (`out/artifacts/20260903-003613` through `out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`). A final product-delivery run again defaults to `WHOIS_TLS='1'` and passes the Strict nine-architecture build, network smoke, 9/9 hashes, Golden/referral, and both release-directory syncs with no warnings (`out/artifacts/20260903-040906`, 410s). The post-copy-review synchronization (`out/artifacts/20260903-045122`, 360s) reconfirms 18/3/3 smoke queries, all 24 query-header/authoritative-tail pairs, zero hard warnings, Golden PASS, three error-free referral origins converging on AFRINIC, independent 9/9 artifact hashes, byte-identical release manifests, and full-static Windows targets. The synchronized win64 reports the TLS backend as enabled, and its user-visible metadata has neither obsolete preflight-only wording nor internal build-switch terminology. GNU tar notices for ignored GnuPG Unix sockets and denial text in negative selftests are not warnings; no code fix is required.
+
+v3.4.0 final dual-artifact review (2026-09-04): the first 18-artifact run exposed an unused `argv` warning in the TLS branch and showed that the former LoongArch64 glibc build retained a dynamic interpreter plus static DNS/NSS runtime-compatibility warnings. The parameter warning is fixed explicitly; LoongArch64 now uses `loongarch64-linux-musl`, OpenSSL 3.5.8 was rebuilt for that triplet, and the remote builder now fails closed unless every Linux artifact is static or static PIE. The final Strict `lto-auto` run at `out/artifacts/20260904-073811` has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, all three referral origins, and both release-directory syncs. POSIX/win32/win64 smoke counts are `18/3/3`, all 24 query headers pair with authoritative tails, and the anomaly count is zero. Both variants for all seven Linux architectures are statically linked; all four Windows artifacts remain full-static.
 
 v3.3.3 Windows/cross-platform portability final review (2026-08-29): conditional handling is complete for case-insensitive string comparisons, `ssize_t`, platform headers, sleeps, monotonic clocks, and Winsock types; the final fixes add the POSIX feature-test macro required by `nanosleep` and explicitly zero-initialize the retry-metrics `timespec` origin. All nine architectures in the final Strict `lto-auto` run actually use `-flto=auto`, with no compiler/LTO warnings; Local hash, Golden, the IANA/ARIN/AFRINIC referral origins, and both repository/external release-directory syncs pass (`out/artifacts/20260829-094858`, 273s). Product networking, DNS/retry behavior, and stdout/stderr contracts are unchanged, so no additional code fix is required.
 
@@ -154,6 +158,11 @@ Quick testing guidance:
 - Remote smoke: use the VS Code task “Remote: Build and Sync whois statics” or run `tools/remote/remote_build_and_test.sh -r 1 -a "--debug --retry-metrics --dns-cache-stats --selftest-force-suspicious 8.8.8.8"`; in `smoke_test.log` check `[SELFTEST] action=force-suspicious`, `[DNS-CACHE-SUM]`, and golden PASS.
 
 Other scenarios:
+- HTTPS proxy with a batch pipeline (transparent compact-to-TLS delegation):
+  ```bash
+  printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --proxy https://proxy.example:443
+  ```
+  Keep the compact binary and `whois-x86_64-tls` in the same directory with matching versions. Verify that stdout has one `=== Query:` and one `=== Authoritative RIR:` boundary per input. Replacing the command with `whois-x86_64-tls` directly must preserve the output contract. The PowerShell equivalent is `@('8.8.8.8','1.1.1.1') | .\whois-win64.exe -B --batch-strategy raw --proxy https://proxy.example:443`. `-B` may be omitted for non-TTY stdin, but explicit `-B` is preferred for operational acceptance.
 - Batch strategy (raw, no fold):
   ```bash
   printf "8.8.8.8\n1.1.1.1\n" | whois-x86_64 -B --batch-strategy raw --debug --retry-metrics --dns-cache-stats --grep-line --no-fold
@@ -1267,9 +1276,9 @@ Triggers:
 - Manual dispatch (`workflow_dispatch`): rerun `release` job with an input tag; `publish-gitee.yml` is manual for GH→Gitee mirroring.
 
 Main jobs:
-- `build-linux`: builds `whois-x86_64-gnu` and uploads it as a build artifact.
+- `build-linux`: builds the full TLS `whois-x86_64-gnu-tls` binary dynamically linked to glibc and OpenSSL 3, then uploads it as a build artifact; the runtime host must provide compatible `libssl.so.3` and `libcrypto.so.3` libraries.
 - `release` (on tag push or manual):
-  - Collects the seven static binaries from this repo `release/lzispro/whois/`.
+  - Collects the 18 compact/TLS static binaries from this repo's `release/lzispro/whois/` directory.
   - Generates a merged `SHA256SUMS.txt`.
   - Ensures the GitHub Release exists, uploads/overwrites assets.
   - Optional: if Gitee secrets are configured, creates a Gitee release with GitHub download links.

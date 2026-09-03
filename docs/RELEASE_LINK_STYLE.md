@@ -12,7 +12,7 @@
 
 ## 资产列表 / Assets
 静态多架构（7 个）：`whois-x86_64`, `whois-x86`, `whois-aarch64`, `whois-armv7`, `whois-mipsel`, `whois-mips64el`, `whois-loongarch64`
-附加资产（可选）：`whois-x86_64-gnu`（CI glibc 构建）, `SHA256SUMS.txt`（校验文件）
+附加资产（可选）：`whois-x86_64-gnu-tls`（当前 CI glibc TLS 构建；历史版本为 `whois-x86_64-gnu`）, `SHA256SUMS.txt`（校验文件）
 
 ## 风格对比 / Style Comparison
 | 场景 | 推荐风格 | 优点 | 缺点 |
@@ -40,7 +40,7 @@ bash tools/release/absolutize_release_body_links.sh -n docs/release_bodies/v3.2.
 扩展参数：
 - `-o/--owner` 指定 owner（默认 `larsonzh`）
 - `-p/--repo` 指定仓库（默认 `whois`）
-- `--also-gnu` 同时处理 `whois-x86_64-gnu`
+- `--also-gnu` 同时处理当前 `whois-x86_64-gnu-tls` 与历史 `whois-x86_64-gnu`
 - `--also-checksums` 同时处理 `SHA256SUMS.txt`
 
 幂等性：重复执行不影响已转换行（匹配模式一次生效）。
@@ -72,7 +72,7 @@ bash tools/release/relativize_static_binary_links.sh -n docs/release_bodies/v3.2
 5. 如需再次切回绝对直链（例如用户反馈相对路径访问慢）→ 重新绝对化即可。
 
 ## 常见问题 / FAQ
-Q: relativize 为什么不处理 `whois-x86_64-gnu`？
+Q: relativize 为什么默认不处理 CI glibc 资产？
 A: 该构建有时仅用于部分调试/兼容场景，保持显式绝对链接更利于区分；可在脚本内添加一行 sed 扩展。
 
 Q: 能否自动检测 Gitee 同步后再相对化？

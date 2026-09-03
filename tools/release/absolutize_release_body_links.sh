@@ -82,7 +82,7 @@ assets=(
   whois-win32.exe
 )
 
-gnu_asset="whois-x86_64-gnu"
+gnu_assets=(whois-x86_64-gnu whois-x86_64-gnu-tls)
 checksum_file="SHA256SUMS.txt"
 
 for f in "$@"; do
@@ -95,7 +95,7 @@ for f in "$@"; do
   # 修正：原模式使用 \s（GNU sed BRE 不支持），导致无法匹配；改用 -E 扩展正则并移除多余空白匹配。
   for a in "${assets[@]}"; do
     if [[ $dry_run -eq 1 ]]; then
-      cnt=$(grep -o -F "(release/lzispro/whois/${a})" "$tmp" | wc -l | tr -d ' ')
+      cnt=$(grep -o -F "(release/lzispro/whois/${a})" "$tmp" | wc -l | tr -d ' ' || true)
       echo "[absolutize][dry-run] ${f}: ${a} -> ${base}/${a} (matches: ${cnt})"
     else
       # 匹配形如 "[whois-aarch64](release/lzispro/whois/whois-aarch64)" 的括号
@@ -104,17 +104,19 @@ for f in "$@"; do
   done
 
   if [[ $also_gnu -eq 1 ]]; then
-    if [[ $dry_run -eq 1 ]]; then
-      cnt=$(grep -o -F "(release/lzispro/whois/${gnu_asset})" "$tmp" | wc -l | tr -d ' ')
-      echo "[absolutize][dry-run] ${f}: ${gnu_asset} -> ${base}/${gnu_asset} (matches: ${cnt})"
-    else
-      sed -E -i "s#\\]\(release/lzispro/whois/${gnu_asset}\\)#](${base}/${gnu_asset})#g" "$tmp"
-    fi
+    for gnu_asset in "${gnu_assets[@]}"; do
+      if [[ $dry_run -eq 1 ]]; then
+        cnt=$(grep -o -F "(release/lzispro/whois/${gnu_asset})" "$tmp" | wc -l | tr -d ' ' || true)
+        echo "[absolutize][dry-run] ${f}: ${gnu_asset} -> ${base}/${gnu_asset} (matches: ${cnt})"
+      else
+        sed -E -i "s#\\]\(release/lzispro/whois/${gnu_asset}\\)#](${base}/${gnu_asset})#g" "$tmp"
+      fi
+    done
   fi
 
   if [[ $also_checksums -eq 1 ]]; then
     if [[ $dry_run -eq 1 ]]; then
-      cnt=$(grep -o -F "(release/lzispro/whois/${checksum_file})" "$tmp" | wc -l | tr -d ' ')
+      cnt=$(grep -o -F "(release/lzispro/whois/${checksum_file})" "$tmp" | wc -l | tr -d ' ' || true)
       echo "[absolutize][dry-run] ${f}: ${checksum_file} -> ${base}/${checksum_file} (matches: ${cnt})"
     else
       sed -E -i "s#\\]\(release/lzispro/whois/${checksum_file}\\)#](${base}/${checksum_file})#g" "$tmp"

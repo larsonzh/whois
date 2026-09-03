@@ -573,12 +573,8 @@ int wc_opts_proxy_resolve(const wc_opts_t* opts, const wc_proxy_env_t* env, wc_p
         fprintf(stderr, "Error: socks4 proxy does not support IPv6 targets\n");
         goto fail;
     }
-#ifdef WHOIS_TLS
     out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTPS ||
         out->scheme == WC_PROXY_SCHEME_HTTP ||
-#else
-    out->routing_enabled = out->scheme == WC_PROXY_SCHEME_HTTP ||
-#endif
         out->scheme == WC_PROXY_SCHEME_SOCKS5 ||
         out->scheme == WC_PROXY_SCHEME_SOCKS5H ||
         out->scheme == WC_PROXY_SCHEME_SOCKS4 ||
@@ -1154,10 +1150,7 @@ int wc_opts_parse(int argc, char* argv[], wc_opts_t* o) {
         };
         if (!wc_opts_proxy_resolve(o, &proxy_env, &o->proxy)) return 37;
         if (o->proxy.configured && !o->proxy.routing_enabled) {
-            if (o->proxy.scheme == WC_PROXY_SCHEME_HTTPS)
-                fprintf(stderr, "Error: HTTPS proxy requires a WHOIS_TLS=1 build\n");
-            else
-                fprintf(stderr, "Error: Configured proxy scheme is not available in this build\n");
+            fprintf(stderr, "Error: Configured proxy scheme is not available in this build\n");
             wc_opts_proxy_clear(&o->proxy);
             return 37;
         }

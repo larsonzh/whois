@@ -191,7 +191,7 @@ whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 
 | Option | Description |
 |--------|-------------|
-| `--proxy URL` | Explicit proxy. Accepts absolute `http://`/`https://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` URLs (host+port, no path/query/fragment; IPv6 proxies use brackets like `[::1]:1080`; defaults: http=8080, https=443, socks*=1080). Official static release artifacts support `https://`; a locally built no-TLS compatibility binary fails as unsupported before lookup. **Embedding `user:pass@` in the URL is forbidden** (see credentials below) |
+| `--proxy URL` | Explicit proxy. Accepts absolute `http://`/`https://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` URLs (host+port, no path/query/fragment; IPv6 proxies use brackets like `[::1]:1080`; defaults: http=8080, https=443, socks*=1080). For `https://`, the compact binary invokes the same-directory, same-version `-tls` companion and fails before lookup if it is missing. **Embedding `user:pass@` in the URL is forbidden** (see credentials below) |
 | `--proxy-env` | Enables generic proxy env vars: reads `ALL_PROXY` → `all_proxy` and honors `NO_PROXY`/`no_proxy` bypasses. Off by default (so a system-wide proxy cannot silently hijack traffic); `HTTP_PROXY`/`HTTPS_PROXY` are never read |
 | `--proxy-allow-insecure-auth` | Allows credentials on a **cleartext `http://` proxy**; without it, http-proxy + credentials fail before lookup (SOCKS proxies are not restricted this way) |
 | `--proxy-family auto\|v4\|v6` | Controls only the **proxy endpoint's** address family (default `auto`). Use `--proxy-family v6` when the proxy has only an IPv6 address; conflicts with a numeric host in the URL fail before lookup |
@@ -202,9 +202,9 @@ Priority: `--proxy` > `WHOIS_PROXY` > (`--proxy-env` only) `ALL_PROXY` > `all_pr
 #### SOCKS and HTTPS proxy usage
 
 - **SOCKS**: just specify it, e.g. `whois-x86_64 --proxy socks5://10.0.0.246:1080 8.8.8.8`. For authentication, set `WHOIS_PROXY_USER`/`WHOIS_PROXY_PASSWORD` as above (SOCKS5 supports username/password; SOCKS4 sends USERID as the username and never carries a password).
-- **HTTPS proxy (`https://`)**: official static release artifacts include this capability by default. `https://host:443` means TLS between the client and the proxy, with `CONNECT` on top; WHOIS inside the tunnel stays plaintext. Certificate and hostname/IP verification are mandatory (no insecure mode), the trust store defaults to an embedded Mozilla CA bundle, and a non-empty `SSL_CERT_FILE` can point to an enterprise private CA PEM (unreadable, empty, or load failure is fail-closed, never falling back to the embedded bundle). A locally built compatibility binary without the HTTPS TLS backend fails as unsupported before lookup. See `docs/RFC-proxy-access.md` for details.
+- **HTTPS proxy (`https://`)**: `https://host:443` means TLS between the client and the proxy, with `CONNECT` on top; WHOIS inside the tunnel stays plaintext. The compact binary transparently executes the same-directory, same-version `whois-<arch>-tls` companion (`whois-winNN-tls.exe` on Windows); the companion also runs independently. The TLS build mandates certificate and hostname/IP verification, trusts the embedded Mozilla CA by default, and accepts a non-empty `SSL_CERT_FILE` enterprise CA override that fails closed on read or load errors. A missing, mismatched, or non-executable companion fails before network access and never falls back to direct. See `docs/RFC-proxy-access.md`.
 
-Run `whois-x86_64 --help` (`whois-win64.exe --help` on Windows) first. `HTTPS proxy TLS backend: enabled` means the binary is ready; `disabled` identifies an OpenSSL-free compatibility build.
+Run `whois-x86_64 --help` (`whois-win64.exe --help` on Windows) first. `enabled` means TLS is built into that file; `external companion` means HTTPS requires the matching same-directory `-tls` file.
 
 ```powershell
 # Official Windows static artifact with a publicly trusted proxy certificate
@@ -681,5 +681,5 @@ Remote build, smoke, Golden checks, artifact publishing, and cleanup workflows b
 ### Current feature status
 
 - Enabled in master source and official static artifacts: direct connection, HTTP CONNECT (`http://`), HTTPS CONNECT (`https://`), and SOCKS4/4a/5/5h; conditional output, batch strategies, DNS/IP family controls, and diagnostics/selftests are also available (see §3).
-- Artifact boundary: official static releases support `https://` directly. A locally built compatibility artifact without the HTTPS TLS backend fails as unsupported. Check the `HTTPS proxy TLS backend` line in `--help` for the binary in hand.
+- Artifact boundary: default `whois-*` files are compact builds and `whois-*-tls` files are optional full TLS builds. Both run independently; when deployed together, the compact binary transparently delegates HTTPS. Check the `HTTPS proxy TLS backend` line in `--help`.
 

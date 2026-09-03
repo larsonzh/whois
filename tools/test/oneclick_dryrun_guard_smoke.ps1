@@ -53,14 +53,23 @@ $tlsRemoteDefaultPass = $remoteBuildSource -match 'WHOIS_TLS=\$\{WHOIS_TLS:-1\}'
 $tokenInlinePass = $oneClickSource -notmatch "(?m)(GH_TOKEN|GITEE_TOKEN)='\{0\}'"
 $expectedStatics = @(
     'whois-aarch64',
+    'whois-aarch64-tls',
     'whois-armv7',
+    'whois-armv7-tls',
     'whois-loongarch64',
+    'whois-loongarch64-tls',
     'whois-mips64el',
+    'whois-mips64el-tls',
     'whois-mipsel',
+    'whois-mipsel-tls',
     'whois-win32.exe',
+    'whois-win32-tls.exe',
     'whois-win64.exe',
+    'whois-win64-tls.exe',
     'whois-x86',
+    'whois-x86-tls',
     'whois-x86_64',
+    'whois-x86_64-tls',
     'SHA256SUMS-static.txt'
 )
 $staticsPath = Join-Path $PSScriptRoot "..\..\release\lzispro\whois"

@@ -443,8 +443,8 @@ EXCLUDES=("--exclude=$REPO_NAME/.git" "--exclude=$REPO_NAME/out/artifacts" "--ex
 # Write VERSION.txt for remote builds (no .git on remote), then remove locally after packaging
 ## Version derivation logic:
 # 1. If WHOIS_FORCE_VERSION is set, use it directly.
-# 2. If HEAD matches an exact tag and working tree is clean, use the tag verbatim (vX.Y.Z).
-# 3. Else fall back to `git describe --tags --long --always` and append -dirty only if there are local changes.
+# 2. If HEAD matches an exact tag and the working tree is clean, use the tag verbatim (vX.Y.Z).
+# 3. Otherwise use the source version declared by the Makefile, appending -dirty only in strict mode.
 # Diagnostics:
 #   - Set WHOIS_DEBUG_VERSION=1 to print detailed cleanliness info and paths.
 #   - Set WHOIS_DIRTY_IGNORE_REGEX to ignore tracked changes that match this regex (optional, advanced).
@@ -480,19 +480,21 @@ fi
 
 # Resolve exact tag on HEAD if present
 head_tag="$(git -C "$REPO_ROOT" describe --exact-match --tags 2>/dev/null || true)"
+source_version="$(sed -n -E 's/^WHOIS_SOURCE_VERSION[[:space:]]*\?=[[:space:]]*(.*)$/\1/p' "$REPO_ROOT/Makefile" | head -n 1)"
+if [[ -z "$source_version" ]]; then
+  source_version="dev-$(date +%Y%m%d)"
+fi
 
 # Select version string (simplified by default: no -dirty suffix)
 if [[ -n "$force_version" ]]; then
   VERSION_STR="$force_version"
-elif [[ -n "$head_tag" ]]; then
-  # In simplified mode, use tag verbatim even if working tree has changes
+elif [[ -n "$head_tag" && $is_clean -eq 1 ]]; then
   VERSION_STR="$head_tag"
 else
-  base_describe="$(git -C "$REPO_ROOT" describe --tags --long --always 2>/dev/null || echo "dev-$(date +%Y%m%d)")"
   if [[ "$strict_version" == "1" && $is_clean -eq 0 ]]; then
-    VERSION_STR="${base_describe}-dirty"
+    VERSION_STR="${source_version}-dirty"
   else
-    VERSION_STR="$base_describe"
+    VERSION_STR="$source_version"
   fi
 fi
 

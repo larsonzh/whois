@@ -412,11 +412,7 @@ static int selftest_proxy_preflight_matrix(void)
     failed_local |= selftest_proxy_expect("https-default-port",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 443 &&
         proxy.scheme == WC_PROXY_SCHEME_HTTPS);
-#ifdef WHOIS_TLS
     failed_local |= selftest_proxy_expect("https-build-routing", proxy.routing_enabled);
-#else
-    failed_local |= selftest_proxy_expect("https-build-gate", !proxy.routing_enabled);
-#endif
     opts.proxy_url = "socks5://proxy.example";
     failed_local |= selftest_proxy_expect("socks-default-port",
         wc_opts_proxy_resolve(&opts, &env, &proxy) && proxy.endpoint_port == 1080 && proxy.routing_enabled);

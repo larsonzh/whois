@@ -3,10 +3,12 @@
 CC ?= gcc
 # Allow callers to append extra flags without complex quoting on Windows/SSH
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
-# Version injection: prefer VERSION.txt if present; fallback to literal
+# Version injection: release packaging may provide VERSION.txt; otherwise use
+# the source version declared here.
+WHOIS_SOURCE_VERSION ?= v3.4.0
 WHOIS_VERSION_FILE ?= VERSION.txt
 ifeq ($(wildcard $(WHOIS_VERSION_FILE)),)
-WHOIS_VERSION ?= $(strip $(shell git describe --tags --always 2>/dev/null || echo dev-local))
+WHOIS_VERSION ?= $(WHOIS_SOURCE_VERSION)
 else
 WHOIS_VERSION := $(strip $(shell cat $(WHOIS_VERSION_FILE)))
 endif
@@ -78,6 +80,9 @@ SRCS := $(wildcard src/*.c) $(wildcard src/*/*.c)
 OBJS := $(SRCS:.c=.o)
 
 all: $(TARGET)
+
+print-source-version:
+	@printf '%s\n' '$(WHOIS_SOURCE_VERSION)'
 
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)

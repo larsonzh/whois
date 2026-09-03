@@ -1,4 +1,4 @@
-// whois client (version 3.3.3) - migrated from lzispro
+// whois client (version 3.4.0) - migrated from lzispro
 // License: MIT
 
 // ============================================================================
@@ -17,6 +17,7 @@
 #include "wc/wc_client_exit.h"
 #include "wc/wc_client_frontend.h"
 #include "wc/wc_opts.h"
+#include "wc/wc_tls_companion.h"
 #include "wc/wc_types.h"
 #include "wc/wc_util.h"
 
@@ -34,6 +35,12 @@ int main(int argc, char* argv[]) {
 	wc_opts_t opts;
 	if (wc_opts_parse(argc, argv, &opts) != 0) {
 		return wc_client_exit_usage_error(argv[0], NULL);
+	}
+
+	int companion_rc = wc_tls_companion_maybe_exec(argc, argv, &opts);
+	if (companion_rc != 0) {
+		wc_opts_free(&opts);
+		return companion_rc;
 	}
 
 	int rc = wc_client_frontend_run(argc, argv, &opts);

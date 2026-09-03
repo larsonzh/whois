@@ -1,4 +1,4 @@
-﻿# whois (v3.3.3)
+﻿# whois (v3.4.0 development)
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -8,6 +8,9 @@
 [![publish-gitee](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml/badge.svg?branch=master)](https://github.com/larsonzh/whois/actions/workflows/publish-gitee.yml)
 
 ## 概览 / Overview
+
+- v3.4.0 将九架构发布拆分为紧凑主程序与可选 `-tls` 完整伴随程序。主程序可独立执行直连、HTTP 和 SOCKS 查询；同目录存在版本匹配的 `-tls` 文件时，HTTPS 代理请求会透明转交。
+- v3.4.0 splits each architecture into a compact main binary and an optional full `-tls` companion. The main binary independently handles direct, HTTP, and SOCKS queries; HTTPS proxy requests transparently hand off to a version-matched `-tls` file in the same directory.
 
 - 轻量高性能 C 语言 whois 客户端，支持：
 	- 批量标准输入模式（`-B`），当 stdin 不是 TTY 时自动启用

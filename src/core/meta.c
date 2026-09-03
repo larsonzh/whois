@@ -5,7 +5,7 @@
 #include "wc/wc_meta.h"
 
 #ifndef WHOIS_VERSION
-#define WHOIS_VERSION "3.3.3"
+#define WHOIS_VERSION "3.4.0"
 #endif
 
 typedef struct wc_usage_section_s {
@@ -190,7 +190,7 @@ void wc_meta_print_usage(
 #ifdef WHOIS_TLS
     printf("      HTTPS proxy TLS backend: enabled (embedded Mozilla CA; SSL_CERT_FILE overrides)\n\n");
 #else
-    printf("      HTTPS proxy TLS backend: disabled (this build reports https:// as unsupported)\n\n");
+    printf("      HTTPS proxy TLS backend: external companion (matching *-tls binary required)\n\n");
 #endif
     print_usage_section(&k_diagnostics_section);
 
@@ -235,7 +235,7 @@ void wc_meta_print_about(void) {
 #ifdef WHOIS_TLS
     printf("- Proxy support: HTTP CONNECT, HTTPS CONNECT over verified TLS, SOCKS4/4a, and SOCKS5/5h.\n");
 #else
-    printf("- Proxy support: HTTP CONNECT and SOCKS4/4a/5/5h; this binary has no HTTPS TLS backend.\n");
+    printf("- Proxy support: HTTP CONNECT and SOCKS4/4a/5/5h; HTTPS delegates to a matching *-tls companion.\n");
 #endif
 }
 
@@ -261,6 +261,7 @@ void wc_meta_print_examples(const char* program_name) {
 #ifdef WHOIS_TLS
     printf("%s --proxy https://proxy.example:443 8.8.8.8\n\n", prog);
 #else
-    printf("# This binary has no HTTPS TLS backend; use an official static release for https://\n\n");
+    printf("# HTTPS automatically delegates to the matching *-tls companion in the same directory\n");
+    printf("%s --proxy https://proxy.example:443 8.8.8.8\n\n", prog);
 #endif
 }

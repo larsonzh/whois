@@ -21,7 +21,7 @@
   - x86(i686): `~/.local/i686-linux-musl-cross/bin/i686-linux-musl-gcc`
   - mipsel: `~/.local/mipsel-linux-musl-cross/bin/mipsel-linux-musl-gcc`
   - mips64el: `~/.local/mips64el-linux-musl-cross/bin/mips64el-linux-musl-gcc`
-  - loongarch64: `~/.local/loongson-gnu-toolchain-.../loongarch64-linux-gnu-gcc`
+  - loongarch64: `~/.local/loongarch64-linux-musl-cross/bin/loongarch64-linux-musl-gcc`（优先；glibc 工具链仅作兼容回退）
 - 可选：`upx`（压缩 aarch64/x86_64）、`qemu-user-static`（冒烟测试）、`file`（产物信息）
 
 ## 快速开始
@@ -58,7 +58,7 @@ cd /d/LZProjects/whois
 ```
 
 运行完成，产物将被拉回到：`out/artifacts/<时间戳>/build_out/`，包括：
-- 各架构二进制：`whois-<arch>`（7 个架构：`aarch64 armv7 x86_64 x86 mipsel mips64el loongarch64`）
+- 各架构二进制：默认 `WHOIS_TLS=1` 时生成 compact `whois-<arch>` 与完整 `whois-<arch>-tls`；含 win32/win64 时共 18 个制品
 - `file_report.txt`（file 命令输出汇总）
 - `smoke_test.log`（启用 `-r 1` 时生成）
 
@@ -84,7 +84,7 @@ cd /d/LZProjects/whois
 - SSH 免交互：`StrictHostKeyChecking=accept-new`、`UserKnownHostsFile=/dev/null`、`BatchMode=yes`、`LogLevel=ERROR`
 - 远端目录：默认 `$HOME/whois_remote/src`；通过 `-R` 可覆盖
 - 上传：`tar` 流式传输（排除 `.git` 和 `out/artifacts`/`dist`）
-- 远端构建：`tools/remote/remote_build.sh` 静态编译（`-O3 -s -pthread`），loongarch64 使用 `-static-libgcc -static-libstdc++`
+- 远端构建：`tools/remote/remote_build.sh` 静态编译（`-O3 -s -pthread`）；LoongArch64 使用 musl 交叉工具链。每个 Linux compact/TLS 制品都必须由 `file` 判定为 static/static-pie，否则构建 fail-close
 - UPX：对 aarch64/x86_64 存在时压缩
 - QEMU：可选逐个二进制冒烟（默认“联网测试”）
   - 默认查询：`8.8.8.8`

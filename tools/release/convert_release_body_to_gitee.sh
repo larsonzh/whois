@@ -96,8 +96,8 @@ BEGIN {
       sub(/:$/, "", line)
       print line " (GitHub Release " ENVIRON["WC_TAG"] "):"; next
     }
-    # whois-x86_64-gnu 保持原样
-    if (line ~ /whois-x86_64-gnu/) { print line; next }
+    # CI glibc（历史 compact 或当前 TLS）保持 GitHub Release 直链原样
+    if (line ~ /whois-x86_64-gnu(-tls)?/) { print line; next }
     # 校验文件：SHA256SUMS.txt -> SHA256SUMS-static.txt（Gitee raw）
     if (line ~ /\[SHA256SUMS\.txt\]\(/) {
       gsub(/SHA256SUMS\.txt/, "SHA256SUMS-static.txt", line)

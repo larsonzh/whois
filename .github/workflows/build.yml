@@ -36,6 +36,11 @@ jobs:
           gcc --version || true
           make -v || true
 
+      - name: Install glibc TLS build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+
       - name: Write VERSION.txt for CI build
         shell: bash
         run: |
@@ -52,29 +57,36 @@ jobs:
       - name: Build
         run: |
           set -xeuo pipefail
-          WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1
+          OPENSSL_CFLAGS="$(pkg-config --cflags openssl)"
+          OPENSSL_LIBS="$(pkg-config --libs openssl)"
+          WHOIS_STRICT_VERSION=1 WHOIS_TLS=1 \
+            OPENSSL_CFLAGS="$OPENSSL_CFLAGS" OPENSSL_LIBS="$OPENSSL_LIBS" \
+            make OPT_PROFILE=lto LTO_PARALLEL=1
 
-      - name: Rename CI binary (x86_64 glibc)
+      - name: Rename CI binary (x86_64 glibc TLS)
         run: |
           test -f whois-client
-          mv whois-client whois-x86_64-gnu
+          mv whois-client whois-x86_64-gnu-tls
 
       - name: Show binary
         run: |
-          file whois-x86_64-gnu || true
-          ls -l whois-x86_64-gnu || true
+          file whois-x86_64-gnu-tls
+          ls -l whois-x86_64-gnu-tls
+          ldd whois-x86_64-gnu-tls
+          ldd whois-x86_64-gnu-tls | grep -E 'libssl\.so|libcrypto\.so'
+          ./whois-x86_64-gnu-tls --help | grep -F 'HTTPS proxy TLS backend: enabled'
 
       - name: Checksums
         run: |
-          test -f whois-x86_64-gnu
-          sha256sum whois-x86_64-gnu > SHA256SUMS.txt
+          test -f whois-x86_64-gnu-tls
+          sha256sum whois-x86_64-gnu-tls > SHA256SUMS.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: whois-build-${{ github.sha }}
           path: |
-            whois-x86_64-gnu
+            whois-x86_64-gnu-tls
             SHA256SUMS.txt
 
   release:
@@ -99,6 +111,11 @@ jobs:
         run: |
           gcc --version || true
           make -v || true
+
+      - name: Install glibc TLS build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
 
       - name: Resolve tag name (push tag / manual dispatch)
         id: vars
@@ -131,12 +148,23 @@ jobs:
       - name: Build
         run: |
           set -xeuo pipefail
-          WHOIS_STRICT_VERSION=1 make OPT_PROFILE=lto LTO_PARALLEL=1
+          OPENSSL_CFLAGS="$(pkg-config --cflags openssl)"
+          OPENSSL_LIBS="$(pkg-config --libs openssl)"
+          WHOIS_STRICT_VERSION=1 WHOIS_TLS=1 \
+            OPENSSL_CFLAGS="$OPENSSL_CFLAGS" OPENSSL_LIBS="$OPENSSL_LIBS" \
+            make OPT_PROFILE=lto LTO_PARALLEL=1
 
-      - name: Rename CI binary (x86_64 glibc)
+      - name: Rename CI binary (x86_64 glibc TLS)
         run: |
           test -f whois-client
-          mv whois-client whois-x86_64-gnu
+          mv whois-client whois-x86_64-gnu-tls
+
+      - name: Verify glibc TLS dependencies
+        run: |
+          file whois-x86_64-gnu-tls
+          ldd whois-x86_64-gnu-tls
+          ldd whois-x86_64-gnu-tls | grep -E 'libssl\.so|libcrypto\.so'
+          ./whois-x86_64-gnu-tls --help | grep -F 'HTTPS proxy TLS backend: enabled'
 
       - name: Generate changelog body if missing
         run: |
@@ -162,16 +190,16 @@ jobs:
         run: |
           set -xeuo pipefail
           mkdir -p release_assets
-          mv -v whois-x86_64-gnu release_assets/
+          mv -v whois-x86_64-gnu-tls release_assets/
 
-      # Collect 7 static binaries from local repo only (release/lzispro/whois)
+      # Collect compact and optional-TLS static binaries from local repo only.
       - name: Collect static multi-arch binaries (best-effort)
         run: |
           set -euo pipefail
           SRC="release/lzispro/whois"
           echo "-- Checking static binary source: $SRC --"
           if [ -d "$SRC" ]; then ls -la "$SRC"; else echo "Source dir not present (skip)"; fi
-          files=(whois-aarch64 whois-armv7 whois-x86_64 whois-x86 whois-mipsel whois-mips64el whois-loongarch64 whois-win64.exe whois-win32.exe)
+          files=(whois-aarch64 whois-aarch64-tls whois-armv7 whois-armv7-tls whois-x86_64 whois-x86_64-tls whois-x86 whois-x86-tls whois-mipsel whois-mipsel-tls whois-mips64el whois-mips64el-tls whois-loongarch64 whois-loongarch64-tls whois-win64.exe whois-win64-tls.exe whois-win32.exe whois-win32-tls.exe)
           missing=0
           for f in "${files[@]}"; do
             if [ -f "$SRC/$f" ]; then

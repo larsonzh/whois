@@ -11,7 +11,7 @@ set -euo pipefail
 # 说明：
 #   默认仅处理 9 个静态二进制：
 #   whois-x86_64 whois-x86 whois-aarch64 whois-armv7 whois-mipsel whois-mips64el whois-loongarch64 whois-win64.exe whois-win32.exe
-#   加 --also-gnu        可同时处理 whois-x86_64-gnu
+#   加 --also-gnu        可同时处理历史 whois-x86_64-gnu 与当前 whois-x86_64-gnu-tls
 #   加 --also-checksums  可同时处理 SHA256SUMS.txt
 
 die() { echo "[relativize] $*" >&2; exit 1; }
@@ -50,7 +50,7 @@ assets=(
 )
 
 extra_targets=()
-[[ $also_gnu -eq 1 ]] && extra_targets+=(whois-x86_64-gnu)
+[[ $also_gnu -eq 1 ]] && extra_targets+=(whois-x86_64-gnu whois-x86_64-gnu-tls)
 [[ $also_checksums -eq 1 ]] && extra_targets+=(SHA256SUMS.txt)
 
 targets=("${assets[@]}" "${extra_targets[@]}")
@@ -70,7 +70,7 @@ for f in "$@"; do
 
   for a in "${targets[@]}"; do
     if [[ $dry_run -eq 1 ]]; then
-      cnt=$(grep -o -E "releases/download/[^)]*/${a}\)" "$tmp" | wc -l | tr -d ' ')
+      cnt=$(grep -o -E "releases/download/[^)]*/${a}\)" "$tmp" | wc -l | tr -d ' ' || true)
       echo "[relativize][dry-run] ${f}: ${a} -> release/lzispro/whois/${a} (matches: ${cnt})"
     else
       # 处理可能的 CRLF：先统一行尾换行，再替换。

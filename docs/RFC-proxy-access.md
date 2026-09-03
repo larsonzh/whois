@@ -1,6 +1,6 @@
 ﻿# RFC：RIR 代理访问 / RIR Proxy Access
 
-状态 / Status：WP-13A、WP-13B-1/2/3、WP-13C 与 WP-13D 均已完成实施和生产验收；官方远程静态构建与 release 制品默认启用 `WHOIS_TLS=1`，本地普通 `make` 及显式 `WHOIS_TLS=0` 兼容构建仍可保持无 OpenSSL 依赖 / WP-13A, WP-13B-1/2/3, WP-13C, and WP-13D have completed implementation and production acceptance; official remote static builds and release artifacts default to `WHOIS_TLS=1`, while normal local `make` and explicit `WHOIS_TLS=0` compatibility builds may remain OpenSSL-free.
+状态 / Status：WP-13A、WP-13B-1/2/3、WP-13C 与 WP-13D 均已完成实施和生产验收；v3.4.0 起官方九架构交付拆分为不含 OpenSSL/CA 的紧凑主程序与可选 `-tls` 完整伴随程序 / WP-13A, WP-13B-1/2/3, WP-13C, and WP-13D have completed implementation and production acceptance; starting with v3.4.0, each official architecture ships a compact OpenSSL/CA-free main binary and an optional full `-tls` companion.
 
 # 中文版
 
@@ -16,6 +16,19 @@
 4. WP-13D：仅在 TLS 后端通过九架构静态链接门禁后增加 HTTPS proxy。
 
 WP-13A 不改变任何生产网络路径。
+
+### 1.1 v3.4.0 双制品模型
+
+- `whois-<arch>` 是默认紧凑版，可独立完成直连、HTTP CONNECT、SOCKS4/4a/5/5h 与全部非 HTTPS 功能。
+- `whois-<arch>-tls`（Windows 为 `whois-winNN-tls.exe`）是嵌入 OpenSSL 与固定 CA 的完整版本，也可脱离紧凑版独立运行。
+- 两者同目录部署时，紧凑版解析到 HTTPS 代理后以进程替换方式透明执行同版本 companion；argv、环境、stdin、stdout、stderr 与最终退出码保持不变。
+- companion 仅从当前可执行文件所在位置派生，不搜索 `PATH`。缺失、版本不匹配、无法执行或实际不含 TLS 时，必须在代理网络访问前向 stderr 报错并 fail-close，禁止回退直连。
+- `WHOIS_TLS=0` 仅生成紧凑版；官方 `WHOIS_TLS=1` 构建编排生成紧凑版与 TLS companion 两份产物。TLS 运行时峰值资源需求不因拆分而消失；拆分主要降低默认文件体积和非 HTTPS 部署成本。
+- 最终生产验收（2026-09-04）：审计发现旧 LoongArch64 glibc 构建虽无动态 OpenSSL 依赖，但仍带 ELF interpreter，并在全静态 DNS/NSS 链接时产生运行时 glibc 兼容告警。构建现改用 `loongarch64-linux-musl`，OpenSSL 3.5.8 同步以该 triplet 重建；远程构建对所有 Linux compact/TLS 制品增加静态链接 fail-close 门禁。最终 Strict `lto-auto` 九架构双制品轮 `out/artifacts/20260904-073811` 无编译/LTO 告警，18/18 SHA-256、Golden 与三起点 referral 全 PASS；POSIX/win32/win64 smoke 为 `18/3/3`，24/24 查询标题与权威尾行配对且异常 0。七个 Linux 架构的 compact/TLS 均为 static/static-pie，win32/win64 均为 full-static。
+
+The compact `whois-<arch>` binary independently handles every non-HTTPS path. The full `whois-<arch>-tls` companion embeds OpenSSL and the pinned CA and can also run on its own. When both files share a directory, a configured HTTPS proxy causes the compact process to replace itself with the version-matched companion while preserving argv, environment, standard streams, and the final exit status. Companion lookup never searches `PATH`; missing, mismatched, non-executable, or non-TLS companions fail closed before proxy network access. The split reduces default storage and deployment cost, not the peak resources required while TLS is active.
+
+Final production acceptance (2026-09-04): review found that the former LoongArch64 glibc build had no dynamic OpenSSL dependency but still carried an ELF interpreter and emitted runtime-glibc compatibility warnings for fully static DNS/NSS calls. The application and OpenSSL 3.5.8 builds now use the `loongarch64-linux-musl` triplet, and the remote build fails closed unless every Linux compact/TLS artifact is static or static PIE. The final Strict `lto-auto` nine-architecture dual-artifact run at `out/artifacts/20260904-073811` has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, and all three referral origins. POSIX/win32/win64 smoke counts are `18/3/3`, all 24 query headers pair with authoritative tails, and the anomaly count is zero. Both variants for all seven Linux architectures are static/static PIE; win32 and win64 remain full-static.
 
 ## 2. 不可破坏的约束
 
@@ -155,7 +168,7 @@ tools/test/proxy_tls_dependency_spike.sh --target aarch64
 - 七个 POSIX 探针均无 ELF interpreter 或 `NEEDED`；win32/win64 PE 探针均无 `libssl`/`libcrypto` DLL 依赖。每个目标保存编译器与 Configure manifest、`configdata.pm --dump`、静态库和探针 SHA-256、平台依赖审计及 SPDX 2.3 文档。
 - 维护策略：每月复核 OpenSSL security advisories/CVE 与 3.5 LTS 最新补丁；出现影响所用 TLS client、X.509、证书/主机名验证或静态链接路径的安全发布时，升级固定版本并完整重跑九架构构建、探针、依赖审计、哈希和 SPDX 门禁。不得继续使用停止支持或存在未处置适用高严重度漏洞的版本。
 - 生产 CA 快照固定为 curl CA Extract 发布的 Mozilla bundle `2026-08-13`（121 张证书，SHA-256 `f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9`，MPL-2.0）。`tools/dev/generate_ca_bundle.py` 在摘要和证书计数均匹配后确定性生成 `src/core/ca_bundle_data.c`；来源与 Mozilla/Firefox name-constraints 不随 PEM 转换保留的边界记录于 `docs/registry-snapshots/mozilla-ca-2026-08-13.md`。
-- `WHOIS_TLS=1` 构建从每目标 OpenSSL 3.5.8 prefix 的隔离 pkg-config 元数据解析静态参数，默认构建继续无 OpenSSL 依赖。TLS/LTO 九架构构建与本地哈希复核 9/9 PASS（`out/artifacts/20260901-170601`）；win32/win64 为 full-static 且仅导入系统 DLL，loongarch64 仅保留既有 `libc.so.6` NEEDED，未发现动态 `libssl`/`libcrypto` 依赖。
+- `WHOIS_TLS=1` 构建从每目标 OpenSSL 3.5.8 prefix 的隔离 pkg-config 元数据解析静态参数，默认构建继续无 OpenSSL 依赖。初始 TLS/LTO 九架构依赖矩阵 9/9 PASS（`out/artifacts/20260901-170601`）；2026-09-04 复核进一步将 LoongArch64 从 glibc 切换到 musl，消除 ELF interpreter、`libc.so.6` NEEDED 与静态 DNS/NSS 运行时兼容告警。最终 18 个 compact/TLS 制品均通过平台静态依赖门禁（`out/artifacts/20260904-073811`）。
 - 因此 TLS 依赖门禁已解除，WP-13D 可进入独立 Vx 任务定义设计与 ready 评审；这不表示 HTTPS proxy 已实现，也不替代下述生产验收。
 
 生产验收仍须通过 x86_64/win32/win64 聚焦合同、九架构 Strict 构建、Golden/referral、Batch/Selftest/CIDR/Redirect/Step47、默认直连输出冻结，并同步中英文使用文档。

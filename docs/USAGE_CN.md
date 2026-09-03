@@ -189,7 +189,7 @@ whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 
 | 参数 | 说明 |
 |------|------|
-| `--proxy URL` | 显式指定代理。URL 接受 `http://`/`https://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` 的绝对地址（主机+端口，不含 path/query/fragment；IPv6 代理用方括号如 `[::1]:1080`；默认端口：http=8080、https=443、socks*=1080）。官方静态发布制品支持 `https://`；自行生成的无 TLS 兼容构建会在查询前报 unsupported。**URL 中禁止内嵌 `user:pass@`**（见下方凭据说明） |
+| `--proxy URL` | 显式指定代理。URL 接受 `http://`/`https://`/`socks5://`/`socks5h://`/`socks4://`/`socks4a://` 的绝对地址（主机+端口，不含 path/query/fragment；IPv6 代理用方括号如 `[::1]:1080`；默认端口：http=8080、https=443、socks*=1080）。紧凑版使用 `https://` 时会调用同目录、同版本的 `-tls` companion；缺失时查询前报错。**URL 中禁止内嵌 `user:pass@`**（见下方凭据说明） |
 | `--proxy-env` | 启用通用代理环境变量：按 `ALL_PROXY` → `all_proxy` 取代理，并读取 `NO_PROXY`/`no_proxy` 决定哪些目标直连。默认不启用（避免系统环境里的代理“悄悄”生效）；`HTTP_PROXY`/`HTTPS_PROXY` 永不读取 |
 | `--proxy-allow-insecure-auth` | 允许在**明文 `http://` 代理**上发送凭据；不带它时，http 代理 + 凭据会在查询前报错（SOCKS 代理不受此限制） |
 | `--proxy-family auto\|v4\|v6` | 只控制**代理服务器本身**的地址族（默认 `auto`）。例如代理只有 IPv6 地址时用 `--proxy-family v6`；与代理 URL 中的数值地址冲突会报错 |
@@ -200,9 +200,9 @@ whois-x86_64 --proxy http://10.0.0.246:8080 --proxy-allow-insecure-auth 8.8.8.8
 #### SOCKS 与 HTTPS 代理怎么操作
 
 - **SOCKS**：直接指定即可，如 `whois-x86_64 --proxy socks5://10.0.0.246:1080 8.8.8.8`；带认证时按上面方式设 `WHOIS_PROXY_USER/PASSWORD`（SOCKS5 支持用户名/密码，SOCKS4 的 USERID 用用户名、不带密码）。
-- **HTTPS 代理（`https://`）**：官方静态发布制品默认包含该能力。`https://host:443` 表示“客户端与代理之间走 TLS”，在 TLS 之上再发 `CONNECT`，隧道内 WHOIS 仍是明文。客户端强制校验证书与主机名/IP（无“跳过验证”选项），默认信任构建时内嵌的 Mozilla CA bundle；非空 `SSL_CERT_FILE` 可指向企业私有 CA 的 PEM（无法读取、为空或加载失败会 fail-close，不会回退内嵌 CA）。若自行构建了不含 HTTPS TLS 后端的兼容版本，客户端会在查询前稳定报 unsupported。设计细节见 `docs/RFC-proxy-access.md`。
+- **HTTPS 代理（`https://`）**：`https://host:443` 表示“客户端与代理之间走 TLS”，在 TLS 之上再发 `CONNECT`，隧道内 WHOIS 仍是明文。默认紧凑版会透明执行同目录、同版本的 `whois-<arch>-tls`（Windows 为 `whois-winNN-tls.exe`）；companion 也可独立执行。TLS 版强制校验证书与主机名/IP（无“跳过验证”选项），默认信任内嵌 Mozilla CA bundle；非空 `SSL_CERT_FILE` 可指向企业私有 CA PEM，读取或加载失败会 fail-close。companion 缺失、版本不匹配或不可执行时在网络访问前报错，不回退直连。设计细节见 `docs/RFC-proxy-access.md`。
 
-先运行 `whois-x86_64 --help`（Windows 使用 `whois-win64.exe --help`）：出现 `HTTPS proxy TLS backend: enabled` 即可直接使用；出现 `disabled` 表示当前文件是不含 OpenSSL 的兼容构建。
+先运行 `whois-x86_64 --help`（Windows 使用 `whois-win64.exe --help`）：`enabled` 表示当前文件自身包含 TLS；`external companion` 表示 HTTPS 需要同目录的匹配 `-tls` 文件。
 
 ```powershell
 # 官方 Windows 静态制品：使用公网 CA 签发证书的 HTTPS 代理
@@ -624,5 +624,5 @@ lzispro 的批量归类脚本 `release/lzispro/func/lzispdata.sh` 会直接调�
 ### 当前功能状态
 
 - 已开放（master 源码及官方静态制品）：直连、HTTP CONNECT（`http://`）、HTTPS CONNECT（`https://`）以及 SOCKS4/4a/5/5h；另含条件输出、批量策略、DNS/IP 家族控制、诊断/自测等（详见 §3）。
-- 制品边界：官方静态 release 可直接使用 `https://`；自行生成的不含 HTTPS TLS 后端的兼容制品会稳定报 unsupported。用 `--help` 中的 `HTTPS proxy TLS backend` 行核验手中二进制。
+- 制品边界：默认 `whois-*` 为紧凑版，`whois-*-tls` 为可选完整 TLS 版；两者均可独立执行，共同部署时紧凑版透明转交 HTTPS。用 `--help` 中的 `HTTPS proxy TLS backend` 行核验手中二进制。
 
