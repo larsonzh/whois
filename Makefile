@@ -52,13 +52,10 @@ endif
 LDFLAGS ?=
 LIBS ?= -pthread
 
-# Optional HTTPS-proxy TLS backend. Release builds inject target-specific
-# static OpenSSL flags from the audited per-architecture prefixes.
+# Optional HTTPS-proxy TLS backend. OPENSSL_CFLAGS may be empty when headers
+# use the compiler's default search path; OPENSSL_LIBS must always be supplied.
 WHOIS_TLS ?= 0
 ifneq (,$(filter 1 true TRUE yes YES,$(WHOIS_TLS)))
-ifeq ($(strip $(OPENSSL_CFLAGS)),)
-$(error WHOIS_TLS=1 requires OPENSSL_CFLAGS)
-endif
 ifeq ($(strip $(OPENSSL_LIBS)),)
 $(error WHOIS_TLS=1 requires OPENSSL_LIBS)
 endif
