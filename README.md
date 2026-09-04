@@ -22,7 +22,7 @@
 	- Non-blocking connect, IO timeouts, light retries, and referral redirect following with loop guard
 
 亮点：折叠输出（`--fold`、`--fold-sep`、`--no-fold-upper`），续行关键词命中技巧（策略 A 与策略 B），以及 `--max-host-addrs` 可限制每个主机的拨号次数（配合 `--debug` 可见 `[DNS-LIMIT]` / `[NET-DEBUG]`）。均针对 BusyBox 管道做优化——详见使用文档。
-	Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`), continuation-line keyword capture tips (Strategy A vs B), and `--max-host-addrs` to cap per-host dial attempts (check `[DNS-LIMIT]` / `[NET-DEBUG]` under `--debug`). Tuned for BusyBox pipelines—see Usage.
+- Highlight: folded output (`--fold`, `--fold-sep`, `--no-fold-upper`), continuation-line keyword capture tips (Strategy A vs B), and `--max-host-addrs` to cap per-host dial attempts (check `[DNS-LIMIT]` / `[NET-DEBUG]` under `--debug`). Tuned for BusyBox pipelines—see Usage.
 
 ### Why this whois client / 我们的亮点
 
@@ -42,8 +42,8 @@
 	- This repository includes an AI-assisted unattended A/B engineering toolchain for real code changes: the user remains the highest authority, scripts are the sole execution layer, and AI assists with task definitions, event tickets, machine-state interpretation, and pre-authorized recovery actions.
 - 每轮改动由可重放任务定义驱动，并经过 target-bound 静态检查、幂等/断言门禁、原子写入与回滚、编译、Golden、CIDR、Step47 和重定向矩阵验证；聊天结论不能覆盖落盘产物，任何证据不完整均 fail closed。
 	- Every change is driven by a replayable task definition and gated by target-bound static checks, idempotency/assertions, atomic write and rollback, compilation, Golden, CIDR, Step47, and redirect-matrix validation. Chat conclusions never override persisted machine evidence, and incomplete evidence fails closed.
-- 该体系已在本项目连续完成 56 份串行 A/B 任务，用于地址空间前置分类器、默认放量、契约冻结、可观测性增强和代码收敛；最近的第 55/56 份会话 A/B 均 PASS。它属于开发与质量保障设施，发布的 C 客户端仍保持零 AI、零外部运行时依赖。
-	- The system has completed 56 serial A/B tasks in this project, covering the address-space preclassifier, default rollout, contract freezing, observability, and code convergence; the latest 55/56 session passed both stages. This is development and quality infrastructure only: shipped C binaries retain zero AI and zero external runtime dependencies.
+- 该体系已在本项目持续完成 60 份以上的串行 A/B 无人值守任务，覆盖地址空间前置分类器、默认放量、契约冻结、可观测性增强、代码收敛与代理访问 RIR 等主题；每份任务均须通过 target-bound 静态检查、原子写入/回滚及编译/Golden/矩阵验证，最新批次全部 PASS。它属于开发与质量保障设施，发布的 C 客户端仍保持零 AI、零外部运行时依赖。
+	- The system has completed more than 60 serial A/B unattended tasks in this project, spanning the address-space preclassifier, default rollout, contract freezing, observability, code convergence, and proxy access to RIRs; every task must pass target-bound static checks, atomic write/rollback, and compile/Golden/matrix validation, and the latest batches all pass. This is development and quality infrastructure only: shipped C binaries retain zero AI and zero external runtime dependencies.
 
 流程与边界 / Workflow and boundaries: [A/B 无人值守完整操作流](docs/UNATTENDED_AB_OPERATION_FLOW_CN.md) · [模型分层与使用边界](docs/RFC-unattended-model-tiering.md) · [聊天分发策略](docs/RFC-unattended-chat-dispatch-policy-v1.md)
 
