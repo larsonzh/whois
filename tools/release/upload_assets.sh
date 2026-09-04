@@ -109,14 +109,14 @@ asset_id_by_name() {
 
 for f in "${files[@]}"; do
   if [[ ! -f "$f" ]]; then
-    echo "Skip missing: $f" >&2
-    continue
+    echo "Missing release asset: $f" >&2
+    exit 1
   fi
   base="$(basename "$f")"
   # delete existing asset with same name
   aid="$(asset_id_by_name "$base" || true)"
   if [[ -n "${aid:-}" ]]; then
-    api DELETE "https://api.github.com/repos/$OWNER/$REPO/releases/assets/$aid" >/dev/null || true
+    api DELETE "https://api.github.com/repos/$OWNER/$REPO/releases/assets/$aid" >/dev/null
   fi
   # upload
   echo "Uploading $base ..."

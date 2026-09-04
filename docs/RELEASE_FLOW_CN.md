@@ -1,7 +1,7 @@
 ﻿# 一键发布流程（whois）
 
 - 远程交叉编译九架构 compact/TLS 共 18 个静态二进制 + 联网冒烟
-- 同步静态产物到 lzispro，并自动提交/推送
+- 同步静态产物到 whois 仓库发布目录，并按 One-Click 流程提交/推送
 - （可选）提交更新后的 `RELEASE_NOTES.md`
 - 打标签触发 GitHub Release（自动附上 CI 的动态 TLS 版 `whois-x86_64-gnu-tls` + 18 个静态二进制）
 
@@ -10,24 +10,12 @@
 > - 排错：设置 `WHOIS_DEBUG_SSH=1` 可开启 `ssh -vvv` 详细调试日志。
 ## 快速使用（PowerShell）
 
-在 whois 仓库根目录执行：
+正式发布建议从 VS Code 运行 `One-Click Release` 任务，或在 whois 仓库根目录直接调用：
 ```powershell
-# 自动递增标签（基于当前最大 vX.Y.Z 的补丁号），默认联网冒烟，默认查询 8.8.8.8
-# 自动探测同级目录的 lzispro，或用 --lzispro-path 指定
-
-# 指定标签与查询目标
-./tools/release/full_release.ps1 -Tag v3.1.9 -Queries '8.8.8.8 1.1.1.1'
-
-# 关闭冒烟测试
-./tools/release/full_release.ps1 -NoSmoke
-./tools/release/full_release.ps1 -LzisproPath 'D:\LZProjects\lzispro'
+./tools/release/one_click_release.ps1 -Version 3.4.0 -RbHost 10.0.0.199 -RbUser larson -RbKey /c/Users/you/.ssh/id_rsa -RbSmoke 1 -RbQueries '8.8.8.8 1.1.1.1' -RbGolden 1 -RbOptProfile lto-auto -RbPreflight 1
 ```
 
-等效的 Git Bash（可用于 CI 宿主或 WSL）：
-
-```bash
-./tools/release/full_release.sh --tag v3.1.9 --queries '8.8.8.8 1.1.1.1'
-```
+`full_release.ps1/sh` 作为兼容入口保留；正式发布以 One-Click 的 build/verify → statics commit → tag → Release 顺序为准。
   4. `Test: Step47 PreRelease Check (reserved, list file)`（默认串联 status-ticket mini 专项回归）
      - mini 专项回归覆盖：`healthy status ticket`、`stale latest_b_exit`、`low-disturb 两行回复`、`不得创建非 tmp 脚本`。
 
@@ -42,8 +30,8 @@
    或在 VS Code 中使用新增的严格模式 Task（Remote: Build (Strict Version)）。
 
 ## 目录与同步说明
-- 7 个静态二进制默认同步到：`<lzispro>/release/lzispro/whois/`。
-- GitHub Actions 的发布工作流会在打标签后自动从 lzispro 的 master 分支读取该目录（或 `<lzispro>/release/lzispro/whois/whois`，两者兼容）收集附件并生成合并校验 `SHA256SUMS.txt`。
+- 18 个 compact/TLS 静态二进制默认同步到 whois 仓库 `release/lzispro/whois/`。
+- GitHub Actions 在标签提交中直接读取该目录，另构建 `whois-x86_64-gnu-tls`，最终上传 20 个 Release 资产（19 个二进制 + `SHA256SUMS.txt`）。
 
 ## 执行细节（full_release.sh）
 1. 调用 `tools/remote/remote_build_and_test.sh`：
@@ -56,7 +44,7 @@
 ## 常见问题
 - 标签不存在/已存在：未提供标签时自动递增，若目标标签已存在脚本会终止避免重复。
 - 未找到 lzispro：脚本默认探测 whois 同级目录下的 `lzispro`。也可用 `--lzispro-path` 明确指定。
-- 附件缺失：确认步骤 2 已提交并推送到 GitHub，且工作流日志里能看到已从 lzispro 正确复制 7 个静态二进制。
+- 附件缺失：确认 18 个静态制品及 `SHA256SUMS-static.txt` 已提交到 whois 仓库，且工作流最终上传 19 个二进制和 `SHA256SUMS.txt`。
 
 ---
 
@@ -78,7 +66,7 @@
    - 在任务表单里随手填了 `rbSmokeArgs` 等占位值（即便正确）也可能改变冒烟行为，建议为空即留空。
    - 频繁删除/重推同名标签可能让 Release 进入草稿或无资产状态。
 - 发布后验证：
-   - Actions 运行：release 工作流成功，7 个二进制 + `SHA256SUMS.txt` 已出现在 Release 附件中。
+   - Actions 运行：release 工作流成功，19 个二进制 + `SHA256SUMS.txt`（共 20 个资产）已出现在 Release 附件中。
    - 产物版本：本地同步目录的二进制 `-v` 输出应为干净 `vX.Y.Z`。
    - 正文：GitHub/Gitee 发布正文名称与内容匹配当前版本。
 - 修复策略：
@@ -266,4 +254,4 @@
 - 回退条件：当出口策略恢复后，应回到默认参数再跑一轮门禁，确认无环境特化依赖。
 
 
-English short note: See script headers; the PowerShell wrapper simply forwards arguments to the bash script. The release job will attach both CI-built glibc x86_64 binary and seven statically linked multi-arch binaries from the lzispro repository.
+English short note: the release job reads 18 compact/TLS static binaries from this repository and adds the CI-built glibc TLS binary plus `SHA256SUMS.txt`, for 20 Release assets.

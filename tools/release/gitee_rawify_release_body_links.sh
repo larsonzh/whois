@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # gitee_rawify_release_body_links.sh
-# 将 release body 中 9 个静态二进制链接统一转换为 Gitee raw 链接：
+# 将 release body 中 18 个 compact/TLS 静态二进制链接统一转换为 Gitee raw 链接：
 #   https://gitee.com/<owner>/<repo>/raw/<tag>/release/lzispro/whois/<asset>
 # 支持输入为：
 #   - GitHub Release 直链：https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
@@ -24,14 +24,23 @@ dry_run=0
 
 assets=(
   whois-x86_64
+  whois-x86_64-tls
   whois-x86
+  whois-x86-tls
   whois-aarch64
+  whois-aarch64-tls
   whois-armv7
+  whois-armv7-tls
   whois-mipsel
+  whois-mipsel-tls
   whois-mips64el
+  whois-mips64el-tls
   whois-loongarch64
+  whois-loongarch64-tls
   whois-win64.exe
+  whois-win64-tls.exe
   whois-win32.exe
+  whois-win32-tls.exe
 )
 
 die() { echo "[gitee-rawify] $*" >&2; exit 1; }

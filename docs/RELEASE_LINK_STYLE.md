@@ -11,7 +11,7 @@
 > 核心理念：刚发布 → 先绝对化保障可下载；Gitee/镜像同步完成后 → 可再相对化以改善国内网络体验。
 
 ## 资产列表 / Assets
-静态多架构（7 个）：`whois-x86_64`, `whois-x86`, `whois-aarch64`, `whois-armv7`, `whois-mipsel`, `whois-mips64el`, `whois-loongarch64`
+静态多架构（18 个）：九架构各有 compact `whois-<arch>` 与完整 `whois-<arch>-tls`，其中 Windows 文件带 `.exe`。
 附加资产（可选）：`whois-x86_64-gnu-tls`（当前 CI glibc TLS 构建；历史版本为 `whois-x86_64-gnu`）, `SHA256SUMS.txt`（校验文件）
 
 ## 风格对比 / Style Comparison
@@ -52,7 +52,7 @@ bash tools/release/absolutize_release_body_links.sh -n docs/release_bodies/v3.2.
 
 用法示例：
 ```powershell
-# 仅 7 个静态二进制
+# 18 个 compact/TLS 静态二进制
 bash tools/release/relativize_static_binary_links.sh docs/release_bodies/v3.2.6.md
 
 # 同时包含 glibc 与校验文件
@@ -82,7 +82,7 @@ Q: 是否会破坏其他 Markdown 链接？
 A: 两个脚本的 sed 规则仅匹配资产名单或含有 `/releases/download/.../<asset>` 结构，不会影响其他内容。
 
 ## 扩展 / Extensibility
-- 增加更多架构时：只需在两个脚本的 `assets` 数组中补入新文件名。
+- 增加更多架构时：需同步更新四个链接转换脚本的 `assets` 数组与发布资产门禁。
 - 想让 relativize 也处理 glibc / checksums：仿照 absolutize 添加对应 sed 替换即可。
 
 ## 快速参考 / Quick Reference

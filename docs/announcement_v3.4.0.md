@@ -51,11 +51,11 @@ On Windows, use `whois-win64.exe` with `whois-win64-tls.exe`, or `whois-win32.ex
 - 2026-09-04 聚焦构建已覆盖 x86_64、win32、win64 的 compact/TLS 六制品、SHA-256 一致性与 Windows full-static。
 - v3.4.0 compact/TLS win64 均报告正确版本；两行 HTTPS 批量管道在两者上均完整处理 2 条查询。
 - 删除 companion 后，紧凑版在消费 stdin 前以 37 退出，未产生查询输出。
-- 最终 Strict `lto-auto` 全矩阵轮 `out/artifacts/20260904-073811` 零编译/LTO 告警，18/18 哈希、Golden、三起点 referral 与双目录同步全 PASS；24/24 冒烟查询头尾配对且异常 0。LoongArch64 已切换到 musl，所有 Linux compact/TLS 均为 static/static-pie，Windows 四制品均为 full-static。
+- 最终强制 clean `v3.4.0` 的 Strict `lto-auto` 全矩阵轮 `out/artifacts/20260904-083712` 零编译/LTO 告警，18/18 哈希、Golden、三起点 referral 与同步全 PASS；24/24 冒烟查询头尾配对且异常 0。LoongArch64 已切换到 musl，所有 Linux compact/TLS 均为 static/static-pie，Windows 四制品均为 full-static。
 - Focused builds on 2026-09-04 cover all six compact/TLS artifacts for x86_64, win32, and win64, SHA-256 consistency, and Windows full-static mode.
 - Both v3.4.0 compact and TLS win64 binaries report the correct version and fully process a two-line HTTPS batch pipeline.
 - Removing the companion makes the compact binary exit 37 before consuming stdin, with no query output.
-- The final Strict `lto-auto` full-matrix run at `out/artifacts/20260904-073811` has zero compiler/LTO warnings and passes all 18 hashes, Golden, all three referral origins, and both release-directory syncs; all 24 smoke query headers pair with authoritative tails with zero anomalies. LoongArch64 now uses musl, every Linux compact/TLS artifact is static/static PIE, and all four Windows artifacts are full-static.
+- The final clean `v3.4.0` Strict `lto-auto` full-matrix run at `out/artifacts/20260904-083712` has zero compiler/LTO warnings and passes all 18 hashes, Golden, all three referral origins, and artifact sync; all 24 smoke query headers pair with authoritative tails with zero anomalies. LoongArch64 now uses musl, every Linux compact/TLS artifact is static/static PIE, and all four Windows artifacts are full-static.
 
 ## 兼容性 / Compatibility
 

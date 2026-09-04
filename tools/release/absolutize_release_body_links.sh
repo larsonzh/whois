@@ -16,8 +16,7 @@ set -euo pipefail
 #   --also-checksums   可选：同时将 SHA256SUMS.txt 也绝对化
 #   file...            一个或多个 .md 文件路径
 #
-# 仅匹配 9 个静态全静态二进制：
-#   whois-x86_64 whois-x86 whois-aarch64 whois-armv7 whois-mipsel whois-mips64el whois-loongarch64 whois-win64.exe whois-win32.exe
+# 匹配 18 个 compact/TLS 全静态二进制。
 
 owner=larsonzh
 repo=whois
@@ -69,17 +68,26 @@ fi
 
 base="https://github.com/${owner}/${repo}/releases/download/${tag}"
 
-# 要处理的资产名（9 个静态二进制）
+# 要处理的资产名（18 个 compact/TLS 静态二进制）
 assets=(
   whois-x86_64
+  whois-x86_64-tls
   whois-x86
+  whois-x86-tls
   whois-aarch64
+  whois-aarch64-tls
   whois-armv7
+  whois-armv7-tls
   whois-mipsel
+  whois-mipsel-tls
   whois-mips64el
+  whois-mips64el-tls
   whois-loongarch64
+  whois-loongarch64-tls
   whois-win64.exe
+  whois-win64-tls.exe
   whois-win32.exe
+  whois-win32-tls.exe
 )
 
 gnu_assets=(whois-x86_64-gnu whois-x86_64-gnu-tls)
@@ -91,7 +99,7 @@ for f in "$@"; do
   tmp="${f}.tmp.$$"
   cp "$f" "$tmp"
 
-  # 9 个静态二进制：release/lzispro/whois/<asset> -> ${base}/<asset>
+  # 18 个静态二进制：release/lzispro/whois/<asset> -> ${base}/<asset>
   # 修正：原模式使用 \s（GNU sed BRE 不支持），导致无法匹配；改用 -E 扩展正则并移除多余空白匹配。
   for a in "${assets[@]}"; do
     if [[ $dry_run -eq 1 ]]; then

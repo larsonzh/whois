@@ -4,13 +4,13 @@ set -euo pipefail
 # convert_release_body_to_gitee.sh
 # 将 release body（如 docs/release_bodies/v3.3.0.md）中 “下载 / Downloads” 段落
 # 一键转换为 Gitee 站内可用的 raw 链接版本：
-#   - 静态多架构 9 个二进制：GitHub Release 直链 / 仓库相对路径 -> Gitee raw
+#   - 18 个 compact/TLS 静态二进制：GitHub Release 直链 / 仓库相对路径 -> Gitee raw
 #     https://gitee.com/<owner>/<repo>/raw/<tag>/release/lzispro/whois/<asset>
-#   - 标题 “静态多架构 / Static multi-arch (GitHub Release vX.Y.Z):”
-#     去掉 “ (GitHub Release vX.Y.Z)”
-#   - 标题 “CI glibc 构建 / CI glibc build:”
+#   - compact/TLS 静态资产标题（兼容历史 “静态多架构” 标题）去掉
+#     “ (GitHub Release vX.Y.Z)”
+#   - 标题 “CI glibc TLS 构建 / CI glibc TLS build:”
 #     追加 “ (GitHub Release vX.Y.Z)”，变为 “CI glibc 构建 / CI glibc build (GitHub Release vX.Y.Z):”
-#   - whois-x86_64-gnu 保持原 GitHub Release 直链不变
+#   - whois-x86_64-gnu-tls（及历史 whois-x86_64-gnu）保持原 GitHub Release 直链不变
 #   - SHA256SUMS.txt -> SHA256SUMS-static.txt（指向 Gitee raw release/lzispro/whois）
 #
 # 仅处理 “下载 / Downloads” 段落内的上述模式，不触碰文档其他部分；
@@ -73,6 +73,7 @@ esac
 [[ -n "$tag" ]] || die "必须指定 -t/--tag，或在仅处理单文件时可由文件名/正文自动推断（例如 v3.3.0）"
 
 base="https://gitee.com/${owner}/${repo}/raw/${tag}/release/lzispro/whois"
+static_assets="whois-aarch64 whois-aarch64-tls whois-armv7 whois-armv7-tls whois-loongarch64 whois-loongarch64-tls whois-mips64el whois-mips64el-tls whois-mipsel whois-mipsel-tls whois-x86 whois-x86-tls whois-x86_64 whois-x86_64-tls whois-win64.exe whois-win64-tls.exe whois-win32.exe whois-win32-tls.exe"
 
 # AWK 程序块内的 $0/$1/ENVIRON 等为 awk 字段/环境变量，需保持字面量，
 # 不得由 bash 展开；单引号是有意为之。
@@ -80,19 +81,30 @@ base="https://gitee.com/${owner}/${repo}/raw/${tag}/release/lzispro/whois"
 AWK_PROG='
 BEGIN {
   base = ENVIRON["WC_BASE"]
+  static_asset_count = split(ENVIRON["WC_STATIC_ASSETS"], static_asset_names, " ")
+  for (i = 1; i <= static_asset_count; i++) {
+    static_assets[static_asset_names[i]] = 1
+  }
   in_dl = 0
+}
+function is_static_asset_link(value, asset, suffix) {
+  for (asset in static_assets) {
+    suffix = "/" asset ")"
+    if (length(value) >= length(suffix) && substr(value, length(value) - length(suffix) + 1) == suffix) return 1
+  }
+  return 0
 }
 /^## [^#]/ { in_dl = ($0 ~ /^## 下载/) ? 1 : 0 }
 {
   line = $0
   if (in_dl) {
-    # 标题：静态多架构去掉 “ (GitHub Release vX.Y.Z)”，保留末尾冒号
-    if (line ~ /^[-*] 静态多架构 \/ Static multi-arch \(GitHub Release v[0-9.]+\):$/) {
+    # 静态资产标题去掉 “ (GitHub Release vX.Y.Z)”，保留末尾冒号。
+    if (line ~ /^[-*] (静态多架构 \/ Static multi-arch|紧凑静态版 \/ Compact static binaries|完整 TLS 静态版 \/ Full TLS static binaries) \(GitHub Release v[0-9.]+\):$/) {
       sub(/ \(GitHub Release v[0-9.]+\)/, "", line)
       print line; next
     }
-    # 标题：CI glibc 追加 “ (GitHub Release vX.Y.Z)”
-    if (line ~ /^[-*] CI glibc 构建 \/ CI glibc build:$/) {
+    # CI glibc 标题追加 “ (GitHub Release vX.Y.Z)”。
+    if (line ~ /^[-*] CI glibc( TLS)? 构建 \/ CI glibc( TLS)? build:$/) {
       sub(/:$/, "", line)
       print line " (GitHub Release " ENVIRON["WC_TAG"] "):"; next
     }
@@ -105,12 +117,12 @@ BEGIN {
       sub(/\]\(release\/lzispro\/whois\//, "](" base "/", line)
       print line; next
     }
-    # 静态二进制：GitHub Release 直链或仓库相对路径 -> Gitee raw
-    if (line ~ /\]\(https?:\/\/[^)]*\/releases\/download\//) {
+    # 白名单内静态二进制：GitHub Release 直链或仓库相对路径 -> Gitee raw
+    if (is_static_asset_link(line) && line ~ /\]\(https?:\/\/[^)]*\/releases\/download\//) {
       sub(/https?:\/\/[^)]*\/releases\/download\/[^\/]*\//, base "/", line)
       print line; next
     }
-    if (line ~ /\]\(release\/lzispro\/whois\//) {
+    if (is_static_asset_link(line) && line ~ /\]\(release\/lzispro\/whois\//) {
       sub(/\]\(release\/lzispro\/whois\//, "](" base "/", line)
       print line; next
     }
@@ -123,7 +135,7 @@ for f in "$@"; do
   [[ -f "$f" ]] || die "文件不存在: $f"
 
   tmp="$(mktemp)"
-  WC_BASE="$base" WC_TAG="$tag" awk "$AWK_PROG" "$f" > "$tmp"
+  WC_BASE="$base" WC_TAG="$tag" WC_STATIC_ASSETS="$static_assets" awk "$AWK_PROG" "$f" > "$tmp"
 
   if [[ $dry_run -eq 1 ]]; then
     if cmp -s "$f" "$tmp"; then

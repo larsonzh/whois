@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # One-click release pipeline for whois
-# 1) Remote cross-compile + (optional) smoke test + sync 7 static binaries to lzispro
-# 2) Commit & push updated static binaries in lzispro
+# 1) Remote cross-compile + (optional) smoke test + sync 18 compact/TLS static binaries
+# 2) Copy the verified static matrix into this repository
 # 3) Commit & push updated RELEASE_NOTES.md in whois (optional if changed)
-# 4) Create and push annotated tag to trigger GitHub Release (auto-attaches CI x86_64 + 7 static)
+# 4) Create and push annotated tag to trigger GitHub Release (CI TLS binary + 18 static)
 #
 # Usage:
 #   tools/release/full_release.sh [--tag vX.Y.Z] [--queries "8.8.8.8 1.1.1.1"] [--no-smoke]
@@ -82,7 +82,7 @@ if git rev-parse -q --verify "$TAG" >/dev/null 2>&1; then
   die "Tag already exists: $TAG"
 fi
 
-# Step 1: remote build + smoke + sync (best effort)
+# Step 1: remote build + smoke + sync (fail closed)
 if (( RUN_SMOKE==0 )) && [[ -n "$QUERIES" ]]; then
   log "RUN_SMOKE=0: smoke tests disabled; --queries '$QUERIES' will be ignored."
 fi
@@ -115,11 +115,11 @@ if (( DRY_RUN==0 )); then
   # sync files from lzispro sync target to whois local artifacts (preserve names)
   # Use rsync if available, fallback to cp -a
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete "$SYNC_TO/" "$LOCAL_WHOIS_ARTIFACTS/" || true
+    rsync -a --delete "$SYNC_TO/" "$LOCAL_WHOIS_ARTIFACTS/"
   else
     # copy files individually
-    rm -f "$LOCAL_WHOIS_ARTIFACTS"/* || true
-    cp -a "$SYNC_TO"/* "$LOCAL_WHOIS_ARTIFACTS/" 2>/dev/null || true
+    rm -f "$LOCAL_WHOIS_ARTIFACTS"/*
+    cp -a "$SYNC_TO"/* "$LOCAL_WHOIS_ARTIFACTS/"
   fi
 fi
 
@@ -128,7 +128,7 @@ fi
 # if (( DRY_RUN==0 )); then
 #   git -C "$LZISPRO_PATH" add release/lzispro/whois/whois-*
 #   if ! git -C "$LZISPRO_PATH" diff --cached --quiet; then
-#     git -C "$LZISPRO_PATH" commit -m "chore(whois): update 7 static binaries"
+#     git -C "$LZISPRO_PATH" commit -m "chore(whois): update 18 static binaries"
 #     git -C "$LZISPRO_PATH" push origin master
 #   else
 #     log "No static binary changes to commit in lzispro."
@@ -138,8 +138,8 @@ fi
 # Commit latest artifacts into whois repo so CI can use them (only if changed)
 log "STEP2.1: commit latest artifacts into whois repo if changed"
 if (( DRY_RUN==0 )); then
-  # Ensure we add only the expected static binaries (7) to avoid noise
-  git add -A "$LOCAL_WHOIS_ARTIFACTS" || true
+  # Stage only release artifacts; avoid pulling unrelated repository changes into the release commit.
+  git add -- "$LOCAL_WHOIS_ARTIFACTS"/whois-* "$LOCAL_WHOIS_ARTIFACTS"/SHA256SUMS-static.txt
   if ! git diff --cached --quiet; then
     git commit -m "chore(release): update latest static binaries"
     git push origin master
@@ -151,7 +151,7 @@ fi
 # Step 3: commit updated RELEASE_NOTES.md in whois if changed
 log "STEP3: commit whois RELEASE_NOTES.md if changed"
 if (( DRY_RUN==0 )); then
-  git add RELEASE_NOTES.md || true
+  git add -- RELEASE_NOTES.md
   if ! git diff --cached --quiet; then
     git commit -m "docs(release): refresh notes"
     git push origin master

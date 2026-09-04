@@ -8,7 +8,7 @@ v3.4.0 dual-artifact operating boundary: each architecture ships a compact `whoi
 
 WP-13D HTTPS-proxy TLS final acceptance (2026-09-02 through 2026-09-03): Vx A and B each pass 8/8 (A run=`out/artifacts/dev_verify_multiround/20260902-090840`, B run=`out/artifacts/dev_verify_multiround/20260902-160535`, combined `0d 14:37:31`) with no script incident, code self-heal, or stage restart. OpenSSL 3.5.8 `WHOIS_TLS=1` TLS/LTO passes all nine architectures, 9/9 hashes, Windows full-static mode, and dependency audit (`out/artifacts/20260901-170601`); official remote static builds and release entry points now default to or explicitly enable TLS, while normal local `make` and explicit `WHOIS_TLS=0` retain an OpenSSL-free compatibility path. Final review passes two default/debug Strict rounds, Batch 4/4, Selftest 5/5, 12x6 redirect 72/72, and CIDR body 4/4 plus draft 9/9 (`out/artifacts/20260903-003613` through `out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`). A final product-delivery run again defaults to `WHOIS_TLS='1'` and passes the Strict nine-architecture build, network smoke, 9/9 hashes, Golden/referral, and both release-directory syncs with no warnings (`out/artifacts/20260903-040906`, 410s). The post-copy-review synchronization (`out/artifacts/20260903-045122`, 360s) reconfirms 18/3/3 smoke queries, all 24 query-header/authoritative-tail pairs, zero hard warnings, Golden PASS, three error-free referral origins converging on AFRINIC, independent 9/9 artifact hashes, byte-identical release manifests, and full-static Windows targets. The synchronized win64 reports the TLS backend as enabled, and its user-visible metadata has neither obsolete preflight-only wording nor internal build-switch terminology. GNU tar notices for ignored GnuPG Unix sockets and denial text in negative selftests are not warnings; no code fix is required.
 
-v3.4.0 final dual-artifact review (2026-09-04): the first 18-artifact run exposed an unused `argv` warning in the TLS branch and showed that the former LoongArch64 glibc build retained a dynamic interpreter plus static DNS/NSS runtime-compatibility warnings. The parameter warning is fixed explicitly; LoongArch64 now uses `loongarch64-linux-musl`, OpenSSL 3.5.8 was rebuilt for that triplet, and the remote builder now fails closed unless every Linux artifact is static or static PIE. The final Strict `lto-auto` run at `out/artifacts/20260904-073811` has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, all three referral origins, and both release-directory syncs. POSIX/win32/win64 smoke counts are `18/3/3`, all 24 query headers pair with authoritative tails, and the anomaly count is zero. Both variants for all seven Linux architectures are statically linked; all four Windows artifacts remain full-static.
+v3.4.0 final dual-artifact review (2026-09-04): the first 18-artifact run exposed an unused `argv` warning in the TLS branch and showed that the former LoongArch64 glibc build retained a dynamic interpreter plus static DNS/NSS runtime-compatibility warnings. The parameter warning is fixed explicitly; LoongArch64 now uses `loongarch64-linux-musl`, OpenSSL 3.5.8 was rebuilt for that triplet, and the remote builder now fails closed unless every Linux artifact is static or static PIE. The final clean `v3.4.0` Strict `lto-auto` run at `out/artifacts/20260904-083712` has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, all three referral origins, and artifact sync. POSIX/win32/win64 smoke counts are `18/3/3`, all 24 query headers pair with authoritative tails, and the anomaly count is zero. Both variants for all seven Linux architectures are statically linked; all four Windows artifacts remain full-static.
 
 v3.3.3 Windows/cross-platform portability final review (2026-08-29): conditional handling is complete for case-insensitive string comparisons, `ssize_t`, platform headers, sleeps, monotonic clocks, and Winsock types; the final fixes add the POSIX feature-test macro required by `nanosleep` and explicitly zero-initialize the retry-metrics `timespec` origin. All nine architectures in the final Strict `lto-auto` run actually use `-flto=auto`, with no compiler/LTO warnings; Local hash, Golden, the IANA/ARIN/AFRINIC referral origins, and both repository/external release-directory syncs pass (`out/artifacts/20260829-094858`, 273s). Product networking, DNS/retry behavior, and stdout/stderr contracts are unchanged, so no additional code fix is required.
 
@@ -286,7 +286,7 @@ Common usage:
   ```
 
 Artifacts and logs:
-- Seven static binaries will be synced to: `<lzispro>/release/lzispro/whois/`
+- Eighteen compact/TLS static binaries will be synced to the release directory.
 - Detailed log: `whois/out/release_flow/<timestamp>/step1_remote.log`
 - Strict mode: warnings are treated as failures by default (STRICT_WARN=1)
 
@@ -295,7 +295,7 @@ Artifacts and logs:
 ## VS Code Tasks
 
 - Git: Quick Push
-- Remote: Build and Sync whois statics (one-click remote build and sync seven static binaries)
+- Remote: Build and Sync whois statics (one-click remote build and sync of 18 compact/TLS static binaries)
 - One-Click Release (invokes `tools/release/one_click_release.ps1` to update GitHub/Gitee Release; optionally skip creating/pushing a tag; can optionally run remote build + smoke + sync and commit/push static binaries)
 - Test: Redirect Matrix (IPv4) (standalone redirect matrix test, not tied to build/smoke/golden)
 - Test: Redirect Matrix (IPv4, Params) (custom binary path/output dir/flags)
@@ -1320,13 +1320,13 @@ git push origin :refs/tags/vX.Y.Z
 ```
 3) Prepare the latest static artifacts (choose one):
 - Run the VS Code task “Remote: Build and Sync whois statics”; or
-- Run One-Click Release with buildSync=true to rebuild, sync, and commit/push the seven statics into `release/lzispro/whois/`.
+- Run One-Click Release with buildSync=true to rebuild, sync, and commit/push the 18 statics into `release/lzispro/whois/`.
 4) Re-create and push the same tag:
 ```powershell
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
-5) Wait for the release workflow to re-run and collect the seven static binaries and `SHA256SUMS.txt` from this repo `release/lzispro/whois/`.
+5) Wait for the release workflow to upload the 18 static binaries, the CI glibc TLS binary, and `SHA256SUMS.txt` (20 assets total).
 6) To only update the release body without changing the tag:
 ```powershell
 ./tools/release/one_click_release.ps1 -Version X.Y.Z -SkipTagIf true

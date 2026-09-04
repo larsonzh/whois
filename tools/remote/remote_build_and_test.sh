@@ -802,18 +802,17 @@ if [[ -s "$LOCAL_REPORT" ]]; then
     done < "$LOCAL_REPORT"
     if [[ "$mismatch" == "0" && "$missing" == "0" ]]; then
       echo "[remote_build] Local hash verify: PASS"
-    elif [[ "$mismatch" == "0" ]]; then
-      echo "[remote_build][WARN] Local hash verify: PASS (some entries missing)"
     else
       echo "[remote_build][ERROR] Local hash verify: FAIL"
-      # Do not exit 1 automatically; allow caller to decide. Uncomment to enforce.
-      # exit 1
+      exit 1
     fi
   else
-    echo "[remote_build][WARN] SHA256SUMS-static.txt absent; skip hash consistency verification"
+    echo "[remote_build][ERROR] SHA256SUMS-static.txt absent; cannot verify fetched artifacts"
+    exit 1
   fi
 else
-  echo "[remote_build][WARN] local build_report.txt missing or empty: $LOCAL_REPORT"
+  echo "[remote_build][ERROR] local build_report.txt missing or empty: $LOCAL_REPORT"
+  exit 1
 fi
 
 SMOKE_LOG="$LOCAL_ARTIFACTS_DIR/build_out/smoke_test.log"

@@ -5,12 +5,18 @@ Detailed release flow: `docs/RELEASE_FLOW_EN.md` | Chinese: `docs/RELEASE_FLOW_C
 
 ## Unreleased / 未发布
 
+（暂无 / Nothing new yet）
+
+## 3.4.0 (2026-09-04) <a id="340"></a>
+
 - v3.4.0 双制品交付：九架构默认 `whois-*` 恢复为不含 OpenSSL/CA 的紧凑版，并新增可独立运行的 `whois-*-tls` 完整版。紧凑版遇到实际配置的 HTTPS 代理时透明执行同目录、同版本 companion；缺失、版本不匹配或 companion 不含 TLS 时在网络访问前 fail-close。直连、HTTP CONNECT、SOCKS4/4a/5/5h、stdin/stdout/stderr 与退出码契约不变。
 - v3.4.0 dual-artifact delivery: each default `whois-*` artifact is again a compact OpenSSL/CA-free binary, with an independently executable full `whois-*-tls` companion. For a configured HTTPS proxy, the compact binary transparently executes the same-directory, same-version companion; missing, mismatched, or non-TLS companions fail closed before network access. Direct, HTTP CONNECT, SOCKS4/4a/5/5h, stdin/stdout/stderr, and exit-code contracts remain unchanged.
 - CI glibc 兼容制品改为仅提供 TLS 完整版 `whois-x86_64-gnu-tls`，动态依赖 glibc、`libssl.so.3` 与 `libcrypto.so.3`；它是 18 个全静态 compact/TLS 制品之外的附加资产。
 - The CI glibc compatibility artifact is now the TLS-only `whois-x86_64-gnu-tls`, dynamically linked to glibc, `libssl.so.3`, and `libcrypto.so.3`. It is an additional asset outside the 18 fully static compact/TLS binaries.
-- 最终制品复核（2026-09-04）：修复 TLS 分支未使用参数告警，并将 LoongArch64 从带动态解释器及静态 DNS/NSS 兼容告警的 glibc 构建切换为 `loongarch64-linux-musl`；OpenSSL 3.5.8 同步按 musl triplet 重建，远程构建新增 Linux static/static-pie fail-close 门禁。最终 Strict `lto-auto` 九架构双制品轮无编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与双目录同步全 PASS（`out/artifacts/20260904-073811`）；24/24 冒烟查询头尾配对且异常 0，全部 Linux 与 Windows 发布制品均满足静态交付契约。
-- Final artifact review (2026-09-04): fixes the unused-parameter warning in the TLS branch and moves LoongArch64 from a glibc build with a dynamic interpreter and static DNS/NSS compatibility warnings to `loongarch64-linux-musl`. OpenSSL 3.5.8 is rebuilt for the musl triplet, and the remote builder now fails closed unless every Linux artifact is static or static PIE. The final Strict `lto-auto` nine-architecture dual-artifact run has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, all three referral origins, and both release-directory syncs (`out/artifacts/20260904-073811`); all 24 smoke query headers pair with authoritative tails with zero anomalies, and every Linux and Windows release artifact satisfies the static-delivery contract.
+- 最终制品复核（2026-09-04）：修复 TLS 分支未使用参数告警，并将 LoongArch64 从带动态解释器及静态 DNS/NSS 兼容告警的 glibc 构建切换为 `loongarch64-linux-musl`；OpenSSL 3.5.8 同步按 musl triplet 重建，远程构建新增 Linux static/static-pie fail-close 门禁。最终强制 clean `v3.4.0` 的 Strict `lto-auto` 九架构双制品轮无编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与同步全 PASS（`out/artifacts/20260904-083712`）；24/24 冒烟查询头尾配对且异常 0，全部 Linux 与 Windows 发布制品均满足静态交付契约。
+- Final artifact review (2026-09-04): fixes the unused-parameter warning in the TLS branch and moves LoongArch64 from a glibc build with a dynamic interpreter and static DNS/NSS compatibility warnings to `loongarch64-linux-musl`. OpenSSL 3.5.8 is rebuilt for the musl triplet, and the remote builder now fails closed unless every Linux artifact is static or static PIE. The final clean `v3.4.0` Strict `lto-auto` nine-architecture dual-artifact run has no compiler/LTO warnings and passes all 18 SHA-256 checks, Golden, all three referral origins, and artifact sync (`out/artifacts/20260904-083712`); all 24 smoke query headers pair with authoritative tails with zero anomalies, and every Linux and Windows release artifact satisfies the static-delivery contract.
+- IANA Registry 发布前快照于 2026-09-04 刷新并通过 4/4 schema/行数/哈希校验；与 2026-08-27 快照相比仅抓取时间变化，四份 source/stored SHA-256 均未变化，无需重生成静态表。
+- The IANA Registry prerelease snapshot was refreshed on 2026-09-04 and passes all four schema, row-count, and hash checks. Compared with the 2026-08-27 snapshot, only retrieval timestamps changed; all four source/stored SHA-256 pairs are unchanged, so no static-table regeneration is required.
 
 ## 3.3.3 (2026-09-03)
 

@@ -8,7 +8,7 @@ v3.4.0 双制品运维边界：官方每个架构同时交付紧凑版 `whois-<a
 
 WP-13D HTTPS proxy TLS 最终验收（2026-09-02 至 2026-09-03）：Vx A/B 各 8/8 PASS（A run=`out/artifacts/dev_verify_multiround/20260902-090840`，B run=`out/artifacts/dev_verify_multiround/20260902-160535`，合计 `0d 14:37:31`），无脚本故障、代码自愈或阶段重启。`WHOIS_TLS=1` 的 OpenSSL 3.5.8 九架构 TLS/LTO、9/9 hash、Windows full-static 与依赖审计已通过（`out/artifacts/20260901-170601`）；官方远程静态构建与 release 入口现默认/显式启用 TLS，本地普通 `make` 与显式 `WHOIS_TLS=0` 仍可生成无 OpenSSL 的兼容制品。收尾复核的 Strict 默认/调试两轮、Batch 4/4、Selftest 5/5、12×6 redirect 72/72、CIDR body 4/4 + draft 9/9 全 PASS（`out/artifacts/20260903-003613` 至 `out/artifacts/cidr_bundle/cidr_bundle_summary_20260903-015526.txt`）。产品交付轮再次以默认 `WHOIS_TLS='1'` 完成 Strict 九架构、网络冒烟、9/9 hash、Golden/referral、双目录同步且日志零告警（`out/artifacts/20260903-040906`，410s）。用户文案收口后的最终同步轮（`out/artifacts/20260903-045122`，360s）再次确认：冒烟 18/3/3、24/24 查询头尾配对、硬告警 0，Golden PASS，三起点 referral 零错误并收敛至 AFRINIC，九制品独立哈希 9/9 且双 release 清单逐字一致，Windows 均为 full-static；同步 win64 显示 TLS backend enabled，用户可见元信息无旧的 preflight-only 或内部构建开关文案。tar 跳过 GnuPG Unix socket 的 `ignored` 信息以及负向自测中的拒绝文本均非告警；本轮无需代码修复。
 
-v3.4.0 双制品最终制品复核（2026-09-04）：首次 18 制品轮暴露 TLS 分支未使用 `argv` 告警，并发现旧 LoongArch64 glibc 构建仍带动态解释器和静态 DNS/NSS 运行时兼容告警。前者以显式未使用参数处理修复；后者切换到 `loongarch64-linux-musl`，重建该 triplet 的 OpenSSL 3.5.8，并在远程构建中新增 Linux static/static-pie fail-close 门禁。最终 Strict `lto-auto` 轮 `out/artifacts/20260904-073811` 无编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与双目录同步全 PASS；POSIX/win32/win64 smoke=`18/3/3`，24/24 查询头尾配对且异常 0。七个 Linux 架构的 compact/TLS 均为静态链接，Windows 四制品均为 full-static。
+v3.4.0 双制品最终制品复核（2026-09-04）：首次 18 制品轮暴露 TLS 分支未使用 `argv` 告警，并发现旧 LoongArch64 glibc 构建仍带动态解释器和静态 DNS/NSS 运行时兼容告警。前者以显式未使用参数处理修复；后者切换到 `loongarch64-linux-musl`，重建该 triplet 的 OpenSSL 3.5.8，并在远程构建中新增 Linux static/static-pie fail-close 门禁。最终强制 clean `v3.4.0` 的 Strict `lto-auto` 轮 `out/artifacts/20260904-083712` 无编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与同步全 PASS；POSIX/win32/win64 smoke=`18/3/3`，24/24 查询头尾配对且异常 0。七个 Linux 架构的 compact/TLS 均为静态链接，Windows 四制品均为 full-static。
 
 v3.3.3 Windows/跨平台可移植性最终复核（2026-08-29）：完成大小写字符串比较、`ssize_t`、平台头、sleep、单调时钟与 Winsock 类型的条件编译收口，并补齐 `nanosleep` 的 POSIX feature-test macro、显式零初始化 retry metrics 的 `timespec` 起点。最终 Strict `lto-auto` 九架构均实际使用 `-flto=auto`，无编译/LTO 告警；Local hash、Golden、IANA/ARIN/AFRINIC 三起点 referral 与仓库内/外双目录 release sync 全部 PASS（`out/artifacts/20260829-094858`，273s）。产品网络、DNS/重试及 stdout/stderr 契约未变，本轮无需追加代码修复。
 
@@ -268,7 +268,7 @@ VS Code 任务/脚本提示：`tools/remote/remote_build_and_test.sh` 默认构�
 - `-DryRun`：只打印步骤，不执行
 
 产物与日志：
-- 7 个静态二进制会同步到：`<lzispro>/release/lzispro/whois/`
+- 18 个 compact/TLS 静态二进制会同步到发布目录。
 - 详细日志：`whois/out/release_flow/<timestamp>/step1_remote.log`
 - 严格模式：默认将 Warnings 视为失败并提前退出（STRICT_WARN=1）
 
@@ -1416,7 +1416,7 @@ errno 快查（只需了解，不必强记）：
 
 已内置任务（Terminal → Run Task）：
 - Git: Quick Push
-- Remote: Build and Sync whois statics（远端一键构建并同步 7 个静态二进制）
+- Remote: Build and Sync whois statics（远端一键构建并同步 18 个 compact/TLS 静态二进制）
 - Test: Redirect Matrix (IPv4)（IPv4 重定向矩阵测试，独立于编译/冒烟/黄金）
 - Test: Redirect Matrix (IPv4, Params)（可自定义二进制路径/输出目录/偏好参数）
 
@@ -1428,7 +1428,7 @@ errno 快查（只需了解，不必强记）：
   - Run smoke tests?：1/0 是否在远端对产物做联网冒烟
   - Smoke queries：冒烟查询目标（空格分隔）
   - Local sync dir：本机同步目录（Git Bash 路径），默认 `/d/LZProjects/lzispro/release/lzispro/whois`
-- 任务会在远端交叉编译完成后，把 7 个静态二进制拉回并同步到本机目录；同步前用 `-P 1` 清理非 `whois-*` 文件，保持目录整洁。
+- 任务会在远端交叉编译完成后，把 18 个 compact/TLS 静态二进制拉回并同步到本机目录；同步前用 `-P 1` 清理非 `whois-*` 文件，保持目录整洁。
 
 重定向矩阵测试说明：
 - 脚本：`tools/test/redirect_matrix_test.ps1`
@@ -1469,13 +1469,13 @@ errno 快查（只需了解，不必强记）：
   ```
 3) 准备最新静态产物（任选其一）：
   - 运行 VS Code 任务“Remote: Build and Sync whois statics”
-  - 或执行一键发布任务/脚本并开启构建同步：`One-Click Release`（`buildSync=true`），将 whois 仓库 `release/lzispro/whois/` 目录内的 7 个静态产物更新、提交并推送
+  - 或执行一键发布任务/脚本并开启构建同步：`One-Click Release`（`buildSync=true`），将 whois 仓库 `release/lzispro/whois/` 目录内的 18 个静态产物更新、提交并推送
 4) 重建并推送同名标签：
   ```powershell
   git tag -a vX.Y.Z -m "Release vX.Y.Z"
   git push origin vX.Y.Z
   ```
-5) 等待发布工作流重新运行并收集 whois 仓库 `release/lzispro/whois/` 的 7 个静态二进制与 `SHA256SUMS.txt`。
+5) 等待发布工作流重新运行并上传 18 个静态二进制、CI glibc TLS 二进制与 `SHA256SUMS.txt`（共 20 个资产）。
 6) 仅需更新发布正文而不改标签时，可执行：
   ```powershell
   .\tools\release\one_click_release.ps1 -Version X.Y.Z -SkipTagIf true

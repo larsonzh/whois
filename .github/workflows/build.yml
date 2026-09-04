@@ -192,8 +192,8 @@ jobs:
           mkdir -p release_assets
           mv -v whois-x86_64-gnu-tls release_assets/
 
-      # Collect compact and optional-TLS static binaries from local repo only.
-      - name: Collect static multi-arch binaries (best-effort)
+      # Collect the complete compact/TLS static matrix from this repository.
+      - name: Collect static multi-arch binaries
         run: |
           set -euo pipefail
           SRC="release/lzispro/whois"
@@ -203,7 +203,7 @@ jobs:
           missing=0
           for f in "${files[@]}"; do
             if [ -f "$SRC/$f" ]; then
-              cp -v "$SRC/$f" release_assets/ || true
+              cp -v "$SRC/$f" release_assets/
             else
               echo "[error] Missing $SRC/$f"
               missing=1
@@ -213,20 +213,27 @@ jobs:
             echo "[error] One or more release artifacts are missing. Aborting."
             exit 1
           fi
-          echo "Collected binaries:"; ls -1 release_assets || true
+          asset_count="$(find release_assets -maxdepth 1 -type f | wc -l)"
+          if [ "$asset_count" -ne 19 ]; then
+            echo "[error] Expected 19 binaries (18 static + 1 CI glibc TLS), found $asset_count"
+            exit 1
+          fi
+          echo "Collected binaries:"; ls -1 release_assets
 
       - name: Build combined SHA256SUMS
         run: |
           set -euo pipefail
-          (cd release_assets && ls -1 | xargs -r sha256sum) > SHA256SUMS.txt || true
+          (cd release_assets && find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum) > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 19
 
       - name: Checksums fallback
         run: |
           if [ ! -s SHA256SUMS.txt ]; then
             echo "Rebuilding SHA256SUMS as fallback";
-            (cd release_assets && ls -1 | xargs -r sha256sum) > SHA256SUMS.txt || true
+            (cd release_assets && find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum) > SHA256SUMS.txt
           fi
-          echo "SHA256SUMS.txt head:"; sed -n '1,40p' SHA256SUMS.txt || true
+          test "$(wc -l < SHA256SUMS.txt)" -eq 19
+          echo "SHA256SUMS.txt:"; cat SHA256SUMS.txt
 
       - name: Choose release body file (prefer versioned body over RELEASE_NOTES)
         id: body
@@ -245,10 +252,10 @@ jobs:
           BODY="${{ steps.body.outputs.path }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; updating body if needed"
-            gh release edit "$TAG" -F "$BODY" -t "$TAG" || true
+            gh release edit "$TAG" -F "$BODY" -t "$TAG"
           else
             echo "Creating release $TAG"
-            gh release create "$TAG" -F "$BODY" -t "$TAG" || true
+            gh release create "$TAG" -F "$BODY" -t "$TAG"
           fi
 
       - name: Upload assets (overwrite if exist)

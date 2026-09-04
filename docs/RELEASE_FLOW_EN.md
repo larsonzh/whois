@@ -5,7 +5,7 @@ Also available in Chinese: `RELEASE_FLOW_CN.md`.
 This document describes how to complete a full release locally in one go:
 
 - Cross-compile 18 compact/TLS static binaries across nine architectures + online smoke tests
-- Sync static artifacts to lzispro and automatically commit/push
+- Sync static artifacts into the whois release directory and commit/push them through One-Click
 - (Optional) commit the updated `RELEASE_NOTES.md`
 - Create a tag to trigger GitHub Release (CI automatically attaches the dynamic TLS `whois-x86_64-gnu-tls` build plus the 18 static binaries)
 
@@ -16,28 +16,13 @@ This document describes how to complete a full release locally in one go:
 
 ## Quick Usage (PowerShell)
 
-Run in the whois repo root:
+For a formal release, run the VS Code `One-Click Release` task or invoke this in the whois repository root:
 
 ```powershell
-# Auto-increment tag (based on current max vX.Y.Z), smoke test enabled by default, default query 8.8.8.8
-# Automatically detects a sibling lzispro directory, or specify via --lzispro-path
-./tools/release/full_release.ps1
-
-# Specify the tag and query targets
-./tools/release/full_release.ps1 -Tag v3.1.9 -Queries '8.8.8.8 1.1.1.1'
-
-# Disable smoke tests
-./tools/release/full_release.ps1 -NoSmoke
-
-# Specify lzispro path (e.g., D:\LZProjects\lzispro)
-./tools/release/full_release.ps1 -LzisproPath 'D:\LZProjects\lzispro'
+./tools/release/one_click_release.ps1 -Version 3.4.0 -RbHost 10.0.0.199 -RbUser larson -RbKey /c/Users/you/.ssh/id_rsa -RbSmoke 1 -RbQueries '8.8.8.8 1.1.1.1' -RbGolden 1 -RbOptProfile lto-auto -RbPreflight 1
 ```
 
-Equivalent Git Bash (usable on CI hosts or WSL):
-
-```bash
-./tools/release/full_release.sh --tag v3.1.9 --queries '8.8.8.8 1.1.1.1'
-```
+`full_release.ps1/sh` remains as a compatibility entry point. Formal releases use the One-Click build/verify → statics commit → tag → Release order.
 
 ## Versioning Rules
 - If `--tag/-Tag` is not provided, the script finds the largest existing `vX.Y.Z` tag in the whois repo and increments Z by 1 as the next version.
@@ -50,8 +35,8 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   Or use the VS Code Task “Remote: Build (Strict Version)”.
 
 ## Directories and Sync
-- The 7 static binaries are synced to: `<lzispro>/release/lzispro/whois/` by default.
-- After tagging, the GitHub Actions release workflow reads that directory (or `<lzispro>/release/lzispro/whois/whois`, both supported) from the lzispro master branch to collect assets and generate a consolidated `SHA256SUMS.txt`.
+- The 18 compact/TLS static binaries are synced into this repository at `release/lzispro/whois/`.
+- On a tag, GitHub Actions reads that directory directly and builds `whois-x86_64-gnu-tls`, producing 20 Release assets: 19 binaries plus `SHA256SUMS.txt`.
 
 ## Execution Details (full_release.sh)
 1. Call `tools/remote/remote_build_and_test.sh`:
@@ -64,7 +49,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
 ## FAQ
 - Tag missing/already exists: when tag is not provided, we auto-increment; if the target tag already exists, the script aborts to avoid duplication.
 - lzispro not found: the script auto-detects a sibling `lzispro` directory next to whois. You can also specify it explicitly with `--lzispro-path`.
-- Missing assets: ensure Step 2 has been committed and pushed to GitHub, and check the workflow logs to confirm the 7 static binaries were copied from lzispro.
+- Missing assets: ensure all 18 static binaries and `SHA256SUMS-static.txt` are committed in this repository, and verify that the workflow uploads 19 binaries plus `SHA256SUMS.txt`.
 
 ---
 
@@ -86,7 +71,7 @@ Equivalent Git Bash (usable on CI hosts or WSL):
   - Filling placeholders like `rbSmokeArgs` in the task form (even if valid) can change smoke behavior—leave empty if not needed.
   - Repeatedly deleting/repushing the same tag can leave the Release in draft or asset-less states.
 - Post-release verification:
-  - Actions run: the release workflow succeeds, and 7 binaries + `SHA256SUMS.txt` appear as release assets.
+  - Actions run: the release workflow succeeds, and 19 binaries + `SHA256SUMS.txt` (20 assets total) appear as release assets.
   - Artifact version: binaries in your local sync directory print a clean `vX.Y.Z` for `-v`.
   - Body: GitHub/Gitee release titles and contents match the current version.
 - Fix strategies:

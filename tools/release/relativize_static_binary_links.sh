@@ -2,15 +2,14 @@
 set -euo pipefail
 
 # relativize_static_binary_links.sh
-# 将 release body 中 9 个静态二进制的 GitHub Release 直链
+# 将 release body 中 18 个 compact/TLS 静态二进制的 GitHub Release 直链
 #   https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
 # 转换为仓库内相对路径：release/lzispro/whois/<asset>
 #
 # 用法：
 #   ./tools/release/relativize_static_binary_links.sh [--also-gnu] [--also-checksums] <file...>
 # 说明：
-#   默认仅处理 9 个静态二进制：
-#   whois-x86_64 whois-x86 whois-aarch64 whois-armv7 whois-mipsel whois-mips64el whois-loongarch64 whois-win64.exe whois-win32.exe
+#   默认处理 18 个 compact/TLS 静态二进制。
 #   加 --also-gnu        可同时处理历史 whois-x86_64-gnu 与当前 whois-x86_64-gnu-tls
 #   加 --also-checksums  可同时处理 SHA256SUMS.txt
 
@@ -39,14 +38,23 @@ set -- "${args[@]}" "$@"
 
 assets=(
   whois-x86_64
+  whois-x86_64-tls
   whois-x86
+  whois-x86-tls
   whois-aarch64
+  whois-aarch64-tls
   whois-armv7
+  whois-armv7-tls
   whois-mipsel
+  whois-mipsel-tls
   whois-mips64el
+  whois-mips64el-tls
   whois-loongarch64
+  whois-loongarch64-tls
   whois-win64.exe
+  whois-win64-tls.exe
   whois-win32.exe
+  whois-win32-tls.exe
 )
 
 extra_targets=()

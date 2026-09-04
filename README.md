@@ -1,4 +1,4 @@
-﻿# whois (v3.4.0 development)
+﻿# whois v3.4.0
 
 [![latest tag](https://img.shields.io/github/v/release/larsonzh/whois?display_name=tag&sort=semver)](https://github.com/larsonzh/whois/releases)
 [![downloads](https://img.shields.io/github/downloads/larsonzh/whois/total)](https://github.com/larsonzh/whois/releases)
@@ -102,6 +102,8 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 		- vX.Y.Z: Release notes `RELEASE_NOTES.md#XYZ` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/vX.Y.Z | Gitee Releases (find vX.Y.Z): https://gitee.com/larsonzh/whois/releases
 	Example: v3.2.5 -> `#325`.
 	-->
+	- v3.4.0：发布说明 `RELEASE_NOTES.md#340` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.4.0 | Gitee Releases（查找 v3.4.0）: https://gitee.com/larsonzh/whois/releases
+		- v3.4.0: Release notes `RELEASE_NOTES.md#340` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.4.0 | Gitee Releases (find v3.4.0): https://gitee.com/larsonzh/whois/releases
 	- v3.3.3：发布说明 `RELEASE_NOTES.md#333` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.3 | Gitee Releases（查找 v3.3.3）: https://gitee.com/larsonzh/whois/releases
 		- v3.3.3: Release notes `RELEASE_NOTES.md#333` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.3 | Gitee Releases (find v3.3.3): https://gitee.com/larsonzh/whois/releases
 	- v3.3.2：发布说明 `RELEASE_NOTES.md#332` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.3.2 | Gitee Releases（查找 v3.3.2）: https://gitee.com/larsonzh/whois/releases
@@ -131,6 +133,15 @@ whois-x86_64.exe --host apnic -Q 103.89.208.0
 	- v3.2.1：发布说明 `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases（查找 v3.2.1）: https://gitee.com/larsonzh/whois/releases
 		- v3.2.1: Release notes `RELEASE_NOTES.md#321` | GitHub Release: https://github.com/larsonzh/whois/releases/tag/v3.2.1 | Gitee Releases (find v3.2.1): https://gitee.com/larsonzh/whois/releases
   
+
+## v3.4.0 速览 / What's new <a id="340"></a>
+
+- 双制品交付：九架构各提供紧凑 `whois-*` 与完整 `whois-*-tls`。紧凑版不含 OpenSSL/CA，HTTPS 代理请求仅转交给同目录、同版本 companion；缺失或不匹配时在联网前以状态 37 fail-close。
+	- Dual-artifact delivery: all nine architectures ship compact `whois-*` and full `whois-*-tls` binaries. Compact builds omit OpenSSL/CA and delegate HTTPS proxy requests only to a same-directory, same-version companion; missing or mismatched companions fail closed with status 37 before network access.
+- 发布资产：18 个全静态 compact/TLS 制品，另含动态 glibc TLS 兼容构建 `whois-x86_64-gnu-tls` 与 `SHA256SUMS.txt`。LoongArch64 已改用 musl，所有 Linux 制品通过 static/static-pie 硬门禁。
+	- Release assets: 18 fully static compact/TLS binaries, plus the dynamic glibc TLS compatibility build `whois-x86_64-gnu-tls` and `SHA256SUMS.txt`. LoongArch64 now uses musl, and every Linux artifact passes the static/static-PIE hard gate.
+- 最终验证（2026-09-04）：强制 clean `v3.4.0` 的 Strict `lto-auto` 九架构双制品轮零编译/LTO 告警，18/18 SHA-256、Golden、三起点 referral 与同步全 PASS；24/24 冒烟查询头尾配对且异常 0（`out/artifacts/20260904-083712`）。
+	- Final verification (2026-09-04): the clean `v3.4.0` Strict `lto-auto` nine-architecture dual-artifact run has zero compiler/LTO warnings; all 18 SHA-256 checks, Golden, three referral origins, and artifact sync pass, with all 24 smoke query headers/tails paired and zero anomalies (`out/artifacts/20260904-083712`).
 
 ## v3.3.3 速览 / What's new <a id="333"></a>
 
@@ -467,7 +478,7 @@ Links / 参考:
 ## Release pipeline / 发布流水线
 
 - 主工作流：`.github/workflows/build.yml`
-	- 收集仓库内 `release/lzispro/whois/` 下的 7 个静态二进制并生成合并的 `SHA256SUMS.txt`。
+	- 收集仓库内 `release/lzispro/whois/` 下的 18 个 compact/TLS 静态二进制，并加入 CI 动态 glibc TLS 构建后生成合并的 `SHA256SUMS.txt`。
 	- 创建/更新 GitHub Release，上传所有资产（允许覆盖同名文件）。
 	- 可选：若配置了 Gitee Secrets，CI 会在日志中输出 Gitee 发布步骤；也可通过 `.github/workflows/publish-gitee.yml` 手动镜像到 Gitee。
 	- 如需将 Release 正文中的直链改为仓库相对路径，使用 `docs/RELEASE_LINK_STYLE.md` 中的脚本。
